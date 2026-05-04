@@ -1,0 +1,59 @@
+# M0 header compile check.
+#
+# Verifies every public and internal header compiles standalone with
+# -Wall -Wextra -Wpedantic -Werror under both -std=c++20 (the project
+# floor) and -std=c++23 (which exercises the std::expected branch of
+# the microtel::Expected wrapper per ICP 0002).
+#
+# This workflow is the operational form of CLAUDE.md rule 1 and ICP
+# 0001's "Both header trees compile under an INTERFACE CMake target
+# with -Werror" requirement.
+
+name: header-check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        std: [20, 23]
+        compiler:
+          - { name: gcc,   cc: gcc-13,   cxx: g++-13   }
+          - { name: clang, cc: clang-18, cxx: clang++-18 }
+
+    name: cxx${{ matrix.std }} / ${{ matrix.compiler.name }}
+
+    env:
+      CC:  ${{ matrix.compiler.cc }}
+      CXX: ${{ matrix.compiler.cxx }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          if [[ "${{ matrix.compiler.name }}" == "gcc" ]]; then
+            sudo apt-get install -y g++-13
+          else
+            sudo apt-get install -y clang-18
+          fi
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_CXX_STANDARD=${{ matrix.std }} \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+            -DMICROTEL_BUILD_HEADER_CHECK=ON
+
+      - name: Build
+        run: cmake --build build --verbose

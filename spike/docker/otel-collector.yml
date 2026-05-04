@@ -1,0 +1,27 @@
+# M1 spike — local OpenTelemetry Collector for end-to-end testing.
+#
+# Brings up a stock collector listening on:
+#   4317 — OTLP/gRPC
+#   4318 — OTLP/HTTP-protobuf
+# with TLS using a self-signed cert (mounted from ./certs/).
+#
+# Self-signed certs need to be generated once before first use; see
+# spike/docker/README.md (M1 author writes that during the spike).
+#
+# Per spike/README.md this entire directory is deleted at the end of M1.
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./certs:/etc/otelcol/certs:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:13133/ || exit 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 5

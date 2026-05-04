@@ -1,0 +1,221 @@
+# microtel C++ static analysis configuration
+# Authoritative source: docs/coding-standards.md
+# Mechanical enforcement: clang-tidy-17 or later
+#
+# Save this file as `.clang-tidy` at the repository root.
+#
+# This file is the operational expression of coding-standards.md §4-§7
+# (language rules, RAII, complexity, anti-patterns).
+# If this file and coding-standards.md disagree, coding-standards.md wins —
+# open a PR fixing this file.
+
+---
+# Enable broad sets, then disable specific checks that conflict with project decisions.
+# Format: each enable/disable on its own line for easy diffs.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  hicpp-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-avoid-c-arrays,
+  -hicpp-avoid-c-arrays,
+  -hicpp-no-array-decay,
+  -hicpp-uppercase-literal-suffix,
+  -hicpp-vararg,
+  -hicpp-no-malloc,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -misc-use-anonymous-namespace,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
+  -readability-avoid-const-params-in-decls,
+
+# CI fails on any warning. Local development can suppress this with --warnings-as-errors=''.
+WarningsAsErrors: '*'
+
+# Limit to project headers; don't analyze third-party or generated code.
+HeaderFilterRegex: '^(include/microtel|src)/.*\.(hpp|h)$'
+ExcludeHeaderFilterRegex: '(third_party|gen)/.*'
+
+# Use .clang-format at the repo root for any auto-applied formatting.
+FormatStyle: file
+
+CheckOptions:
+  # === Naming conventions per coding-standards.md §3 ===
+
+  # Types
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TemplateParameterCase: CamelCase
+  readability-identifier-naming.TypeTemplateParameterCase: CamelCase
+  readability-identifier-naming.ValueTemplateParameterCase: CamelCase
+
+  # Functions
+  readability-identifier-naming.FunctionCase: CamelCase
+  readability-identifier-naming.MethodCase: CamelCase
+  readability-identifier-naming.VirtualMethodCase: CamelCase
+
+  # Variables
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.ParameterCase: lower_case
+  readability-identifier-naming.LocalVariableCase: lower_case
+  readability-identifier-naming.LocalConstantCase: lower_case
+  readability-identifier-naming.StaticVariableCase: lower_case
+  readability-identifier-naming.StaticVariablePrefix: 's_'
+  readability-identifier-naming.GlobalVariableCase: lower_case
+  readability-identifier-naming.GlobalVariablePrefix: 'g_'
+
+  # Members — m_ prefix per coding-standards.md §3
+  readability-identifier-naming.MemberCase: lower_case
+  readability-identifier-naming.PrivateMemberPrefix: 'm_'
+  readability-identifier-naming.ProtectedMemberPrefix: 'm_'
+  readability-identifier-naming.PublicMemberPrefix: ''
+  readability-identifier-naming.ClassMemberCase: lower_case
+  readability-identifier-naming.ClassMemberPrefix: 's_'
+
+  # Constants — kPascalCase per coding-standards.md §3
+  readability-identifier-naming.ConstantCase: CamelCase
+  readability-identifier-naming.ConstantPrefix: 'k'
+  readability-identifier-naming.ConstexprVariableCase: CamelCase
+  readability-identifier-naming.ConstexprVariablePrefix: 'k'
+  readability-identifier-naming.GlobalConstantCase: CamelCase
+  readability-identifier-naming.GlobalConstantPrefix: 'k'
+  readability-identifier-naming.StaticConstantCase: CamelCase
+  readability-identifier-naming.StaticConstantPrefix: 'k'
+  readability-identifier-naming.ClassConstantCase: CamelCase
+  readability-identifier-naming.ClassConstantPrefix: 'k'
+
+  # Macros
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.MacroDefinitionPrefix: 'MICROTEL_'
+
+  # Namespaces
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.InlineNamespaceCase: lower_case
+
+  # === Complexity limits per coding-standards.md §6 ===
+  readability-function-cognitive-complexity.Threshold: 15
+  readability-function-cognitive-complexity.IgnoreMacros: true
+  readability-function-size.LineThreshold: 75
+  readability-function-size.StatementThreshold: 100
+  readability-function-size.BranchThreshold: 10
+  readability-function-size.ParameterThreshold: 7
+  readability-function-size.NestingThreshold: 3
+  readability-function-size.VariableThreshold: 12
+
+  # === Special member functions (RAII rule of zero / rule of five) ===
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove: true
+  hicpp-special-member-functions.AllowSoleDefaultDtor: true
+  hicpp-special-member-functions.AllowImplicitlyDeletedCopyOrMove: true
+
+  # === Modernize ===
+  modernize-use-default-member-init.UseAssignment: true
+  modernize-use-emplace.IgnoreImplicitConstructors: true
+  modernize-loop-convert.MinConfidence: reasonable
+  modernize-pass-by-value.IncludeStyle: llvm
+  modernize-replace-auto-ptr.IncludeStyle: llvm
+
+  # === Performance ===
+  performance-move-const-arg.CheckTriviallyCopyableMove: false
+  performance-unnecessary-value-param.AllowedTypes: ''
+  performance-for-range-copy.AllowedTypes: ''
+
+  # === Readability ===
+  readability-braces-around-statements.ShortStatementLines: 0  # always brace
+  readability-implicit-bool-conversion.AllowIntegerConditions: false
+  readability-implicit-bool-conversion.AllowPointerConditions: false
+  readability-redundant-member-init.IgnoreBaseInCopyConstructors: true
+  readability-simplify-boolean-expr.ChainedConditionalReturn: true
+  readability-simplify-boolean-expr.ChainedConditionalAssignment: true
+
+  # === bugprone ===
+  bugprone-argument-comment.StrictMode: true
+  bugprone-assert-side-effect.AssertMacros: 'assert,MICROTEL_ASSERT,MICROTEL_DCHECK'
+  bugprone-misplaced-widening-cast.CheckImplicitCasts: true
+  bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression: true
+  bugprone-suspicious-string-compare.WarnOnImplicitComparison: true
+  bugprone-suspicious-string-compare.WarnOnLogicalNotComparison: true
+
+  # === cert ===
+  cert-dcl16-c.NewSuffixes: 'L;LL;LU;LLU'
+
+  # === Misc ===
+  cppcoreguidelines-avoid-do-while.IgnoreMacros: true
+  cppcoreguidelines-init-variables.MathHeader: '<cmath>'
+  cppcoreguidelines-init-variables.IncludeStyle: llvm
+  cppcoreguidelines-narrowing-conversions.WarnOnFloatingPointNarrowingConversion: true
+  cppcoreguidelines-narrowing-conversions.PedanticMode: false
+
+# --- Notes on disabled checks (rationale) ---
+#
+# bugprone-easily-swappable-parameters
+#   Too noisy on small types; cognitive complexity check covers the broader concern.
+#
+# cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers
+#   Generates too many false positives on test data and mathematical code.
+#   coding-standards.md §7.1 enforces this in production code via review.
+#
+# cppcoreguidelines-non-private-member-variables-in-classes,
+# misc-non-private-member-variables-in-classes
+#   We use POD structs with public members for option bags and config types.
+#
+# cppcoreguidelines-pro-bounds-pointer-arithmetic
+# cppcoreguidelines-pro-bounds-array-to-pointer-decay
+# hicpp-no-array-decay
+# cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays, modernize-avoid-c-arrays
+#   The wire-encoder layer interfaces with upb's C API, which uses raw pointers
+#   and C arrays. RAII wrappers contain that within src/wire/encoder/.
+#
+# cppcoreguidelines-pro-type-reinterpret-cast
+#   Required for byte-level wire-protocol code (gRPC framing, protobuf bytes).
+#
+# cppcoreguidelines-pro-type-vararg, hicpp-vararg
+#   Internal logging fallback uses va_list when MICROTEL_USE_SPDLOG=OFF.
+#
+# cppcoreguidelines-pro-type-union-access
+#   Some compact data structures use unions (with explicit discriminators).
+#
+# misc-include-cleaner
+#   Generates too many false positives; relying on per-file review.
+#
+# misc-use-anonymous-namespace
+#   We use named-static functions where unnamed-namespace would force class-private
+#   functions out of the class. Style preference, low value.
+#
+# modernize-use-trailing-return-type
+#   Coding-standards.md §3 prefers traditional return-type-first declarations.
+#
+# modernize-use-nodiscard
+#   We apply [[nodiscard]] judiciously per coding-standards.md §4.3, not blanket.
+#
+# readability-identifier-length
+#   Too noisy on conventional short names (i, j, n, x, y, fd, fp).
+#
+# readability-uppercase-literal-suffix, hicpp-uppercase-literal-suffix
+#   Style preference; coding-standards.md doesn't require uppercase suffixes.
+#
+# readability-avoid-const-params-in-decls
+#   We use `const` on by-value parameters for clarity. Style preference.

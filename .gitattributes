@@ -1,0 +1,111 @@
+# microtel .gitattributes
+#
+# Keeps line endings consistent across platforms (Linux/macOS dev hosts
+# committing to a repo that occasionally gets cloned on Windows). Source
+# code, scripts, and config are LF; Windows-only files are CRLF.
+
+# Auto-detect text files and normalize line endings to LF in the repo.
+* text=auto eol=lf
+
+# ---- Source code ----
+*.c        text eol=lf
+*.h        text eol=lf
+*.cc       text eol=lf
+*.cpp      text eol=lf
+*.cxx      text eol=lf
+*.hh       text eol=lf
+*.hpp      text eol=lf
+*.hxx      text eol=lf
+*.ipp      text eol=lf
+*.inl      text eol=lf
+*.py       text eol=lf
+*.pyi      text eol=lf
+
+# ---- Build, CI, and config ----
+CMakeLists.txt    text eol=lf
+*.cmake           text eol=lf
+*.cmake.in        text eol=lf
+Makefile          text eol=lf
+*.mk              text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+*.json            text eol=lf
+*.toml            text eol=lf
+*.properties      text eol=lf
+*.sh              text eol=lf
+
+# ---- Documentation ----
+*.md       text eol=lf
+*.txt      text eol=lf
+*.rst      text eol=lf
+
+# ---- Windows-only files keep CRLF ----
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# ---- Binary files (no text processing, no diff in default tools) ----
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.pdf      binary
+*.zip      binary
+*.tar.gz   binary
+*.tgz      binary
+*.so       binary
+*.so.*     binary
+*.a        binary
+*.o        binary
+*.dylib    binary
+*.dll      binary
+*.exe      binary
+*.lib      binary
+*.pyc      binary
+*.whl      binary
+*.deb      binary
+*.rpm      binary
+
+# ---- Generated files ----
+# Mark generated upb code as generated for git diff/blame UX.
+gen/**/*.upb.c           linguist-generated=true
+gen/**/*.upb.h           linguist-generated=true
+gen/**/*.upb_minitable.c linguist-generated=true
+gen/**/*.upb_minitable.h linguist-generated=true
+
+# Vendored code shouldn't count toward language stats on GitHub
+third_party/** linguist-vendored=true
+proto/**       linguist-vendored=true
+
+# ---- Diff / merge customization ----
+# CMakeLists.txt benefits from CMake-aware diff
+CMakeLists.txt diff=cmake
+*.cmake        diff=cmake
+
+# C/C++ diff hunks include function context
+*.c   diff=cpp
+*.h   diff=cpp
+*.cc  diff=cpp
+*.cpp diff=cpp
+*.hh  diff=cpp
+*.hpp diff=cpp
+
+# Python diff hunks include function/class context
+*.py diff=python
+
+# Markdown diff is more readable with word-level (configure with `git
+# config --global diff.markdown.wordRegex '[^\s]+'` after clone)
+*.md diff=markdown
+
+# ---- Export rules ----
+# Files excluded from `git archive` (i.e., source tarballs).
+.github/                export-ignore
+.gitattributes          export-ignore
+.gitignore              export-ignore
+.editorconfig           export-ignore
+.clang-format           export-ignore
+.clang-tidy             export-ignore
+ci/                     export-ignore
+spike/                  export-ignore
+_handoff/               export-ignore

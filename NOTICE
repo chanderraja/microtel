@@ -1,0 +1,26 @@
+microtel
+Copyright 2026 The microtel Authors.
+
+This product includes software developed by The microtel Authors
+(https://github.com/TBD-organization/microtel).
+
+This product includes vendored third-party code:
+
+  - upb (https://github.com/protocolbuffers/protobuf/tree/main/upb)
+    Vendored under third_party/upb/. Licensed under the BSD 3-Clause License.
+    See third_party/upb/LICENSE for the full license text.
+
+  - opentelemetry-proto (https://github.com/open-telemetry/opentelemetry-proto)
+    Vendored under proto/. Licensed under the Apache License 2.0.
+    See proto/LICENSE for the full license text.
+
+This product depends on the following third-party libraries at runtime:
+
+  - nghttp2 (https://nghttp2.org/) - MIT License
+  - OpenSSL (https://www.openssl.org/) - Apache License 2.0
+  - zlib (https://www.zlib.net/) - zlib License
+  - spdlog (https://github.com/gabime/spdlog) - MIT License (optional)
+
+For full third-party attribution, see THIRD_PARTY_NOTICES.md, generated
+during the release process from individual third_party/<name>/README.md
+license entries.

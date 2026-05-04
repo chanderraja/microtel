@@ -1,0 +1,148 @@
+# microtel C++ formatting configuration
+# Authoritative source: docs/coding-standards.md
+# Mechanical enforcement: clang-format-17 or later
+#
+# Save this file as `.clang-format` at the repository root.
+#
+# This file is the operational expression of coding-standards.md §2 (layout).
+# If this file and coding-standards.md disagree, coding-standards.md wins —
+# open a PR fixing this file.
+
+---
+Language: Cpp
+Standard: c++20
+BasedOnStyle: LLVM
+
+# === Layout basics ===
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# === Braces — Allman ===
+BreakBeforeBraces: Allman
+Cpp11BracedListStyle: true
+InsertBraces: true
+
+# === Pointers and references — bind to type ===
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# === Members ===
+AccessModifierOffset: -4
+EmptyLineBeforeAccessModifier: LogicalBlock
+IndentAccessModifiers: false
+
+# === Functions and short statements ===
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+# === Line breaks ===
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+
+# === Spaces ===
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: Never
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+SpacesInContainerLiterals: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# === Argument and parameter packing ===
+BinPackArguments: false
+BinPackParameters: false
+AlignAfterOpenBracket: Align
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+# === Constructor initializers ===
+PackConstructorInitializers: NextLine
+ConstructorInitializerIndentWidth: 4
+
+# === Includes — per coding-standards.md §9.1 ===
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Project public headers
+  - Regex: '^[<"]microtel/'
+    Priority: 2
+    SortPriority: 2
+  # Project internal headers (in src/)
+  - Regex: '^"[^/]+/[^"]+\.(hpp|h)"$'
+    Priority: 3
+    SortPriority: 3
+  - Regex: '^"[^/"]+\.(hpp|h)"$'
+    Priority: 3
+    SortPriority: 3
+  # Third-party C/C++ headers (nghttp2, OpenSSL, zlib, spdlog, gtest, upb, etc.)
+  - Regex: '^<(nghttp2|openssl|zlib|spdlog|fmt|gtest|gmock|upb|google)/'
+    Priority: 4
+    SortPriority: 4
+  # C++ standard library
+  - Regex: '^<[a-z_]+>$'
+    Priority: 5
+    SortPriority: 5
+  # C standard library
+  - Regex: '^<c[a-z]+>$'
+    Priority: 6
+    SortPriority: 6
+  # Catch-all
+  - Regex: '.*'
+    Priority: 7
+    SortPriority: 7
+IncludeIsMainRegex: '(_test|_unittest)?$'
+
+# === Namespaces ===
+NamespaceIndentation: None
+FixNamespaceComments: true
+ShortNamespaceLines: 0
+CompactNamespaces: false
+
+# === Switch ===
+IndentCaseLabels: true
+IndentCaseBlocks: false
+
+# === Comments ===
+ReflowComments: true
+
+# === Misc ===
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+PenaltyReturnTypeOnItsOwnLine: 200
+SortUsingDeclarations: true
+
+# === Statements ===
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: true
+AlignOperands: Align
+
+# === Lambdas ===
+LambdaBodyIndentation: Signature

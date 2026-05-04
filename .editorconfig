@@ -1,0 +1,75 @@
+# EditorConfig — see https://editorconfig.org/
+#
+# Implements the layout conventions from docs/coding-standards.md §2 at the
+# editor level. clang-format is the authoritative enforcer for C++ source;
+# this file primarily handles non-C++ files (Markdown, YAML, JSON, etc.)
+# and provides a backstop for editors that don't honor clang-format.
+
+root = true
+
+# Default for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# C++ source — matches docs/coding-standards.md §2
+[*.{c,h,cc,cpp,cxx,hh,hpp,hxx,ipp,inl}]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# CMake
+[CMakeLists.txt,*.cmake,*.cmake.in]
+indent_style = space
+indent_size = 4
+
+# Python
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# Markdown — preserve trailing whitespace (it's significant for line breaks)
+# and don't enforce line length (prose wraps)
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# YAML — 2-space indent is the convention
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# JSON
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Shell scripts
+[*.sh]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+
+# Makefile — tabs are required by syntax
+[{Makefile,*.mk}]
+indent_style = tab
+
+# .properties files (sonar-project.properties etc.)
+[*.properties]
+indent_style = space
+indent_size = 2
+
+# Git config and dotfiles
+[{.gitignore,.gitattributes,.git*}]
+indent_style = space
+indent_size = 4
+
+# Windows-style line endings only for .bat / .cmd
+[*.{bat,cmd}]
+end_of_line = crlf

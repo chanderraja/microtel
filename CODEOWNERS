@@ -1,0 +1,119 @@
+# microtel CODEOWNERS
+#
+# This file controls automatic review-request assignment for PRs.
+# Ownership is layered: more specific rules later in the file override
+# earlier ones. The default at the top covers anything not explicitly
+# claimed below.
+#
+# ----------------------------------------------------------------------
+# Initial state: solo project. The default owner reviews everything.
+# As the project grows, replace `@TBD-username` per directory and add
+# additional reviewers as a space-separated list:
+#
+#     /src/wire/grpc/      @grpc-track-owner @backup-reviewer
+#
+# ----------------------------------------------------------------------
+
+# Default — covers everything not explicitly claimed below
+*                                       @TBD-username
+
+# ----------------------------------------------------------------------
+# Architecture and design documents (M0 deliverables)
+# ----------------------------------------------------------------------
+
+/docs/architecture.md                   @TBD-username
+/docs/threading-model.md                @TBD-username
+/docs/memory-model.md                   @TBD-username
+/docs/error-model.md                    @TBD-username
+/docs/interfaces.md                     @TBD-username
+/docs/coding-standards.md               @TBD-username
+/docs/sequences/                        @TBD-username
+/docs/icps/                             @TBD-username
+
+# ----------------------------------------------------------------------
+# Public API headers — interface changes are high-impact
+# ----------------------------------------------------------------------
+
+/include/microtel/                      @TBD-username
+
+# ----------------------------------------------------------------------
+# Track-owned source directories (per spec §13.1)
+# Each track gets its own CODEOWNERS line as the project grows.
+# ----------------------------------------------------------------------
+
+# Track A — Trace SDK
+/src/api/                               @TBD-username
+/src/sdk/                               @TBD-username
+
+# Track B — OTLP/HTTP wire codec
+/src/wire/http/                         @TBD-username
+
+# Track C — OTLP/gRPC wire codec (the hardest piece)
+/src/wire/grpc/                         @TBD-username
+
+# Track D — Transport (foundational)
+/src/transport/                         @TBD-username
+
+# Track E — Config
+/src/common/config/                     @TBD-username
+
+# Track F — OTLP encoder (foundational; only file touching upb directly)
+/src/wire/encoder/                      @TBD-username
+
+# Common code (logging, errors, RAII wrappers, limits)
+/src/common/                            @TBD-username
+
+# ----------------------------------------------------------------------
+# Build and packaging
+# ----------------------------------------------------------------------
+
+/CMakeLists.txt                         @TBD-username
+/cmake/                                 @TBD-username
+/.clang-tidy                            @TBD-username
+/.clang-format                          @TBD-username
+/ci/                                    @TBD-username
+/.github/workflows/                     @TBD-username
+
+# Packaging (deb/rpm/cibuildwheel)
+/packaging/                             @TBD-username
+
+# ----------------------------------------------------------------------
+# Python bindings
+# ----------------------------------------------------------------------
+
+/python/                                @TBD-username
+/python/bindings/                       @TBD-username
+
+# ----------------------------------------------------------------------
+# Vendored third-party code — changes require explicit attention
+# ----------------------------------------------------------------------
+
+/third_party/                           @TBD-username
+/proto/                                 @TBD-username
+/gen/                                   @TBD-username
+
+# ----------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------
+
+/tests/                                 @TBD-username
+/tests/grpc-wire/                       @TBD-username
+/tests/conformance/                     @TBD-username
+/tests/fuzz/                            @TBD-username
+
+# ----------------------------------------------------------------------
+# Compatibility shims — separate experimental packages
+# ----------------------------------------------------------------------
+
+/shims/otelcpp/                         @TBD-username
+/shims/python/                          @TBD-username
+
+# ----------------------------------------------------------------------
+# Project-level metadata
+# ----------------------------------------------------------------------
+
+/CLAUDE.md                              @TBD-username
+/SECURITY.md                            @TBD-username
+/CODEOWNERS                             @TBD-username
+/microtel-spec.md                       @TBD-username
+/microtel-roadmap.md                    @TBD-username

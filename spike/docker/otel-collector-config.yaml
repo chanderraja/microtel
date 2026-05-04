@@ -1,0 +1,46 @@
+# M1 spike — OpenTelemetry Collector configuration.
+#
+# Listens on:
+#   4317 — OTLP/gRPC over TLS
+#   4318 — OTLP/HTTP-protobuf over TLS
+# Health endpoint:
+#   13133 — used by the docker-compose healthcheck
+#
+# Logs every received span to stdout so the spike binaries can verify
+# their payloads were accepted.
+#
+# THROWAWAY. Deleted at the end of M1.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /etc/otelcol/certs/server.crt
+          key_file:  /etc/otelcol/certs/server.key
+      http:
+        endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /etc/otelcol/certs/server.crt
+          key_file:  /etc/otelcol/certs/server.key
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [debug]

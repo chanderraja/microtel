@@ -15,8 +15,10 @@ services:
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
-      - ./certs:/etc/otelcol/certs:ro
+      # `:Z` is a no-op on Docker / non-SELinux systems and triggers a
+      # private SELinux relabel under podman+SELinux (Fedora / RHEL).
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro,Z
+      - ./certs:/etc/otelcol/certs:ro,Z
     ports:
       - "4317:4317"
       - "4318:4318"

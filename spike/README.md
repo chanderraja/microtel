@@ -40,25 +40,34 @@ spike/
 
 ## How to run
 
-Prerequisites: `nghttp2` and `openssl` development packages installed; `docker` for the local collector.
+Prerequisites: `nghttp2` and `openssl` development packages installed; `docker` (or `podman`) for the local collector.
 
 ```bash
+# 0. One-time per author: generate self-signed certs for the collector.
+#    Certs are gitignored; each author regenerates locally.
+spike/docker/generate_certs.sh
+
 # 1. Spin up a local collector listening on 4317 (gRPC) and 4318 (HTTP).
 docker compose -f spike/docker/otel-collector.yml up -d
+# (or: podman compose -f spike/docker/otel-collector.yml up -d)
 
 # 2. Configure and build.
 cmake -S . -B build/Spike -DMICROTEL_BUILD_SPIKE=ON
 cmake --build build/Spike --target spike_http_post spike_grpc_unary
 
-# 3. Run.
-./build/Spike/spike/http_post/spike_http_post  https://localhost:4318
-./build/Spike/spike/grpc_unary/spike_grpc_unary https://localhost:4317
+# 3. Run. Each binary takes the collector endpoint and the trust-anchor cert.
+./build/Spike/spike/spike_http_post  https://localhost:4318 spike/docker/certs/ca.crt
+./build/Spike/spike/spike_grpc_unary https://localhost:4317 spike/docker/certs/ca.crt
 
 # 4. Tear down.
 docker compose -f spike/docker/otel-collector.yml down
 ```
 
-Each binary prints either `OK: span accepted` or a diagnostic explaining why the request failed. The collector's stdout shows the received span.
+Each binary prints either `OK: span accepted` or a diagnostic explaining why the request failed. The collector's stdout shows the received span (verbose `debug` exporter is wired in `spike/docker/otel-collector-config.yaml`).
+
+## Per-author findings ledger
+
+Keep a running scratch file `spike/findings.md` (gitignored) as you discover things during the spike. Promote each item to a formal ICP under `docs/icps/` as you go — do not batch them up for the end of M1, when the small details have already faded. The ledger is private to each author; the ICPs are the durable record.
 
 ## What we learn from each binary
 

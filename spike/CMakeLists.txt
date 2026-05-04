@@ -13,6 +13,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(NGHTTP2 REQUIRED libnghttp2)
 find_package(OpenSSL REQUIRED)
 
+# Path of the shared protoc-encoded ExportTraceServiceRequest fixture.
+# Both spike binaries read this same file; see spike/fixtures/README.md.
+set(MICROTEL_SPIKE_FIXTURE_BIN
+    "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/single_span.bin")
+
 # Common settings for every spike binary.
 function(microtel_add_spike_binary target)
     target_link_libraries(${target} PRIVATE
@@ -23,9 +28,9 @@ function(microtel_add_spike_binary target)
     target_compile_features(${target} PRIVATE cxx_std_20)
     # Spike code follows the same warning posture as the M0 header check.
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-    # Embed the path of the protoc-encoded fixture for tests.
+    # Embed the path of the shared encoded fixture as a compile-time string.
     target_compile_definitions(${target} PRIVATE
-        MICROTEL_SPIKE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/${target}/fixture.bin")
+        MICROTEL_SPIKE_FIXTURE="${MICROTEL_SPIKE_FIXTURE_BIN}")
 endfunction()
 
 # OTLP/HTTP-protobuf spike: single span, end-to-end against a local collector.

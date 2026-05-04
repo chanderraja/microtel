@@ -24,28 +24,36 @@ The spike's job is to answer:
 
 ```
 spike/
-├── README.md                 # this file
-├── CMakeLists.txt            # builds the spike binaries (separate target tree)
-├── http_post/                # OTLP/HTTP-protobuf, single span, end-to-end
+├── README.md                       # this file
+├── CMakeLists.txt                  # builds the spike binaries (separate target tree)
+├── fixtures/                       # shared protoc-encoded payloads (M1 step 1)
 │   ├── README.md
-│   ├── main.cpp
-│   └── fixture.bin           # protoc-encoded ExportTraceServiceRequest
-├── grpc_unary/               # OTLP/gRPC, same shape, with framing + trailer
-│   ├── README.md
-│   ├── main.cpp
-│   └── fixture.bin
+│   ├── single_span.textproto       # human-readable source
+│   ├── single_span.bin             # encoded ExportTraceServiceRequest
+│   └── regenerate.sh               # one-command regen against the pinned schema
+├── http_post/                      # OTLP/HTTP-protobuf, single span, end-to-end
+│   └── main.cpp
+├── grpc_unary/                     # OTLP/gRPC, same shape, with framing + trailer
+│   └── main.cpp
 └── docker/
-    └── otel-collector.yml    # docker-compose with otel/opentelemetry-collector
+    ├── otel-collector.yml          # docker-compose with otel/opentelemetry-collector
+    ├── otel-collector-config.yaml  # collector config (TLS on; debug exporter)
+    └── generate_certs.sh           # per-author self-signed root CA + server cert
 ```
 
 ## How to run
 
-Prerequisites: `nghttp2` and `openssl` development packages installed; `docker` (or `podman`) for the local collector.
+Prerequisites: `nghttp2`, `openssl`, and `protobuf-compiler` development packages installed; `docker` (or `podman`) for the local collector.
 
 ```bash
-# 0. One-time per author: generate self-signed certs for the collector.
-#    Certs are gitignored; each author regenerates locally.
+# 0a. One-time per author: generate self-signed certs for the collector.
+#     Certs are gitignored; each author regenerates locally.
 spike/docker/generate_certs.sh
+
+# 0b. Optional: regenerate the protoc-encoded fixture if you bumped the
+#     pinned opentelemetry-proto tag or edited single_span.textproto.
+#     The committed single_span.bin is the contract; this is the regen recipe.
+spike/fixtures/regenerate.sh
 
 # 1. Spin up a local collector listening on 4317 (gRPC) and 4318 (HTTP).
 docker compose -f spike/docker/otel-collector.yml up -d

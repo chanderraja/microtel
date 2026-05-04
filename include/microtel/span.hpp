@@ -7,6 +7,7 @@
 #include "microtel/trace.hpp"
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -106,5 +107,44 @@ public:
     /// @param end_time if zero, "now" is used.
     virtual void End(std::chrono::system_clock::time_point end_time = {}) noexcept = 0;
 };
+
+namespace internal
+{
+
+/// @brief Deleter for `SpanHandle`.
+///
+/// Holds a function-pointer indirection so the unsampled and sampled paths
+/// can carry different cleanup behaviour through the same `unique_ptr` type.
+///
+/// - Unsampled path: `deleter` is a no-op; the `Span*` is a static singleton
+///   in non-heap storage and must not be `delete`d.
+/// - Sampled path: `deleter` runs `delete` (or returns the span to a per-
+///   thread freelist if M3 measures it pays off).
+///
+/// **Implementation flexibility — see ICP 0003.** This struct's exact shape
+/// (function pointer, flag-in-`Span` branch, two-deleter-types trick) may be
+/// revised in v1.x based on benchmark findings. The public `SpanHandle`
+/// alias below is the **stable surface**; revising `SpanDeleter`'s internals
+/// does not require an ICP.
+struct SpanDeleter
+{
+    /// @brief Cleanup function. `nullptr` means no-op (unsampled singleton).
+    void (*deleter)(Span* span) noexcept = nullptr;
+
+    /// @brief Invoked by `unique_ptr` on destruction. `noexcept`.
+    void operator()(Span* span) const noexcept;
+};
+
+}  // namespace internal
+
+/// @brief Public alias for the handle returned by `Tracer::StartSpan`.
+///
+/// Move-only. Semantically a `unique_ptr` to a `Span` with a custom deleter
+/// that dispatches to either a no-op (unsampled path) or actual cleanup
+/// (sampled path). The compile-time interface for application code is
+/// identical regardless of sampling outcome.
+///
+/// @see docs/icps/0003-m0-deferred-decisions.md §3.2
+using SpanHandle = std::unique_ptr<Span, internal::SpanDeleter>;
 
 }  // namespace microtel

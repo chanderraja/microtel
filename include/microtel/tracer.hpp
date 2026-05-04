@@ -5,7 +5,6 @@
 
 #include "microtel/span.hpp"
 
-#include <memory>
 #include <string_view>
 
 namespace microtel
@@ -52,7 +51,7 @@ public:
     ///
     /// @threadsafety Thread-safe.
     /// @noexcept Always succeeds.
-    [[nodiscard]] virtual std::unique_ptr<Span>
+    [[nodiscard]] virtual SpanHandle
         StartSpan(std::string_view name, const StartSpanOptions& opts = {}) noexcept = 0;
 
     /// @brief Convenience: start a span and make it the current span in the
@@ -61,7 +60,7 @@ public:
     /// The returned handle restores the previous current span on destruction.
     /// (To be added in v1.1 once the `Context` machinery is fully fleshed
     /// out; placeholder declaration for M0 surface review.)
-    [[nodiscard]] virtual std::unique_ptr<Span>
+    [[nodiscard]] virtual SpanHandle
         StartAsCurrentSpan(std::string_view name, const StartSpanOptions& opts = {}) noexcept = 0;
 };
 

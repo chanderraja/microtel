@@ -135,7 +135,7 @@ All in `src/common/raii/`. Each is move-only, has a `noexcept` destructor, and e
 | RAII type | Owns | Created by | Notes |
 |---|---|---|---|
 | `Socket` | `int` file descriptor | transport (on `Connect`) | Calls `close(2)` on destruction. |
-| `SslCtx` | `SSL_CTX*` | transport, once per process | `SSL_CTX_free` on destruction. Shared (justified — see `coding-standards.md` for the explicit case). |
+| `SslCtx` | `SSL_CTX*` | transport, on `Connect` | `SSL_CTX_free` on destruction. Owned by `Transport` (one per process in v1; multi-`Provider` in v1.1 gives each `Transport` its own). See [ICP 0003 §3.1](icps/0003-m0-deferred-decisions.md#31-sslctx-ownership--per-transport). |
 | `SslSession` | `SSL*` | transport (per connection) | `SSL_free` on destruction. Cleanly closes the session if open. |
 | `Nghttp2Session` | `nghttp2_session*` | transport (per connection) | `nghttp2_session_del` on destruction. |
 | `UpbArena` | `upb_Arena*` | encoder (per `Encode()` call) | `upb_Arena_Free` on destruction. **Never escapes `src/wire/encoder/`** (§3). |
@@ -341,12 +341,21 @@ span->AddEvent("e");
 span->End();
 ```
 
-every method must complete without calling `operator new`, `malloc`, or any allocating standard-library function. Implementation strategies:
+every method must complete without calling `operator new`, `malloc`, or any allocating standard-library function.
 
-- A static no-op `Span` singleton returned for the unsampled case, with `SetAttribute` / `AddEvent` / `End` as `noexcept` no-ops.
-- The `Tracer` returns a `unique_ptr<Span>` whose deleter is a no-op for the no-op singleton. (Or the public type is non-owning; chosen during interfaces.md drafting.)
+**Implementation (LOCKED per [ICP 0003 §3.2](icps/0003-m0-deferred-decisions.md#32-unsampled-span-shape--unique_ptrspan-to-no-op-singleton)).** `Tracer::StartSpan` returns `microtel::SpanHandle`, defined as `std::unique_ptr<Span, internal::SpanDeleter>`. On the unsampled path:
 
-The exact public-API shape that delivers this guarantee is decided in `interfaces.md` and the public headers. The constraint here is the allocation property; the API design must satisfy it.
+- The `Span*` points at a **static no-op singleton** in non-heap storage.
+- `internal::SpanDeleter::deleter` is `nullptr` (or a no-op function pointer); destruction does nothing.
+- `Span::SetAttribute`, `AddEvent`, `AddLink`, `SetStatus`, `UpdateName`, `End` are `noexcept` no-ops.
+
+```cpp
+auto span = tracer->StartSpan("name");   // unsampled: SpanHandle wraps the singleton, no allocation
+span->SetAttribute("k", "v");            // no-op, returns immediately
+// scope exit: SpanDeleter::operator() is a no-op; nothing freed
+```
+
+The internal shape of `SpanDeleter` (function pointer vs. flag-in-`Span` branch vs. two-deleter-types) may be revised in v1.x based on benchmark findings; `SpanHandle` itself is the stable public surface. See ICP 0003 §3.2 for the implementation-flexibility note.
 
 ### 8.2 Sampled span — bounded allocation
 

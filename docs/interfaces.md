@@ -18,6 +18,21 @@ The audience is two groups:
 
 After sign-off, the contracts are stable for the duration of v1. Breaking changes require an ICP.
 
+### 1.1 ICPs that shape these interfaces
+
+Interfaces locked here have several supporting ICPs already resolved. The
+sign-off table in §7 reflects the result; this cross-reference exists so a
+reader landing in §4 can trace each decision back to the rationale.
+
+| ICP | Subject | Status |
+|---|---|---|
+| [0001](icps/0001-m0-deliverables-clarification.md) | M0 deliverables clarification: public headers in M0; eight sequence diagrams; `configuration.md` and `development.md` added. | Accepted |
+| [0002](icps/0002-vendor-tl-expected.md) | Vendor `tl::expected` as `microtel::Expected` to keep the C++20 floor (RHEL 8 / devtoolset-11). Affects every `Expected`-returning signature here. | Accepted |
+| [0003](icps/0003-m0-deferred-decisions.md) | `SslCtx` per-`Transport` (§4.1); `SpanHandle` shape for `Tracer::StartSpan` (cross-track A); MPSC queue stays an M3 implementation choice (default: bounded ring). | Accepted |
+
+No M0 deferred decisions remain open. M1 may surface new ICPs from spike
+findings; those land as numbered entries under `docs/icps/`.
+
 ## 2. How to read this document
 
 Every interface is documented along **six axes** (per spec §13.2):
@@ -221,7 +236,7 @@ The transport increments `connect_failure` directly. All other counters are incr
 
 #### Allocation behavior
 
-- `Connect`: allocates `SslSession`, `Nghttp2Session`, and per-stream state lazily. Bounded.
+- `Connect`: allocates `SslCtx`, `SslSession`, `Nghttp2Session`, and per-stream state lazily. `SslCtx` is owned by this `Transport` instance — not process-shared (see [ICP 0003 §3.1](icps/0003-m0-deferred-decisions.md#31-sslctx-ownership--per-transport)). Bounded.
 - `Send`: allocates one in-flight request record. No payload copy.
 - I/O loop: nghttp2 owns its buffers; per-frame allocations are nghttp2's responsibility.
 
@@ -891,19 +906,23 @@ Every interface in this document has a mock or a fake (sometimes both). The sele
 
 ## 7. Sign-off log
 
-| Interface | Reviewer | Date | Status |
-|---|---|---|---|
-| `ITransport` | TBD | — | pending |
-| `IOtlpEncoder` | TBD | — | pending |
-| `IWireCodec` | TBD | — | pending |
-| `IExporter` | TBD | — | pending |
-| `ISampler` | TBD | — | pending |
-| `ISpanProcessor` | TBD | — | pending |
-| `IClock` / `ISteadyClock` | TBD | — | pending |
-| `IReactor` | TBD | — | pending |
-| `IAuthProvider` | TBD | — | pending |
-| `IResourceDetector` | TBD | — | pending |
-| `IDiagnosticsSink` | TBD | — | pending |
-| `ILogSink` | TBD | — | pending |
+Each row is locked once a reviewer signs and dates it. Per spec §13.2,
+breaking changes after a row is locked require an ICP. The "Locked"
+column records the M0 sign-off date.
 
-M1 cannot start until every row above is `signed`.
+| Interface | Reviewer | Locked | Status | Cross-reference |
+|---|---|---|---|---|
+| `ITransport` | Chander Raja | 2026-05-04 | Accepted | `SslCtx` per-`Transport` per [ICP 0003 §3.1](icps/0003-m0-deferred-decisions.md#31-sslctx-ownership--per-transport). |
+| `IOtlpEncoder` | Chander Raja | 2026-05-04 | Accepted | Per-encode arena (LOCKED — `memory-model.md` §3.1). |
+| `IWireCodec` | Chander Raja | 2026-05-04 | Accepted | One interface, two impls per [ICP 0001](icps/0001-m0-deliverables-clarification.md). |
+| `IExporter` | Chander Raja | 2026-05-04 | Accepted | — |
+| `ISampler` | Chander Raja | 2026-05-04 | Accepted | Hot-path `noexcept`, no allocation on default path. |
+| `ISpanProcessor` | Chander Raja | 2026-05-04 | Accepted | — |
+| `IClock` / `ISteadyClock` | Chander Raja | 2026-05-04 | Accepted | — |
+| `IReactor` | Chander Raja | 2026-05-04 | Accepted | — |
+| `IAuthProvider` | Chander Raja | 2026-05-04 | Accepted | User callback may run on exporter worker (LOCKED). |
+| `IResourceDetector` | Chander Raja | 2026-05-04 | Accepted | Locked in M0 even though full detectors arrive in v1.1+. |
+| `IDiagnosticsSink` | Chander Raja | 2026-05-04 | Accepted | Atomic counters; leaf-lock. |
+| `ILogSink` | Chander Raja | 2026-05-04 | Accepted | Public; `include/microtel/log_sink.hpp`. |
+
+All twelve rows locked; no pending interfaces. M1 (the spike) is unblocked.

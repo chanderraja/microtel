@@ -25,3 +25,12 @@ microtel_add_test(
     NAME    parent_based_sampler_test
     SOURCES parent_based_sampler_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_test(
+    NAME    simple_span_processor_test
+    SOURCES simple_span_processor_test.cpp
+    LIBS    microtel_sdk)
+# Test reaches into src/sdk/simple_span_processor.hpp directly (it's an
+# internal header, not a public-API surface). Add src/ to the include path.
+target_include_directories(simple_span_processor_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -6,7 +6,8 @@
 # See src/sdk/README.md.
 
 add_library(microtel_sdk STATIC
-    sampler_factories.cpp)
+    sampler_factories.cpp
+    simple_span_processor.cpp)
 
 target_link_libraries(microtel_sdk
     PUBLIC microtel_headers)

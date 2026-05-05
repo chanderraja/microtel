@@ -30,11 +30,18 @@ public:
 
     /// @brief Construct from an explicit attribute list.
     ///
-    /// Duplicate keys: the last occurrence wins.
-    explicit Resource(std::vector<KeyValue> attrs);
+    /// Duplicate keys: the last occurrence wins (semantic enforcement is
+    /// the SDK's job during merge; the constructor itself is shallow).
+    explicit Resource(std::vector<KeyValue> attrs)
+        : m_attributes(std::move(attrs))
+    {
+    }
 
     /// @brief Read-only view of the merged attributes.
-    [[nodiscard]] const std::vector<KeyValue>& Attributes() const noexcept;
+    [[nodiscard]] const std::vector<KeyValue>& Attributes() const noexcept
+    {
+        return m_attributes;
+    }
 
 private:
     std::vector<KeyValue> m_attributes;

@@ -15,3 +15,10 @@ microtel_add_test(
 microtel_add_test(
     NAME    mocks_smoke_test
     SOURCES mocks_smoke_test.cpp)
+
+# M2 chunk 4: compile + link verification for the logic-bearing fakes
+# under tests/fakes/. Exercises the scripting/recording machinery that
+# distinguishes a fake from a mock; real behavioural use lands in M3.
+microtel_add_test(
+    NAME    fakes_smoke_test
+    SOURCES fakes_smoke_test.cpp)

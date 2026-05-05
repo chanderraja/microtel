@@ -11,6 +11,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace microtel::internal
@@ -71,7 +72,12 @@ public:
 
     BatchHandle(std::vector<SpanRecord>           records,
                 std::shared_ptr<const Resource>   resource,
-                InstrumentationScope              scope) noexcept;
+                InstrumentationScope              scope) noexcept
+        : m_records(std::move(records))
+        , m_resource(std::move(resource))
+        , m_scope(std::move(scope))
+    {
+    }
 
     BatchHandle(const BatchHandle&)            = delete;
     BatchHandle& operator=(const BatchHandle&) = delete;
@@ -79,9 +85,18 @@ public:
     BatchHandle& operator=(BatchHandle&&) noexcept = default;
     ~BatchHandle() noexcept                    = default;
 
-    [[nodiscard]] std::span<const SpanRecord>     Spans() const noexcept;
-    [[nodiscard]] const Resource&                 ResourceRef() const noexcept;
-    [[nodiscard]] const InstrumentationScope&     Scope() const noexcept;
+    [[nodiscard]] std::span<const SpanRecord> Spans() const noexcept
+    {
+        return {m_records.data(), m_records.size()};
+    }
+    [[nodiscard]] const Resource& ResourceRef() const noexcept
+    {
+        return *m_resource;
+    }
+    [[nodiscard]] const InstrumentationScope& Scope() const noexcept
+    {
+        return m_scope;
+    }
 
 private:
     std::vector<SpanRecord>          m_records;

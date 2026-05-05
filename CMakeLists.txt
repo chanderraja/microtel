@@ -41,6 +41,30 @@ if(MICROTEL_BUILD_HEADER_CHECK)
         -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Sanitizer build helper. MICROTEL_SANITIZER ∈ { '', asan, tsan, ubsan }.
+# Empty (default) means no sanitizer. Per spec §14.2 / docs/coding-standards.md
+# §14.2, asan + tsan + ubsan must be clean on the full test suite for v1.0.
+set(MICROTEL_SANITIZER "" CACHE STRING
+    "Sanitizer to enable: '', asan, tsan, ubsan")
+set_property(CACHE MICROTEL_SANITIZER PROPERTY STRINGS "" asan tsan ubsan)
+
+if(NOT MICROTEL_SANITIZER STREQUAL "")
+    if(MICROTEL_SANITIZER STREQUAL "asan")
+        set(_microtel_san_flags -fsanitize=address -fno-omit-frame-pointer)
+    elseif(MICROTEL_SANITIZER STREQUAL "tsan")
+        set(_microtel_san_flags -fsanitize=thread -fno-omit-frame-pointer)
+    elseif(MICROTEL_SANITIZER STREQUAL "ubsan")
+        set(_microtel_san_flags -fsanitize=undefined -fno-omit-frame-pointer)
+    else()
+        message(FATAL_ERROR
+            "MICROTEL_SANITIZER='${MICROTEL_SANITIZER}' invalid; "
+            "expected one of: '', asan, tsan, ubsan")
+    endif()
+    add_compile_options(${_microtel_san_flags})
+    add_link_options(${_microtel_san_flags})
+    message(STATUS "microtel: ${MICROTEL_SANITIZER} enabled")
+endif()
+
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
 # whole tree for cross-compilation or constrained builds (spec §14.2).

@@ -102,3 +102,39 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, tsan, ubsan]
+
+    name: ${{ matrix.sanitizer }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build
+      - name: Configure
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+            -DMICROTEL_BUILD_HEADER_CHECK=ON \
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_SANITIZER=${{ matrix.sanitizer }}
+      - name: Build
+        run: cmake --build build --verbose
+      - name: Test
+        env:
+          ASAN_OPTIONS:  detect_leaks=1:strict_string_checks=1:detect_stack_use_after_return=1
+          TSAN_OPTIONS:  halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --output-on-failure

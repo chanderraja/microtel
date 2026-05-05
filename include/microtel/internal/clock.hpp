@@ -8,7 +8,7 @@
 namespace microtel::internal
 {
 
-using TimePointWall   = std::chrono::system_clock::time_point;
+using TimePointWall = std::chrono::system_clock::time_point;
 using TimePointSteady = std::chrono::steady_clock::time_point;
 
 /// @brief Wall-clock abstraction. Production injects `std::chrono::system_clock`;
@@ -19,7 +19,7 @@ using TimePointSteady = std::chrono::steady_clock::time_point;
 class IClock
 {
 public:
-    virtual ~IClock() noexcept                              = default;
+    virtual ~IClock() noexcept = default;
     [[nodiscard]] virtual TimePointWall Now() const noexcept = 0;
 };
 
@@ -32,7 +32,7 @@ public:
 class ISteadyClock
 {
 public:
-    virtual ~ISteadyClock() noexcept                            = default;
+    virtual ~ISteadyClock() noexcept = default;
     [[nodiscard]] virtual TimePointSteady Now() const noexcept = 0;
 };
 

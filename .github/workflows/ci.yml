@@ -18,6 +18,20 @@ on:
     branches: [master]
 
 jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    name: clang-format
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+          sudo update-alternatives --install /usr/bin/clang-format \
+            clang-format /usr/bin/clang-format-18 100
+      - name: Run format-check
+        run: ci/scripts/format-check.sh
+
   compile:
     runs-on: ubuntu-latest
     strategy:

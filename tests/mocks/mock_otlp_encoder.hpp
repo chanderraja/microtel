@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "microtel/internal/otlp_encoder.hpp"
 #include "microtel/internal/encoded_payload.hpp"
+#include "microtel/internal/otlp_encoder.hpp"
 
 #include <cstddef>
 #include <cstring>
@@ -24,15 +24,14 @@ class MockOtlpEncoder : public internal::IOtlpEncoder
 public:
     /// @brief Bytes returned from every Encode call. Test owns the buffer
     /// here; Encode copies into a fresh allocation.
-    std::vector<std::byte> bytes_to_return {};
+    std::vector<std::byte> bytes_to_return{};
 
     // --- Recording ---
     int encode_call_count = 0;
 
     // --- IOtlpEncoder ---
 
-    [[nodiscard]] internal::EncodedPayload
-        Encode(const internal::BatchHandle& /*batch*/) override
+    [[nodiscard]] internal::EncodedPayload Encode(const internal::BatchHandle& /*batch*/) override
     {
         ++encode_call_count;
         const std::size_t n = bytes_to_return.size();

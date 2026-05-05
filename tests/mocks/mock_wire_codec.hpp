@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "microtel/internal/wire_codec.hpp"
 #include "microtel/internal/encoded_payload.hpp"
+#include "microtel/internal/wire_codec.hpp"
 #include "microtel/internal/wire_result.hpp"
 
 #include <chrono>
@@ -23,16 +23,15 @@ public:
     /// @brief Result returned from every Send call. The default-constructed
     /// `WireResult` has `success=false` and `retryable=false` (per its
     /// in-class initialisers); tests opt in to success by flipping the flag.
-    internal::WireResult result_to_return {};
+    internal::WireResult result_to_return{};
 
     // --- Recording ---
     int send_call_count = 0;
 
     // --- IWireCodec ---
 
-    [[nodiscard]] internal::WireResult
-        Send(internal::EncodedPayload&& /*payload*/,
-             std::chrono::milliseconds /*deadline*/) override
+    [[nodiscard]] internal::WireResult Send(internal::EncodedPayload&& /*payload*/,
+                                            std::chrono::milliseconds /*deadline*/) override
     {
         ++send_call_count;
         return result_to_return;

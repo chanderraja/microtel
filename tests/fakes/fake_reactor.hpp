@@ -29,8 +29,8 @@ class FakeReactor : public internal::IReactor
 public:
     struct ScriptedEvent
     {
-        int                    fd;
-        internal::EventMask    mask;
+        int fd;
+        internal::EventMask mask;
     };
 
     /// @brief Events fired on the next `WaitAndDispatch`. Tests push
@@ -46,9 +46,8 @@ public:
     /// no scripted events. Useful for shutdown-deadline tests.
     bool return_immediately = false;
 
-    [[nodiscard]] microtel::Expected<void, microtel::Error>
-        Register(int fd, internal::EventMask mask,
-                 internal::EventCallback cb) override
+    [[nodiscard]] microtel::Expected<void, microtel::Error> Register(
+        int fd, internal::EventMask mask, internal::EventCallback cb) override
     {
         m_callbacks[fd] = Entry{mask, std::move(cb)};
         return {};
@@ -98,7 +97,7 @@ public:
 private:
     struct Entry
     {
-        internal::EventMask     mask;
+        internal::EventMask mask;
         internal::EventCallback callback;
     };
 

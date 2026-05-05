@@ -25,35 +25,35 @@
 
 #if __cplusplus >= 202302L && __has_include(<expected>)
 
-    #include <expected>
+#include <expected>
 
-    namespace microtel
-    {
+namespace microtel
+{
 
-    /// @brief `std::expected<T, E>` alias when C++23 `<expected>` is
-    /// available; otherwise `tl::expected<T, E>` from the vendored polyfill.
-    template <typename T, typename E>
-    using Expected = std::expected<T, E>;
+/// @brief `std::expected<T, E>` alias when C++23 `<expected>` is
+/// available; otherwise `tl::expected<T, E>` from the vendored polyfill.
+template <typename T, typename E>
+using Expected = std::expected<T, E>;
 
-    /// @brief `std::unexpected<E>` alias matching `Expected`.
-    template <typename E>
-    using Unexpected = std::unexpected<E>;
+/// @brief `std::unexpected<E>` alias matching `Expected`.
+template <typename E>
+using Unexpected = std::unexpected<E>;
 
-    }  // namespace microtel
+}  // namespace microtel
 
 #else
 
-    #include "tl/expected.hpp"
+#include "tl/expected.hpp"
 
-    namespace microtel
-    {
+namespace microtel
+{
 
-    template <typename T, typename E>
-    using Expected = tl::expected<T, E>;
+template <typename T, typename E>
+using Expected = tl::expected<T, E>;
 
-    template <typename E>
-    using Unexpected = tl::unexpected<E>;
+template <typename E>
+using Unexpected = tl::unexpected<E>;
 
-    }  // namespace microtel
+}  // namespace microtel
 
 #endif

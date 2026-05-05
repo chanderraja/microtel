@@ -47,7 +47,8 @@
 #include "microtel/internal/wire_codec.hpp"
 #include "microtel/internal/wire_result.hpp"
 
-namespace {
+namespace
+{
 
 TEST(HeadersSmoke, AllPublicAndInternalHeadersCompile)
 {
@@ -55,9 +56,8 @@ TEST(HeadersSmoke, AllPublicAndInternalHeadersCompile)
     // is wired and microtel::Status (a public type) coexists with gtest's
     // own naming without collision.
     SUCCEED();
-    static_assert(
-        static_cast<int>(microtel::Status::Completed) == 0,
-        "lifecycle Status::Completed must be the zero value");
+    static_assert(static_cast<int>(microtel::Status::Completed) == 0,
+                  "lifecycle Status::Completed must be the zero value");
 }
 
 }  // namespace

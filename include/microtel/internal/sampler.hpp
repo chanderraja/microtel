@@ -19,29 +19,29 @@ namespace microtel::internal
 /// @brief Sampling decision returned by `ISampler::ShouldSample`.
 enum class SamplingDecision : std::uint8_t
 {
-    Drop            = 0,    ///< drop the span; no record kept
-    RecordOnly      = 1,    ///< record locally but do not export
-    RecordAndSample = 2,    ///< record and export
+    Drop = 0,             ///< drop the span; no record kept
+    RecordOnly = 1,       ///< record locally but do not export
+    RecordAndSample = 2,  ///< record and export
 };
 
 /// @brief Inputs to `ISampler::ShouldSample`.
 struct SamplingContext
 {
-    SpanContext       parent;
-    SpanKind          span_kind   = SpanKind::Internal;
-    std::string_view  span_name;
-    AttributeSpan     initial_attributes;
+    SpanContext parent;
+    SpanKind span_kind = SpanKind::Internal;
+    std::string_view span_name;
+    AttributeSpan initial_attributes;
     /// Links in the to-be-created span; empty in the common case.
     std::span<const class SpanLink> links;
-    TraceId           trace_id;             ///< the future TraceId of the span if newly rooted
+    TraceId trace_id;  ///< the future TraceId of the span if newly rooted
 };
 
 /// @brief Outputs from `ISampler::ShouldSample`.
 struct SamplingResult
 {
-    SamplingDecision        decision = SamplingDecision::Drop;
-    std::vector<KeyValue>   additional_attributes;     ///< appended to span if sampled
-    std::optional<TraceState> trace_state;             ///< overrides parent state if set
+    SamplingDecision decision = SamplingDecision::Drop;
+    std::vector<KeyValue> additional_attributes;  ///< appended to span if sampled
+    std::optional<TraceState> trace_state;        ///< overrides parent state if set
 };
 
 /// @brief Pluggable sampling decision.
@@ -61,8 +61,8 @@ class ISampler
 public:
     virtual ~ISampler() noexcept = default;
 
-    [[nodiscard]] virtual SamplingResult
-        ShouldSample(const SamplingContext& ctx) const noexcept = 0;
+    [[nodiscard]] virtual SamplingResult ShouldSample(
+        const SamplingContext& ctx) const noexcept = 0;
 
     [[nodiscard]] virtual std::string_view Description() const noexcept = 0;
 };

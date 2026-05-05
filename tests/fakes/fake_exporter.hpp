@@ -24,30 +24,27 @@ class FakeExporter : public internal::IExporter
 public:
     std::vector<internal::BatchHandle> received_batches;
 
-    internal::ExportResult export_result =
-        internal::ExportResult::Success;
+    internal::ExportResult export_result = internal::ExportResult::Success;
     microtel::Status force_flush_result = microtel::Status::Completed;
-    microtel::Status shutdown_result    = microtel::Status::Completed;
+    microtel::Status shutdown_result = microtel::Status::Completed;
 
     int force_flush_call_count = 0;
-    int shutdown_call_count    = 0;
+    int shutdown_call_count = 0;
 
-    [[nodiscard]] internal::ExportResult
-        Export(internal::BatchHandle&& batch) noexcept override
+    [[nodiscard]] internal::ExportResult Export(internal::BatchHandle&& batch) noexcept override
     {
         received_batches.push_back(std::move(batch));
         return export_result;
     }
 
-    [[nodiscard]] microtel::Status
-        ForceFlush(std::chrono::milliseconds /*timeout*/) noexcept override
+    [[nodiscard]] microtel::Status ForceFlush(
+        std::chrono::milliseconds /*timeout*/) noexcept override
     {
         ++force_flush_call_count;
         return force_flush_result;
     }
 
-    [[nodiscard]] microtel::Status
-        Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
+    [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
     {
         ++shutdown_call_count;
         return shutdown_result;

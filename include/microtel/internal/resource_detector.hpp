@@ -28,7 +28,7 @@ public:
     virtual ~IResourceDetector() noexcept = default;
 
     [[nodiscard]] virtual microtel::Expected<microtel::Resource, microtel::ConfigError>
-        Detect() = 0;
+    Detect() = 0;
 
     [[nodiscard]] virtual std::string_view Name() const noexcept = 0;
 };

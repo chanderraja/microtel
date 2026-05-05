@@ -16,8 +16,8 @@ namespace microtel::internal
 /// @brief Bitmask of reactor events of interest.
 enum class EventMask : std::uint32_t
 {
-    None  = 0,
-    Read  = 1U << 0,
+    None = 0,
+    Read = 1U << 0,
     Write = 1U << 1,
     Error = 1U << 2,
 };
@@ -25,8 +25,7 @@ enum class EventMask : std::uint32_t
 /// @brief Compose two event masks (bitwise-OR).
 [[nodiscard]] constexpr EventMask operator|(EventMask a, EventMask b) noexcept
 {
-    return static_cast<EventMask>(
-        static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
+    return static_cast<EventMask>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
 }
 
 /// @brief Test event-mask membership.
@@ -57,8 +56,9 @@ class IReactor
 public:
     virtual ~IReactor() noexcept = default;
 
-    [[nodiscard]] virtual microtel::Expected<void, microtel::Error>
-        Register(int fd, EventMask mask, EventCallback cb) = 0;
+    [[nodiscard]] virtual microtel::Expected<void, microtel::Error> Register(int fd,
+                                                                             EventMask mask,
+                                                                             EventCallback cb) = 0;
 
     virtual void Modify(int fd, EventMask mask) = 0;
 

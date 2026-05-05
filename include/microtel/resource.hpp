@@ -32,10 +32,7 @@ public:
     ///
     /// Duplicate keys: the last occurrence wins (semantic enforcement is
     /// the SDK's job during merge; the constructor itself is shallow).
-    explicit Resource(std::vector<KeyValue> attrs)
-        : m_attributes(std::move(attrs))
-    {
-    }
+    explicit Resource(std::vector<KeyValue> attrs) : m_attributes(std::move(attrs)) {}
 
     /// @brief Read-only view of the merged attributes.
     [[nodiscard]] const std::vector<KeyValue>& Attributes() const noexcept

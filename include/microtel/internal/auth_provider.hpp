@@ -35,7 +35,7 @@ public:
     ///
     /// @param now monotonic time used for cache TTL arithmetic.
     [[nodiscard]] virtual microtel::Expected<std::optional<std::string>, microtel::Error>
-        GetAuthorization(TimePointSteady now) = 0;
+    GetAuthorization(TimePointSteady now) = 0;
 };
 
 }  // namespace microtel::internal

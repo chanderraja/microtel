@@ -38,11 +38,10 @@ public:
 
     virtual void OnEnd(SpanRecord&& record) noexcept = 0;
 
-    [[nodiscard]] virtual microtel::Status
-        ForceFlush(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual microtel::Status ForceFlush(
+        std::chrono::milliseconds timeout) noexcept = 0;
 
-    [[nodiscard]] virtual microtel::Status
-        Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
 };
 
 }  // namespace microtel::internal

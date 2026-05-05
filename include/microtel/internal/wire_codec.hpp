@@ -31,8 +31,8 @@ class IWireCodec
 public:
     virtual ~IWireCodec() noexcept = default;
 
-    [[nodiscard]] virtual WireResult
-        Send(EncodedPayload&& payload, std::chrono::milliseconds deadline) = 0;
+    [[nodiscard]] virtual WireResult Send(EncodedPayload&& payload,
+                                          std::chrono::milliseconds deadline) = 0;
 };
 
 }  // namespace microtel::internal

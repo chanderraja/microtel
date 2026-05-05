@@ -38,59 +38,58 @@ enum class DropPolicy : std::uint8_t
 /// `WithBatch({.max_queue_size = 8192, .schedule_delay = 5s})`.
 struct BatchOptions
 {
-    std::uint32_t              max_queue_size        = 8192;
-    std::uint32_t              max_export_batch_size = 512;
-    std::chrono::milliseconds  schedule_delay        = std::chrono::seconds(5);
-    DropPolicy                 drop_policy           = DropPolicy::DropNewest;
+    std::uint32_t max_queue_size = 8192;
+    std::uint32_t max_export_batch_size = 512;
+    std::chrono::milliseconds schedule_delay = std::chrono::seconds(5);
+    DropPolicy drop_policy = DropPolicy::DropNewest;
 };
 
 /// @brief Six-axis timeout taxonomy from `microtel-spec.md` §7.3.
 struct TimeoutOptions
 {
-    std::chrono::milliseconds connect       = std::chrono::seconds(10);
+    std::chrono::milliseconds connect = std::chrono::seconds(10);
     std::chrono::milliseconds tls_handshake = std::chrono::seconds(10);
-    std::chrono::milliseconds per_export    = std::chrono::seconds(10);
-    std::chrono::milliseconds retry_budget  = std::chrono::seconds(60);
-    std::chrono::milliseconds flush         = std::chrono::seconds(5);
-    std::chrono::milliseconds shutdown      = std::chrono::seconds(5);
+    std::chrono::milliseconds per_export = std::chrono::seconds(10);
+    std::chrono::milliseconds retry_budget = std::chrono::seconds(60);
+    std::chrono::milliseconds flush = std::chrono::seconds(5);
+    std::chrono::milliseconds shutdown = std::chrono::seconds(5);
 };
 
 /// @brief TLS material configuration.
 struct TlsOptions
 {
-    bool                  insecure = false;
-    std::filesystem::path ca_bundle;       ///< empty: use system trust
-    std::filesystem::path client_cert;     ///< empty: no mTLS
-    std::filesystem::path client_key;      ///< empty: no mTLS
-    std::string           sni_override;    ///< empty: derive from endpoint host
+    bool insecure = false;
+    std::filesystem::path ca_bundle;    ///< empty: use system trust
+    std::filesystem::path client_cert;  ///< empty: no mTLS
+    std::filesystem::path client_key;   ///< empty: no mTLS
+    std::string sni_override;           ///< empty: derive from endpoint host
 };
 
 /// @brief Span structural-limit configuration (per `microtel-spec.md` §5.6).
 struct SpanLimitOptions
 {
-    std::uint32_t attribute_count_limit         = 128;
-    std::uint32_t event_count_limit             = 128;
-    std::uint32_t link_count_limit              = 128;
-    std::uint32_t attribute_value_length_limit  = 4096;
-    std::uint32_t event_attribute_count_limit   = 128;
-    std::uint32_t link_attribute_count_limit    = 128;
+    std::uint32_t attribute_count_limit = 128;
+    std::uint32_t event_count_limit = 128;
+    std::uint32_t link_count_limit = 128;
+    std::uint32_t attribute_value_length_limit = 4096;
+    std::uint32_t event_attribute_count_limit = 128;
+    std::uint32_t link_attribute_count_limit = 128;
 };
 
 /// @brief Memory-budget configuration (per `microtel-spec.md` §5.5).
 struct MemoryLimitOptions
 {
-    std::uint64_t max_total_queue_bytes  = 16 * 1024 * 1024;   // 16 MiB
-    std::uint32_t max_record_bytes       = 64 * 1024;          // 64 KiB
-    std::uint32_t max_response_bytes     = 1 * 1024 * 1024;    // 1 MiB
-    std::uint32_t max_trailer_bytes      = 64 * 1024;          // 64 KiB
-    std::uint32_t max_decompressed_bytes = 4 * 1024 * 1024;    // 4 MiB
+    std::uint64_t max_total_queue_bytes = 16 * 1024 * 1024;  // 16 MiB
+    std::uint32_t max_record_bytes = 64 * 1024;              // 64 KiB
+    std::uint32_t max_response_bytes = 1 * 1024 * 1024;      // 1 MiB
+    std::uint32_t max_trailer_bytes = 64 * 1024;             // 64 KiB
+    std::uint32_t max_decompressed_bytes = 4 * 1024 * 1024;  // 4 MiB
 };
 
 /// @brief Callback returning the current `Authorization` header value.
 ///
 /// Called per-export-batch with results cached for a configurable TTL.
-using AuthCallback =
-    std::function<Expected<std::string, Error>()>;
+using AuthCallback = std::function<Expected<std::string, Error>()>;
 
 /// @brief Fluent builder for configuring and constructing a `Provider`.
 ///
@@ -106,9 +105,9 @@ public:
     SdkBuilder() noexcept;
     ~SdkBuilder() noexcept;
 
-    SdkBuilder(const SdkBuilder&)                = delete;
-    SdkBuilder& operator=(const SdkBuilder&)     = delete;
-    SdkBuilder(SdkBuilder&&) noexcept            = default;
+    SdkBuilder(const SdkBuilder&) = delete;
+    SdkBuilder& operator=(const SdkBuilder&) = delete;
+    SdkBuilder(SdkBuilder&&) noexcept = default;
     SdkBuilder& operator=(SdkBuilder&&) noexcept = default;
 
     /// @brief Load configuration from a `microtel.toml` file.
@@ -148,7 +147,7 @@ public:
     [[nodiscard]] Expected<std::shared_ptr<Provider>, ConfigError> Build();
 
 private:
-    struct Impl;                    ///< pimpl; defined in src/sdk/sdk_builder.cpp
+    struct Impl;  ///< pimpl; defined in src/sdk/sdk_builder.cpp
     std::unique_ptr<Impl> m_impl;
 };
 

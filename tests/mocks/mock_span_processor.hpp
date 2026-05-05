@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "microtel/internal/processor.hpp"
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/processor.hpp"
 #include "microtel/status.hpp"
 
 #include <chrono>
@@ -28,18 +28,17 @@ class MockSpanProcessor : public internal::ISpanProcessor
 public:
     // --- Configurable returns ---
     microtel::Status force_flush_result = microtel::Status::Completed;
-    microtel::Status shutdown_result    = microtel::Status::Completed;
+    microtel::Status shutdown_result = microtel::Status::Completed;
 
     // --- Recording ---
-    int on_start_call_count    = 0;
-    int on_end_call_count      = 0;
+    int on_start_call_count = 0;
+    int on_end_call_count = 0;
     int force_flush_call_count = 0;
-    int shutdown_call_count    = 0;
+    int shutdown_call_count = 0;
 
     // --- ISpanProcessor ---
 
-    void OnStart(microtel::Span& /*span*/,
-                 const microtel::Context& /*parent*/) noexcept override
+    void OnStart(microtel::Span& /*span*/, const microtel::Context& /*parent*/) noexcept override
     {
         ++on_start_call_count;
     }
@@ -49,15 +48,14 @@ public:
         ++on_end_call_count;
     }
 
-    [[nodiscard]] microtel::Status
-        ForceFlush(std::chrono::milliseconds /*timeout*/) noexcept override
+    [[nodiscard]] microtel::Status ForceFlush(
+        std::chrono::milliseconds /*timeout*/) noexcept override
     {
         ++force_flush_call_count;
         return force_flush_result;
     }
 
-    [[nodiscard]] microtel::Status
-        Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
+    [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
     {
         ++shutdown_call_count;
         return shutdown_result;

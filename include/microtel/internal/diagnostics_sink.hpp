@@ -4,7 +4,7 @@
 #pragma once
 
 #include "microtel/error.hpp"
-#include "microtel/provider.hpp"   // DropReason, ConnectionState, HealthSnapshot
+#include "microtel/provider.hpp"  // DropReason, ConnectionState, HealthSnapshot
 
 #include <cstdint>
 
@@ -26,11 +26,11 @@ public:
     virtual ~IDiagnosticsSink() noexcept = default;
 
     virtual void RecordDrop(DropReason reason, std::uint64_t n = 1) noexcept = 0;
-    virtual void RecordBatchSent() noexcept                                  = 0;
-    virtual void RecordBatchFailed(const Error& err) noexcept                = 0;
-    virtual void SetQueueDepth(std::uint64_t depth) noexcept                 = 0;
-    virtual void SetConnectionState(ConnectionState state) noexcept          = 0;
-    [[nodiscard]] virtual HealthSnapshot Snapshot() const noexcept           = 0;
+    virtual void RecordBatchSent() noexcept = 0;
+    virtual void RecordBatchFailed(const Error& err) noexcept = 0;
+    virtual void SetQueueDepth(std::uint64_t depth) noexcept = 0;
+    virtual void SetConnectionState(ConnectionState state) noexcept = 0;
+    [[nodiscard]] virtual HealthSnapshot Snapshot() const noexcept = 0;
 };
 
 }  // namespace microtel::internal

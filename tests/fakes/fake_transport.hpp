@@ -39,40 +39,37 @@ public:
         internal::ConnectOptions opts;
     };
 
-    std::vector<ConnectCall>           connect_calls;
+    std::vector<ConnectCall> connect_calls;
     /// Note: RequestSpec is move-only-ish (contains a span<const byte>
     /// borrow + a header vector). We store specs by value.
     std::vector<internal::RequestSpec> sent_specs;
     int cancel_call_count = 0;
-    int close_call_count  = 0;
+    int close_call_count = 0;
 
     // --- Configurable ---
-    microtel::Expected<void, microtel::Error> connect_result {};
-    microtel::ConnectionState                 state =
-        microtel::ConnectionState::Connected;
-    microtel::Status                          close_result =
-        microtel::Status::Completed;
+    microtel::Expected<void, microtel::Error> connect_result{};
+    microtel::ConnectionState state = microtel::ConnectionState::Connected;
+    microtel::Status close_result = microtel::Status::Completed;
 
     /// FIFO of scripted Send results. Each `Send` pops the front; falls
     /// back to `default_response` when empty.
     std::deque<internal::TransportResult> scripted_responses;
     /// Default-constructed (`success=false`); test sets `default_response.success = true`
     /// to opt in to a successful default.
-    internal::TransportResult             default_response {};
+    internal::TransportResult default_response{};
 
-    [[nodiscard]] microtel::Expected<void, microtel::Error>
-        Connect(const internal::ConnectOptions& opts) override
+    [[nodiscard]] microtel::Expected<void, microtel::Error> Connect(
+        const internal::ConnectOptions& opts) override
     {
         connect_calls.push_back(ConnectCall{opts});
         return connect_result;
     }
 
-    [[nodiscard]] internal::RequestHandle
-        Send(internal::RequestSpec spec) noexcept override
+    [[nodiscard]] internal::RequestHandle Send(internal::RequestSpec spec) noexcept override
     {
         sent_specs.push_back(std::move(spec));
         std::promise<internal::TransportResult> p;
-        std::future<internal::TransportResult>  f = p.get_future();
+        std::future<internal::TransportResult> f = p.get_future();
         if (!scripted_responses.empty())
         {
             p.set_value(std::move(scripted_responses.front()));
@@ -82,8 +79,7 @@ public:
         {
             p.set_value(default_response);
         }
-        return internal::RequestHandle{
-            static_cast<std::uint64_t>(sent_specs.size()), std::move(f)};
+        return internal::RequestHandle{static_cast<std::uint64_t>(sent_specs.size()), std::move(f)};
     }
 
     void Cancel(const internal::RequestHandle& /*handle*/) noexcept override
@@ -96,8 +92,7 @@ public:
         return state;
     }
 
-    [[nodiscard]] microtel::Status
-        Close(std::chrono::milliseconds /*timeout*/) noexcept override
+    [[nodiscard]] microtel::Status Close(std::chrono::milliseconds /*timeout*/) noexcept override
     {
         ++close_call_count;
         return close_result;

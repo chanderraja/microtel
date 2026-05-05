@@ -23,10 +23,10 @@ namespace microtel
 enum class ConnectionState : std::uint8_t
 {
     Disconnected = 0,
-    Connecting   = 1,
-    Connected    = 2,
+    Connecting = 1,
+    Connected = 2,
     Reconnecting = 3,
-    Closed       = 4,
+    Closed = 4,
 };
 
 /// @brief Drop reasons mirrored from `docs/error-model.md` §3.
@@ -36,26 +36,26 @@ enum class ConnectionState : std::uint8_t
 /// part of the public health surface.
 enum class DropReason : std::uint8_t
 {
-    QueueFull                 = 0,
-    RecordTooLarge            = 1,
-    SpanAttributeLimit        = 2,
-    SpanEventLimit            = 3,
-    SpanLinkLimit             = 4,
-    EventAttributeLimit       = 5,
-    LinkAttributeLimit        = 6,
-    AttributeValueTruncated   = 7,
-    PostShutdown              = 8,
-    ResponseTooLarge          = 9,
-    DecompressionTooLarge     = 10,
-    MalformedResponse         = 11,
-    PartialSuccessRejection   = 12,
-    NonRetryableFailure       = 13,
+    QueueFull = 0,
+    RecordTooLarge = 1,
+    SpanAttributeLimit = 2,
+    SpanEventLimit = 3,
+    SpanLinkLimit = 4,
+    EventAttributeLimit = 5,
+    LinkAttributeLimit = 6,
+    AttributeValueTruncated = 7,
+    PostShutdown = 8,
+    ResponseTooLarge = 9,
+    DecompressionTooLarge = 10,
+    MalformedResponse = 11,
+    PartialSuccessRejection = 12,
+    NonRetryableFailure = 13,
     RetryableFailureRecovered = 14,
-    RetryBudgetExhausted      = 15,
-    TransportBusy             = 16,
-    ConnectFailure            = 17,
-    ForceFlushTimeout         = 18,
-    ShutdownTimeout           = 19,
+    RetryBudgetExhausted = 15,
+    TransportBusy = 16,
+    ConnectFailure = 17,
+    ForceFlushTimeout = 18,
+    ShutdownTimeout = 19,
 };
 
 /// @brief The number of `DropReason` enumerators. Used to size the counter
@@ -69,12 +69,12 @@ inline constexpr std::size_t kDropReasonCount = 20;
 struct HealthSnapshot
 {
     std::array<std::uint64_t, kDropReasonCount> drop_counters{};
-    std::uint64_t                               batches_sent     = 0;
-    std::uint64_t                               batches_failed   = 0;
-    std::uint64_t                               queue_depth_now  = 0;
+    std::uint64_t batches_sent = 0;
+    std::uint64_t batches_failed = 0;
+    std::uint64_t queue_depth_now = 0;
     std::optional<std::chrono::system_clock::time_point> last_error_time;
-    std::string                                 last_error_message;   ///< capped, redacted
-    ConnectionState                             connection_state = ConnectionState::Disconnected;
+    std::string last_error_message;  ///< capped, redacted
+    ConnectionState connection_state = ConnectionState::Disconnected;
 };
 
 /// @brief Process-level entry point for issuing tracers and managing the
@@ -90,13 +90,13 @@ struct HealthSnapshot
 class Provider
 {
 public:
-    Provider() noexcept                      = default;
-    virtual ~Provider() noexcept             = default;
+    Provider() noexcept = default;
+    virtual ~Provider() noexcept = default;
 
-    Provider(const Provider&)                = delete;
-    Provider& operator=(const Provider&)     = delete;
-    Provider(Provider&&)                     = delete;
-    Provider& operator=(Provider&&)          = delete;
+    Provider(const Provider&) = delete;
+    Provider& operator=(const Provider&) = delete;
+    Provider(Provider&&) = delete;
+    Provider& operator=(Provider&&) = delete;
 
     /// @brief Acquire a tracer for one instrumentation scope.
     ///
@@ -106,8 +106,8 @@ public:
     ///
     /// @param name    instrumentation library name (e.g., `"my.component"`).
     /// @param version optional library version string.
-    [[nodiscard]] virtual std::shared_ptr<Tracer>
-        GetTracer(std::string_view name, std::string_view version = {}) = 0;
+    [[nodiscard]] virtual std::shared_ptr<Tracer> GetTracer(std::string_view name,
+                                                            std::string_view version = {}) = 0;
 
     /// @brief Eagerly establish the export connection.
     ///
@@ -116,8 +116,7 @@ public:
     /// HTTP/2 SETTINGS exchange. No telemetry is sent.
     ///
     /// @threadsafety Thread-safe.
-    [[nodiscard]] virtual Expected<void, Error>
-        Connect() = 0;
+    [[nodiscard]] virtual Expected<void, Error> Connect() = 0;
 
     /// @brief Flush queued spans up to `timeout`.
     ///
@@ -126,8 +125,7 @@ public:
     ///
     /// @threadsafety Thread-safe.
     /// @noexcept
-    [[nodiscard]] virtual Status
-        ForceFlush(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual Status ForceFlush(std::chrono::milliseconds timeout) noexcept = 0;
 
     /// @brief Stop accepting new records, drain queues, close the transport.
     ///
@@ -136,8 +134,7 @@ public:
     ///
     /// @threadsafety Thread-safe.
     /// @noexcept
-    [[nodiscard]] virtual Status
-        Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual Status Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
 
     /// @brief Snapshot of exporter health for diagnostics.
     ///
@@ -146,8 +143,7 @@ public:
     ///
     /// @threadsafety Thread-safe.
     /// @noexcept
-    [[nodiscard]] virtual HealthSnapshot
-        GetExporterHealth() const noexcept = 0;
+    [[nodiscard]] virtual HealthSnapshot GetExporterHealth() const noexcept = 0;
 };
 
 }  // namespace microtel

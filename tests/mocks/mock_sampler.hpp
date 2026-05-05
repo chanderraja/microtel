@@ -19,8 +19,7 @@ class MockSampler : public internal::ISampler
 {
 public:
     // --- Configurable returns ---
-    internal::SamplingResult result_to_return {
-        internal::SamplingDecision::RecordAndSample, {}, {}};
+    internal::SamplingResult result_to_return{internal::SamplingDecision::RecordAndSample, {}, {}};
     std::string_view description = "MockSampler";
 
     // --- Recording ---
@@ -28,15 +27,14 @@ public:
 
     // --- ISampler ---
 
-    [[nodiscard]] internal::SamplingResult
-        ShouldSample(const internal::SamplingContext& /*ctx*/) const noexcept override
+    [[nodiscard]] internal::SamplingResult ShouldSample(
+        const internal::SamplingContext& /*ctx*/) const noexcept override
     {
         ++should_sample_call_count;
         return result_to_return;
     }
 
-    [[nodiscard]] std::string_view
-        Description() const noexcept override
+    [[nodiscard]] std::string_view Description() const noexcept override
     {
         return description;
     }

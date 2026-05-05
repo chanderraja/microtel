@@ -22,7 +22,7 @@ class FakeClock : public internal::IClock
 public:
     /// @brief Current configured time. Tests may set this directly or
     /// drive it via `Advance()`.
-    internal::TimePointWall now {};
+    internal::TimePointWall now{};
 
     [[nodiscard]] internal::TimePointWall Now() const noexcept override
     {

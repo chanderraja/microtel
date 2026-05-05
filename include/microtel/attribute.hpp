@@ -19,15 +19,14 @@ namespace microtel
 /// Per the OTel spec the supported types are: bool, int64, double, string,
 /// plus arrays of each. `std::variant` keeps the type discrimination explicit
 /// and copyable; the array variants are owned vectors.
-using AttributeValue = std::variant<
-    bool,
-    std::int64_t,
-    double,
-    std::string,
-    std::vector<bool>,
-    std::vector<std::int64_t>,
-    std::vector<double>,
-    std::vector<std::string>>;
+using AttributeValue = std::variant<bool,
+                                    std::int64_t,
+                                    double,
+                                    std::string,
+                                    std::vector<bool>,
+                                    std::vector<std::int64_t>,
+                                    std::vector<double>,
+                                    std::vector<std::string>>;
 
 /// @brief Single attribute key-value pair.
 ///
@@ -35,7 +34,7 @@ using AttributeValue = std::variant<
 /// span record only if the span is sampled). `value` is owned.
 struct KeyValue
 {
-    std::string    key;
+    std::string key;
     AttributeValue value;
 };
 

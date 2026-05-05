@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "microtel/expected.hpp"
 #include "microtel/error.hpp"
+#include "microtel/expected.hpp"
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/clock.hpp"
 
@@ -27,20 +27,19 @@ public:
     /// @brief Returned when `scripted_responses` is empty.
     /// `nullopt` means "no Authorization header"; an empty optional<string>
     /// means the same. Configure as needed.
-    microtel::Expected<std::optional<std::string>, microtel::Error>
-        static_value { std::optional<std::string>{} };
+    microtel::Expected<std::optional<std::string>, microtel::Error> static_value{
+        std::optional<std::string>{}};
 
     /// @brief FIFO of one-shot responses. Each `GetAuthorization` call
     /// pops the front; falls back to `static_value` when empty.
-    std::deque<microtel::Expected<std::optional<std::string>, microtel::Error>>
-        scripted_responses;
+    std::deque<microtel::Expected<std::optional<std::string>, microtel::Error>> scripted_responses;
 
     // --- Recording ---
     int call_count = 0;
     std::vector<internal::TimePointSteady> seen_times;
 
-    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error>
-        GetAuthorization(internal::TimePointSteady now) override
+    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error> GetAuthorization(
+        internal::TimePointSteady now) override
     {
         ++call_count;
         seen_times.push_back(now);

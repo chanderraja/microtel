@@ -103,11 +103,11 @@ private:
 /// any propagation surface.
 struct SpanContext
 {
-    TraceId    trace_id;
-    SpanId     span_id;
+    TraceId trace_id;
+    SpanId span_id;
     TraceFlags trace_flags;
     TraceState trace_state;
-    bool       remote = false;          ///< true if extracted from a propagator
+    bool remote = false;  ///< true if extracted from a propagator
 
     /// @brief A span context with a non-zero TraceId and SpanId.
     [[nodiscard]] bool IsValid() const noexcept;
@@ -117,8 +117,8 @@ struct SpanContext
 enum class SpanKind : std::uint8_t
 {
     Internal = 0,
-    Server   = 1,
-    Client   = 2,
+    Server = 1,
+    Client = 2,
     Producer = 3,
     Consumer = 4,
 };
@@ -127,7 +127,7 @@ enum class SpanKind : std::uint8_t
 enum class StatusCode : std::uint8_t
 {
     Unset = 0,
-    Ok    = 1,
+    Ok = 1,
     Error = 2,
 };
 

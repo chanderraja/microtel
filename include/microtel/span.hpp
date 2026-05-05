@@ -20,10 +20,10 @@ namespace microtel
 /// expected idiom: `tracer->StartSpan("name", {.kind = SpanKind::Server})`.
 struct StartSpanOptions
 {
-    SpanKind                                   kind         = SpanKind::Internal;
-    std::optional<SpanContext>                 parent;             ///< if unset, current Context is used
-    std::chrono::system_clock::time_point      start_time   {};    ///< if zero-valued, "now" is used
-    AttributeSpan                              attributes;         ///< initial attributes; copied if span is sampled
+    SpanKind kind = SpanKind::Internal;
+    std::optional<SpanContext> parent;                   ///< if unset, current Context is used
+    std::chrono::system_clock::time_point start_time{};  ///< if zero-valued, "now" is used
+    AttributeSpan attributes;  ///< initial attributes; copied if span is sampled
 };
 
 /// @brief A span — the unit of trace work.
@@ -50,13 +50,13 @@ struct StartSpanOptions
 class Span
 {
 public:
-    Span() noexcept                          = default;
-    virtual ~Span() noexcept                 = default;
+    Span() noexcept = default;
+    virtual ~Span() noexcept = default;
 
-    Span(const Span&)                        = delete;
-    Span& operator=(const Span&)             = delete;
-    Span(Span&&) noexcept                    = default;
-    Span& operator=(Span&&) noexcept         = default;
+    Span(const Span&) = delete;
+    Span& operator=(const Span&) = delete;
+    Span(Span&&) noexcept = default;
+    Span& operator=(Span&&) noexcept = default;
 
     /// @brief Identifying state for this span. Stable across the span's lifetime.
     [[nodiscard]] virtual SpanContext GetContext() const noexcept = 0;

@@ -26,12 +26,12 @@ namespace microtel::internal
 /// @see docs/interfaces.md §3.2
 struct WireResult
 {
-    bool                                       success                  = false;
-    bool                                       retryable                = false;
-    std::optional<std::chrono::milliseconds>   retry_after;
-    std::uint32_t                              partial_success_rejected = 0;
-    std::optional<Error>                       error;
-    std::string                                response_excerpt;   ///< capped at max_response_bytes; for diagnostics
+    bool success = false;
+    bool retryable = false;
+    std::optional<std::chrono::milliseconds> retry_after;
+    std::uint32_t partial_success_rejected = 0;
+    std::optional<Error> error;
+    std::string response_excerpt;  ///< capped at max_response_bytes; for diagnostics
 };
 
 }  // namespace microtel::internal

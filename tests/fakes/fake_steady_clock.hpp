@@ -19,7 +19,7 @@ namespace microtel::testing
 class FakeSteadyClock : public internal::ISteadyClock
 {
 public:
-    internal::TimePointSteady now {};
+    internal::TimePointSteady now{};
 
     [[nodiscard]] internal::TimePointSteady Now() const noexcept override
     {

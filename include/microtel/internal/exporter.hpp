@@ -15,10 +15,10 @@ namespace microtel::internal
 /// @brief Outcome of `IExporter::Export`.
 enum class ExportResult : std::uint8_t
 {
-    Success         = 0,    ///< accepted into the export pipeline
-    Failure         = 1,    ///< accepted but classified as non-retryable terminal failure
-    Dropped         = 2,    ///< queue full or post-shutdown; record dropped
-    AlreadyShutDown = 3,    ///< exporter has shut down
+    Success = 0,          ///< accepted into the export pipeline
+    Failure = 1,          ///< accepted but classified as non-retryable terminal failure
+    Dropped = 2,          ///< queue full or post-shutdown; record dropped
+    AlreadyShutDown = 3,  ///< exporter has shut down
 };
 
 /// @brief The protocol-agnostic export pipeline.
@@ -39,14 +39,12 @@ class IExporter
 public:
     virtual ~IExporter() noexcept = default;
 
-    [[nodiscard]] virtual ExportResult
-        Export(BatchHandle&& batch) noexcept = 0;
+    [[nodiscard]] virtual ExportResult Export(BatchHandle&& batch) noexcept = 0;
 
-    [[nodiscard]] virtual microtel::Status
-        ForceFlush(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual microtel::Status ForceFlush(
+        std::chrono::milliseconds timeout) noexcept = 0;
 
-    [[nodiscard]] virtual microtel::Status
-        Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
+    [[nodiscard]] virtual microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept = 0;
 };
 
 }  // namespace microtel::internal

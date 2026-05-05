@@ -32,11 +32,11 @@ public:
     {
     }
 
-    EncodedPayload(const EncodedPayload&)            = delete;
+    EncodedPayload(const EncodedPayload&) = delete;
     EncodedPayload& operator=(const EncodedPayload&) = delete;
-    EncodedPayload(EncodedPayload&&) noexcept        = default;
+    EncodedPayload(EncodedPayload&&) noexcept = default;
     EncodedPayload& operator=(EncodedPayload&&) noexcept = default;
-    ~EncodedPayload() noexcept                       = default;
+    ~EncodedPayload() noexcept = default;
 
     [[nodiscard]] std::span<const std::byte> Bytes() const noexcept
     {
@@ -57,7 +57,7 @@ public:
 
 private:
     std::unique_ptr<std::byte[]> m_bytes;
-    std::size_t                  m_size = 0;
+    std::size_t m_size = 0;
 };
 
 }  // namespace microtel::internal

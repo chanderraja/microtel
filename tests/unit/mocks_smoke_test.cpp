@@ -8,8 +8,6 @@
 // recording counter ticked. Real behavioural tests using these mocks
 // land in M3 against the actual production code.
 
-#include <gtest/gtest.h>
-
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_otlp_encoder.hpp"
 #include "mocks/mock_sampler.hpp"
@@ -17,14 +15,17 @@
 #include "mocks/mock_transport.hpp"
 #include "mocks/mock_wire_codec.hpp"
 
+#include <gtest/gtest.h>
+
 namespace mt = microtel;
 
-namespace {
+namespace
+{
 
 TEST(MockTransport, RecordsCalls)
 {
     mt::testing::MockTransport mock;
-    mt::internal::ConnectOptions opts {};
+    mt::internal::ConnectOptions opts{};
     auto connect_rc = mock.Connect(opts);
     EXPECT_TRUE(connect_rc.has_value());
     EXPECT_EQ(mock.connect_call_count, 1);
@@ -40,7 +41,7 @@ TEST(MockOtlpEncoder, ReturnsConfiguredBytes)
     mt::testing::MockOtlpEncoder mock;
     mock.bytes_to_return = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
 
-    mt::internal::BatchHandle batch {};
+    mt::internal::BatchHandle batch{};
     auto payload = mock.Encode(batch);
 
     EXPECT_EQ(mock.encode_call_count, 1);
@@ -52,10 +53,10 @@ TEST(MockOtlpEncoder, ReturnsConfiguredBytes)
 TEST(MockWireCodec, ReturnsConfiguredResult)
 {
     mt::testing::MockWireCodec mock;
-    mock.result_to_return.success                  = true;
+    mock.result_to_return.success = true;
     mock.result_to_return.partial_success_rejected = 7;
 
-    mt::internal::EncodedPayload empty {};
+    mt::internal::EncodedPayload empty{};
     auto result = mock.Send(std::move(empty), std::chrono::seconds{1});
 
     EXPECT_EQ(mock.send_call_count, 1);
@@ -66,7 +67,7 @@ TEST(MockWireCodec, ReturnsConfiguredResult)
 TEST(MockExporter, RecordsLifecycleCalls)
 {
     mt::testing::MockExporter mock;
-    mt::internal::BatchHandle batch {};
+    mt::internal::BatchHandle batch{};
     auto rc = mock.Export(std::move(batch));
     EXPECT_EQ(rc, mt::internal::ExportResult::Success);
     EXPECT_EQ(mock.export_call_count, 1);
@@ -79,7 +80,7 @@ TEST(MockExporter, RecordsLifecycleCalls)
 TEST(MockSampler, ReturnsConfiguredDecision)
 {
     mt::testing::MockSampler mock;
-    mt::internal::SamplingContext ctx {};
+    mt::internal::SamplingContext ctx{};
     auto result = mock.ShouldSample(ctx);
     EXPECT_EQ(result.decision, mt::internal::SamplingDecision::RecordAndSample);
     EXPECT_EQ(mock.should_sample_call_count, 1);

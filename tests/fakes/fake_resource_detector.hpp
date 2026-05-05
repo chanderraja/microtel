@@ -22,15 +22,14 @@ namespace microtel::testing
 class FakeResourceDetector : public internal::IResourceDetector
 {
 public:
-    microtel::Resource          resource_to_return {};
+    microtel::Resource resource_to_return{};
     /// If set, `Detect` returns this error instead of `resource_to_return`.
     std::optional<microtel::ConfigError> failure;
-    std::string_view            name = "FakeResourceDetector";
+    std::string_view name = "FakeResourceDetector";
 
     int detect_call_count = 0;
 
-    [[nodiscard]] microtel::Expected<microtel::Resource, microtel::ConfigError>
-        Detect() override
+    [[nodiscard]] microtel::Expected<microtel::Resource, microtel::ConfigError> Detect() override
     {
         ++detect_call_count;
         if (failure)

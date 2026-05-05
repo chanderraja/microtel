@@ -15,8 +15,8 @@ enum class LogLevel : std::uint8_t
 {
     Trace = 0,
     Debug = 1,
-    Info  = 2,
-    Warn  = 3,
+    Info = 2,
+    Warn = 3,
     Error = 4,
 };
 

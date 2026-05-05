@@ -15,7 +15,10 @@ namespace microtel
 /// not see the abstract base directly; they construct samplers through the
 /// factory functions below and pass the resulting `SamplerHandle` to
 /// `SdkBuilder::WithSampler`.
-namespace internal { class ISampler; }
+namespace internal
+{
+class ISampler;
+}  // namespace internal
 
 /// @brief Opaque handle to a sampler. Move-only owning wrapper.
 ///
@@ -28,9 +31,9 @@ public:
     explicit SamplerHandle(std::unique_ptr<internal::ISampler> impl) noexcept;
     ~SamplerHandle() noexcept;
 
-    SamplerHandle(const SamplerHandle&)            = delete;
+    SamplerHandle(const SamplerHandle&) = delete;
     SamplerHandle& operator=(const SamplerHandle&) = delete;
-    SamplerHandle(SamplerHandle&&) noexcept        = default;
+    SamplerHandle(SamplerHandle&&) noexcept = default;
     SamplerHandle& operator=(SamplerHandle&&) noexcept = default;
 
     /// @brief Internal accessor — used by `SdkBuilder` only.

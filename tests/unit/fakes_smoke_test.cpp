@@ -9,8 +9,6 @@
 // Real behavioural tests using these fakes land in M3 against actual
 // production code.
 
-#include <gtest/gtest.h>
-
 #include "fakes/fake_auth_provider.hpp"
 #include "fakes/fake_clock.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
@@ -21,9 +19,12 @@
 #include "fakes/fake_steady_clock.hpp"
 #include "fakes/fake_transport.hpp"
 
+#include <gtest/gtest.h>
+
 namespace mt = microtel;
 
-namespace {
+namespace
+{
 
 TEST(FakeClock, AdvanceMovesNowForward)
 {
@@ -53,8 +54,8 @@ TEST(FakeDiagnosticsSink, RecordsAndSnapshots)
     auto snap = sink.Snapshot();
     EXPECT_EQ(snap.drop_counters[static_cast<std::size_t>(mt::DropReason::QueueFull)],
               std::uint64_t{3});
-    EXPECT_EQ(snap.batches_sent,    std::uint64_t{1});
-    EXPECT_EQ(snap.batches_failed,  std::uint64_t{0});
+    EXPECT_EQ(snap.batches_sent, std::uint64_t{1});
+    EXPECT_EQ(snap.batches_failed, std::uint64_t{0});
     EXPECT_EQ(snap.queue_depth_now, std::uint64_t{17});
     EXPECT_EQ(snap.connection_state, mt::ConnectionState::Connected);
 }
@@ -81,9 +82,8 @@ TEST(FakeAuthProvider, ScriptedFifo)
 TEST(FakeResourceDetector, ReturnsConfiguredResource)
 {
     mt::testing::FakeResourceDetector detector;
-    detector.resource_to_return = mt::Resource{
-        std::vector<mt::KeyValue>{
-            mt::KeyValue{"service.name", mt::AttributeValue{std::string{"x"}}}}};
+    detector.resource_to_return = mt::Resource{std::vector<mt::KeyValue>{
+        mt::KeyValue{"service.name", mt::AttributeValue{std::string{"x"}}}}};
 
     auto r = detector.Detect();
     ASSERT_TRUE(r.has_value());
@@ -96,9 +96,7 @@ TEST(FakeResourceDetector, FailureSurface)
 {
     mt::testing::FakeResourceDetector detector;
     detector.failure = mt::ConfigError{
-        mt::ConfigError::Kind::EnvParseFailure,
-        "OTEL_RESOURCE_ATTRIBUTES",
-        "malformed"};
+        mt::ConfigError::Kind::EnvParseFailure, "OTEL_RESOURCE_ATTRIBUTES", "malformed"};
 
     auto r = detector.Detect();
     ASSERT_FALSE(r.has_value());
@@ -128,11 +126,12 @@ TEST(FakeExporter, RecordsBatches)
 TEST(FakeReactor, DispatchesScriptedEvents)
 {
     mt::testing::FakeReactor reactor;
-    int observed_fd      = 0;
-    mt::internal::EventMask observed_mask {};
+    int observed_fd = 0;
+    mt::internal::EventMask observed_mask{};
 
-    auto cb = [&](int fd, mt::internal::EventMask mask) {
-        observed_fd   = fd;
+    auto cb = [&](int fd, mt::internal::EventMask mask)
+    {
+        observed_fd = fd;
         observed_mask = mask;
     };
     auto rc = reactor.Register(7, mt::internal::EventMask::Read, cb);
@@ -144,8 +143,7 @@ TEST(FakeReactor, DispatchesScriptedEvents)
     auto n = reactor.WaitAndDispatch(mt::internal::TimePointSteady{});
     EXPECT_EQ(n, std::size_t{1});
     EXPECT_EQ(observed_fd, 7);
-    EXPECT_TRUE(mt::internal::HasEvent(observed_mask,
-                                        mt::internal::EventMask::Write));
+    EXPECT_TRUE(mt::internal::HasEvent(observed_mask, mt::internal::EventMask::Write));
 
     reactor.Wake();
     EXPECT_EQ(reactor.wake_count, 1);
@@ -154,7 +152,7 @@ TEST(FakeReactor, DispatchesScriptedEvents)
 TEST(FakeTransport, ScriptedResponses)
 {
     mt::testing::FakeTransport transport;
-    transport.default_response.success = true;     // opt in to a successful default
+    transport.default_response.success = true;  // opt in to a successful default
 
     mt::internal::TransportResult r1{};
     r1.success = true;

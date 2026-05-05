@@ -1,8 +1,0 @@
-# M1 spike — files that stay local and are never committed.
-# Whole directory is deleted at the end of M1; this gitignore goes with it.
-
-# Per-author findings ledger — promote items to formal ICPs as you go.
-findings.md
-
-# Self-signed certs from spike/docker/generate_certs.sh — regenerate locally.
-docker/certs/

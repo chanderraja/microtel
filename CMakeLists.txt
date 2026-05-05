@@ -40,10 +40,3 @@ if(MICROTEL_BUILD_HEADER_CHECK)
     target_compile_options(microtel_header_check PRIVATE
         -Wall -Wextra -Wpedantic -Werror)
 endif()
-
-# M1 spike — opt-in. Deleted at the end of M1. See spike/README.md.
-option(MICROTEL_BUILD_SPIKE "Build the M1 spike binaries (throwaway research)" OFF)
-
-if(MICROTEL_BUILD_SPIKE)
-    add_subdirectory(spike)
-endif()

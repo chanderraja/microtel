@@ -22,3 +22,12 @@ microtel_add_test(
 microtel_add_test(
     NAME    fakes_smoke_test
     SOURCES fakes_smoke_test.cpp)
+
+# M2 chunk 6: behavioural test of the SetLogSink / ResetLogSink public
+# API + the internal LogImpl entry point. Links the real production code
+# from src/common/.
+microtel_add_test(
+    NAME    log_sink_test
+    SOURCES log_sink_test.cpp
+    LIBS    microtel_common)
+target_include_directories(log_sink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

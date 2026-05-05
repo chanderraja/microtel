@@ -77,6 +77,31 @@ if(MICROTEL_COVERAGE)
     message(STATUS "microtel: coverage enabled")
 endif()
 
+# spdlog for internal diagnostic logging. Default ON per spec §9.2 + §9.4;
+# OFF uses the minimal stderr fallback. Either way, the public LogSink
+# hook in include/microtel/log_sink.hpp lets applications redirect into
+# their own logger (per docs/error-model.md §9.3).
+option(MICROTEL_USE_SPDLOG "Use spdlog for internal diagnostic logs" ON)
+
+if(MICROTEL_USE_SPDLOG)
+    include(FetchContent)
+    FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG        v1.15.3
+        GIT_SHALLOW    TRUE
+    )
+    # std::format mode — avoids the fmt transitive dependency that
+    # microtel-spec.md §9.4 explicitly excludes.
+    set(SPDLOG_USE_STD_FORMAT ON CACHE BOOL "" FORCE)
+    set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(spdlog)
+endif()
+
+# src/ — first real production code lives in src/common/ (logging sink
+# injection). Other src/<dir>/ subtrees stay README-only until M3 unblocks.
+add_subdirectory(src/common)
+
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
 # whole tree for cross-compilation or constrained builds (spec §14.2).

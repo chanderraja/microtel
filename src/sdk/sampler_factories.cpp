@@ -7,11 +7,9 @@
 // `internal::ISampler`, which is intentionally not exposed in
 // include/microtel/sampler.hpp.
 //
-// Only `MakeAlwaysOnSampler` is implemented in this M3-A1 chunk. The
-// other three factory declarations in include/microtel/sampler.hpp
-// (AlwaysOff, TraceIdRatio, ParentBased) land in subsequent M3-A
-// chunks; they are declared-only until then. Tests reference only
-// MakeAlwaysOn so the link succeeds.
+// `AlwaysOn` and `AlwaysOff` are implemented here. `TraceIdRatio` and
+// `ParentBased` land in subsequent M3-A chunks; they are declared-only
+// until then.
 
 #include "microtel/internal/sampler.hpp"
 #include "microtel/sampler.hpp"
@@ -76,6 +74,39 @@ public:
 SamplerHandle MakeAlwaysOnSampler()
 {
     return SamplerHandle{std::make_unique<AlwaysOnSampler>()};
+}
+
+// --- AlwaysOff sampler --------------------------------------------------
+
+namespace
+{
+
+/// @brief Sampler that returns `Drop` for every span. Stateless and
+/// allocation-free on the hot path.
+class AlwaysOffSampler final : public internal::ISampler
+{
+public:
+    [[nodiscard]] internal::SamplingResult ShouldSample(
+        const internal::SamplingContext& /*ctx*/) const noexcept override
+    {
+        return internal::SamplingResult{
+            .decision = internal::SamplingDecision::Drop,
+            .additional_attributes = {},
+            .trace_state = std::nullopt,
+        };
+    }
+
+    [[nodiscard]] std::string_view Description() const noexcept override
+    {
+        return "AlwaysOffSampler";
+    }
+};
+
+}  // namespace
+
+SamplerHandle MakeAlwaysOffSampler()
+{
+    return SamplerHandle{std::make_unique<AlwaysOffSampler>()};
 }
 
 }  // namespace microtel

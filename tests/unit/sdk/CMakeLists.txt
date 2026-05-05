@@ -10,3 +10,8 @@ microtel_add_test(
     NAME    always_on_sampler_test
     SOURCES always_on_sampler_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_test(
+    NAME    always_off_sampler_test
+    SOURCES always_off_sampler_test.cpp
+    LIBS    microtel_sdk)

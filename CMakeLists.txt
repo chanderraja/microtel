@@ -65,6 +65,18 @@ if(NOT MICROTEL_SANITIZER STREQUAL "")
     message(STATUS "microtel: ${MICROTEL_SANITIZER} enabled")
 endif()
 
+# Coverage build helper. When ON, attaches gcov-style coverage flags so a
+# CI job (or local run) can collect line/branch coverage via lcov + gcovr +
+# diff-cover. Per spec §14.2, the v1.0 thresholds are 90% line / 85% branch
+# on SDK + encoder code, 80% on transport + exporter — enforced once
+# implementation lands in M3+.
+option(MICROTEL_COVERAGE "Build with --coverage flags for lcov / gcov" OFF)
+if(MICROTEL_COVERAGE)
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+    message(STATUS "microtel: coverage enabled")
+endif()
+
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
 # whole tree for cross-compilation or constrained builds (spec §14.2).

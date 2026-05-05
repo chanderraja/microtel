@@ -20,3 +20,8 @@ microtel_add_test(
     NAME    trace_id_ratio_sampler_test
     SOURCES trace_id_ratio_sampler_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_test(
+    NAME    parent_based_sampler_test
+    SOURCES parent_based_sampler_test.cpp
+    LIBS    microtel_sdk)

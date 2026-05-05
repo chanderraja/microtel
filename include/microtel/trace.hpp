@@ -117,10 +117,16 @@ public:
     static constexpr std::uint8_t kSampled = 0x01;
 
     TraceFlags() noexcept = default;
-    explicit TraceFlags(std::uint8_t bits) noexcept;
+    explicit TraceFlags(std::uint8_t bits) noexcept : m_bits(bits) {}
 
-    [[nodiscard]] bool IsSampled() const noexcept;
-    [[nodiscard]] std::uint8_t AsByte() const noexcept;
+    [[nodiscard]] bool IsSampled() const noexcept
+    {
+        return (m_bits & kSampled) != 0;
+    }
+    [[nodiscard]] std::uint8_t AsByte() const noexcept
+    {
+        return m_bits;
+    }
 
 private:
     std::uint8_t m_bits = 0;
@@ -137,7 +143,10 @@ struct SpanContext
     bool remote = false;  ///< true if extracted from a propagator
 
     /// @brief A span context with a non-zero TraceId and SpanId.
-    [[nodiscard]] bool IsValid() const noexcept;
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+        return trace_id.IsValid() && span_id.IsValid();
+    }
 };
 
 /// @brief OTel span kind.

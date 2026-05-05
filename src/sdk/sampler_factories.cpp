@@ -7,8 +7,8 @@
 // `internal::ISampler`, which is intentionally not exposed in
 // include/microtel/sampler.hpp.
 //
-// `AlwaysOn`, `AlwaysOff`, and `TraceIdRatio` are implemented here.
-// `ParentBased` lands in M3-A4; it is declared-only until then.
+// All four built-in samplers (AlwaysOn, AlwaysOff, TraceIdRatio,
+// ParentBased) are implemented in this file.
 
 #include "microtel/internal/sampler.hpp"
 #include "microtel/sampler.hpp"
@@ -211,6 +211,66 @@ private:
 SamplerHandle MakeTraceIdRatioSampler(double ratio)
 {
     return SamplerHandle{std::make_unique<TraceIdRatioSampler>(ratio)};
+}
+
+// --- ParentBased sampler ------------------------------------------------
+
+namespace
+{
+
+/// @brief Composite sampler that delegates based on the parent context.
+///
+/// v1 simplification (per `include/microtel/sampler.hpp`): if the parent
+/// context is valid (non-zero TraceId + SpanId) and marked sampled, the
+/// result is `RecordAndSample` regardless of the root sampler's view.
+/// Otherwise the decision is delegated to the configured `root` sampler.
+///
+/// Description includes the root sampler's description so traces of
+/// `ParentBasedSampler{AlwaysOnSampler}` etc. are self-describing.
+///
+/// `root` ownership is moved into the sampler at construction; the root's
+/// lifetime is tied to this sampler's. Passing an empty `SamplerHandle`
+/// (one whose `Get()` returns `nullptr`) is a contract violation —
+/// production code does not pass empty handles.
+class ParentBasedSampler final : public internal::ISampler
+{
+public:
+    explicit ParentBasedSampler(SamplerHandle root) : m_root(std::move(root))
+    {
+        const std::string_view root_desc =
+            m_root.Get() != nullptr ? m_root.Get()->Description() : std::string_view{"<null>"};
+        m_description = std::format("ParentBasedSampler{{{}}}", root_desc);
+    }
+
+    [[nodiscard]] internal::SamplingResult ShouldSample(
+        const internal::SamplingContext& ctx) const noexcept override
+    {
+        if (ctx.parent.IsValid() && ctx.parent.trace_flags.IsSampled())
+        {
+            return internal::SamplingResult{
+                .decision = internal::SamplingDecision::RecordAndSample,
+                .additional_attributes = {},
+                .trace_state = std::nullopt,
+            };
+        }
+        return m_root.Get()->ShouldSample(ctx);
+    }
+
+    [[nodiscard]] std::string_view Description() const noexcept override
+    {
+        return m_description;
+    }
+
+private:
+    SamplerHandle m_root;
+    std::string m_description;
+};
+
+}  // namespace
+
+SamplerHandle MakeParentBasedSampler(SamplerHandle root)
+{
+    return SamplerHandle{std::make_unique<ParentBasedSampler>(std::move(root))};
 }
 
 }  // namespace microtel

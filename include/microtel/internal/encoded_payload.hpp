@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <utility>
 
 namespace microtel::internal
 {
@@ -17,13 +18,19 @@ namespace microtel::internal
 /// returns. Bytes do not survive a retry — on retry the exporter calls
 /// `Encode` again. (LOCKED — `docs/memory-model.md` §3.)
 ///
-/// No upb type appears in this header.
+/// No upb type appears in this header. Methods are defined inline because
+/// the type is small enough to be header-only; tests depend on this so
+/// mocks can construct `EncodedPayload` without a separate translation
+/// unit.
 class EncodedPayload
 {
 public:
     EncodedPayload() noexcept = default;
 
-    EncodedPayload(std::unique_ptr<std::byte[]> bytes, std::size_t size) noexcept;
+    EncodedPayload(std::unique_ptr<std::byte[]> bytes, std::size_t size) noexcept
+        : m_bytes(std::move(bytes)), m_size(size)
+    {
+    }
 
     EncodedPayload(const EncodedPayload&)            = delete;
     EncodedPayload& operator=(const EncodedPayload&) = delete;
@@ -31,11 +38,22 @@ public:
     EncodedPayload& operator=(EncodedPayload&&) noexcept = default;
     ~EncodedPayload() noexcept                       = default;
 
-    [[nodiscard]] std::span<const std::byte> Bytes() const noexcept;
-    [[nodiscard]] std::size_t                Size() const noexcept;
+    [[nodiscard]] std::span<const std::byte> Bytes() const noexcept
+    {
+        return {m_bytes.get(), m_size};
+    }
+
+    [[nodiscard]] std::size_t Size() const noexcept
+    {
+        return m_size;
+    }
 
     /// @brief Release the underlying buffer; leaves the payload empty.
-    [[nodiscard]] std::unique_ptr<std::byte[]> Release() && noexcept;
+    [[nodiscard]] std::unique_ptr<std::byte[]> Release() && noexcept
+    {
+        m_size = 0;
+        return std::move(m_bytes);
+    }
 
 private:
     std::unique_ptr<std::byte[]> m_bytes;

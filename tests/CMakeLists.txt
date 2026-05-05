@@ -28,6 +28,9 @@ function(microtel_add_test)
         GTest::gtest
         GTest::gtest_main
         ${MT_LIBS})
+    # Tests include shared mocks/fakes via "mocks/..." and "fakes/...".
+    target_include_directories(${MT_NAME} PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests)
     target_compile_options(${MT_NAME} PRIVATE
         -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})

@@ -79,20 +79,25 @@ struct TransportResult
 ///
 /// The `future` resolves on completion (success, failure, cancellation).
 /// `Cancel(handle)` requests cancellation; the future still resolves, with
-/// `Error::Kind::Cancelled` populated.
+/// `Error::Kind::Cancelled` populated. Methods are inline so mocks can
+/// construct a `RequestHandle` without a separate translation unit.
 class RequestHandle
 {
 public:
     RequestHandle() noexcept = default;
-    explicit RequestHandle(std::uint64_t id, std::future<TransportResult> f) noexcept;
+    explicit RequestHandle(std::uint64_t id,
+                           std::future<TransportResult> f) noexcept
+        : m_id(id), m_future(std::move(f))
+    {
+    }
 
     RequestHandle(const RequestHandle&)            = delete;
     RequestHandle& operator=(const RequestHandle&) = delete;
     RequestHandle(RequestHandle&&) noexcept        = default;
     RequestHandle& operator=(RequestHandle&&) noexcept = default;
 
-    [[nodiscard]] std::uint64_t                Id() const noexcept;
-    [[nodiscard]] std::future<TransportResult>& Future() noexcept;
+    [[nodiscard]] std::uint64_t Id() const noexcept { return m_id; }
+    [[nodiscard]] std::future<TransportResult>& Future() noexcept { return m_future; }
 
 private:
     std::uint64_t                m_id = 0;

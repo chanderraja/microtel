@@ -40,3 +40,28 @@ if(MICROTEL_BUILD_HEADER_CHECK)
     target_compile_options(microtel_header_check PRIVATE
         -Wall -Wextra -Wpedantic -Werror)
 endif()
+
+# Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
+# per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
+# whole tree for cross-compilation or constrained builds (spec §14.2).
+option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
+
+if(MICROTEL_BUILD_TESTS)
+    enable_testing()
+
+    # GoogleTest via FetchContent — pinned to a stable tag. No system
+    # dependency required. Test-only; not part of the runtime closure
+    # in microtel-spec.md §9.1.
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0
+        GIT_SHALLOW    TRUE
+    )
+    # Don't install gtest as part of microtel's install target.
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    add_subdirectory(tests)
+endif()

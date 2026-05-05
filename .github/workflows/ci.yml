@@ -1,15 +1,15 @@
-# M0 header compile check.
+# microtel CI — header compile check + test tree (M2+).
 #
 # Verifies every public and internal header compiles standalone with
 # -Wall -Wextra -Wpedantic -Werror under both -std=c++20 (the project
 # floor) and -std=c++23 (which exercises the std::expected branch of
-# the microtel::Expected wrapper per ICP 0002).
+# the microtel::Expected wrapper per ICP 0002), plus runs the gtest
+# smoke test that exercises the headers inside a gtest TU (M2 chunk 2).
 #
-# This workflow is the operational form of CLAUDE.md rule 1 and ICP
-# 0001's "Both header trees compile under an INTERFACE CMake target
-# with -Werror" requirement.
+# Sanitizers, clang-tidy, clang-format, and coverage gates land here
+# in M2 chunk 5.
 
-name: header-check
+name: ci
 
 on:
   push:
@@ -53,7 +53,11 @@ jobs:
             -G Ninja \
             -DCMAKE_CXX_STANDARD=${{ matrix.std }} \
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-            -DMICROTEL_BUILD_HEADER_CHECK=ON
+            -DMICROTEL_BUILD_HEADER_CHECK=ON \
+            -DMICROTEL_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --verbose
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

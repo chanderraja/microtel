@@ -31,3 +31,6 @@ microtel_add_test(
     SOURCES log_sink_test.cpp
     LIBS    microtel_common)
 target_include_directories(log_sink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M3 — Track A unit tests. Mirrors src/sdk/.
+add_subdirectory(sdk)

@@ -200,6 +200,15 @@ States and transitions for one in-flight request:
 
 **Memory cleanup.** On `COMPLETE`, the response buffer is reset, the in-flight request record is freed, the per-stream parser state is destroyed.
 
+**Implementation note (non-normative) — distinguishing initial-vs-trailing HEADERS in the nghttp2 callback model.** nghttp2 surfaces every received header through a single `on_header_callback`. To bucket headers correctly into the state machine above (initial HEADERS feed `READ_INITIAL` / `STATUS_ONLY`; trailing HEADERS feed `AWAIT_TRAIL`), the codec inspects `frame->headers.cat`:
+
+| `frame->headers.cat` | Meaning on a client stream |
+|---|---|
+| `NGHTTP2_HCAT_RESPONSE` | First HEADERS frame on this stream — the initial response headers. If `END_STREAM=1` and `grpc-status` is present, this is a trailer-only response. |
+| `NGHTTP2_HCAT_HEADERS`  | Any subsequent HEADERS frame — for OTLP unary, these are trailers. |
+
+The trailer-only recognition rule from §2.5 (END_STREAM on the first HEADERS combined with `grpc-status` present) is unchanged; `headers.cat` is the nghttp2-specific way to spot "this is the first HEADERS frame on a client stream." Validated against the OpenTelemetry Collector during the M1 spike.
+
 ---
 
 ## 4. Status interpretation

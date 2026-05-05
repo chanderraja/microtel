@@ -29,10 +29,10 @@ namespace
 TEST(FakeClock, AdvanceMovesNowForward)
 {
     mt::testing::FakeClock clock;
-    auto t0 = clock.Now();
+    const auto wall_t0 = clock.Now();
     clock.Advance(std::chrono::seconds{5});
-    auto t1 = clock.Now();
-    EXPECT_EQ(t1 - t0, std::chrono::seconds{5});
+    const auto wall_t1 = clock.Now();
+    EXPECT_EQ(wall_t1 - wall_t0, std::chrono::seconds{5});
 }
 
 TEST(FakeSteadyClock, AdvanceMovesNowForward)
@@ -63,8 +63,8 @@ TEST(FakeDiagnosticsSink, RecordsAndSnapshots)
 TEST(FakeAuthProvider, ScriptedFifo)
 {
     mt::testing::FakeAuthProvider auth;
-    auth.scripted_responses.push_back(std::optional<std::string>{"first"});
-    auth.scripted_responses.push_back(std::optional<std::string>{"second"});
+    auth.scripted_responses.emplace_back(std::optional<std::string>{"first"});
+    auth.scripted_responses.emplace_back(std::optional<std::string>{"second"});
 
     auto r1 = auth.GetAuthorization(mt::internal::TimePointSteady{});
     auto r2 = auth.GetAuthorization(mt::internal::TimePointSteady{});
@@ -83,7 +83,7 @@ TEST(FakeResourceDetector, ReturnsConfiguredResource)
 {
     mt::testing::FakeResourceDetector detector;
     detector.resource_to_return = mt::Resource{std::vector<mt::KeyValue>{
-        mt::KeyValue{"service.name", mt::AttributeValue{std::string{"x"}}}}};
+        mt::KeyValue{.key = "service.name", .value = mt::AttributeValue{std::string{"x"}}}}};
 
     auto r = detector.Detect();
     ASSERT_TRUE(r.has_value());
@@ -95,8 +95,9 @@ TEST(FakeResourceDetector, ReturnsConfiguredResource)
 TEST(FakeResourceDetector, FailureSurface)
 {
     mt::testing::FakeResourceDetector detector;
-    detector.failure = mt::ConfigError{
-        mt::ConfigError::Kind::EnvParseFailure, "OTEL_RESOURCE_ATTRIBUTES", "malformed"};
+    detector.failure = mt::ConfigError{.kind = mt::ConfigError::Kind::EnvParseFailure,
+                                       .field = "OTEL_RESOURCE_ATTRIBUTES",
+                                       .message = "malformed"};
 
     auto r = detector.Detect();
     ASSERT_FALSE(r.has_value());

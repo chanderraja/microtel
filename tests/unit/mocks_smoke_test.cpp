@@ -25,7 +25,7 @@ namespace
 TEST(MockTransport, RecordsCalls)
 {
     mt::testing::MockTransport mock;
-    mt::internal::ConnectOptions opts{};
+    const mt::internal::ConnectOptions opts{};
     auto connect_rc = mock.Connect(opts);
     EXPECT_TRUE(connect_rc.has_value());
     EXPECT_EQ(mock.connect_call_count, 1);
@@ -41,8 +41,8 @@ TEST(MockOtlpEncoder, ReturnsConfiguredBytes)
     mt::testing::MockOtlpEncoder mock;
     mock.bytes_to_return = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
 
-    mt::internal::BatchHandle batch{};
-    auto payload = mock.Encode(batch);
+    const mt::internal::BatchHandle batch{};
+    const auto payload = mock.Encode(batch);
 
     EXPECT_EQ(mock.encode_call_count, 1);
     EXPECT_EQ(payload.Size(), std::size_t{3});
@@ -79,9 +79,9 @@ TEST(MockExporter, RecordsLifecycleCalls)
 
 TEST(MockSampler, ReturnsConfiguredDecision)
 {
-    mt::testing::MockSampler mock;
-    mt::internal::SamplingContext ctx{};
-    auto result = mock.ShouldSample(ctx);
+    const mt::testing::MockSampler mock;
+    const mt::internal::SamplingContext ctx{};
+    const auto result = mock.ShouldSample(ctx);
     EXPECT_EQ(result.decision, mt::internal::SamplingDecision::RecordAndSample);
     EXPECT_EQ(mock.should_sample_call_count, 1);
     EXPECT_EQ(mock.Description(), std::string_view{"MockSampler"});

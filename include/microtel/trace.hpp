@@ -21,12 +21,26 @@ public:
     TraceId() noexcept = default;
 
     /// @brief Construct from raw 16-byte buffer.
-    explicit TraceId(const Bytes& bytes) noexcept;
+    explicit TraceId(const Bytes& bytes) noexcept : m_bytes(bytes) {}
 
-    /// @brief Returns true if all bytes are zero.
-    [[nodiscard]] bool IsValid() const noexcept;
+    /// @brief Returns true if any byte is non-zero (W3C "valid trace id"
+    /// rule: not all zeros).
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+        for (auto b : m_bytes)
+        {
+            if (b != 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
-    [[nodiscard]] const Bytes& AsBytes() const noexcept;
+    [[nodiscard]] const Bytes& AsBytes() const noexcept
+    {
+        return m_bytes;
+    }
 
     /// @brief Lower-case hex encoding (32 chars, no separators).
     [[nodiscard]] std::string ToHex() const;
@@ -44,11 +58,24 @@ public:
 
     SpanId() noexcept = default;
 
-    explicit SpanId(const Bytes& bytes) noexcept;
+    explicit SpanId(const Bytes& bytes) noexcept : m_bytes(bytes) {}
 
-    [[nodiscard]] bool IsValid() const noexcept;
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+        for (auto b : m_bytes)
+        {
+            if (b != 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
-    [[nodiscard]] const Bytes& AsBytes() const noexcept;
+    [[nodiscard]] const Bytes& AsBytes() const noexcept
+    {
+        return m_bytes;
+    }
 
     /// @brief Lower-case hex encoding (16 chars, no separators).
     [[nodiscard]] std::string ToHex() const;

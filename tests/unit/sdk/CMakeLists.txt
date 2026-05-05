@@ -15,3 +15,8 @@ microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_test(
+    NAME    trace_id_ratio_sampler_test
+    SOURCES trace_id_ratio_sampler_test.cpp
+    LIBS    microtel_sdk)

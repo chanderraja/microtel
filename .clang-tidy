@@ -46,13 +46,16 @@ Checks: >
   -readability-magic-numbers,
   -readability-uppercase-literal-suffix,
   -readability-avoid-const-params-in-decls,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
 
 # CI fails on any warning. Local development can suppress this with --warnings-as-errors=''.
 WarningsAsErrors: '*'
 
 # Limit to project headers; don't analyze third-party or generated code.
+# `third_party/` and `gen/` are excluded by virtue of not matching this
+# include-pattern, so no separate exclusion key is needed (and keeps the
+# config compatible with clang-tidy 18, which lacks `ExcludeHeaderFilterRegex`).
 HeaderFilterRegex: '^(include/microtel|src)/.*\.(hpp|h)$'
-ExcludeHeaderFilterRegex: '(third_party|gen)/.*'
 
 # Use .clang-format at the repo root for any auto-applied formatting.
 FormatStyle: file
@@ -219,3 +222,9 @@ CheckOptions:
 #
 # readability-avoid-const-params-in-decls
 #   We use `const` on by-value parameters for clarity. Style preference.
+#
+# clang-analyzer-optin.core.EnumCastOutOfRange
+#   Fires on bitmask-style enums where `A | B` produces a value that is not
+#   itself a named enumerator (e.g. EventMask::Read | EventMask::Write == 3).
+#   That is a legitimate and pervasive pattern in this codebase; reviewers
+#   enforce that the underlying type is wide enough by hand.

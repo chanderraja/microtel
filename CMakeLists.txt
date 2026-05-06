@@ -72,7 +72,11 @@ endif()
 # implementation lands in M3+.
 option(MICROTEL_COVERAGE "Build with --coverage flags for lcov / gcov" OFF)
 if(MICROTEL_COVERAGE)
-    add_compile_options(--coverage -O0 -g)
+    # `-fprofile-update=atomic` makes the gcov counter increments atomic.
+    # Without it, multi-threaded tests (log_sink_test, future
+    # BatchSpanProcessor tests) race on shared counters and produce
+    # corrupted .gcda files — lcov surfaces this as a negative delta.
+    add_compile_options(--coverage -fprofile-update=atomic -O0 -g)
     add_link_options(--coverage)
     message(STATUS "microtel: coverage enabled")
 endif()

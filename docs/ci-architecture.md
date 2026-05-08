@@ -156,7 +156,7 @@ Runs **SonarQube Cloud** on the project's OSS tier — free for public/open-sour
 **Pass condition:** SonarQube Cloud quality gate passes — no critical or blocker issues introduced by the PR.
 
 **Configuration:**
-- `ci/sonar-project.properties` — project key, organization, source paths, exclusions, coverage report path.
+- `sonar-project.properties` (at the repo root — required by SonarCloud's automatic analysis discovery) — project key, organization, source paths, exclusions, coverage report path.
 - `SONAR_TOKEN` GitHub Actions secret — generated in SonarQube Cloud, stored in repo secrets.
 
 **Why SonarQube Cloud OSS tier vs self-hosted Community Build:** the cloud OSS tier is free for public projects and includes the C++ analyzer, branch analysis, and PR decoration — all of which the self-hosted Community Build lacks without paid Developer Edition. For a public OSS project, the cloud tier is the strict superset at zero cost.

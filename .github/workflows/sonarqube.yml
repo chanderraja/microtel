@@ -1,0 +1,86 @@
+# microtel SonarCloud — CI-driven scan, replaces Automatic Analysis.
+#
+# Per docs/ci-architecture.md §"sonarqube.yml". Automatic Analysis must be
+# disabled in the SonarCloud project settings (Administration → Analysis
+# Method) so this workflow is the single source of analysis truth — that's
+# the only way `sonar.exclusions` in `sonar-project.properties` is
+# reliably honored. (Automatic Analysis silently ignores exclusion
+# patterns, which produced blocker findings against vendored upb /
+# utf8_range code in M3-F1b.)
+#
+# Required repo secret: `SONAR_TOKEN` (generated under sonarcloud.io →
+# Account → Security). Forks do not have access; this workflow no-ops on
+# fork PRs rather than failing loudly.
+
+name: sonarqube
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# One in-flight scan per branch is plenty — Sonar matches PR decoration
+# by SHA, so cancelling stale runs only saves Sonar API quota.
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    name: scan
+
+    # Skip on fork PRs (no SONAR_TOKEN) and when the secret is unset.
+    if: >-
+      (github.event_name == 'push'
+       || github.event.pull_request.head.repo.full_name == github.repository)
+
+    steps:
+      - name: Checkout (full history for blame-based issue dating)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm SONAR_TOKEN is available
+        id: token-check
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [[ -z "${SONAR_TOKEN}" ]]; then
+            echo "SONAR_TOKEN not configured — skipping scan." >&2
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install toolchain + lcov
+        if: steps.token-check.outputs.available == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 cmake ninja-build lcov
+
+      - name: Build under coverage (produces compile_commands.json + lcov)
+        if: steps.token-check.outputs.available == 'true'
+        env:
+          CC:  gcc-13
+          CXX: g++-13
+        run: ci/scripts/coverage.sh build/coverage
+
+      - name: SonarCloud scan
+        if: steps.token-check.outputs.available == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          # Exclusions live in sonar-project.properties; restating the
+          # most load-bearing patterns here is a deliberate safety net so
+          # a future edit that breaks the .properties file can't quietly
+          # rescan vendored code.
+          args: >
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.scm.provider=git
+            -Dsonar.exclusions=gen/**,third_party/**,proto/**,build/**,build-*/**,spike/**,**/_generated/**,**/*.upb.c,**/*.upb.h,**/*.upb_minitable.c,**/*.upb_minitable.h
+            -Dsonar.cfamily.compile-commands=build/coverage/compile_commands.json
+            -Dsonar.cfamily.llvm-cov.reportPath=build/coverage/coverage.filtered.info

@@ -117,6 +117,7 @@ add_subdirectory(gen)
 # chunks land. Track A (src/sdk/) leads M3.
 add_subdirectory(src/common)
 add_subdirectory(src/sdk)
+add_subdirectory(src/wire)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the

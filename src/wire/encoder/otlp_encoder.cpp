@@ -40,18 +40,18 @@ namespace
 // Type aliases — shorten the upb generated names inside this TU only.
 // ---------------------------------------------------------------------------
 
-using UpbKV       = opentelemetry_proto_common_v1_KeyValue;
+using UpbKV = opentelemetry_proto_common_v1_KeyValue;
 using UpbAnyValue = opentelemetry_proto_common_v1_AnyValue;
 using UpbArrayVal = opentelemetry_proto_common_v1_ArrayValue;
-using UpbScope    = opentelemetry_proto_common_v1_InstrumentationScope;
+using UpbScope = opentelemetry_proto_common_v1_InstrumentationScope;
 using UpbResource = opentelemetry_proto_resource_v1_Resource;
-using UpbResSp    = opentelemetry_proto_trace_v1_ResourceSpans;
-using UpbScopeSp  = opentelemetry_proto_trace_v1_ScopeSpans;
-using UpbSpan     = opentelemetry_proto_trace_v1_Span;
-using UpbEvent    = opentelemetry_proto_trace_v1_Span_Event;
-using UpbLink     = opentelemetry_proto_trace_v1_Span_Link;
-using UpbStatus   = opentelemetry_proto_trace_v1_Status;
-using UpbRequest  = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest;
+using UpbResSp = opentelemetry_proto_trace_v1_ResourceSpans;
+using UpbScopeSp = opentelemetry_proto_trace_v1_ScopeSpans;
+using UpbSpan = opentelemetry_proto_trace_v1_Span;
+using UpbEvent = opentelemetry_proto_trace_v1_Span_Event;
+using UpbLink = opentelemetry_proto_trace_v1_Span_Link;
+using UpbStatus = opentelemetry_proto_trace_v1_Status;
+using UpbRequest = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,9 +72,7 @@ upb_StringView SvBytes(const void* data, std::size_t size) noexcept
 std::uint64_t ToNanos(std::chrono::system_clock::time_point tp) noexcept
 {
     return static_cast<std::uint64_t>(
-        std::chrono::time_point_cast<std::chrono::nanoseconds>(tp)
-            .time_since_epoch()
-            .count());
+        std::chrono::time_point_cast<std::chrono::nanoseconds>(tp).time_since_epoch().count());
 }
 
 // SpanKind: microtel values are Internal=0..Consumer=4; OTLP proto is
@@ -211,11 +209,8 @@ void EncodeAttrValue(UpbAnyValue* av, const microtel::AttributeValue& val, upb_A
 // AddFn: callable as UpbKV*(upb_Arena*) — e.g. a capturing lambda that
 // closes over the parent message pointer and forwards to the concrete upb
 // add_attributes function. Avoids reinterpret_cast of function pointers.
-template<typename AddFn>
-void EncodeAttributes(
-    const std::vector<microtel::KeyValue>& attrs,
-    upb_Arena* arena,
-    AddFn add_kv)
+template <typename AddFn>
+void EncodeAttributes(const std::vector<microtel::KeyValue>& attrs, upb_Arena* arena, AddFn add_kv)
 {
     for (const auto& kv : attrs)
     {
@@ -247,10 +242,10 @@ void EncodeEvent(const internal::SpanEvent& ev, UpbSpan* span, upb_Arena* arena)
     opentelemetry_proto_trace_v1_Span_Event_set_name(uev, Sv(ev.name));
     opentelemetry_proto_trace_v1_Span_Event_set_time_unix_nano(uev, ToNanos(ev.timestamp));
 
-    EncodeAttributes(ev.attributes, arena,
-        [uev](upb_Arena* a) {
-            return opentelemetry_proto_trace_v1_Span_Event_add_attributes(uev, a);
-        });
+    EncodeAttributes(ev.attributes,
+                     arena,
+                     [uev](upb_Arena* a)
+                     { return opentelemetry_proto_trace_v1_Span_Event_add_attributes(uev, a); });
 }
 
 void EncodeLink(const internal::SpanLink& lnk, UpbSpan* span, upb_Arena* arena)
@@ -266,10 +261,10 @@ void EncodeLink(const internal::SpanLink& lnk, UpbSpan* span, upb_Arena* arena)
     opentelemetry_proto_trace_v1_Span_Link_set_span_id(
         ulnk, SvBytes(tc.span_id.AsBytes().data(), tc.span_id.AsBytes().size()));
 
-    EncodeAttributes(lnk.attributes, arena,
-        [ulnk](upb_Arena* a) {
-            return opentelemetry_proto_trace_v1_Span_Link_add_attributes(ulnk, a);
-        });
+    EncodeAttributes(lnk.attributes,
+                     arena,
+                     [ulnk](upb_Arena* a)
+                     { return opentelemetry_proto_trace_v1_Span_Link_add_attributes(ulnk, a); });
 }
 
 // ---------------------------------------------------------------------------
@@ -323,10 +318,10 @@ void EncodeSpan(const internal::SpanRecord& rec, UpbScopeSp* ss, upb_Arena* aren
             span, SvBytes(pc.span_id.AsBytes().data(), pc.span_id.AsBytes().size()));
     }
 
-    EncodeAttributes(rec.attributes, arena,
-        [span](upb_Arena* a) {
-            return opentelemetry_proto_trace_v1_Span_add_attributes(span, a);
-        });
+    EncodeAttributes(rec.attributes,
+                     arena,
+                     [span](upb_Arena* a)
+                     { return opentelemetry_proto_trace_v1_Span_add_attributes(span, a); });
 
     for (const auto& ev : rec.events)
     {
@@ -351,10 +346,10 @@ void EncodeResource(const microtel::Resource& res, UpbResSp* rs, upb_Arena* aren
     {
         return;
     }
-    EncodeAttributes(res.Attributes(), arena,
-        [ures](upb_Arena* a) {
-            return opentelemetry_proto_resource_v1_Resource_add_attributes(ures, a);
-        });
+    EncodeAttributes(res.Attributes(),
+                     arena,
+                     [ures](upb_Arena* a)
+                     { return opentelemetry_proto_resource_v1_Resource_add_attributes(ures, a); });
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +383,9 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
     upb_Arena* arena = upb_Arena_New();
 
     UpbRequest* req = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_new(arena);
-    UpbResSp* rs    = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_add_resource_spans(req, arena);
+    UpbResSp* rs =
+        opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_add_resource_spans(req,
+                                                                                            arena);
 
     EncodeResource(batch.ResourceRef(), rs, arena);
 
@@ -401,9 +398,8 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
     }
 
     std::size_t len = 0;
-    const char* buf =
-        opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_serialize(
-            req, arena, &len);
+    const char* buf = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_serialize(
+        req, arena, &len);
 
     internal::EncodedPayload payload;
     if (buf != nullptr && len > 0)

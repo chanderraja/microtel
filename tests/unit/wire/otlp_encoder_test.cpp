@@ -72,10 +72,10 @@ static std::chrono::system_clock::time_point NsEpoch(std::uint64_t ns)
 // the first ResourceSpans/ScopeSpans. Caller owns the arena.
 struct ParsedSpan
 {
-    const opentelemetry_proto_trace_v1_Span* span     = nullptr;
+    const opentelemetry_proto_trace_v1_Span* span = nullptr;
     const opentelemetry_proto_trace_v1_ResourceSpans* rs = nullptr;
-    const opentelemetry_proto_trace_v1_ScopeSpans* ss   = nullptr;
-    upb_Arena* arena                                    = nullptr;
+    const opentelemetry_proto_trace_v1_ScopeSpans* ss = nullptr;
+    upb_Arena* arena = nullptr;
 };
 
 static ParsedSpan ParseFirst(const mti::EncodedPayload& payload)
@@ -84,8 +84,8 @@ static ParsedSpan ParseFirst(const mti::EncodedPayload& payload)
     out.arena = upb_Arena_New();
 
     // NOSONAR cpp:S3630 — std::byte* → char* is a well-defined character-type alias
-    const char* const buf   = reinterpret_cast<const char*>(payload.Bytes().data());
-    const std::size_t size  = payload.Size();
+    const char* const buf = reinterpret_cast<const char*>(payload.Bytes().data());
+    const std::size_t size = payload.Size();
 
     auto* req = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_parse(
         buf, size, out.arena);
@@ -96,8 +96,8 @@ static ParsedSpan ParseFirst(const mti::EncodedPayload& payload)
 
     std::size_t rs_count = 0;
     const opentelemetry_proto_trace_v1_ResourceSpans* const* rs_arr =
-        opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_resource_spans(
-            req, &rs_count);
+        opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_resource_spans(req,
+                                                                                        &rs_count);
     if (rs_count == 0 || rs_arr == nullptr)
     {
         return out;
@@ -151,19 +151,18 @@ protected:
     }
 
     // Build a minimal batch with one span having a given context and name.
-    static mti::BatchHandle MinimalBatch(
-        mt::SpanContext ctx,
-        const std::string& name = "op",
-        mt::SpanContext parent  = {})
+    static mti::BatchHandle MinimalBatch(mt::SpanContext ctx,
+                                         const std::string& name = "op",
+                                         mt::SpanContext parent = {})
     {
         mti::SpanRecord rec{
-            .context        = ctx,
+            .context = ctx,
             .parent_context = parent,
-            .name           = name,
-            .kind           = mt::SpanKind::Internal,
-            .status_code    = mt::StatusCode::Unset,
-            .start_time     = NsEpoch(1'000'000'000ULL),
-            .end_time       = NsEpoch(2'000'000'000ULL),
+            .name = name,
+            .kind = mt::SpanKind::Internal,
+            .status_code = mt::StatusCode::Unset,
+            .start_time = NsEpoch(1'000'000'000ULL),
+            .end_time = NsEpoch(2'000'000'000ULL),
         };
         auto resource = std::make_shared<const mt::Resource>();
         mti::InstrumentationScope scope{.name = "test_lib", .version = "1.0"};
@@ -198,12 +197,10 @@ TEST_F(OtlpEncoderTest, EmptySpanList_ProducesEmptyPayload)
 
 TEST_F(OtlpEncoderTest, TraceId_RoundTrips)
 {
-    const auto ctx     = MakeCtx(0x11, 0x22);
+    const auto ctx = MakeCtx(0x11, 0x22);
     const auto payload = Encode(MinimalBatch(ctx));
-
-    m_arena         = upb_Arena_New();
-    auto parsed     = ParseFirst(payload);
-    m_arena         = parsed.arena;
+    auto parsed = ParseFirst(payload);
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     const auto tid = opentelemetry_proto_trace_v1_Span_trace_id(parsed.span);
@@ -214,12 +211,10 @@ TEST_F(OtlpEncoderTest, TraceId_RoundTrips)
 
 TEST_F(OtlpEncoderTest, SpanId_RoundTrips)
 {
-    const auto ctx     = MakeCtx(0x33, 0x44);
+    const auto ctx = MakeCtx(0x33, 0x44);
     const auto payload = Encode(MinimalBatch(ctx));
-
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     const auto sid = opentelemetry_proto_trace_v1_Span_span_id(parsed.span);
@@ -230,13 +225,11 @@ TEST_F(OtlpEncoderTest, SpanId_RoundTrips)
 
 TEST_F(OtlpEncoderTest, ParentSpanId_EncodedWhenValid)
 {
-    const auto ctx    = MakeCtx(0x01, 0x02);
+    const auto ctx = MakeCtx(0x01, 0x02);
     const auto parent = MakeCtx(0x01, 0xAB);
     const auto payload = Encode(MinimalBatch(ctx, "child", parent));
-
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     const auto psid = opentelemetry_proto_trace_v1_Span_parent_span_id(parsed.span);
@@ -247,12 +240,10 @@ TEST_F(OtlpEncoderTest, ParentSpanId_EncodedWhenValid)
 
 TEST_F(OtlpEncoderTest, ParentSpanId_ZeroWhenRootSpan)
 {
-    const auto ctx     = MakeCtx(0x55, 0x66);
+    const auto ctx = MakeCtx(0x55, 0x66);
     const auto payload = Encode(MinimalBatch(ctx));
-
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     // Root span: encoder does not set parent_span_id → upb returns empty StringView.
@@ -262,12 +253,10 @@ TEST_F(OtlpEncoderTest, ParentSpanId_ZeroWhenRootSpan)
 
 TEST_F(OtlpEncoderTest, SpanName_RoundTrips)
 {
-    const auto ctx     = MakeCtx(0x77, 0x88);
+    const auto ctx = MakeCtx(0x77, 0x88);
     const auto payload = Encode(MinimalBatch(ctx, "my_operation"));
-
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     EXPECT_EQ(SvStr(opentelemetry_proto_trace_v1_Span_name(parsed.span)), "my_operation");
@@ -276,8 +265,11 @@ TEST_F(OtlpEncoderTest, SpanName_RoundTrips)
 TEST_F(OtlpEncoderTest, SpanKind_ClientMapsToOtlpClient)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context = ctx, .name = "rpc", .kind = mt::SpanKind::Client,
-                        .start_time = NsEpoch(1), .end_time = NsEpoch(2)};
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "rpc",
+                        .kind = mt::SpanKind::Client,
+                        .start_time = NsEpoch(1),
+                        .end_time = NsEpoch(2)};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
     std::vector<mti::SpanRecord> records;
@@ -285,9 +277,8 @@ TEST_F(OtlpEncoderTest, SpanKind_ClientMapsToOtlpClient)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     EXPECT_EQ(opentelemetry_proto_trace_v1_Span_kind(parsed.span),
@@ -297,11 +288,11 @@ TEST_F(OtlpEncoderTest, SpanKind_ClientMapsToOtlpClient)
 TEST_F(OtlpEncoderTest, Timestamps_RoundTrip)
 {
     constexpr std::uint64_t kStart = 1'000'000'000ULL;
-    constexpr std::uint64_t kEnd   = 2'000'000'000ULL;
+    constexpr std::uint64_t kEnd = 2'000'000'000ULL;
 
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context = ctx, .name = "ts",
-                        .start_time = NsEpoch(kStart), .end_time = NsEpoch(kEnd)};
+    mti::SpanRecord rec{
+        .context = ctx, .name = "ts", .start_time = NsEpoch(kStart), .end_time = NsEpoch(kEnd)};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
     std::vector<mti::SpanRecord> records;
@@ -309,9 +300,8 @@ TEST_F(OtlpEncoderTest, Timestamps_RoundTrip)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     EXPECT_EQ(opentelemetry_proto_trace_v1_Span_start_time_unix_nano(parsed.span), kStart);
@@ -323,12 +313,12 @@ TEST_F(OtlpEncoderTest, Timestamps_RoundTrip)
 TEST_F(OtlpEncoderTest, StatusError_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "fail",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "fail",
                         .status_code = mt::StatusCode::Error,
                         .status_description = "something went wrong",
                         .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2)};
+                        .end_time = NsEpoch(2)};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
     std::vector<mti::SpanRecord> records;
@@ -336,9 +326,8 @@ TEST_F(OtlpEncoderTest, StatusError_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     const auto* status = opentelemetry_proto_trace_v1_Span_status(parsed.span);
@@ -353,10 +342,10 @@ TEST_F(OtlpEncoderTest, StatusError_RoundTrips)
 TEST_F(OtlpEncoderTest, StringAttribute_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "attr_test",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "attr_test",
                         .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2),
+                        .end_time = NsEpoch(2),
                         .attributes = {{"http.method", std::string{"GET"}}}};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
@@ -365,9 +354,8 @@ TEST_F(OtlpEncoderTest, StringAttribute_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t count = 0;
@@ -382,10 +370,10 @@ TEST_F(OtlpEncoderTest, StringAttribute_RoundTrips)
 TEST_F(OtlpEncoderTest, BoolAttribute_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "bool_attr",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "bool_attr",
                         .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2),
+                        .end_time = NsEpoch(2),
                         .attributes = {{"sampled", true}}};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
@@ -394,9 +382,8 @@ TEST_F(OtlpEncoderTest, BoolAttribute_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t count = 0;
@@ -410,10 +397,10 @@ TEST_F(OtlpEncoderTest, BoolAttribute_RoundTrips)
 TEST_F(OtlpEncoderTest, Int64Attribute_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "int_attr",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "int_attr",
                         .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2),
+                        .end_time = NsEpoch(2),
                         .attributes = {{"http.status_code", std::int64_t{200}}}};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
@@ -422,9 +409,8 @@ TEST_F(OtlpEncoderTest, Int64Attribute_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t count = 0;
@@ -438,10 +424,10 @@ TEST_F(OtlpEncoderTest, Int64Attribute_RoundTrips)
 TEST_F(OtlpEncoderTest, DoubleAttribute_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "dbl_attr",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "dbl_attr",
                         .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2),
+                        .end_time = NsEpoch(2),
                         .attributes = {{"latency_ms", 3.14}}};
     auto resource = std::make_shared<const mt::Resource>();
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
@@ -450,9 +436,8 @@ TEST_F(OtlpEncoderTest, DoubleAttribute_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t count = 0;
@@ -470,18 +455,16 @@ TEST_F(OtlpEncoderTest, ResourceAttributes_Encoded)
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
     mti::SpanRecord rec{
         .context = ctx, .name = "op", .start_time = NsEpoch(1), .end_time = NsEpoch(2)};
-    auto resource =
-        std::make_shared<const mt::Resource>(std::vector<mt::KeyValue>{
-            {"service.name", std::string{"my-service"}}});
+    auto resource = std::make_shared<const mt::Resource>(
+        std::vector<mt::KeyValue>{{"service.name", std::string{"my-service"}}});
     mti::InstrumentationScope scope{.name = "lib", .version = "1"};
     std::vector<mti::SpanRecord> records;
     records.push_back(std::move(rec));
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.rs, nullptr);
 
     const auto* res = opentelemetry_proto_trace_v1_ResourceSpans_resource(parsed.rs);
@@ -510,9 +493,8 @@ TEST_F(OtlpEncoderTest, ScopeNameAndVersion_Encoded)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.ss, nullptr);
 
     const auto* sc = opentelemetry_proto_trace_v1_ScopeSpans_scope(parsed.ss);
@@ -528,14 +510,14 @@ TEST_F(OtlpEncoderTest, SpanEvent_RoundTrips)
 {
     const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
     mti::SpanEvent ev;
-    ev.name      = "exception";
+    ev.name = "exception";
     ev.timestamp = NsEpoch(1'500'000'000ULL);
     ev.attributes.push_back({"exception.type", std::string{"RuntimeError"}});
 
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "op",
+    mti::SpanRecord rec{.context = ctx,
+                        .name = "op",
                         .start_time = NsEpoch(1'000'000'000ULL),
-                        .end_time   = NsEpoch(2'000'000'000ULL)};
+                        .end_time = NsEpoch(2'000'000'000ULL)};
     rec.events.push_back(std::move(ev));
 
     auto resource = std::make_shared<const mt::Resource>();
@@ -545,17 +527,15 @@ TEST_F(OtlpEncoderTest, SpanEvent_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t ev_count = 0;
     const auto* const* events = opentelemetry_proto_trace_v1_Span_events(parsed.span, &ev_count);
     ASSERT_EQ(ev_count, 1U);
     EXPECT_EQ(SvStr(opentelemetry_proto_trace_v1_Span_Event_name(events[0])), "exception");
-    EXPECT_EQ(opentelemetry_proto_trace_v1_Span_Event_time_unix_nano(events[0]),
-              1'500'000'000ULL);
+    EXPECT_EQ(opentelemetry_proto_trace_v1_Span_Event_time_unix_nano(events[0]), 1'500'000'000ULL);
 
     std::size_t attr_count = 0;
     const auto* const* ev_attrs =
@@ -568,17 +548,15 @@ TEST_F(OtlpEncoderTest, SpanEvent_RoundTrips)
 
 TEST_F(OtlpEncoderTest, SpanLink_RoundTrips)
 {
-    const mt::SpanContext ctx        = MakeCtx(0x01, 0x02);
+    const mt::SpanContext ctx = MakeCtx(0x01, 0x02);
     const mt::SpanContext linked_ctx = MakeCtx(0xAB, 0xCD);
 
     mti::SpanLink lnk;
     lnk.linked_context = linked_ctx;
     lnk.attributes.push_back({"link.type", std::string{"follows_from"}});
 
-    mti::SpanRecord rec{.context    = ctx,
-                        .name       = "op",
-                        .start_time = NsEpoch(1),
-                        .end_time   = NsEpoch(2)};
+    mti::SpanRecord rec{
+        .context = ctx, .name = "op", .start_time = NsEpoch(1), .end_time = NsEpoch(2)};
     rec.links.push_back(std::move(lnk));
 
     auto resource = std::make_shared<const mt::Resource>();
@@ -588,9 +566,8 @@ TEST_F(OtlpEncoderTest, SpanLink_RoundTrips)
     mti::BatchHandle batch{std::move(records), std::move(resource), std::move(scope)};
 
     const auto payload = Encode(std::move(batch));
-    m_arena     = upb_Arena_New();
     auto parsed = ParseFirst(payload);
-    m_arena     = parsed.arena;
+    m_arena = parsed.arena;
     ASSERT_NE(parsed.span, nullptr);
 
     std::size_t lnk_count = 0;

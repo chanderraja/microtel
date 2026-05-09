@@ -80,13 +80,13 @@ microtel::Expected<std::unique_ptr<EpollReactor>, microtel::Error> EpollReactor:
     common::raii::UniqueFd epoll_fd{::epoll_create1(EPOLL_CLOEXEC)};
     if (!epoll_fd.IsValid())
     {
-        return microtel::Unexpected{OsError("epoll_create1 failed")};
+        return microtel::Unexpected<microtel::Error>{OsError("epoll_create1 failed")};
     }
 
     common::raii::UniqueFd wake_fd{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     if (!wake_fd.IsValid())
     {
-        return microtel::Unexpected{OsError("eventfd failed")};
+        return microtel::Unexpected<microtel::Error>{OsError("eventfd failed")};
     }
 
     // Register the wakefd with the epoll instance for read events.
@@ -95,7 +95,7 @@ microtel::Expected<std::unique_ptr<EpollReactor>, microtel::Error> EpollReactor:
     ev.data.fd = wake_fd.Get();
     if (::epoll_ctl(epoll_fd.Get(), EPOLL_CTL_ADD, wake_fd.Get(), &ev) != 0)
     {
-        return microtel::Unexpected{OsError("epoll_ctl ADD wakefd failed")};
+        return microtel::Unexpected<microtel::Error>{OsError("epoll_ctl ADD wakefd failed")};
     }
 
     try
@@ -107,7 +107,7 @@ microtel::Expected<std::unique_ptr<EpollReactor>, microtel::Error> EpollReactor:
     }
     catch (const std::bad_alloc&)
     {
-        return microtel::Unexpected{
+        return microtel::Unexpected<microtel::Error>{
             microtel::Error{.kind = microtel::Error::Kind::InternalFailure, .message = "OOM"}};
     }
 }
@@ -126,7 +126,7 @@ microtel::Expected<void, microtel::Error> EpollReactor::Register(int fd,
 
     if (::epoll_ctl(m_epoll_fd.Get(), EPOLL_CTL_ADD, fd, &ev) != 0)
     {
-        return microtel::Unexpected{OsError("epoll_ctl ADD failed")};
+        return microtel::Unexpected<microtel::Error>{OsError("epoll_ctl ADD failed")};
     }
 
     m_callbacks.emplace(fd, std::move(cb));
@@ -170,7 +170,7 @@ std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
         {
             // Drain the eventfd counter so the next Wait doesn't immediately return.
             std::uint64_t dummy = 0;
-            (void)::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
+            [[maybe_unused]] const ssize_t n = ::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
             continue;
         }
 
@@ -187,7 +187,7 @@ std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
 void EpollReactor::Wake() noexcept
 {
     const std::uint64_t one = 1;
-    (void)::write(m_wake_fd.Get(), &one, sizeof(one));
+    [[maybe_unused]] const ssize_t n = ::write(m_wake_fd.Get(), &one, sizeof(one));
 }
 
 }  // namespace microtel::transport

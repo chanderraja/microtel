@@ -17,12 +17,12 @@ namespace microtel::wire
 class OtlpEncoder final : public internal::IOtlpEncoder
 {
 public:
-    OtlpEncoder() noexcept                             = default;
-    ~OtlpEncoder() noexcept override                   = default;
-    OtlpEncoder(const OtlpEncoder&)                    = delete;
-    OtlpEncoder& operator=(const OtlpEncoder&)         = delete;
-    OtlpEncoder(OtlpEncoder&&) noexcept                = delete;
-    OtlpEncoder& operator=(OtlpEncoder&&) noexcept     = delete;
+    OtlpEncoder() noexcept = default;
+    ~OtlpEncoder() noexcept override = default;
+    OtlpEncoder(const OtlpEncoder&) = delete;
+    OtlpEncoder& operator=(const OtlpEncoder&) = delete;
+    OtlpEncoder(OtlpEncoder&&) noexcept = delete;
+    OtlpEncoder& operator=(OtlpEncoder&&) noexcept = delete;
 
     /// @brief Encode all spans in `batch` into an OTLP `ExportTraceServiceRequest`.
     ///

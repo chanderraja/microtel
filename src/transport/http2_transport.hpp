@@ -80,7 +80,7 @@ public:
     // can reach them without friendship (C-linkage functions cannot be friends).
     std::ptrdiff_t NgHttp2DoSend(const std::uint8_t* data, std::size_t len) noexcept;
     std::ptrdiff_t NgHttp2DoRecv(std::uint8_t* buf, std::size_t len) noexcept;
-    void           OnSettingsAck() noexcept;
+    void OnSettingsAck() noexcept;
 
 private:
     explicit Http2Transport(std::unique_ptr<internal::IReactor> reactor) noexcept;
@@ -88,12 +88,12 @@ private:
     void IoThreadLoop() noexcept;
     void OnIoEvent(int fd, internal::EventMask events) noexcept;
 
-    [[nodiscard]] microtel::Expected<
-        std::pair<common::raii::SslCtx, common::raii::SslSession>, microtel::Error>
+    [[nodiscard]] microtel::Expected<std::pair<common::raii::SslCtx, common::raii::SslSession>,
+                                     microtel::Error>
     TlsHandshake(const internal::ConnectOptions& opts, const std::string& host);
 
-    [[nodiscard]] microtel::Expected<common::raii::Nghttp2Session, microtel::Error>
-    Http2Handshake(const internal::ConnectOptions& opts);
+    [[nodiscard]] microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Handshake(
+        const internal::ConnectOptions& opts);
 
     std::unique_ptr<internal::IReactor> m_reactor;
     std::atomic<microtel::ConnectionState> m_state{microtel::ConnectionState::Disconnected};
@@ -103,11 +103,11 @@ private:
     // Connection resources — written by Connect(), read by I/O-thread callbacks.
     // Thread-safety: Connect() writes these before the release-store of
     // m_state = Connected; I/O callbacks acquire-load m_state before use.
-    common::raii::UniqueFd         m_socket;
-    common::raii::SslCtx           m_ssl_ctx;
-    common::raii::SslSession       m_ssl_session;
-    common::raii::Nghttp2Session   m_nghttp2_session;
-    std::atomic<bool>              m_settings_ack_received{false};
+    common::raii::UniqueFd m_socket;
+    common::raii::SslCtx m_ssl_ctx;
+    common::raii::SslSession m_ssl_session;
+    common::raii::Nghttp2Session m_nghttp2_session;
+    std::atomic<bool> m_settings_ack_received{false};
 };
 
 }  // namespace microtel::transport

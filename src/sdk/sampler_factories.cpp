@@ -181,7 +181,8 @@ private:
         std::uint64_t v = 0;
         for (std::size_t i = 0; i < 8; ++i)
         {
-            v = (v << 8) | static_cast<std::uint64_t>(bytes[8 + i]);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            v = (v << 8U) | static_cast<std::uint64_t>(bytes[8U + i]);
         }
         return v;
     }

@@ -39,8 +39,8 @@ struct SinkState
 
 SinkState& State() noexcept
 {
-    static SinkState s;
-    return s;
+    static SinkState s_state;
+    return s_state;
 }
 
 const char* LevelTag(LogLevel level) noexcept
@@ -66,14 +66,14 @@ const char* LevelTag(LogLevel level) noexcept
 void SetLogSink(LogSink sink) noexcept
 {
     auto& st = State();
-    const std::lock_guard lock(st.mu);
+    const std::scoped_lock lock(st.mu);
     st.sink = std::move(sink);
 }
 
 void ResetLogSink() noexcept
 {
     auto& st = State();
-    const std::lock_guard lock(st.mu);
+    const std::scoped_lock lock(st.mu);
     st.sink = {};
 }
 
@@ -97,7 +97,7 @@ void LogImpl(LogLevel level, std::string_view message) noexcept
     LogSink local_copy;
     {
         auto& st = State();
-        const std::lock_guard lock(st.mu);
+        const std::scoped_lock lock(st.mu);
         local_copy = st.sink;  // copy the std::function out
     }
 
@@ -110,20 +110,21 @@ void LogImpl(LogLevel level, std::string_view message) noexcept
         {
             local_copy(level, message);
         }
+        // NOLINTNEXTLINE(bugprone-empty-catch)
         catch (...)
         {
-            // Drop the exception silently.
+            // Intentionally empty — sinks must not throw per error-model.md §9.3.
         }
         return;
     }
 
     // No sink installed. Default fallback: stderr.
     // Format: "[microtel level] message\n"
-    std::fprintf(stderr,
-                 "[microtel %s] %.*s\n",
-                 LevelTag(level),
-                 static_cast<int>(message.size()),
-                 message.data());
+    (void)std::fprintf(stderr,
+                       "[microtel %s] %.*s\n",
+                       LevelTag(level),
+                       static_cast<int>(message.size()),
+                       message.data());
 }
 
 }  // namespace internal

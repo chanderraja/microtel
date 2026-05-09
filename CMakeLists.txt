@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(microtel
         VERSION 0.1.0
-        LANGUAGES CXX
+        LANGUAGES C CXX
         DESCRIPTION "Lightweight OpenTelemetry-compatible trace runtime built on nghttp2")
 
 set(CMAKE_CXX_STANDARD 20)
@@ -101,6 +101,16 @@ if(MICROTEL_USE_SPDLOG)
     set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(spdlog)
 endif()
+
+# Third-party libraries: upb runtime + utf8_range validator.
+# CMake targets: microtel_upb_runtime, microtel_utf8_range.
+# These are compiled as C11 with -w (no warnings from vendored code).
+add_subdirectory(third_party/utf8_range)
+add_subdirectory(third_party/upb)
+
+# Generated upb accessors (protoc-gen-upb output committed under gen/).
+# CMake target: microtel_upb_gen. Regen: ci/scripts/regen-protos.sh.
+add_subdirectory(gen)
 
 # src/ — production code per the track ownership in
 # `docs/development.md`. Subdirectories grow as M3+ implementation

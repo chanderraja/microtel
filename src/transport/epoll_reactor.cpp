@@ -170,7 +170,7 @@ std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
         {
             // Drain the eventfd counter so the next Wait doesn't immediately return.
             std::uint64_t dummy = 0;
-            ::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
+            (void)::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
             continue;
         }
 
@@ -187,7 +187,7 @@ std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
 void EpollReactor::Wake() noexcept
 {
     const std::uint64_t one = 1;
-    ::write(m_wake_fd.Get(), &one, sizeof(one));
+    (void)::write(m_wake_fd.Get(), &one, sizeof(one));
 }
 
 }  // namespace microtel::transport

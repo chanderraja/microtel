@@ -24,14 +24,14 @@ static mcr::Nghttp2Session MakeClientSession()
 
 TEST(Nghttp2SessionTest, DefaultConstruct_NotValid)
 {
-    mcr::Nghttp2Session session;
+    const mcr::Nghttp2Session session;
     EXPECT_FALSE(session.IsValid());
     EXPECT_EQ(session.Get(), nullptr);
 }
 
 TEST(Nghttp2SessionTest, ExplicitConstruct_Valid)
 {
-    mcr::Nghttp2Session session = MakeClientSession();
+    const mcr::Nghttp2Session session = MakeClientSession();
     EXPECT_TRUE(session.IsValid());
     EXPECT_NE(session.Get(), nullptr);
 }
@@ -41,9 +41,9 @@ TEST(Nghttp2SessionTest, MoveConstruct_TransfersOwnership)
     mcr::Nghttp2Session src = MakeClientSession();
     nghttp2_session* raw = src.Get();
 
-    mcr::Nghttp2Session dst{std::move(src)};
+    const mcr::Nghttp2Session dst{std::move(src)};
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }
@@ -56,7 +56,7 @@ TEST(Nghttp2SessionTest, MoveAssign_TransfersOwnership)
 
     dst = std::move(src);
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }

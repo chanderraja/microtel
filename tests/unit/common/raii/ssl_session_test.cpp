@@ -24,14 +24,14 @@ static mcr::SslSession MakeSession()
 
 TEST(SslSessionTest, DefaultConstruct_NotValid)
 {
-    mcr::SslSession session;
+    const mcr::SslSession session;
     EXPECT_FALSE(session.IsValid());
     EXPECT_EQ(session.Get(), nullptr);
 }
 
 TEST(SslSessionTest, ExplicitConstruct_Valid)
 {
-    mcr::SslSession session = MakeSession();
+    const mcr::SslSession session = MakeSession();
     EXPECT_TRUE(session.IsValid());
     EXPECT_NE(session.Get(), nullptr);
 }
@@ -41,9 +41,9 @@ TEST(SslSessionTest, MoveConstruct_TransfersOwnership)
     mcr::SslSession src = MakeSession();
     SSL* raw = src.Get();
 
-    mcr::SslSession dst{std::move(src)};
+    const mcr::SslSession dst{std::move(src)};
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }
@@ -56,7 +56,7 @@ TEST(SslSessionTest, MoveAssign_TransfersOwnership)
 
     dst = std::move(src);
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }

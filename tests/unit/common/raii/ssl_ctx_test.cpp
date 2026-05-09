@@ -18,14 +18,14 @@ static mcr::SslCtx MakeCtx()
 
 TEST(SslCtxTest, DefaultConstruct_NotValid)
 {
-    mcr::SslCtx ctx;
+    const mcr::SslCtx ctx;
     EXPECT_FALSE(ctx.IsValid());
     EXPECT_EQ(ctx.Get(), nullptr);
 }
 
 TEST(SslCtxTest, ExplicitConstruct_Valid)
 {
-    mcr::SslCtx ctx = MakeCtx();
+    const mcr::SslCtx ctx = MakeCtx();
     EXPECT_TRUE(ctx.IsValid());
     EXPECT_NE(ctx.Get(), nullptr);
 }
@@ -35,9 +35,9 @@ TEST(SslCtxTest, MoveConstruct_TransfersOwnership)
     mcr::SslCtx src = MakeCtx();
     SSL_CTX* raw = src.Get();
 
-    mcr::SslCtx dst{std::move(src)};
+    const mcr::SslCtx dst{std::move(src)};
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }
@@ -50,7 +50,7 @@ TEST(SslCtxTest, MoveAssign_TransfersOwnership)
 
     dst = std::move(src);
 
-    EXPECT_FALSE(src.IsValid());
+    EXPECT_FALSE(src.IsValid());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
     EXPECT_TRUE(dst.IsValid());
     EXPECT_EQ(dst.Get(), raw);
 }

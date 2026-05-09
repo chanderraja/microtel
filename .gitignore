@@ -70,3 +70,6 @@ Testing/
 
 # Out-of-repo handoff artifacts (e.g. agent starting prompts)
 _handoff/
+
+# Knowledge graph (generated; bootstrap with /graphify in Claude Code)
+graphify-out/

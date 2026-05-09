@@ -4,7 +4,8 @@
 # Track D: nghttp2 transport.  EpollReactor first; Http2Transport follows.
 
 add_library(microtel_transport STATIC
-    epoll_reactor.cpp)
+    epoll_reactor.cpp
+    http2_transport.cpp)
 
 target_link_libraries(microtel_transport
     PUBLIC  microtel_headers

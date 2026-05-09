@@ -414,7 +414,7 @@ The SonarQube Cloud scan runs on the project's OSS tier (free for public/open-so
 - Severity lowered to `Info` for: doxygen-comment-on-private-method, blank-line-after-brace.
 - Disabled: rules covering features we don't use (RTTI tags on classes that don't use RTTI, etc.).
 
-The SonarQube config lives at `ci/sonar-project.properties`. The scan runs on every PR and posts inline findings as PR comments; the quality gate fails the PR on critical or blocker issues.
+The SonarQube config lives at `sonar-project.properties` at the repo root — that location is required for SonarCloud's automatic analysis to discover it. The scan runs on every PR and posts inline findings as PR comments; the quality gate fails the PR on critical or blocker issues.
 
 ---
 

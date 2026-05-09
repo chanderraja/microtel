@@ -33,6 +33,8 @@ static std::unique_ptr<mtt::Http2Transport> MakeTransport()
     return std::move(*result);
 }
 
+namespace mti = microtel::internal;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -78,4 +80,21 @@ TEST(Http2TransportTest, Destructor_JoinsIoThread)
     auto t = MakeTransport();
     EXPECT_EQ(t->GetState(), mt::ConnectionState::Disconnected);
     // t goes out of scope here; destructor calls Close internally.
+}
+
+TEST(Http2TransportTest, Connect_EmptyEndpoint_ReturnsError)
+{
+    auto t = MakeTransport();
+    const auto result = t->Connect(mti::ConnectOptions{});
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(Http2TransportTest, Connect_WhenClosed_ReturnsError)
+{
+    auto t = MakeTransport();
+    (void)t->Close(std::chrono::milliseconds(500));
+    mti::ConnectOptions opts;
+    opts.endpoint = "https://localhost:4317";
+    const auto result = t->Connect(opts);
+    EXPECT_FALSE(result.has_value());
 }

@@ -9,7 +9,9 @@ add_library(microtel_transport STATIC
 
 target_link_libraries(microtel_transport
     PUBLIC  microtel_headers
-    PRIVATE microtel_common)
+    PRIVATE microtel_common
+            OpenSSL::SSL
+            PkgConfig::NGHTTP2)
 
 target_include_directories(microtel_transport
     PRIVATE ${CMAKE_SOURCE_DIR}/src)

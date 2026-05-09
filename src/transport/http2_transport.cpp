@@ -563,7 +563,10 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
             (remaining < kPollIntervalMs) ? static_cast<int>(remaining) : kPollIntervalMs;
         pollfd pfd{.fd = m_socket.Get(), .events = POLLIN, .revents = 0};
         const int rv = (::poll(&pfd, 1, poll_ms) > 0) ? ::nghttp2_session_recv(session.Get()) : 0;
-        if (rv != 0 && rv != NGHTTP2_ERR_WOULDBLOCK)
+        // nghttp2_session_recv may have fired OnSettingsAck (m_settings_ack_received = true)
+        // and then read a FIN if the server closed immediately after — that EOF is not an error.
+        if (!m_settings_ack_received.load(std::memory_order_acquire) &&
+            rv != 0 && rv != NGHTTP2_ERR_WOULDBLOCK)
         {
             return microtel::Unexpected<microtel::Error>{
                 {.kind = microtel::Error::Kind::Network,

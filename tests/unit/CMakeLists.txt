@@ -37,3 +37,6 @@ add_subdirectory(sdk)
 
 # M3 — Track F unit tests. Mirrors src/wire/encoder/.
 add_subdirectory(wire)
+
+# M3 — Track D unit tests. Mirrors src/transport/.
+add_subdirectory(transport)

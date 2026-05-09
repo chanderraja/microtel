@@ -112,6 +112,12 @@ add_subdirectory(third_party/upb)
 # CMake target: microtel_upb_gen. Regen: ci/scripts/regen-protos.sh.
 add_subdirectory(gen)
 
+# System dependencies: OpenSSL (TLS) and nghttp2 (HTTP/2 transport).
+# Required by src/common/raii/ and src/transport/; also linked by their tests.
+find_package(OpenSSL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
+
 # src/ — production code per the track ownership in
 # `docs/development.md`. Subdirectories grow as M3+ implementation
 # chunks land. Track A (src/sdk/) leads M3.

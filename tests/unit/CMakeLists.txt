@@ -40,3 +40,6 @@ add_subdirectory(wire)
 
 # M3 — Track D unit tests. Mirrors src/transport/.
 add_subdirectory(transport)
+
+# M3 — Track D RAII wrappers. Mirrors src/common/raii/.
+add_subdirectory(common)

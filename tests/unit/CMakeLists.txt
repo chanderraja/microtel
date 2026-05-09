@@ -34,3 +34,6 @@ target_include_directories(log_sink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # M3 — Track A unit tests. Mirrors src/sdk/.
 add_subdirectory(sdk)
+
+# M3 — Track F unit tests. Mirrors src/wire/encoder/.
+add_subdirectory(wire)

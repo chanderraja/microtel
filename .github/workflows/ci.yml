@@ -139,6 +139,48 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build --output-on-failure
 
+  regen-check:
+    runs-on: ubuntu-latest
+    name: regen-check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc v29.4 + build plugins
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ git
+          # Download pre-built protoc v29.4 binary
+          curl -sL https://github.com/protocolbuffers/protobuf/releases/download/v29.4/protoc-29.4-linux-x86_64.zip \
+               -o /tmp/protoc.zip
+          unzip -j /tmp/protoc.zip bin/protoc -d /tmp/protoc-bin
+          chmod +x /tmp/protoc-bin/protoc
+          # Build protoc-gen-upb / protoc-gen-upb_minitable from source
+          git clone --depth 1 --branch v29.4 \
+            https://github.com/protocolbuffers/protobuf.git /tmp/protobuf
+          cd /tmp/protobuf
+          git submodule update --init third_party/abseil-cpp
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
+            -Dprotobuf_BUILD_TESTS=OFF \
+            -Dprotobuf_BUILD_CONFORMANCE=OFF \
+            -Dprotobuf_BUILD_EXAMPLES=OFF \
+            -Dprotobuf_WITH_ZLIB=OFF \
+            -Dprotobuf_ABSL_PROVIDER=module
+          cmake --build build --target protoc-gen-upb protoc-gen-upb_minitable -j$(nproc)
+      - name: Regenerate proto accessors
+        run: |
+          ci/scripts/regen-protos.sh \
+            --protoc     /tmp/protoc-bin/protoc \
+            --gen-upb    /tmp/protobuf/build/protoc-gen-upb-29.4.0 \
+            --gen-upb-mt /tmp/protobuf/build/protoc-gen-upb_minitable-29.4.0
+      - name: Assert gen/ is up-to-date
+        run: |
+          if ! git diff --exit-code gen/; then
+            echo ""
+            echo "ERROR: gen/ is out of date with proto/."
+            echo "Run ci/scripts/regen-protos.sh and commit the result."
+            exit 1
+          fi
+
   coverage:
     runs-on: ubuntu-latest
     name: coverage

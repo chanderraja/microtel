@@ -62,9 +62,11 @@ upb_StringView Sv(const std::string& s) noexcept
     return upb_StringView_FromDataAndSize(s.data(), s.size());
 }
 
-upb_StringView SvBytes(const std::uint8_t* data, std::size_t size) noexcept
+// Takes const void* so callers pass uint8_t* implicitly; static_cast to char*
+// is valid from void* (avoids reinterpret_cast of unrelated pointer types).
+upb_StringView SvBytes(const void* data, std::size_t size) noexcept
 {
-    return upb_StringView_FromDataAndSize(reinterpret_cast<const char*>(data), size);
+    return upb_StringView_FromDataAndSize(static_cast<const char*>(data), size);
 }
 
 std::uint64_t ToNanos(std::chrono::system_clock::time_point tp) noexcept
@@ -206,15 +208,18 @@ void EncodeAttrValue(UpbAnyValue* av, const microtel::AttributeValue& val, upb_A
         val);
 }
 
+// AddFn: callable as UpbKV*(upb_Arena*) — e.g. a capturing lambda that
+// closes over the parent message pointer and forwards to the concrete upb
+// add_attributes function. Avoids reinterpret_cast of function pointers.
+template<typename AddFn>
 void EncodeAttributes(
     const std::vector<microtel::KeyValue>& attrs,
     upb_Arena* arena,
-    UpbKV* (*add_fn)(void*, upb_Arena*),
-    void* msg)
+    AddFn add_kv)
 {
     for (const auto& kv : attrs)
     {
-        UpbKV* ukv = add_fn(msg, arena);
+        UpbKV* ukv = add_kv(arena);
         if (ukv == nullptr)
         {
             continue;
@@ -242,11 +247,10 @@ void EncodeEvent(const internal::SpanEvent& ev, UpbSpan* span, upb_Arena* arena)
     opentelemetry_proto_trace_v1_Span_Event_set_name(uev, Sv(ev.name));
     opentelemetry_proto_trace_v1_Span_Event_set_time_unix_nano(uev, ToNanos(ev.timestamp));
 
-    EncodeAttributes(
-        ev.attributes, arena,
-        reinterpret_cast<UpbKV* (*)(void*, upb_Arena*)>(
-            opentelemetry_proto_trace_v1_Span_Event_add_attributes),
-        uev);
+    EncodeAttributes(ev.attributes, arena,
+        [uev](upb_Arena* a) {
+            return opentelemetry_proto_trace_v1_Span_Event_add_attributes(uev, a);
+        });
 }
 
 void EncodeLink(const internal::SpanLink& lnk, UpbSpan* span, upb_Arena* arena)
@@ -262,11 +266,10 @@ void EncodeLink(const internal::SpanLink& lnk, UpbSpan* span, upb_Arena* arena)
     opentelemetry_proto_trace_v1_Span_Link_set_span_id(
         ulnk, SvBytes(tc.span_id.AsBytes().data(), tc.span_id.AsBytes().size()));
 
-    EncodeAttributes(
-        lnk.attributes, arena,
-        reinterpret_cast<UpbKV* (*)(void*, upb_Arena*)>(
-            opentelemetry_proto_trace_v1_Span_Link_add_attributes),
-        ulnk);
+    EncodeAttributes(lnk.attributes, arena,
+        [ulnk](upb_Arena* a) {
+            return opentelemetry_proto_trace_v1_Span_Link_add_attributes(ulnk, a);
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -320,11 +323,10 @@ void EncodeSpan(const internal::SpanRecord& rec, UpbScopeSp* ss, upb_Arena* aren
             span, SvBytes(pc.span_id.AsBytes().data(), pc.span_id.AsBytes().size()));
     }
 
-    EncodeAttributes(
-        rec.attributes, arena,
-        reinterpret_cast<UpbKV* (*)(void*, upb_Arena*)>(
-            opentelemetry_proto_trace_v1_Span_add_attributes),
-        span);
+    EncodeAttributes(rec.attributes, arena,
+        [span](upb_Arena* a) {
+            return opentelemetry_proto_trace_v1_Span_add_attributes(span, a);
+        });
 
     for (const auto& ev : rec.events)
     {
@@ -349,11 +351,10 @@ void EncodeResource(const microtel::Resource& res, UpbResSp* rs, upb_Arena* aren
     {
         return;
     }
-    EncodeAttributes(
-        res.Attributes(), arena,
-        reinterpret_cast<UpbKV* (*)(void*, upb_Arena*)>(
-            opentelemetry_proto_resource_v1_Resource_add_attributes),
-        ures);
+    EncodeAttributes(res.Attributes(), arena,
+        [ures](upb_Arena* a) {
+            return opentelemetry_proto_resource_v1_Resource_add_attributes(ures, a);
+        });
 }
 
 // ---------------------------------------------------------------------------

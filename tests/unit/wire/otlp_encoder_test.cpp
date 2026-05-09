@@ -83,6 +83,7 @@ static ParsedSpan ParseFirst(const mti::EncodedPayload& payload)
     ParsedSpan out{};
     out.arena = upb_Arena_New();
 
+    // NOSONAR cpp:S3630 — std::byte* → char* is a well-defined character-type alias
     const char* const buf   = reinterpret_cast<const char*>(payload.Bytes().data());
     const std::size_t size  = payload.Size();
 

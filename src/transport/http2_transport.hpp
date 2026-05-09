@@ -45,8 +45,8 @@ public:
 
     Http2Transport(const Http2Transport&) = delete;
     Http2Transport& operator=(const Http2Transport&) = delete;
-    Http2Transport(Http2Transport&&)                 = delete;
-    Http2Transport& operator=(Http2Transport&&)      = delete;
+    Http2Transport(Http2Transport&&) = delete;
+    Http2Transport& operator=(Http2Transport&&) = delete;
 
     /// @brief Stub — full DNS + TCP + TLS + nghttp2 SETTINGS in M3-D4.
     [[nodiscard]] microtel::Expected<void, microtel::Error> Connect(
@@ -71,10 +71,10 @@ private:
 
     void IoThreadLoop() noexcept;
 
-    std::unique_ptr<internal::IReactor>          m_reactor;
-    std::atomic<microtel::ConnectionState>        m_state{microtel::ConnectionState::Disconnected};
-    std::atomic<bool>                             m_stop{false};
-    std::thread                                   m_io_thread;
+    std::unique_ptr<internal::IReactor> m_reactor;
+    std::atomic<microtel::ConnectionState> m_state{microtel::ConnectionState::Disconnected};
+    std::atomic<bool> m_stop{false};
+    std::thread m_io_thread;
 };
 
 }  // namespace microtel::transport

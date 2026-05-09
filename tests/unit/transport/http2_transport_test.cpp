@@ -7,18 +7,19 @@
 
 #include "transport/http2_transport.hpp"
 
-#include "fakes/fake_reactor.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/status.hpp"
+
+#include "fakes/fake_reactor.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
 
-namespace mt    = microtel;
-namespace mtt   = microtel::transport;
-namespace mtfk  = microtel::testing;
+namespace mt = microtel;
+namespace mtt = microtel::transport;
+namespace mtfk = microtel::testing;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,7 +28,7 @@ namespace mtfk  = microtel::testing;
 static std::unique_ptr<mtt::Http2Transport> MakeTransport()
 {
     auto reactor = std::make_unique<mtfk::FakeReactor>();
-    auto result  = mtt::Http2Transport::Create(std::move(reactor));
+    auto result = mtt::Http2Transport::Create(std::move(reactor));
     EXPECT_TRUE(result.has_value());
     return std::move(*result);
 }

@@ -23,20 +23,19 @@ Http2Transport::Http2Transport(std::unique_ptr<internal::IReactor> reactor) noex
 }
 
 // static
-microtel::Expected<std::unique_ptr<Http2Transport>, microtel::Error>
-Http2Transport::Create(std::unique_ptr<internal::IReactor> reactor) noexcept
+microtel::Expected<std::unique_ptr<Http2Transport>, microtel::Error> Http2Transport::Create(
+    std::unique_ptr<internal::IReactor> reactor) noexcept
 {
     if (!reactor)
     {
-        return microtel::Unexpected<microtel::Error>{
-            microtel::Error{.kind    = microtel::Error::Kind::InternalFailure,
-                            .message = "null reactor"}};
+        return microtel::Unexpected<microtel::Error>{microtel::Error{
+            .kind = microtel::Error::Kind::InternalFailure, .message = "null reactor"}};
     }
     try
     {
         // Private constructor; make_unique can't reach it.
         // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-        auto t      = std::unique_ptr<Http2Transport>(new Http2Transport(std::move(reactor)));
+        auto t = std::unique_ptr<Http2Transport>(new Http2Transport(std::move(reactor)));
         t->m_io_thread = std::thread(&Http2Transport::IoThreadLoop, t.get());
         return t;
     }
@@ -69,9 +68,8 @@ microtel::Expected<void, microtel::Error> Http2Transport::Connect(
     const internal::ConnectOptions& /*opts*/)
 {
     // M3-D4: DNS + TCP connect + TLS handshake + nghttp2 SETTINGS exchange.
-    return microtel::Unexpected<microtel::Error>{
-        microtel::Error{.kind    = microtel::Error::Kind::Network,
-                        .message = "Connect not yet implemented (M3-D4)"}};
+    return microtel::Unexpected<microtel::Error>{microtel::Error{
+        .kind = microtel::Error::Kind::Network, .message = "Connect not yet implemented (M3-D4)"}};
 }
 
 microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) noexcept
@@ -101,7 +99,8 @@ internal::RequestHandle Http2Transport::Send(internal::RequestSpec /*spec*/) noe
 {
     std::promise<internal::TransportResult> p;
     internal::TransportResult result;
-    result.error = microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"};
+    result.error =
+        microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"};
     p.set_value(std::move(result));
     return internal::RequestHandle{0, p.get_future()};
 }
@@ -119,8 +118,7 @@ void Http2Transport::IoThreadLoop() noexcept
 {
     while (!m_stop.load(std::memory_order_acquire))
     {
-        const auto deadline =
-            std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
         m_reactor->WaitAndDispatch(deadline);
     }
 }

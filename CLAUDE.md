@@ -154,6 +154,47 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 
 ---
 
+## Pre-PR CI checklist
+
+Run these locally before opening or pushing to a PR. CI runs Ubuntu with clang-18/g++-13; local Fedora uses clang-21. Formatting and tidy are version-sensitive.
+
+### Format
+
+```bash
+CLANG_FORMAT=clang-format ci/scripts/format-check.sh
+```
+
+If it reports violations, run `clang-format -i <file>` to fix them. The `.clang-format` config sets `AlignConsecutiveDeclarations: None` and `AlignConsecutiveAssignments: None` — **never use manual column alignment**; the formatter removes it and CI fails.
+
+### clang-tidy
+
+```bash
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMICROTEL_BUILD_TESTS=ON
+cmake --build build
+ci/scripts/tidy-check.sh build
+```
+
+`tidy-check.sh` lints `ci/`, `src/`, and `tests/`. The most frequently violated rules:
+
+- **`cppcoreguidelines-avoid-do-while`** — use a `while` loop with a pre-call instead of `do { } while (EINTR)`.
+- **`cppcoreguidelines-special-member-functions`** — any class with a user-defined destructor must explicitly declare (or `= delete`) all five special members. `AllowSoleDefaultDtor: true` is set, but only exempts `= default` destructors, not user-defined ones.
+- **`modernize-use-designated-initializers`** — aggregate structs must be initialized with `.field = value` syntax in C++20.
+- **`modernize-use-scoped-lock`** — use `std::scoped_lock` instead of `std::lock_guard`.
+- **`readability-qualified-auto`** — `const auto p = <ptr>` must be `const auto* const p`.
+- **`readability-function-cognitive-complexity`** (threshold 15) and **`readability-function-size`** (threshold 3 nesting levels) — extract helpers to reduce deep nesting in SSL/TLS or nghttp2 loops.
+- **`hicpp-signed-bitwise`** — bitwise ops on signed POSIX constants (`O_NONBLOCK`, `SOCK_CLOEXEC`) need `// NOLINTBEGIN/END(hicpp-signed-bitwise)` when the call spans multiple lines, or `// NOLINTNEXTLINE(...)` when it fits on one.
+- **`readability-static-definition-in-anonymous-namespace`** — `static constexpr` inside an anon namespace is redundant; omit `static`.
+
+### Threading discipline
+
+The EpollReactor interface documents all methods except `Wake()` as I/O-thread-only. In practice, `Connect()` calls `Register()` from the caller thread — EpollReactor guards `m_callbacks` with `std::mutex m_mu` for exactly this cross-thread case. If you add new caller-thread → reactor calls, protect them the same way. TSAN (`-DMICROTEL_SANITIZER=tsan`) catches data races; always run it when touching the reactor or I/O thread.
+
+### Adding new system dependencies to CI
+
+If a new header or library is needed (e.g., a new `apt` package), add it to **all four** CI jobs that build: `tidy-check`, `compile`, `sanitizers`, and `coverage`. Missing it in one job causes an opaque link or include error only on that matrix entry.
+
+---
+
 ## Working with the user
 
 - **Iterate.** Propose, get feedback, revise. Don't try to ship multi-component changes in one shot.

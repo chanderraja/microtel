@@ -129,7 +129,10 @@ microtel::Expected<void, microtel::Error> EpollReactor::Register(int fd,
         return microtel::Unexpected<microtel::Error>{OsError("epoll_ctl ADD failed")};
     }
 
-    m_callbacks.emplace(fd, std::move(cb));
+    {
+        const std::scoped_lock lk{m_mu};
+        m_callbacks.emplace(fd, std::move(cb));
+    }
     return {};
 }
 
@@ -144,7 +147,32 @@ void EpollReactor::Modify(int fd, internal::EventMask mask)
 void EpollReactor::Unregister(int fd) noexcept
 {
     ::epoll_ctl(m_epoll_fd.Get(), EPOLL_CTL_DEL, fd, nullptr);
+    const std::scoped_lock lk{m_mu};
     m_callbacks.erase(fd);
+}
+
+bool EpollReactor::DispatchOneEvent(int fd, std::uint32_t epoll_events) noexcept
+{
+    if (fd == m_wake_fd.Get())
+    {
+        // Drain the eventfd counter so the next Wait doesn't immediately return.
+        std::uint64_t dummy = 0;
+        [[maybe_unused]] const ssize_t n = ::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
+        return false;
+    }
+
+    internal::EventCallback cb;
+    {
+        const std::scoped_lock lk{m_mu};
+        const auto it = m_callbacks.find(fd);
+        if (it == m_callbacks.end())
+        {
+            return false;
+        }
+        cb = it->second;
+    }
+    cb(fd, FromEpollEvents(epoll_events));
+    return true;
 }
 
 std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
@@ -165,19 +193,8 @@ std::size_t EpollReactor::WaitAndDispatch(internal::TimePointSteady deadline)
     const std::span<const epoll_event> ready{events, static_cast<std::size_t>(nfds)};
     for (const auto& ev : ready)
     {
-        const int fd = ev.data.fd;
-        if (fd == m_wake_fd.Get())
+        if (DispatchOneEvent(ev.data.fd, ev.events))
         {
-            // Drain the eventfd counter so the next Wait doesn't immediately return.
-            std::uint64_t dummy = 0;
-            [[maybe_unused]] const ssize_t n = ::read(m_wake_fd.Get(), &dummy, sizeof(dummy));
-            continue;
-        }
-
-        const auto it = m_callbacks.find(fd);
-        if (it != m_callbacks.end())
-        {
-            it->second(fd, FromEpollEvents(ev.events));
             ++dispatched;
         }
     }

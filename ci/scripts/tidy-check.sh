@@ -32,10 +32,9 @@ fi
 
 echo "tidy-check: using $($CLANG_TIDY --version | head -1)"
 
-# Translation units to lint: ci/header_check.cpp + tests/unit/*.cpp.
-# When src/ grows real implementations in M3, add a similar find here.
+# Translation units to lint: ci/header_check.cpp, src/**/*.cpp, tests/**/*.cpp.
 mapfile -t TUS < <(
-    find ci tests -type f -name "*.cpp" 2>/dev/null | sort
+    find ci src tests -type f -name "*.cpp" 2>/dev/null | sort
 )
 
 if [[ ${#TUS[@]} -eq 0 ]]; then

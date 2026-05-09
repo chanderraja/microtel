@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 namespace microtel::transport
@@ -50,10 +51,15 @@ public:
 private:
     EpollReactor(common::raii::UniqueFd epoll_fd, common::raii::UniqueFd wake_fd) noexcept;
 
+    /// Returns true if an event callback was found and invoked; false if the fd
+    /// was the wakefd (drained) or unregistered (skipped).
+    bool DispatchOneEvent(int fd, std::uint32_t epoll_events) noexcept;
+
     static constexpr int kMaxEvents = 64;
 
     common::raii::UniqueFd m_epoll_fd;
     common::raii::UniqueFd m_wake_fd;
+    std::mutex m_mu;
     std::unordered_map<int, internal::EventCallback> m_callbacks;
 };
 

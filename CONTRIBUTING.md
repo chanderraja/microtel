@@ -114,6 +114,25 @@ The decision between **DCO sign-off** (`Signed-off-by:` line in commit messages)
 
 ---
 
+## Local knowledge graph
+
+The project ships with a [graphify](https://github.com/safishamsi/graphifyy) knowledge graph that maps every source file, internal interface, and design concept into a queryable graph with community detection. Agents (Claude Code) use it as their primary navigation tool — it reduces per-query token cost by ~7× vs. reading raw files.
+
+The graph is **not committed to git** (it's large and auto-generated). To bootstrap on a fresh clone:
+
+1. Install the `graphifyy` package into a Python virtual environment (the project convention is `~/.venv`):
+   ```bash
+   python3 -m venv ~/.venv
+   ~/.venv/bin/pip install graphifyy
+   ```
+2. In Claude Code, run `/graphify` from the repo root. This runs the full pipeline (~2 min on first run) and installs git hooks that keep the graph current on subsequent commits — no LLM cost for incremental updates.
+
+After bootstrap, `graphify-out/` appears in the repo root and is gitignored. Claude Code reads `graphify-out/wiki/index.md` as its codebase map in every session.
+
+A static snapshot of the community report is committed at [docs/graph-report.md](docs/graph-report.md) for reference without running the pipeline.
+
+---
+
 ## Questions
 
 For project questions that don't fit an issue, use GitHub Discussions (or, pre-public-release, contact the maintainer directly).

@@ -161,3 +161,13 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 - **Surface decisions, don't make them silently.** If a change requires picking between two reasonable approaches, ask which the user prefers.
 - **Use the ICP process** for interface changes — don't argue them in PR comments.
 - **Keep ICPs short.** A few paragraphs. They're heads-up documents, not multi-week reviews.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
+- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

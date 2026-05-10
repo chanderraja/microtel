@@ -7,7 +7,11 @@
 
 add_library(microtel_sdk STATIC
     sampler_factories.cpp
-    simple_span_processor.cpp)
+    simple_span_processor.cpp
+    noop_span.cpp
+    sdk_span.cpp
+    sdk_tracer.cpp
+    batch_span_processor.cpp)
 
 target_link_libraries(microtel_sdk
     PUBLIC microtel_headers)

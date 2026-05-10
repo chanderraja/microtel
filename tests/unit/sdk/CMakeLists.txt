@@ -34,3 +34,31 @@ microtel_add_test(
 # internal header, not a public-API surface). Add src/ to the include path.
 target_include_directories(simple_span_processor_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
+    NAME    noop_span_test
+    SOURCES noop_span_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(noop_span_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
+    NAME    sdk_span_test
+    SOURCES sdk_span_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_span_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
+    NAME    sdk_tracer_test
+    SOURCES sdk_tracer_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_tracer_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
+    NAME    batch_span_processor_test
+    SOURCES batch_span_processor_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(batch_span_processor_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

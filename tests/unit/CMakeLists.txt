@@ -43,3 +43,6 @@ add_subdirectory(transport)
 
 # M3 — Track D RAII wrappers. Mirrors src/common/raii/.
 add_subdirectory(common)
+
+# M3 close — export pipeline. Mirrors src/exporter/.
+add_subdirectory(exporter)

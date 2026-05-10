@@ -59,6 +59,7 @@ static std::string FindHeader(const std::vector<mti::HeaderField>& headers, cons
 }
 
 // Minimal base64 URL-safe encoder (no padding) — test-only fixture builder.
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
 static std::string Base64UrlEncode(const std::vector<std::uint8_t>& data)
 {
     static constexpr char kAlphabet[] =
@@ -67,27 +68,33 @@ static std::string Base64UrlEncode(const std::vector<std::uint8_t>& data)
     std::size_t i = 0;
     while (i + 2 < data.size())
     {
-        result += kAlphabet[(data[i] >> 2) & 0x3FU];
-        result += kAlphabet[((data[i] & 0x3U) << 4) | (data[i + 1] >> 4)];
-        result += kAlphabet[((data[i + 1] & 0xFU) << 2) | (data[i + 2] >> 6)];
-        result += kAlphabet[data[i + 2] & 0x3FU];
+        const auto d0 = static_cast<unsigned>(data[i]);
+        const auto d1 = static_cast<unsigned>(data[i + 1U]);
+        const auto d2 = static_cast<unsigned>(data[i + 2U]);
+        result += kAlphabet[(d0 >> 2U) & 0x3FU];
+        result += kAlphabet[((d0 & 0x3U) << 4U) | (d1 >> 4U)];
+        result += kAlphabet[((d1 & 0xFU) << 2U) | (d2 >> 6U)];
+        result += kAlphabet[d2 & 0x3FU];
         i += 3;
     }
     if (i < data.size())
     {
-        result += kAlphabet[(data[i] >> 2) & 0x3FU];
+        const auto d0 = static_cast<unsigned>(data[i]);
+        result += kAlphabet[(d0 >> 2U) & 0x3FU];
         if (i + 1 < data.size())
         {
-            result += kAlphabet[((data[i] & 0x3U) << 4) | (data[i + 1] >> 4)];
-            result += kAlphabet[(data[i + 1] & 0xFU) << 2];
+            const auto d1 = static_cast<unsigned>(data[i + 1U]);
+            result += kAlphabet[((d0 & 0x3U) << 4U) | (d1 >> 4U)];
+            result += kAlphabet[(d1 & 0xFU) << 2U];
         }
         else
         {
-            result += kAlphabet[(data[i] & 0x3U) << 4];
+            result += kAlphabet[(d0 & 0x3U) << 4U];
         }
     }
     return result;
 }
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 
 static void EncodeVarint(std::uint64_t v, std::vector<std::uint8_t>& out)
 {
@@ -485,4 +492,74 @@ TEST(GrpcWireCodecTest, Send_GrpcFrame_HasCorrectPrefix)
                                  std::to_integer<std::uint32_t>(payload[4]);
     EXPECT_EQ(length, kPayloadSize);
     EXPECT_EQ(payload.size(), 5U + kPayloadSize);
+}
+
+// ---------------------------------------------------------------------------
+// M5-B: Partial-success parsing
+// ---------------------------------------------------------------------------
+
+// Build a gRPC DATA frame (5-byte prefix + proto) from raw proto bytes.
+// Compression flag = 0x00, length as big-endian uint32.
+static std::vector<std::byte> GrpcFrame(std::span<const std::uint8_t> proto_bytes)
+{
+    const auto n = static_cast<std::uint32_t>(proto_bytes.size());
+    std::vector<std::byte> frame;
+    frame.reserve(5U + proto_bytes.size());
+    frame.push_back(std::byte{0x00U});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((n >> 24U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((n >> 16U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((n >> 8U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>(n & 0xFFU)});
+    for (const auto b : proto_bytes)
+    {
+        frame.push_back(static_cast<std::byte>(b));
+    }
+    return frame;
+}
+
+// ExportTraceServiceResponse { partial_success { rejected_spans: 42 } }
+// [0x0A, 0x02, 0x08, 0x2A]
+static constexpr std::array<std::uint8_t, 4> kRejected42Proto{0x0A, 0x02, 0x08, 0x2A};
+
+TEST(GrpcWireCodecTest, PartialSuccess_PopulatesRejectedSpans)
+{
+    mtfk::FakeTransport transport;
+    auto resp = GrpcSuccessResponse();
+    resp.response_body = GrpcFrame(kRejected42Proto);
+    transport.default_response = resp;
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_EmptyBody_ZeroRejected)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 0U);
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_NonZeroGrpcStatus_BodyIgnored)
+{
+    // grpc-status=8 (RESOURCE_EXHAUSTED without RetryInfo) → failure, no partial success.
+    mtfk::FakeTransport transport;
+    const mti::TransportResult resp{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "8"}},
+        .response_body = GrpcFrame(kRejected42Proto),
+        .error = {},
+    };
+    transport.default_response = resp;
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 0U);
 }

@@ -386,3 +386,63 @@ TEST(HttpWireCodecTest, Send_WithAuth_NoValue_NoAuthorizationHeader)
         EXPECT_NE(h.name, "authorization");
     }
 }
+
+// ---------------------------------------------------------------------------
+// M5-B: Partial-success parsing
+// ---------------------------------------------------------------------------
+
+// ExportTraceServiceResponse { partial_success { rejected_spans: 42 } }
+// Outer: field 1 (partial_success), wt=2: tag=0x0A, len=2.
+// Inner: field 1 (rejected_spans), wt=0: tag=0x08, varint(42)=0x2A.
+static std::vector<std::byte> MakePartialSuccessBody(std::uint8_t rejected_varint)
+{
+    return {
+        std::byte{0x0A},             // outer tag: field 1, wt=2
+        std::byte{0x02},             // inner length = 2
+        std::byte{0x08},             // inner tag: field 1, wt=0
+        std::byte{rejected_varint},  // varint value
+    };
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_PopulatesRejectedSpans)
+{
+    mtfk::FakeTransport transport;
+    auto resp = OkResponse("200");
+    resp.response_body = MakePartialSuccessBody(42U);
+    transport.default_response = resp;
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_EmptyBody_ZeroRejected)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse("200");
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 0U);
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_NonSuccessStatus_BodyIgnored)
+{
+    // 400 is non-retryable failure — body must not populate partial_success_rejected.
+    mtfk::FakeTransport transport;
+    const mti::TransportResult resp{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "400"}},
+        .response_trailers = {},
+        .response_body = MakePartialSuccessBody(7U),
+        .error = {},
+    };
+    transport.default_response = resp;
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 0U);
+}

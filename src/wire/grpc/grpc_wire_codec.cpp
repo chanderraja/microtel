@@ -8,6 +8,8 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "wire/otlp_response.hpp"
+
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -490,11 +492,19 @@ struct RetrySearchSignal
 {
     if (code == 0)
     {
+        constexpr std::size_t kGrpcFrameHeaderSize = 5U;
+        std::uint32_t rejected = 0;
+        if (tr.response_body.size() >= kGrpcFrameHeaderSize)
+        {
+            const auto body =
+                std::span<const std::byte>{tr.response_body}.subspan(kGrpcFrameHeaderSize);
+            rejected = ParseRejectedSpans(body);
+        }
         return internal::WireResult{
             .success = true,
             .retryable = false,
             .retry_after = {},
-            .partial_success_rejected = 0,
+            .partial_success_rejected = rejected,
             .error = {},
             .response_excerpt = {},
         };

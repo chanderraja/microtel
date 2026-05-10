@@ -8,6 +8,8 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "wire/otlp_response.hpp"
+
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -231,6 +233,11 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
 
     const int code = ParseStatusCode(result.response_headers);
     auto wire = ClassifyStatus(code, result.response_headers);
+    if (wire.success && !result.response_body.empty())
+    {
+        wire.partial_success_rejected =
+            ParseRejectedSpans(std::span<const std::byte>{result.response_body});
+    }
     wire.response_excerpt = BuildExcerpt(result.response_body);
     return wire;
 }

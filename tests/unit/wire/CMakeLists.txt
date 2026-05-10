@@ -7,6 +7,14 @@ add_subdirectory(http)
 add_subdirectory(grpc)
 
 microtel_add_test(
+    NAME    otlp_response_test
+    SOURCES otlp_response_test.cpp
+    LIBS    microtel_otlp_response)
+
+target_include_directories(otlp_response_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
     NAME    otlp_encoder_test
     SOURCES otlp_encoder_test.cpp
     LIBS    microtel_encoder microtel_upb_gen)

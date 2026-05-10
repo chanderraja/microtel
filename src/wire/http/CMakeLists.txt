@@ -7,7 +7,7 @@ add_library(microtel_http_wire STATIC
     http_wire_codec.cpp)
 
 target_link_libraries(microtel_http_wire
-    PUBLIC microtel_headers)
+    PUBLIC microtel_headers microtel_otlp_response)
 
 target_include_directories(microtel_http_wire
     PRIVATE ${CMAKE_SOURCE_DIR}/src)

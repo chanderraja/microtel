@@ -98,3 +98,49 @@ TEST(Http2TransportTest, Connect_WhenClosed_ReturnsError)
     const auto result = t->Connect(opts);
     EXPECT_FALSE(result.has_value());
 }
+
+TEST(Http2TransportTest, Send_WhenDisconnected_FutureHasError)
+{
+    auto t = MakeTransport();
+    mti::RequestSpec spec;
+    spec.headers.push_back({":method", "POST"});
+
+    auto handle = t->Send(std::move(spec));
+    ASSERT_TRUE(handle.Future().valid());
+
+    const auto result = handle.Future().get();
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.error.has_value());
+}
+
+TEST(Http2TransportTest, Send_WhenClosed_FutureHasError)
+{
+    auto t = MakeTransport();
+    (void)t->Close(std::chrono::milliseconds(500));
+
+    mti::RequestSpec spec;
+    spec.headers.push_back({":method", "POST"});
+
+    auto handle = t->Send(std::move(spec));
+    ASSERT_TRUE(handle.Future().valid());
+
+    const auto result = handle.Future().get();
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.error.has_value());
+}
+
+TEST(Http2TransportTest, Send_WhenDisconnected_HandleIdIsZero)
+{
+    auto t = MakeTransport();
+    mti::RequestSpec spec;
+
+    const auto handle = t->Send(std::move(spec));
+    EXPECT_EQ(handle.Id(), 0U);
+}
+
+TEST(Http2TransportTest, Cancel_DefaultHandle_DoesNotCrash)
+{
+    auto t = MakeTransport();
+    const mti::RequestHandle handle;  // default-constructed, id = 0
+    EXPECT_NO_THROW(t->Cancel(handle));
+}

@@ -7,3 +7,8 @@ microtel_add_integration_test(
     NAME    http2_connect_test
     SOURCES http2_connect_test.cpp
     LIBS    microtel_transport)
+
+microtel_add_integration_test(
+    NAME    http2_send_test
+    SOURCES http2_send_test.cpp
+    LIBS    microtel_transport)

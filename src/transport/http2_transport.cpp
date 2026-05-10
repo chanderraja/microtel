@@ -9,13 +9,17 @@
 #include <nghttp2/nghttp2.h>
 #include <openssl/ssl.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <future>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -285,6 +289,79 @@ int NgHttp2OnFrameRecvCb(nghttp2_session* /*s*/, const nghttp2_frame* frame, voi
     return 0;
 }
 
+// NOLINTNEXTLINE(readability-function-size) — 8-param signature imposed by nghttp2 C API
+int NgHttp2OnHeaderCb(nghttp2_session* /*s*/,
+                      const nghttp2_frame* frame,
+                      const uint8_t* name,
+                      size_t namelen,
+                      const uint8_t* value,
+                      size_t valuelen,
+                      uint8_t /*flags*/,
+                      void* ud) noexcept
+{
+    const bool is_trailer = (frame->headers.cat == NGHTTP2_HCAT_HEADERS);
+    static_cast<Http2Transport*>(ud)->OnResponseHeader(
+        frame->hd.stream_id,
+        is_trailer,
+        std::string_view{reinterpret_cast<const char*>(name), namelen},
+        std::string_view{reinterpret_cast<const char*>(value), valuelen});
+    return 0;
+}
+
+int NgHttp2OnDataChunkRecvCb(nghttp2_session* /*s*/,
+                             uint8_t /*flags*/,
+                             int32_t stream_id,
+                             const uint8_t* data,
+                             size_t len,
+                             void* ud) noexcept
+{
+    static_cast<Http2Transport*>(ud)->OnResponseData(stream_id, data, len);
+    return 0;
+}
+
+int NgHttp2OnStreamCloseCb(nghttp2_session* /*s*/,
+                           int32_t stream_id,
+                           uint32_t error_code,
+                           void* ud) noexcept
+{
+    static_cast<Http2Transport*>(ud)->OnStreamClose(stream_id, error_code);
+    return 0;
+}
+
+// Cast a const string's data pointer to the non-const uint8_t* nghttp2 expects.
+// nghttp2 never writes through these pointers.
+uint8_t* MutStr(const std::string& s) noexcept
+{
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    return reinterpret_cast<uint8_t*>(const_cast<char*>(s.data()));
+}
+
+// nghttp2 data-provider read callback: feeds payload bytes from StreamState.
+ssize_t PayloadReadCb(nghttp2_session* /*session*/,
+                      int32_t /*stream_id*/,
+                      uint8_t* buf,
+                      size_t length,
+                      uint32_t* data_flags,
+                      nghttp2_data_source* source,
+                      void* /*user_data*/) noexcept
+{
+    auto* state = static_cast<Http2Transport::StreamState*>(source->ptr);
+    const auto& payload = state->spec.payload;
+    const std::size_t remaining = payload.size() - state->payload_offset;
+    const std::size_t to_copy = std::min(remaining, length);
+
+    if (to_copy > 0)
+    {
+        std::memcpy(buf, payload.data() + state->payload_offset, to_copy);
+        state->payload_offset += to_copy;
+    }
+    if (state->payload_offset >= payload.size())
+    {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    }
+    return static_cast<ssize_t>(to_copy);
+}
+
 constexpr int kPollIntervalMs = 50;
 
 }  // namespace
@@ -432,7 +509,31 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) no
         m_io_thread.join();
     }
 
-    // I/O thread has stopped — safe to tear down connection resources.
+    // I/O thread has stopped — fulfill any streams it didn't get to close.
+    for (auto& [stream_id, state] : m_streams)
+    {
+        internal::TransportResult result;
+        result.error = microtel::Error{.kind = microtel::Error::Kind::Cancelled,
+                                       .message = "transport closed"};
+        state->promise.set_value(std::move(result));
+    }
+    m_streams.clear();
+    m_handle_to_stream.clear();
+
+    // Fulfill any requests that were queued but never submitted.
+    {
+        const std::scoped_lock lk{m_pending_mu};
+        for (auto& pending : m_pending_queue)
+        {
+            internal::TransportResult result;
+            result.error = microtel::Error{.kind = microtel::Error::Kind::Cancelled,
+                                           .message = "transport closed"};
+            pending.promise.set_value(std::move(result));
+        }
+        m_pending_queue.clear();
+    }
+
+    // Safe to tear down connection resources.
     if (m_nghttp2_session.IsValid())
     {
         m_reactor->Unregister(m_socket.Get());
@@ -446,22 +547,205 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) no
 }
 
 // ---------------------------------------------------------------------------
-// ITransport — request handling (M3-D5)
+// ITransport — request handling
 // ---------------------------------------------------------------------------
 
-internal::RequestHandle Http2Transport::Send(internal::RequestSpec /*spec*/) noexcept
+internal::RequestHandle Http2Transport::Send(internal::RequestSpec spec) noexcept
 {
+    if (m_state.load(std::memory_order_acquire) != microtel::ConnectionState::Connected)
+    {
+        std::promise<internal::TransportResult> p;
+        internal::TransportResult result;
+        result.error =
+            microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"};
+        p.set_value(std::move(result));
+        return internal::RequestHandle{0, p.get_future()};
+    }
+
+    const std::uint64_t id = m_next_handle_id.fetch_add(1, std::memory_order_relaxed);
     std::promise<internal::TransportResult> p;
-    internal::TransportResult result;
-    result.error =
-        microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"};
-    p.set_value(std::move(result));
-    return internal::RequestHandle{0, p.get_future()};
+    auto future = p.get_future();
+    {
+        const std::scoped_lock lk{m_pending_mu};
+        m_pending_queue.push_back(
+            PendingRequest{.spec = std::move(spec), .promise = std::move(p), .handle_id = id});
+    }
+    m_reactor->Wake();
+    return internal::RequestHandle{id, std::move(future)};
 }
 
-void Http2Transport::Cancel(const internal::RequestHandle& /*handle*/) noexcept
+void Http2Transport::Cancel(const internal::RequestHandle& handle) noexcept
 {
-    // M3-D5: RST_STREAM on the in-flight stream.
+    if (handle.Id() == 0)
+    {
+        return;
+    }
+    {
+        const std::scoped_lock lk{m_cancel_mu};
+        m_cancel_queue.push_back(handle.Id());
+    }
+    m_reactor->Wake();
+}
+
+// ---------------------------------------------------------------------------
+// I/O-thread request lifecycle helpers
+// ---------------------------------------------------------------------------
+
+void Http2Transport::DrainPendingRequests() noexcept
+{
+    std::vector<PendingRequest> local;
+    {
+        const std::scoped_lock lk{m_pending_mu};
+        local.swap(m_pending_queue);
+    }
+    for (auto& req : local)
+    {
+        SubmitStream(std::move(req));
+    }
+}
+
+void Http2Transport::DrainCancelQueue() noexcept
+{
+    std::vector<std::uint64_t> local;
+    {
+        const std::scoped_lock lk{m_cancel_mu};
+        local.swap(m_cancel_queue);
+    }
+    for (const auto& handle_id : local)
+    {
+        const auto it = m_handle_to_stream.find(handle_id);
+        if (it == m_handle_to_stream.end())
+        {
+            continue;
+        }
+        const std::int32_t stream_id = it->second;
+        ::nghttp2_submit_rst_stream(
+            m_nghttp2_session.Get(), NGHTTP2_FLAG_NONE, stream_id, NGHTTP2_CANCEL);
+        ::nghttp2_session_send(m_nghttp2_session.Get());
+        // on_stream_close_callback fires during nghttp2_session_send above
+        // and calls FulfillStream, which removes the stream from the maps.
+    }
+}
+
+void Http2Transport::SubmitStream(PendingRequest req) noexcept
+{
+    auto state = std::make_unique<StreamState>();
+    state->spec = std::move(req.spec);
+    state->handle_id = req.handle_id;
+
+    std::vector<nghttp2_nv> nvs;
+    nvs.reserve(state->spec.headers.size());
+    for (auto& hdr : state->spec.headers)
+    {
+        nghttp2_nv nv{};
+        nv.name = MutStr(hdr.name);
+        nv.namelen = hdr.name.size();
+        nv.value = MutStr(hdr.value);
+        nv.valuelen = hdr.value.size();
+        nv.flags = NGHTTP2_NV_FLAG_NONE;
+        nvs.push_back(nv);
+    }
+
+    nghttp2_data_provider prd{};
+    const nghttp2_data_provider* prd_ptr = nullptr;
+    if (!state->spec.payload.empty())
+    {
+        prd.source.ptr = state.get();
+        prd.read_callback = PayloadReadCb;
+        prd_ptr = &prd;
+    }
+
+    const std::int32_t stream_id = ::nghttp2_submit_request(
+        m_nghttp2_session.Get(), nullptr, nvs.data(), nvs.size(), prd_ptr, nullptr);
+
+    if (stream_id < 0)
+    {
+        internal::TransportResult result;
+        result.error = microtel::Error{.kind = microtel::Error::Kind::Network,
+                                       .message = "nghttp2_submit_request failed"};
+        req.promise.set_value(std::move(result));
+        return;
+    }
+
+    const std::uint64_t handle_id = state->handle_id;
+    state->promise = std::move(req.promise);
+    m_handle_to_stream[handle_id] = stream_id;
+    m_streams[stream_id] = std::move(state);
+
+    ::nghttp2_session_send(m_nghttp2_session.Get());
+}
+
+void Http2Transport::FulfillStream(std::int32_t stream_id,
+                                   std::uint32_t nghttp2_error_code) noexcept
+{
+    const auto it = m_streams.find(stream_id);
+    if (it == m_streams.end())
+    {
+        return;
+    }
+    auto state = std::move(it->second);
+    m_streams.erase(it);
+    m_handle_to_stream.erase(state->handle_id);
+
+    if (nghttp2_error_code == 0)
+    {
+        state->result.success = true;
+    }
+    else if (nghttp2_error_code == NGHTTP2_CANCEL)
+    {
+        state->result.error = microtel::Error{.kind = microtel::Error::Kind::Cancelled,
+                                              .message = "request cancelled"};
+    }
+    else
+    {
+        state->result.error =
+            microtel::Error{.kind = microtel::Error::Kind::Network, .message = "stream error"};
+    }
+    state->promise.set_value(std::move(state->result));
+}
+
+// ---------------------------------------------------------------------------
+// nghttp2 response callbacks (called from trampolines on I/O thread)
+// ---------------------------------------------------------------------------
+
+void Http2Transport::OnStreamClose(std::int32_t stream_id, std::uint32_t error_code) noexcept
+{
+    FulfillStream(stream_id, error_code);
+}
+
+void Http2Transport::OnResponseHeader(std::int32_t stream_id,
+                                      bool is_trailer,
+                                      std::string_view name,
+                                      std::string_view value) noexcept
+{
+    const auto it = m_streams.find(stream_id);
+    if (it == m_streams.end())
+    {
+        return;
+    }
+    internal::HeaderField field{.name = std::string{name}, .value = std::string{value}};
+    if (is_trailer)
+    {
+        it->second->result.response_trailers.push_back(std::move(field));
+    }
+    else
+    {
+        it->second->result.response_headers.push_back(std::move(field));
+    }
+}
+
+void Http2Transport::OnResponseData(std::int32_t stream_id,
+                                    const std::uint8_t* data,
+                                    std::size_t len) noexcept
+{
+    const auto it = m_streams.find(stream_id);
+    if (it == m_streams.end())
+    {
+        return;
+    }
+    auto& body = it->second->result.response_body;
+    const auto* bytes = reinterpret_cast<const std::byte*>(data);
+    body.insert(body.end(), bytes, bytes + len);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +808,9 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
     ::nghttp2_session_callbacks_set_send_callback(cbs, NgHttp2SendCb);
     ::nghttp2_session_callbacks_set_recv_callback(cbs, NgHttp2RecvCb);
     ::nghttp2_session_callbacks_set_on_frame_recv_callback(cbs, NgHttp2OnFrameRecvCb);
+    ::nghttp2_session_callbacks_set_on_header_callback(cbs, NgHttp2OnHeaderCb);
+    ::nghttp2_session_callbacks_set_on_data_chunk_recv_callback(cbs, NgHttp2OnDataChunkRecvCb);
+    ::nghttp2_session_callbacks_set_on_stream_close_callback(cbs, NgHttp2OnStreamCloseCb);
 
     nghttp2_session* raw = nullptr;
     ::nghttp2_session_client_new(&raw, cbs, this);
@@ -643,6 +930,11 @@ void Http2Transport::IoThreadLoop() noexcept
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
         m_reactor->WaitAndDispatch(deadline);
+        if (m_nghttp2_session.IsValid())
+        {
+            DrainPendingRequests();
+            DrainCancelQueue();
+        }
     }
 }
 

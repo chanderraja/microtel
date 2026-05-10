@@ -19,10 +19,15 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace microtel::transport
 {
@@ -81,12 +86,43 @@ public:
     std::ptrdiff_t NgHttp2DoSend(const std::uint8_t* data, std::size_t len) noexcept;
     std::ptrdiff_t NgHttp2DoRecv(std::uint8_t* buf, std::size_t len) noexcept;
     void OnSettingsAck() noexcept;
+    void OnStreamClose(std::int32_t stream_id, std::uint32_t error_code) noexcept;
+    void OnResponseHeader(std::int32_t stream_id,
+                          bool is_trailer,
+                          std::string_view name,
+                          std::string_view value) noexcept;
+    void OnResponseData(std::int32_t stream_id, const std::uint8_t* data, std::size_t len) noexcept;
+
+    /// @brief Per-stream state owned by the I/O thread.
+    ///
+    /// Public so the `PayloadReadCb` C trampoline can cast `source->ptr`
+    /// to `Http2Transport::StreamState*`.
+    struct StreamState
+    {
+        internal::RequestSpec spec;
+        std::size_t payload_offset = 0;
+        std::promise<internal::TransportResult> promise;
+        internal::TransportResult result;
+        std::uint64_t handle_id = 0;
+    };
 
 private:
+    /// @brief Request queued by Send(); drained by the I/O thread.
+    struct PendingRequest
+    {
+        internal::RequestSpec spec;
+        std::promise<internal::TransportResult> promise;
+        std::uint64_t handle_id = 0;
+    };
+
     explicit Http2Transport(std::unique_ptr<internal::IReactor> reactor) noexcept;
 
     void IoThreadLoop() noexcept;
     void OnIoEvent(int fd, internal::EventMask events) noexcept;
+    void DrainPendingRequests() noexcept;
+    void DrainCancelQueue() noexcept;
+    void SubmitStream(PendingRequest req) noexcept;
+    void FulfillStream(std::int32_t stream_id, std::uint32_t nghttp2_error_code) noexcept;
 
     [[nodiscard]] microtel::Expected<std::pair<common::raii::SslCtx, common::raii::SslSession>,
                                      microtel::Error>
@@ -108,6 +144,18 @@ private:
     common::raii::SslSession m_ssl_session;
     common::raii::Nghttp2Session m_nghttp2_session;
     std::atomic<bool> m_settings_ack_received{false};
+
+    // Send queues — caller-thread writes, I/O thread drains.
+    std::mutex m_pending_mu;
+    std::vector<PendingRequest> m_pending_queue;
+    std::mutex m_cancel_mu;
+    std::vector<std::uint64_t> m_cancel_queue;
+
+    // I/O-thread-only stream tracking (no mutex needed).
+    std::unordered_map<std::int32_t, std::unique_ptr<StreamState>> m_streams;
+    std::unordered_map<std::uint64_t, std::int32_t> m_handle_to_stream;
+
+    std::atomic<std::uint64_t> m_next_handle_id{1};
 };
 
 }  // namespace microtel::transport

@@ -362,6 +362,7 @@ ssize_t PayloadReadCb(nghttp2_session* /*session*/,
     return static_cast<ssize_t>(to_copy);
 }
 
+
 constexpr int kPollIntervalMs = 50;
 
 }  // namespace

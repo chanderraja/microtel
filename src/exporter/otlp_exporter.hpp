@@ -9,6 +9,8 @@
 #include "microtel/internal/otlp_encoder.hpp"
 #include "microtel/internal/wire_codec.hpp"
 
+#include "exporter/retry_policy.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -16,6 +18,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <random>
 #include <thread>
 
 namespace microtel::exporter
@@ -29,6 +32,8 @@ struct OtlpExporterConfig
     std::size_t max_queue_size = 256;
     /// @brief Per-export deadline passed to `IWireCodec::Send`.
     std::chrono::milliseconds export_deadline{std::chrono::seconds(10)};
+    /// @brief Retry / backoff policy.
+    RetryPolicyConfig retry_policy{};
 };
 
 /// @brief Protocol-agnostic OTLP export pipeline.
@@ -75,14 +80,17 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void ProcessBatch(const internal::BatchHandle& batch);
+    void RunRetryLoop(const internal::BatchHandle& batch);
+    [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
+    [[nodiscard]] double DrawJitter01() noexcept;
 
     internal::IOtlpEncoder* m_encoder;
     internal::IWireCodec* m_codec;
     OtlpExporterConfig m_config;
     // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M3-C onward
     [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
-    // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M5 onward
-    [[maybe_unused]] internal::ISteadyClock* m_clock;
+    internal::ISteadyClock* m_clock;
+    std::mt19937_64 m_rng;
 
     std::deque<internal::BatchHandle> m_queue;
     std::mutex m_mu;

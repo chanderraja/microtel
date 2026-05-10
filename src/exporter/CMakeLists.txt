@@ -4,7 +4,8 @@
 # src/exporter/ — protocol-agnostic OTLP export pipeline (Track A, M3 close).
 
 add_library(microtel_exporter STATIC
-    otlp_exporter.cpp)
+    otlp_exporter.cpp
+    retry_policy.cpp)
 
 target_link_libraries(microtel_exporter
     PUBLIC microtel_headers)

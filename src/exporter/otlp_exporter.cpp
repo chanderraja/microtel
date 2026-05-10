@@ -6,9 +6,12 @@
 #include "microtel/internal/batch.hpp"
 #include "microtel/status.hpp"
 
+#include "exporter/retry_policy.hpp"
+
 #include <chrono>
 #include <exception>
 #include <mutex>
+#include <random>
 #include <thread>
 #include <utility>
 
@@ -25,6 +28,8 @@ OtlpExporter::OtlpExporter(internal::IOtlpEncoder* encoder,
       m_config(config),
       m_diag(diag),
       m_clock(clock),
+      m_rng(
+          static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -97,9 +102,53 @@ microtel::Status OtlpExporter::Shutdown(std::chrono::milliseconds timeout) noexc
 
 void OtlpExporter::ProcessBatch(const internal::BatchHandle& batch)
 {
-    auto payload = m_encoder->Encode(batch);
-    // M3: single attempt; retry / backoff added in M5.
-    (void)m_codec->Send(std::move(payload), m_config.export_deadline);
+    RunRetryLoop(batch);
+}
+
+void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch)
+{
+    const RetryPolicyConfig& rp = m_config.retry_policy;
+    const std::uint32_t max_attempts = (rp.max_attempts > 0U) ? rp.max_attempts : 1U;
+    const auto budget_deadline = ClockNow() + rp.retry_budget;
+
+    for (std::uint32_t attempt = 0; attempt < max_attempts; ++attempt)
+    {
+        auto payload = m_encoder->Encode(batch);
+        const auto result = m_codec->Send(std::move(payload), m_config.export_deadline);
+
+        if (result.success || !result.retryable)
+        {
+            break;
+        }
+
+        if (attempt + 1U >= max_attempts)
+        {
+            break;
+        }
+
+        const auto backoff = ComputeBackoff(attempt, rp, result.retry_after, DrawJitter01());
+        if (ClockNow() >= budget_deadline)
+        {
+            break;
+        }
+
+        std::this_thread::sleep_for(backoff);
+    }
+}
+
+internal::TimePointSteady OtlpExporter::ClockNow() const noexcept
+{
+    if (m_clock != nullptr)
+    {
+        return m_clock->Now();
+    }
+    return std::chrono::steady_clock::now();
+}
+
+double OtlpExporter::DrawJitter01() noexcept
+{
+    std::uniform_real_distribution<double> dist{0.0, 1.0};
+    return dist(m_rng);
 }
 
 void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept

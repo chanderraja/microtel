@@ -13,8 +13,14 @@ target_include_directories(otlp_exporter_test
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/tests)
 
-# Designated initializers with partial fields on aggregate structs (e.g.
-# SpanRecord, WireResult) — suppressed for test TUs only; production code
-# initialises all fields explicitly.
 target_compile_options(otlp_exporter_test PRIVATE
     -Wno-missing-field-initializers)
+
+microtel_add_test(
+    NAME    retry_policy_test
+    SOURCES retry_policy_test.cpp
+    LIBS    microtel_exporter)
+
+target_include_directories(retry_policy_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src)

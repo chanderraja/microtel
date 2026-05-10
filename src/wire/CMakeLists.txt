@@ -6,3 +6,4 @@
 
 add_subdirectory(encoder)
 add_subdirectory(http)
+add_subdirectory(grpc)

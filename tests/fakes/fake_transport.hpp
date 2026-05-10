@@ -43,6 +43,10 @@ public:
     /// Note: RequestSpec is move-only-ish (contains a span<const byte>
     /// borrow + a header vector). We store specs by value.
     std::vector<internal::RequestSpec> sent_specs;
+    /// Owned copies of the payload bytes from each Send() call.
+    /// Use this instead of sent_specs[i].payload — the span borrows from
+    /// the caller's buffer which may not survive after Send() returns.
+    std::vector<std::vector<std::byte>> sent_payloads;
     int cancel_call_count = 0;
     int close_call_count = 0;
 
@@ -67,6 +71,7 @@ public:
 
     [[nodiscard]] internal::RequestHandle Send(internal::RequestSpec spec) noexcept override
     {
+        sent_payloads.emplace_back(spec.payload.begin(), spec.payload.end());
         sent_specs.push_back(std::move(spec));
         std::promise<internal::TransportResult> p;
         std::future<internal::TransportResult> f = p.get_future();

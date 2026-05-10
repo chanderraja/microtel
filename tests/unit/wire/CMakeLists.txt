@@ -4,6 +4,7 @@
 # Unit tests for src/wire/encoder/ (Track F).
 
 add_subdirectory(http)
+add_subdirectory(grpc)
 
 microtel_add_test(
     NAME    otlp_encoder_test

@@ -3,6 +3,8 @@
 #
 # Unit tests for src/wire/encoder/ (Track F).
 
+add_subdirectory(http)
+
 microtel_add_test(
     NAME    otlp_encoder_test
     SOURCES otlp_encoder_test.cpp

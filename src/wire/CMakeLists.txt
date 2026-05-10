@@ -5,3 +5,4 @@
 # Track F: encoder. Track B/D: HTTP + gRPC transport (M3+).
 
 add_subdirectory(encoder)
+add_subdirectory(http)

@@ -34,9 +34,12 @@ OtlpExporter::OtlpExporter(internal::IOtlpEncoder* encoder,
 {
 }
 
+// Maximum time the destructor waits for the worker to drain on implicit shutdown.
+constexpr auto kDestructorShutdownTimeout = std::chrono::seconds(5);
+
 OtlpExporter::~OtlpExporter() noexcept
 {
-    (void)Shutdown(std::chrono::seconds(5));
+    (void)Shutdown(kDestructorShutdownTimeout);
 }
 
 internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexcept

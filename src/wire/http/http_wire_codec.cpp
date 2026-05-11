@@ -27,6 +27,17 @@ namespace
 
 constexpr std::string_view kV1TracesPath = "/v1/traces";
 
+// HTTP status code ranges and retryable codes (error-model.md §7.1)
+constexpr int kHttpSuccessMin = 200;
+constexpr int kHttpSuccessMax = 300;
+constexpr int kHttpTooManyRequests = 429;
+constexpr int kHttpBadGateway = 502;
+constexpr int kHttpServiceUnavailable = 503;
+constexpr int kHttpGatewayTimeout = 504;
+
+// Number of built-in request headers added before any extra headers
+constexpr std::size_t kBuiltInHeaderCount = 6U;
+
 /// @brief Parse an integer-form `Retry-After` value (seconds).
 ///
 /// Handles only the integer form. HTTP-date form is not parsed in v1
@@ -83,11 +94,12 @@ constexpr std::string_view kV1TracesPath = "/v1/traces";
 [[nodiscard]] internal::WireResult ClassifyStatus(
     int code, const std::vector<internal::HeaderField>& headers) noexcept
 {
-    if (code >= 200 && code < 300)
+    if (code >= kHttpSuccessMin && code < kHttpSuccessMax)
     {
         return {.success = true, .retry_after = {}, .error = {}, .response_excerpt = {}};
     }
-    if (code == 429 || code == 502 || code == 503 || code == 504)
+    if (code == kHttpTooManyRequests || code == kHttpBadGateway ||
+        code == kHttpServiceUnavailable || code == kHttpGatewayTimeout)
     {
         return {
             .success = false,
@@ -135,7 +147,7 @@ std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(
     std::size_t content_length) const noexcept
 {
     std::vector<internal::HeaderField> headers;
-    headers.reserve(6 + m_config.extra_headers.size());
+    headers.reserve(kBuiltInHeaderCount + m_config.extra_headers.size());
 
     headers.push_back({.name = ":method", .value = "POST"});
     headers.push_back({.name = ":scheme", .value = m_config.scheme});

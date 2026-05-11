@@ -17,6 +17,36 @@ namespace
 
 using ByteSpan = std::span<const std::uint8_t>;
 
+// ---------------------------------------------------------------------------
+// Proto varint decoding constants
+// ---------------------------------------------------------------------------
+
+constexpr std::uint8_t kVarintContinueBit = 0x80U;
+constexpr std::uint64_t kVarintDataMask = 0x7FU;
+constexpr unsigned kVarintShiftStep = 7U;
+constexpr unsigned kVarintMaxShift = 64U;
+
+// ---------------------------------------------------------------------------
+// Proto wire-type fixed-width field sizes
+// ---------------------------------------------------------------------------
+
+constexpr std::size_t kWireWidth64Bit = 8U;
+constexpr std::size_t kWireWidth32Bit = 4U;
+
+// ---------------------------------------------------------------------------
+// Proto field numbers
+// ---------------------------------------------------------------------------
+
+// ExportTraceServiceResponse
+constexpr std::uint32_t kFieldPartialSuccess = 1U;
+
+// ExportTracePartialSuccess
+constexpr std::uint32_t kFieldRejectedSpans = 1U;
+
+// ---------------------------------------------------------------------------
+// Proto wire-format reader
+// ---------------------------------------------------------------------------
+
 [[nodiscard]] std::optional<std::uint64_t> ReadVarint(ByteSpan& buf)
 {
     std::uint64_t result = 0;
@@ -25,13 +55,13 @@ using ByteSpan = std::span<const std::uint8_t>;
     {
         const std::uint8_t b = buf.front();
         buf = buf.subspan(1);
-        result |= static_cast<std::uint64_t>(b & 0x7FU) << shift;
-        if ((b & 0x80U) == 0U)
+        result |= static_cast<std::uint64_t>(b & kVarintDataMask) << shift;
+        if ((b & kVarintContinueBit) == 0U)
         {
             return result;
         }
-        shift += 7U;
-        if (shift >= 64U)
+        shift += kVarintShiftStep;
+        if (shift >= kVarintMaxShift)
         {
             return std::nullopt;
         }
@@ -67,20 +97,20 @@ using ByteSpan = std::span<const std::uint8_t>;
     }
     if (wire_type == kWt64Bit)
     {
-        if (buf.size() < 8U)
+        if (buf.size() < kWireWidth64Bit)
         {
             return false;
         }
-        buf = buf.subspan(8U);
+        buf = buf.subspan(kWireWidth64Bit);
         return true;
     }
     if (wire_type == kWt32Bit)
     {
-        if (buf.size() < 4U)
+        if (buf.size() < kWireWidth32Bit)
         {
             return false;
         }
-        buf = buf.subspan(4U);
+        buf = buf.subspan(kWireWidth32Bit);
         return true;
     }
     return false;
@@ -115,7 +145,7 @@ constexpr auto kMaxRejected = static_cast<std::uint64_t>(std::numeric_limits<std
         }
         const auto fn = static_cast<std::uint32_t>(*tag >> 3U);
         const auto wt = static_cast<std::uint32_t>(*tag & 0x7U);
-        if (fn == 1U && wt == 0U)
+        if (fn == kFieldRejectedSpans && wt == 0U)
         {
             return ReadRejectedSpans(data);
         }
@@ -154,7 +184,7 @@ constexpr auto kMaxRejected = static_cast<std::uint64_t>(std::numeric_limits<std
         }
         const auto fn = static_cast<std::uint32_t>(*tag >> 3U);
         const auto wt = static_cast<std::uint32_t>(*tag & 0x7U);
-        if (fn == 1U && wt == 2U)
+        if (fn == kFieldPartialSuccess && wt == 2U)
         {
             return ExtractPartialSuccess(data);
         }

@@ -32,6 +32,79 @@ constexpr std::string_view kGrpcTracesPath =
 constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.RetryInfo";
 
 // ---------------------------------------------------------------------------
+// Base64 alphabet position constants (RFC 4648 §5)
+// ---------------------------------------------------------------------------
+
+constexpr int kB64AlphaLowerOffset = 26;   // 'a' maps to index 26
+constexpr int kB64DigitOffset = 52;        // '0' maps to index 52
+constexpr int kB64PlusOrMinus = 62;        // '+' (standard) or '-' (URL-safe)
+constexpr int kB64SlashOrUnderscore = 63;  // '/' (standard) or '_' (URL-safe)
+constexpr int kB64InvalidChar = -1;
+
+// Base64 decode output reservation: ceil(n * 3 / 4)
+constexpr std::size_t kB64OutputBytesPerGroup = 3U;
+constexpr std::size_t kB64InputCharsPerGroup = 4U;
+
+// Bit masks for Base64 carry bits between output bytes
+constexpr unsigned kB64Mask4Bit = 0xFU;  // 4-bit carry (2nd output byte)
+constexpr unsigned kB64Mask2Bit = 0x3U;  // 2-bit carry (3rd output byte)
+
+// ---------------------------------------------------------------------------
+// Proto varint decoding constants
+// ---------------------------------------------------------------------------
+
+constexpr std::uint8_t kVarintContinueBit = 0x80U;
+constexpr std::uint64_t kVarintDataMask = 0x7FU;
+constexpr unsigned kVarintShiftStep = 7U;
+constexpr unsigned kVarintMaxShift = 64U;
+
+// ---------------------------------------------------------------------------
+// Proto wire-type fixed-width field sizes
+// ---------------------------------------------------------------------------
+
+constexpr std::size_t kWireWidth64Bit = 8U;
+constexpr std::size_t kWireWidth32Bit = 4U;
+
+// ---------------------------------------------------------------------------
+// Proto field numbers
+// ---------------------------------------------------------------------------
+
+// google.protobuf.Duration
+constexpr std::uint32_t kFieldDurationSeconds = 1U;
+constexpr std::uint32_t kFieldDurationNanos = 2U;
+
+// google.rpc.RetryInfo
+constexpr std::uint32_t kFieldRetryDelay = 1U;
+
+// google.protobuf.Any
+constexpr std::uint32_t kFieldAnyTypeUrl = 1U;
+constexpr std::uint32_t kFieldAnyValue = 2U;
+
+// google.rpc.Status
+constexpr std::uint32_t kFieldStatusDetails = 3U;
+
+// ---------------------------------------------------------------------------
+// google.protobuf.Duration conversion factors
+// ---------------------------------------------------------------------------
+
+constexpr std::int64_t kMillisPerSecond = 1000;
+constexpr std::int32_t kNanosPerMilli = 1'000'000;
+
+// ---------------------------------------------------------------------------
+// gRPC DATA frame constants
+// ---------------------------------------------------------------------------
+
+constexpr std::size_t kGrpcFrameHeaderSize = 5U;
+constexpr std::uint8_t kGrpcUncompressedFlag = 0x00U;
+constexpr std::uint8_t kByteMask = 0xFFU;
+constexpr unsigned kByteShift24 = 24U;
+constexpr unsigned kByteShift16 = 16U;
+constexpr unsigned kByteShift8 = 8U;
+
+// Sentinel for a gRPC status that could not be parsed from headers
+constexpr int kGrpcStatusUnparsed = -1;
+
+// ---------------------------------------------------------------------------
 // Base64 URL-safe decode (RFC 4648 §5, no padding required)
 // ---------------------------------------------------------------------------
 
@@ -43,21 +116,21 @@ constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.R
     }
     if (c >= 'a' && c <= 'z')
     {
-        return c - 'a' + 26;
+        return c - 'a' + kB64AlphaLowerOffset;
     }
     if (c >= '0' && c <= '9')
     {
-        return c - '0' + 52;
+        return c - '0' + kB64DigitOffset;
     }
     if (c == '-' || c == '+')
     {
-        return 62;
+        return kB64PlusOrMinus;
     }
     if (c == '_' || c == '/')
     {
-        return 63;
+        return kB64SlashOrUnderscore;
     }
-    return -1;
+    return kB64InvalidChar;
 }
 
 [[nodiscard]] std::optional<std::vector<std::uint8_t>> Base64UrlDecode(std::string_view sv)
@@ -67,7 +140,8 @@ constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.R
         sv.remove_suffix(1);
     }
     std::vector<std::uint8_t> out;
-    out.reserve(((sv.size() * 3U) + 3U) / 4U);
+    out.reserve(((sv.size() * kB64OutputBytesPerGroup) + (kB64InputCharsPerGroup - 1U)) /
+                kB64InputCharsPerGroup);
     std::size_t i = 0;
     while (i + 1U < sv.size())
     {
@@ -89,7 +163,7 @@ constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.R
         {
             return std::nullopt;
         }
-        out.push_back(static_cast<std::uint8_t>(((static_cast<unsigned>(c1) & 0xFU) << 4U) |
+        out.push_back(static_cast<std::uint8_t>(((static_cast<unsigned>(c1) & kB64Mask4Bit) << 4U) |
                                                 (static_cast<unsigned>(c2) >> 2U)));
         ++i;
         if (i >= sv.size())
@@ -101,7 +175,7 @@ constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.R
         {
             return std::nullopt;
         }
-        out.push_back(static_cast<std::uint8_t>(((static_cast<unsigned>(c2) & 0x3U) << 6U) |
+        out.push_back(static_cast<std::uint8_t>(((static_cast<unsigned>(c2) & kB64Mask2Bit) << 6U) |
                                                 static_cast<unsigned>(c3)));
         ++i;
     }
@@ -122,13 +196,13 @@ using ByteSpan = std::span<const std::uint8_t>;
     {
         const std::uint8_t b = buf.front();
         buf = buf.subspan(1);
-        result |= static_cast<std::uint64_t>(b & 0x7FU) << shift;
-        if ((b & 0x80U) == 0U)
+        result |= static_cast<std::uint64_t>(b & kVarintDataMask) << shift;
+        if ((b & kVarintContinueBit) == 0U)
         {
             return result;
         }
-        shift += 7U;
-        if (shift >= 64U)
+        shift += kVarintShiftStep;
+        if (shift >= kVarintMaxShift)
         {
             return std::nullopt;
         }
@@ -164,20 +238,20 @@ using ByteSpan = std::span<const std::uint8_t>;
     }
     if (wire_type == kWt64Bit)
     {
-        if (buf.size() < 8U)
+        if (buf.size() < kWireWidth64Bit)
         {
             return false;
         }
-        buf = buf.subspan(8U);
+        buf = buf.subspan(kWireWidth64Bit);
         return true;
     }
     if (wire_type == kWt32Bit)
     {
-        if (buf.size() < 4U)
+        if (buf.size() < kWireWidth32Bit)
         {
             return false;
         }
-        buf = buf.subspan(4U);
+        buf = buf.subspan(kWireWidth32Bit);
         return true;
     }
     return false;
@@ -187,7 +261,7 @@ using ByteSpan = std::span<const std::uint8_t>;
 [[nodiscard]] bool ParseDurationField(
     ByteSpan& data, std::uint32_t fn, std::uint32_t wt, std::int64_t& seconds, std::int32_t& nanos)
 {
-    if (fn == 1U && wt == 0U)
+    if (fn == kFieldDurationSeconds && wt == 0U)
     {
         const auto v = ReadVarint(data);
         if (!v.has_value())
@@ -197,7 +271,7 @@ using ByteSpan = std::span<const std::uint8_t>;
         seconds = static_cast<std::int64_t>(*v);
         return true;
     }
-    if (fn == 2U && wt == 0U)
+    if (fn == kFieldDurationNanos && wt == 0U)
     {
         const auto v = ReadVarint(data);
         if (!v.has_value())
@@ -229,7 +303,7 @@ using ByteSpan = std::span<const std::uint8_t>;
             return std::nullopt;
         }
     }
-    return std::chrono::milliseconds{(seconds * 1000) + (nanos / 1'000'000)};
+    return std::chrono::milliseconds{(seconds * kMillisPerSecond) + (nanos / kNanosPerMilli)};
 }
 
 // Reads the retry_delay field (field 1, wire type 2) from a RetryInfo message.
@@ -255,7 +329,7 @@ using ByteSpan = std::span<const std::uint8_t>;
         }
         const auto fn = static_cast<std::uint32_t>(*tag >> 3U);
         const auto wt = static_cast<std::uint32_t>(*tag & 0x7U);
-        if (fn == 1U && wt == 2U)
+        if (fn == kFieldRetryDelay && wt == 2U)
         {
             return ReadRetryDelayField(data);
         }
@@ -274,7 +348,7 @@ using ByteSpan = std::span<const std::uint8_t>;
                                  std::string& type_url,
                                  std::optional<ByteSpan>& value)
 {
-    if (fn == 1U && wt == 2U)
+    if (fn == kFieldAnyTypeUrl && wt == 2U)
     {
         const auto bytes = ReadLenDelim(data);
         if (!bytes.has_value())
@@ -285,7 +359,7 @@ using ByteSpan = std::span<const std::uint8_t>;
         type_url.assign(reinterpret_cast<const char*>(bytes->data()), bytes->size());
         return true;
     }
-    if (fn == 2U && wt == 2U)
+    if (fn == kFieldAnyValue && wt == 2U)
     {
         value = ReadLenDelim(data);
         return value.has_value();
@@ -342,7 +416,7 @@ struct RetrySearchSignal
                                                   std::uint32_t fn,
                                                   std::uint32_t wt)
 {
-    if (fn == 3U && wt == 2U)
+    if (fn == kFieldStatusDetails && wt == 2U)
     {
         const auto any_bytes = ReadLenDelim(data);
         if (!any_bytes.has_value())
@@ -492,7 +566,6 @@ struct RetrySearchSignal
 {
     if (code == 0)
     {
-        constexpr std::size_t kGrpcFrameHeaderSize = 5U;
         std::uint32_t rejected = 0;
         if (tr.response_body.size() >= kGrpcFrameHeaderSize)
         {
@@ -554,7 +627,7 @@ struct RetrySearchSignal
     {
         return ClassifyMissingGrpcStatus(tr.response_headers);
     }
-    int code = -1;
+    int code = kGrpcStatusUnparsed;
     const auto* const p = status_sv->data();
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     (void)std::from_chars(p, p + status_sv->size(), code);
@@ -569,12 +642,12 @@ struct RetrySearchSignal
 {
     const std::size_t n = payload.Size();
     std::vector<std::byte> framed;
-    framed.reserve(5U + n);
-    framed.push_back(std::byte{0x00U});  // compression flag: uncompressed
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> 24U) & 0xFFU)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> 16U) & 0xFFU)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> 8U) & 0xFFU)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>(n & 0xFFU)});
+    framed.reserve(kGrpcFrameHeaderSize + n);
+    framed.push_back(std::byte{kGrpcUncompressedFlag});
+    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift24) & kByteMask)});
+    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift16) & kByteMask)});
+    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift8) & kByteMask)});
+    framed.push_back(std::byte{static_cast<std::uint8_t>(n & kByteMask)});
     for (const auto b : payload.Bytes())
     {
         framed.push_back(b);

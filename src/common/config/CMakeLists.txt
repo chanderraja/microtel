@@ -9,7 +9,8 @@
 add_library(microtel_config STATIC
     toml_loader.cpp
     env_resolver.cpp
-    config_validator.cpp)
+    config_validator.cpp
+    auth_providers.cpp)
 
 target_link_libraries(microtel_config
     PUBLIC  microtel_headers

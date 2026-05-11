@@ -7,3 +7,6 @@ add_subdirectory(raii)
 
 # M6-A: config layer unit tests.
 add_subdirectory(config)
+
+# M6-B: auth provider unit tests.
+add_subdirectory(auth)

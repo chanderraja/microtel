@@ -56,7 +56,7 @@ CallbackAuthProvider::GetAuthorization(internal::TimePointSteady now)
     auto result = m_cb();
     if (!result)
     {
-        return microtel::Unexpected{result.error()};
+        return microtel::make_unexpected(result.error());
     }
 
     m_cached = std::move(*result);

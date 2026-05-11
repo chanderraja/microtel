@@ -71,6 +71,7 @@ private:
     {
         std::vector<internal::SpanRecord> batch;
         bool done = false;
+        std::size_t pending_flush_seq{0};
     };
 
     WakeResult WaitAndCollect() noexcept;

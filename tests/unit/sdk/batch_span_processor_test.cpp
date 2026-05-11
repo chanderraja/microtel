@@ -177,13 +177,8 @@ TEST(BatchSpanProcessorTest, BatchSize_TriggersMidSchedule)
     bsp->OnEnd(MakeRecord("b"));
     bsp->OnEnd(MakeRecord("c"));
 
-    // Give the worker a moment to process.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
-    while (exp.received_batches.empty() && std::chrono::steady_clock::now() < deadline)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
+    const mt::Status flush = bsp->ForceFlush(std::chrono::milliseconds(2000));
+    EXPECT_EQ(flush, mt::Status::Completed);
     EXPECT_FALSE(exp.received_batches.empty());
     (void)bsp->Shutdown(std::chrono::milliseconds(500));
 }

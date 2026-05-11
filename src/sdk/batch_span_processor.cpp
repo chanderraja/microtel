@@ -27,9 +27,15 @@ BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
 {
 }
 
+constexpr auto kBspDestructorTimeout = std::chrono::milliseconds(5000);
+
 BatchSpanProcessor::~BatchSpanProcessor() noexcept
 {
-    (void)Shutdown(std::chrono::milliseconds(5000));
+    (void)Shutdown(kBspDestructorTimeout);
+    if (m_worker.joinable())
+    {
+        m_worker.join();
+    }
 }
 
 void BatchSpanProcessor::OnStart(microtel::Span& /*span*/,
@@ -126,23 +132,33 @@ BatchSpanProcessor::WakeResult BatchSpanProcessor::WaitAndCollect() noexcept
         m_queue.pop_front();
     }
 
+    std::size_t pending_flush_seq = 0;
     if (m_flush_seq > m_flush_done_seq && m_queue.empty())
     {
-        m_flush_done_seq = m_flush_seq;
-        m_flush_cv.notify_all();
+        pending_flush_seq = m_flush_seq;
     }
 
-    return {.batch = std::move(batch), .done = m_shutdown && m_queue.empty()};
+    return {
+        .batch = std::move(batch),
+        .done = m_shutdown && m_queue.empty(),
+        .pending_flush_seq = pending_flush_seq,
+    };
 }
 
 void BatchSpanProcessor::WorkerLoop() noexcept
 {
     while (true)
     {
-        auto [batch, done] = WaitAndCollect();
+        auto [batch, done, pending_flush_seq] = WaitAndCollect();
         if (!batch.empty())
         {
             ExportBatch(std::move(batch));
+        }
+        if (pending_flush_seq > 0)
+        {
+            const std::scoped_lock lock{m_mu};
+            m_flush_done_seq = pending_flush_seq;
+            m_flush_cv.notify_all();
         }
         if (done)
         {

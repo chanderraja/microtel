@@ -153,6 +153,7 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 
 - **Don't add source code in M0** beyond compilable interface stubs.
 - **Don't add a runtime dependency** without an ICP.
+- **Don't commit milestone work directly to `master`.** Each milestone (M6, M7, …) or sub-task gets its own branch; merge via PR once CI is green.
 - **Don't break the build** intending to fix it later.
 - **Don't merge without CI green.**
 - **Don't bypass the test-presence check** by mislabeling a real change as `[refactor]`.

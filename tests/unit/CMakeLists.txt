@@ -46,3 +46,6 @@ add_subdirectory(common)
 
 # M3 close — export pipeline. Mirrors src/exporter/.
 add_subdirectory(exporter)
+
+# M6-D — preflight CLI logic.
+add_subdirectory(preflight)

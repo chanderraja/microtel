@@ -144,6 +144,7 @@ add_subdirectory(src/sdk)
 add_subdirectory(src/wire)
 add_subdirectory(src/transport)
 add_subdirectory(src/exporter)
+add_subdirectory(tools)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the

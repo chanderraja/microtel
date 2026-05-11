@@ -236,9 +236,9 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
 {
     if (m_impl->consumed)
     {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::BuildAlreadyConsumed,
-                                      .field = {},
-                                      .message = "SdkBuilder::Build() called more than once"}};
+        return make_unexpected(ConfigError{.kind = ConfigError::Kind::BuildAlreadyConsumed,
+                                           .field = {},
+                                           .message = "SdkBuilder::Build() called more than once"});
     }
     m_impl->consumed = true;
 
@@ -250,14 +250,14 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         auto file_cfg = config::LoadToml(*m_impl->file_path);
         if (!file_cfg)
         {
-            return Unexpected{file_cfg.error()};
+            return make_unexpected(file_cfg.error());
         }
         cfg = std::move(*file_cfg);
     }
 
     if (auto r = config::OverlayEnv(cfg); !r)
     {
-        return Unexpected{r.error()};
+        return make_unexpected(r.error());
     }
 
     if (m_impl->endpoint)
@@ -312,7 +312,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     // --- Step 2: validate ---------------------------------------------------
     if (auto r = config::Validate(cfg); !r)
     {
-        return Unexpected{r.error()};
+        return make_unexpected(r.error());
     }
 
     // --- Step 3: resource ---------------------------------------------------
@@ -330,19 +330,19 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto reactor = transport::EpollReactor::Create();
     if (!reactor)
     {
-        return Unexpected{
+        return make_unexpected(
             ConfigError{.kind = ConfigError::Kind::Unspecified,
                         .field = {},
-                        .message = "reactor init failed: " + reactor.error().message}};
+                        .message = "reactor init failed: " + reactor.error().message});
     }
 
     auto http2 = transport::Http2Transport::Create(std::move(*reactor));
     if (!http2)
     {
-        return Unexpected{
+        return make_unexpected(
             ConfigError{.kind = ConfigError::Kind::Unspecified,
                         .field = {},
-                        .message = "transport init failed: " + http2.error().message}};
+                        .message = "transport init failed: " + http2.error().message});
     }
 
     // --- Step 6: encoder ----------------------------------------------------

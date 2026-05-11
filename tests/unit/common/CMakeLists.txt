@@ -4,3 +4,6 @@
 # Unit tests for src/common/ (layer-independent utilities).
 
 add_subdirectory(raii)
+
+# M6-A: config layer unit tests.
+add_subdirectory(config)

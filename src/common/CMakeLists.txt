@@ -28,3 +28,6 @@ if(MICROTEL_USE_SPDLOG)
     target_link_libraries(microtel_common PRIVATE spdlog::spdlog)
     target_compile_definitions(microtel_common PRIVATE MICROTEL_USE_SPDLOG=1)
 endif()
+
+# M6-A: configuration layer (TOML parsing, env-var overlay, validation).
+add_subdirectory(config)

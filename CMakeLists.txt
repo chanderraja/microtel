@@ -102,6 +102,24 @@ if(MICROTEL_USE_SPDLOG)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
+# toml++ — TOML config file parser (M6-A, ICP 0004).
+# Header-only; linked PRIVATE into microtel_config only.
+# Runtime closure is unchanged: zero shared-library symbols added.
+include(FetchContent)
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0
+    GIT_SHALLOW    TRUE
+)
+set(TOMLPLUSPLUS_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(tomlplusplus)
+
+# Compile-time gate: when ON, insecure = true in config causes init failure.
+# Default OFF (emit runtime warning only). See microtel-spec.md §12.3.
+option(MICROTEL_FORBID_INSECURE_TLS
+    "Fail at init if insecure = true is configured" OFF)
+
 # Third-party libraries: upb runtime + utf8_range validator.
 # CMake targets: microtel_upb_runtime, microtel_utf8_range.
 # These are compiled as C11 with -w (no warnings from vendored code).

@@ -21,6 +21,25 @@
 namespace microtel::sdk
 {
 
+/// @brief All owned objects passed to SdkProvider at construction.
+///
+/// Bundles the ten pipeline components so the constructor stays within the
+/// seven-parameter tidy threshold. Declaration order matches the member
+/// declaration order in SdkProvider (reverse-destruction semantics).
+struct SdkProviderArgs
+{
+    std::unique_ptr<internal::IOtlpEncoder> encoder;
+    std::unique_ptr<internal::IAuthProvider> auth;
+    std::unique_ptr<internal::ITransport> transport;
+    std::unique_ptr<internal::IWireCodec> codec;
+    std::unique_ptr<internal::IExporter> exporter;
+    std::unique_ptr<internal::ISpanProcessor> processor;
+    std::shared_ptr<const Resource> resource;
+    SamplerHandle sampler;
+    SpanLimitOptions span_limits;
+    internal::ConnectOptions connect_opts;
+};
+
 /// @brief Production `Provider` wiring the full export pipeline.
 ///
 /// Owns the pipeline end-to-end: encoder → transport → codec → exporter →
@@ -33,16 +52,7 @@ namespace microtel::sdk
 class SdkProvider final : public microtel::Provider
 {
 public:
-    SdkProvider(std::unique_ptr<internal::IOtlpEncoder> encoder,
-                std::unique_ptr<internal::IAuthProvider> auth,
-                std::unique_ptr<internal::ITransport> transport,
-                std::unique_ptr<internal::IWireCodec> codec,
-                std::unique_ptr<internal::IExporter> exporter,
-                std::unique_ptr<internal::ISpanProcessor> processor,
-                std::shared_ptr<const Resource> resource,
-                SamplerHandle sampler,
-                SpanLimitOptions span_limits,
-                internal::ConnectOptions connect_opts) noexcept;
+    explicit SdkProvider(SdkProviderArgs args) noexcept;
 
     ~SdkProvider() noexcept override;
 

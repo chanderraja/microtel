@@ -8,6 +8,7 @@
 #include "microtel/sdk_builder.hpp"
 
 // NOLINTNEXTLINE(misc-include-cleaner) — toml++ single-header
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -46,16 +47,8 @@ constexpr std::string_view kValIgnore = "ignore";
 {
     for (const auto& [key, val] : tbl)
     {
-        bool matched = false;
-        for (const auto& k : known)
-        {
-            if (key == k)
-            {
-                matched = true;
-                break;
-            }
-        }
-        if (!matched)
+        const auto* const it = std::ranges::find(known, std::string_view{key});
+        if (it == known.end())
         {
             return std::string{key};
         }
@@ -117,7 +110,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "config.unknown_keys",
-                               .message = "must be \"error\", \"warn\", or \"ignore\""};
+                               .message = R"(must be "error", "warn", or "ignore")"};
         }
     }
     return CheckUnknown(*sec, "config", {"unknown_keys"}, cfg.unknown_key_mode);
@@ -155,7 +148,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "exporter.protocol",
-                               .message = "must be \"http\" or \"grpc\""};
+                               .message = R"(must be "http" or "grpc")"};
         }
     }
     if (const auto v = (*sec)["compression"].value<std::string>())
@@ -307,7 +300,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "sdk.drop_policy",
-                               .message = "must be \"newest\" or \"oldest\""};
+                               .message = R"(must be "newest" or "oldest")"};
         }
     }
     return std::nullopt;

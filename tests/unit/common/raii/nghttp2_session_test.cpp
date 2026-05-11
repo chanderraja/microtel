@@ -39,7 +39,7 @@ TEST(Nghttp2SessionTest, ExplicitConstruct_Valid)
 TEST(Nghttp2SessionTest, MoveConstruct_TransfersOwnership)
 {
     mcr::Nghttp2Session src = MakeClientSession();
-    nghttp2_session* raw = src.Get();
+    const nghttp2_session* const raw = src.Get();
 
     const mcr::Nghttp2Session dst{std::move(src)};
 
@@ -52,7 +52,7 @@ TEST(Nghttp2SessionTest, MoveAssign_TransfersOwnership)
 {
     mcr::Nghttp2Session src = MakeClientSession();
     mcr::Nghttp2Session dst = MakeClientSession();
-    nghttp2_session* raw = src.Get();
+    const nghttp2_session* const raw = src.Get();
 
     dst = std::move(src);
 
@@ -64,7 +64,7 @@ TEST(Nghttp2SessionTest, MoveAssign_TransfersOwnership)
 TEST(Nghttp2SessionTest, Release_RelinquishesOwnership)
 {
     mcr::Nghttp2Session session = MakeClientSession();
-    nghttp2_session* raw = session.Get();
+    const nghttp2_session* const raw = session.Get();
 
     nghttp2_session* released = session.Release();
 

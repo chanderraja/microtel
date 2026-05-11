@@ -21,7 +21,6 @@
 #include <set>
 
 namespace mt = microtel;
-namespace mti = microtel::internal;
 namespace mtfk = microtel::testing;
 
 // ---------------------------------------------------------------------------
@@ -166,7 +165,7 @@ TEST(SdkTracerTest, WithExplicitParent_InheritsTraceId)
         .remote = false,
     };
 
-    mt::StartSpanOptions opts{
+    const mt::StartSpanOptions opts{
         .kind = mt::SpanKind::Internal, .parent = parent_ctx, .start_time = {}, .attributes = {}};
     auto h = t.StartSpan("child", opts);
     ASSERT_NE(h, nullptr);
@@ -192,7 +191,7 @@ TEST(SdkTracerTest, WithExplicitParent_SpanIdIsNew)
         .remote = false,
     };
 
-    mt::StartSpanOptions opts{
+    const mt::StartSpanOptions opts{
         .kind = mt::SpanKind::Internal, .parent = parent_ctx, .start_time = {}, .attributes = {}};
     auto h = t.StartSpan("child", opts);
     ASSERT_NE(h, nullptr);
@@ -218,7 +217,7 @@ TEST(SdkTracerTest, WithExplicitParent_RecordsParentSpanId)
         .remote = false,
     };
 
-    mt::StartSpanOptions opts{
+    const mt::StartSpanOptions opts{
         .kind = mt::SpanKind::Internal, .parent = parent_ctx, .start_time = {}, .attributes = {}};
     {
         auto h = t.StartSpan("child", opts);

@@ -95,7 +95,41 @@ namespace
     return microtel::make_unexpected(
         ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
                     .field = "OTEL_EXPORTER_OTLP_PROTOCOL",
-                    .message = "expected \"grpc\" or \"http/protobuf\""});
+                    .message = R"(expected "grpc" or "http/protobuf")"});
+}
+
+/// Apply OTEL_EXPORTER_OTLP_TIMEOUT to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayTimeout(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_EXPORTER_OTLP_TIMEOUT");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto ms = ParseMs(v, "OTEL_EXPORTER_OTLP_TIMEOUT");
+    if (!ms)
+    {
+        return microtel::make_unexpected(ms.error());
+    }
+    cfg.timeouts.per_export = *ms;
+    return {};
+}
+
+/// Apply OTEL_RESOURCE_ATTRIBUTES to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceAttrs(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_RESOURCE_ATTRIBUTES");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto attrs = ParseKeyValueList(v, "OTEL_RESOURCE_ATTRIBUTES");
+    if (!attrs)
+    {
+        return microtel::make_unexpected(attrs.error());
+    }
+    cfg.resource_attrs = std::move(*attrs);
+    return {};
 }
 
 }  // namespace
@@ -131,14 +165,9 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     // OTEL_EXPORTER_OTLP_TIMEOUT (integer milliseconds)
-    if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_TIMEOUT"); !v.empty())
+    if (auto r = OverlayTimeout(cfg); !r)
     {
-        auto ms = ParseMs(v, "OTEL_EXPORTER_OTLP_TIMEOUT");
-        if (!ms)
-        {
-            return microtel::make_unexpected(ms.error());
-        }
-        cfg.timeouts.per_export = *ms;
+        return microtel::make_unexpected(r.error());
     }
 
     // OTEL_EXPORTER_OTLP_COMPRESSION
@@ -160,14 +189,9 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     // OTEL_RESOURCE_ATTRIBUTES
-    if (const auto v = GetEnv("OTEL_RESOURCE_ATTRIBUTES"); !v.empty())
+    if (auto r = OverlayResourceAttrs(cfg); !r)
     {
-        auto attrs = ParseKeyValueList(v, "OTEL_RESOURCE_ATTRIBUTES");
-        if (!attrs)
-        {
-            return microtel::make_unexpected(attrs.error());
-        }
-        cfg.resource_attrs = std::move(*attrs);
+        return microtel::make_unexpected(r.error());
     }
 
     return {};

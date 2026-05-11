@@ -81,7 +81,7 @@ TEST(BatchSpanProcessorTest, OnStart_IsNoOp)
     auto bsp = MakeBsp(exp);
     // OnStart is a no-op; just must not crash.
     mt::Span* null_span = nullptr;
-    mt::Context ctx;
+    const mt::Context ctx;
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     EXPECT_NO_THROW(bsp->OnStart(*reinterpret_cast<mt::Span*>(null_span), ctx));
     (void)bsp->Shutdown(std::chrono::milliseconds(500));

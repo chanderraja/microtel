@@ -132,7 +132,7 @@ SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& o
     SpanHandle handle{raw, internal::SpanDeleter{[](Span* s) noexcept { delete s; }}};
 
     // Call OnStart with an empty (default) parent context wrapper.
-    Context parent_propagation_ctx{parent_ctx};
+    const Context parent_propagation_ctx{parent_ctx};
     m_processor->OnStart(*raw, parent_propagation_ctx);
 
     return handle;

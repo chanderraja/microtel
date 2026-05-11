@@ -7,6 +7,7 @@
 #include "microtel/protocol.hpp"
 
 #include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -88,6 +89,27 @@ struct AuthorityPath
     return result;
 }
 
+/// Parse the port component of an endpoint URL.
+[[nodiscard]] microtel::Expected<std::uint16_t, ConfigError> ParsePort(std::string_view port_str,
+                                                                       Protocol protocol)
+{
+    if (port_str.empty())
+    {
+        return (protocol == Protocol::Grpc) ? kDefaultPortGrpc : kDefaultPortHttp;
+    }
+    std::uint32_t parsed = 0;
+    const auto [ptr, ec] =
+        std::from_chars(port_str.data(), port_str.data() + port_str.size(), parsed);
+    if (ec != std::errc{} || ptr != port_str.data() + port_str.size() || parsed > kPortMax ||
+        parsed == 0)
+    {
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
+                                                     .field = "exporter.endpoint",
+                                                     .message = "invalid port in endpoint URL"});
+    }
+    return static_cast<std::uint16_t>(parsed);
+}
+
 /// Parse an endpoint URL into ParsedEndpoint components.
 /// Does not validate file-system resources.
 [[nodiscard]] microtel::Expected<ParsedEndpoint, ConfigError> ParseEndpointUrl(
@@ -137,26 +159,12 @@ struct AuthorityPath
     }
 
     // Parse optional port.
-    std::uint16_t port = 0;
-    if (!ap.port_str.empty())
+    auto port_result = ParsePort(ap.port_str, protocol);
+    if (!port_result)
     {
-        std::uint32_t parsed = 0;
-        const auto [ptr, ec] =
-            std::from_chars(ap.port_str.data(), ap.port_str.data() + ap.port_str.size(), parsed);
-        if (ec != std::errc{} || ptr != ap.port_str.data() + ap.port_str.size() ||
-            parsed > kPortMax || parsed == 0)
-        {
-            return microtel::make_unexpected(
-                ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
-                            .field = "exporter.endpoint",
-                            .message = "invalid port in endpoint URL"});
-        }
-        port = static_cast<std::uint16_t>(parsed);
+        return microtel::make_unexpected(port_result.error());
     }
-    else
-    {
-        port = (protocol == Protocol::Grpc) ? kDefaultPortGrpc : kDefaultPortHttp;
-    }
+    const std::uint16_t port = *port_result;
 
     // Strip trailing slash from path so it's a clean base.
     std::string path{ap.path};

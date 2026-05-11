@@ -26,7 +26,10 @@ int Invoke(std::initializer_list<const char*> args,
 {
     std::vector<const char*> argv(args);
     return tools::RunPreflight(
-        static_cast<int>(argv.size()), const_cast<char**>(argv.data()), out, err);
+        static_cast<int>(argv.size()),
+        const_cast<char**>(argv.data()),  // NOLINT(cppcoreguidelines-pro-type-const-cast)
+        out,
+        err);
 }
 
 }  // namespace

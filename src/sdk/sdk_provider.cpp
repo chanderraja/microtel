@@ -26,26 +26,17 @@ constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 
 }  // namespace
 
-SdkProvider::SdkProvider(std::unique_ptr<internal::IOtlpEncoder> encoder,
-                         std::unique_ptr<internal::IAuthProvider> auth,
-                         std::unique_ptr<internal::ITransport> transport,
-                         std::unique_ptr<internal::IWireCodec> codec,
-                         std::unique_ptr<internal::IExporter> exporter,
-                         std::unique_ptr<internal::ISpanProcessor> processor,
-                         std::shared_ptr<const Resource> resource,
-                         SamplerHandle sampler,
-                         SpanLimitOptions span_limits,
-                         internal::ConnectOptions connect_opts) noexcept
-    : m_encoder(std::move(encoder)),
-      m_auth(std::move(auth)),
-      m_transport(std::move(transport)),
-      m_codec(std::move(codec)),
-      m_exporter(std::move(exporter)),
-      m_processor(std::move(processor)),
-      m_resource(std::move(resource)),
-      m_sampler(std::move(sampler)),
-      m_span_limits(span_limits),
-      m_connect_opts(std::move(connect_opts))
+SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
+    : m_encoder(std::move(args.encoder)),
+      m_auth(std::move(args.auth)),
+      m_transport(std::move(args.transport)),
+      m_codec(std::move(args.codec)),
+      m_exporter(std::move(args.exporter)),
+      m_processor(std::move(args.processor)),
+      m_resource(std::move(args.resource)),
+      m_sampler(std::move(args.sampler)),
+      m_span_limits(args.span_limits),
+      m_connect_opts(std::move(args.connect_opts))
 {
 }
 

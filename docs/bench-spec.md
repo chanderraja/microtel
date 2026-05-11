@@ -1,6 +1,6 @@
-# microtel-bench: Benchmark Harness Spec
+# microtel bench/: Benchmark Harness Spec
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Companion to:** `microtel` core spec
 **License (proposed):** Apache 2.0
 
@@ -68,7 +68,7 @@ Two audiences, one harness:
 
 ### 3.1 The SUT (system-under-test)
 
-Three SUT images, one per library/exporter combination. All built from the **same C++ source** in `bench/emit-app/`, only the OTel headers and link target differ. Compiler, flags (`-O2 -g -fno-omit-frame-pointer`), and the rest of the toolchain are identical, enforced via a shared base Dockerfile.
+Three SUT images, one per library/exporter combination. All share the **same workload shape** — the same profile YAML drives the same workload logic — with a **compile-time-selected backend**: `bench/emit-app/` contains backend-specific adapter files, one per library, selected at build time so the microtel and otel-cpp APIs can differ while the workload logic stays identical. Compiler, flags (`-O2 -g -fno-omit-frame-pointer`), and the rest of the toolchain are identical, enforced via a shared base Dockerfile.
 
 The emit-app does three things:
 1. Listens on a Unix domain socket for control messages from the driver (`start`, `stop`, `flush`, `report`).
@@ -141,7 +141,7 @@ Process starts → first byte received at sink. Measures **library init cost + f
 Idle baseline punctuated by 1-second bursts at 50k spans/sec every 10s for 5 minutes. Measures **queue overflow behavior, drop rate, and recovery.**
 
 ### 4.5 `large-attributes`
-Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attributes. Measures **encoding cost on big payloads.**
+Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attributes. Measures **encoding cost on big payloads.** This profile intentionally exercises the `attribute_value_length_limit` truncation path (spec §5.6); truncation behavior and its effect on encoding cost are part of what is measured.
 
 ### 4.6 `binary-size` (static, no execution)
 Build all three SUTs, measure stripped shared library size, statically-linked dep closure size, and `.text` / `.rodata` section sizes via `size` and `bloaty`. Pure static measurement; no runs.
@@ -162,8 +162,12 @@ Per SUT, per run, per profile:
 | Steady-state RSS (median) | same, median over window | MB |
 | Throughput (sink-observed) | sink counters | items/sec |
 | Items emitted | SUT counter | count |
-| Items dropped (queue overflow) | SUT counter | count |
-| Drop rate | computed | % |
+| Items dropped — total | SUT counter (sum of all `DropReason` buckets via `IDiagnosticsSink`) | count |
+| Items dropped — `QueueFull` | `RecordDrop(DropReason::QueueFull)` counter | count |
+| Items dropped — `RecordTooLarge` | `RecordDrop(DropReason::RecordTooLarge)` counter | count |
+| Items dropped — `SpanAttributeLimit` | `RecordDrop(DropReason::SpanAttributeLimit)` counter | count |
+| Items dropped — `AttributeValueTruncated` | `RecordDrop(DropReason::AttributeValueTruncated)` counter | count |
+| Drop rate | computed (total drops / items emitted) | % |
 | StartSpan overhead | per-call wallclock histogram in SUT | ns p50/p95/p99 |
 | Span lifecycle overhead | StartSpan→End wallclock | ns p50/p95/p99 |
 | Encoding cost per batch | timing around protobuf serialize | μs |
@@ -236,48 +240,57 @@ Every cell with a square-bracket range is `[p25–p75]`. Cells without ranges ar
 
 ## 9. Project Layout
 
+Lives inside the main `microtel` repo at `bench/`, built behind
+`cmake -DMICROTEL_BUILD_BENCH=ON`. Benchmarks are atomically versioned with
+the library; the directory can be extracted to its own repo later if needed
+(`git filter-repo --subdirectory-filter bench/`). See ICP 0005.
+
 ```
-microtel-bench/
-├── README.md                       (one-page run instructions)
-├── bench.sh                        (entry point)
-├── bench/
-│   ├── driver/                     (Python orchestration)
-│   │   ├── __main__.py
-│   │   ├── env_fingerprint.py
-│   │   ├── runner.py
-│   │   ├── stats.py
-│   │   └── report.py
-│   ├── emit-app/                   (shared C++ workload)
-│   │   ├── CMakeLists.txt
-│   │   ├── src/main.cpp
-│   │   ├── src/workload_*.cpp
-│   │   └── src/control_socket.cpp
-│   ├── sut/
-│   │   ├── microtel/Dockerfile
-│   │   ├── otelcpp-grpc/Dockerfile
-│   │   ├── otelcpp-http/Dockerfile
-│   │   ├── base.Dockerfile
-│   │   └── registry.yaml
-│   ├── sink/
-│   │   ├── blackhole/              (Go, ~500 LOC)
-│   │   └── collector/config.yaml
-│   ├── profiles/
-│   │   ├── hot-loop-traces.yaml
-│   │   ├── realistic-request.yaml
-│   │   ├── cold-start.yaml
-│   │   ├── bursty.yaml
-│   │   ├── large-attributes.yaml
-│   │   └── binary-size.yaml
-│   └── versions.lock
-├── docs/
-│   ├── methodology.md
-│   ├── interpreting-results.md
-│   └── adding-a-library.md
-├── results/                        (gitignored; user output lands here)
-└── ci/
-    ├── jenkinsfile                 (microtel-internal regression gate)
-    └── github-actions.yml          (matrix run on PRs)
+microtel/
+└── bench/
+    ├── README.md                       (one-page run instructions)
+    ├── bench.sh                        (entry point)
+    ├── CMakeLists.txt                  (included when MICROTEL_BUILD_BENCH=ON)
+    ├── driver/                         (Python orchestration)
+    │   ├── __main__.py
+    │   ├── env_fingerprint.py
+    │   ├── runner.py
+    │   ├── stats.py
+    │   └── report.py
+    ├── emit-app/                       (workload, compile-time-selected backend)
+    │   ├── CMakeLists.txt
+    │   ├── src/main.cpp
+    │   ├── src/workload_*.cpp
+    │   ├── src/control_socket.cpp
+    │   ├── src/backend_microtel.cpp    (microtel adapter)
+    │   ├── src/backend_otelcpp.cpp     (otel-cpp adapter)
+    │   └── include/backend.hpp         (common interface)
+    ├── sut/
+    │   ├── microtel/Dockerfile
+    │   ├── otelcpp-grpc/Dockerfile
+    │   ├── otelcpp-http/Dockerfile
+    │   ├── base.Dockerfile
+    │   └── registry.yaml
+    ├── sink/
+    │   ├── blackhole/                  (Go, ~500 LOC)
+    │   └── collector/config.yaml
+    ├── profiles/
+    │   ├── hot-loop-traces.yaml
+    │   ├── realistic-request.yaml
+    │   ├── cold-start.yaml
+    │   ├── bursty.yaml
+    │   ├── large-attributes.yaml
+    │   └── binary-size.yaml
+    ├── versions.lock
+    ├── docs/
+    │   ├── methodology.md
+    │   ├── interpreting-results.md
+    │   └── adding-a-library.md
+    └── results/                        (gitignored; user output lands here)
 ```
+
+The CI workflow (`.github/workflows/benchmark.yml`) is a separate scheduled
+run; it does not block PR merges.
 
 ---
 
@@ -315,7 +328,7 @@ microtel-bench/
 
 ## 13. References
 
-- microtel core spec (`microtel-spec.md`)
+- microtel core spec (`microtel-spec.md`) and `docs/bench-spec.md` (this document)
 - [HdrHistogram](https://github.com/HdrHistogram/HdrHistogram_c) — for percentile recording in the SUT
 - [bloaty](https://github.com/google/bloaty) — for binary size analysis
 - [Brendan Gregg, "Systems Performance" Ch. 12](https://www.brendangregg.com/sysperfbook.html) — methodology references

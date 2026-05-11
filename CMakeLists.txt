@@ -149,6 +149,12 @@ add_subdirectory(tools)
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
 # whole tree for cross-compilation or constrained builds (spec §14.2).
+option(MICROTEL_BUILD_BENCH "Build the benchmark harness (requires Docker)" OFF)
+
+if(MICROTEL_BUILD_BENCH)
+    add_subdirectory(bench)
+endif()
+
 option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
 
 if(MICROTEL_BUILD_TESTS)

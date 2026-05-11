@@ -73,3 +73,4 @@ _handoff/
 
 # Knowledge graph (generated; bootstrap with /graphify in Claude Code)
 graphify-out/
+bench/results/

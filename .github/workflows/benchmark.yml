@@ -1,0 +1,56 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Benchmark workflow — runs weekly and on manual dispatch.
+# Does NOT run on every PR and does NOT block merge.
+# Results are uploaded as workflow artifacts and printed as a
+# GitHub Actions job summary.
+#
+# Requires: Docker on the runner, MICROTEL_BUILD_BENCH=ON.
+# Status: stub — wired up fully in B0 once the bench/ driver exists.
+
+name: benchmark
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # weekly, Monday 03:00 UTC
+  workflow_dispatch:        # manual trigger
+
+concurrency:
+  group: benchmark
+  cancel-in-progress: true  # only one benchmark run at a time
+
+jobs:
+  bench:
+    name: Run benchmark harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (bench ON)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMICROTEL_BUILD_BENCH=ON \
+            -DMICROTEL_BUILD_TESTS=OFF
+
+      - name: Build bench targets
+        run: cmake --build build --target bench -j$(nproc)
+
+      - name: Run harness
+        run: bench/bench.sh --ci --output build/bench-results
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: build/bench-results/
+          retention-days: 90
+
+      - name: Print summary
+        run: |
+          if [ -f build/bench-results/results.md ]; then
+            cat build/bench-results/results.md >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,6 +1,6 @@
 # ICP 0005: Move benchmark harness into the main repo (bench/)
 
-**Status:** Draft
+**Status:** Accepted
 **Affected interfaces / docs:** `microtel-spec.md` §13 (M7 row),
 `microtel-roadmap.md` (M7 framing, §9 benchmark trajectory),
 `docs/bench-spec.md` (all location references), `CMakeLists.txt`,
@@ -131,4 +131,4 @@ direction — merging a separate repo's history — is more disruptive.
 
 | Reviewer | Date | Status |
 |---|---|---|
-| | | Pending |
+| Chander Raja | 2026-05-11 | Accepted |

@@ -25,10 +25,8 @@ int Invoke(std::initializer_list<const char*> args,
            std::ostringstream& err)
 {
     std::vector<const char*> argv(args);
-    return tools::RunPreflight(static_cast<int>(argv.size()),
-                               const_cast<char**>(argv.data()),
-                               out,
-                               err);
+    return tools::RunPreflight(
+        static_cast<int>(argv.size()), const_cast<char**>(argv.data()), out, err);
 }
 
 }  // namespace

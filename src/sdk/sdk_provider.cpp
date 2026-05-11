@@ -3,12 +3,12 @@
 
 #include "sdk/sdk_provider.hpp"
 
-#include "sdk/sdk_tracer.hpp"
-
 #include "microtel/internal/batch.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
+
+#include "sdk/sdk_tracer.hpp"
 
 #include <chrono>
 #include <memory>
@@ -24,7 +24,7 @@ namespace
 
 constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 
-}
+}  // namespace
 
 SdkProvider::SdkProvider(std::unique_ptr<internal::IOtlpEncoder> encoder,
                          std::unique_ptr<internal::IAuthProvider> auth,

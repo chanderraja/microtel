@@ -42,8 +42,8 @@ struct Config
     UnknownKeyMode unknown_key_mode{UnknownKeyMode::Error};
 
     // Endpoint / transport
-    std::string endpoint_url;       ///< raw URL string (validated and parsed)
-    ParsedEndpoint endpoint;        ///< parsed URL components (filled by Validate)
+    std::string endpoint_url;  ///< raw URL string (validated and parsed)
+    ParsedEndpoint endpoint;   ///< parsed URL components (filled by Validate)
     Protocol protocol{Protocol::Http};
     bool compression_gzip{false};
     std::vector<KeyValue> headers;  ///< extra request headers from [exporter.headers]

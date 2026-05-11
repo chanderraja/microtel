@@ -8,12 +8,13 @@
 //   - config_validator.hpp (Validate)
 
 #include "common/config/config.hpp"
-#include "common/config/config_validator.hpp"
-#include "common/config/env_resolver.hpp"
-#include "common/config/toml_loader.hpp"
 
 #include "microtel/error.hpp"
 #include "microtel/protocol.hpp"
+
+#include "common/config/config_validator.hpp"
+#include "common/config/env_resolver.hpp"
+#include "common/config/toml_loader.hpp"
 
 #include <gtest/gtest.h>
 

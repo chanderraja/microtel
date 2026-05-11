@@ -66,13 +66,12 @@ TEST(StaticAuthProviderTest, ConsistentAcrossMultipleCalls)
 TEST(CallbackAuthProviderTest, FirstCall_InvokesCallback)
 {
     int call_count = 0;
-    mc::CallbackAuthProvider provider{
-        [&]() -> mt::Expected<std::string, mt::Error>
-        {
-            ++call_count;
-            return std::string{"Bearer fresh"};
-        },
-        std::chrono::seconds(60)};
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          return std::string{"Bearer fresh"};
+                                      },
+                                      std::chrono::seconds(60)};
 
     mtfk::FakeSteadyClock clock;
     const auto result = provider.GetAuthorization(clock.Now());
@@ -84,13 +83,12 @@ TEST(CallbackAuthProviderTest, FirstCall_InvokesCallback)
 TEST(CallbackAuthProviderTest, SecondCallWithinTtl_ReturnsCached_NoExtraInvocation)
 {
     int call_count = 0;
-    mc::CallbackAuthProvider provider{
-        [&]() -> mt::Expected<std::string, mt::Error>
-        {
-            ++call_count;
-            return std::string{"Bearer tok"};
-        },
-        std::chrono::seconds(60)};
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          return std::string{"Bearer tok"};
+                                      },
+                                      std::chrono::seconds(60)};
 
     mtfk::FakeSteadyClock clock;
     (void)provider.GetAuthorization(clock.Now());
@@ -103,9 +101,9 @@ TEST(CallbackAuthProviderTest, SecondCallWithinTtl_ReturnsCached_NoExtraInvocati
 
 TEST(CallbackAuthProviderTest, SecondCallWithinTtl_ReturnsSameCachedValue)
 {
-    mc::CallbackAuthProvider provider{
-        []() -> mt::Expected<std::string, mt::Error> { return std::string{"Bearer cached"}; },
-        std::chrono::seconds(60)};
+    mc::CallbackAuthProvider provider{[]() -> mt::Expected<std::string, mt::Error>
+                                      { return std::string{"Bearer cached"}; },
+                                      std::chrono::seconds(60)};
 
     mtfk::FakeSteadyClock clock;
     (void)provider.GetAuthorization(clock.Now());
@@ -118,13 +116,12 @@ TEST(CallbackAuthProviderTest, SecondCallWithinTtl_ReturnsSameCachedValue)
 TEST(CallbackAuthProviderTest, CallAfterTtlExpiry_InvokesCallbackAgain)
 {
     int call_count = 0;
-    mc::CallbackAuthProvider provider{
-        [&]() -> mt::Expected<std::string, mt::Error>
-        {
-            ++call_count;
-            return std::string{"Bearer tok"};
-        },
-        std::chrono::seconds(60)};
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          return std::string{"Bearer tok"};
+                                      },
+                                      std::chrono::seconds(60)};
 
     mtfk::FakeSteadyClock clock;
     (void)provider.GetAuthorization(clock.Now());
@@ -138,13 +135,12 @@ TEST(CallbackAuthProviderTest, CallAfterTtlExpiry_InvokesCallbackAgain)
 TEST(CallbackAuthProviderTest, ZeroTtl_InvokesCallbackEveryTime)
 {
     int call_count = 0;
-    mc::CallbackAuthProvider provider{
-        [&]() -> mt::Expected<std::string, mt::Error>
-        {
-            ++call_count;
-            return std::string{"Bearer tok"};
-        },
-        std::chrono::milliseconds(0)};
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          return std::string{"Bearer tok"};
+                                      },
+                                      std::chrono::milliseconds(0)};
 
     mtfk::FakeSteadyClock clock;
     (void)provider.GetAuthorization(clock.Now());
@@ -183,8 +179,8 @@ TEST(CallbackAuthProviderTest, CallbackError_DoesNotCache_NextCallRetries)
             ++call_count;
             if (fail)
             {
-                return mt::Unexpected{mt::Error{.kind = mt::Error::Kind::Network,
-                                               .message = "transient failure"}};
+                return mt::Unexpected{
+                    mt::Error{.kind = mt::Error::Kind::Network, .message = "transient failure"}};
             }
             return std::string{"Bearer recovered"};
         },
@@ -205,24 +201,23 @@ TEST(CallbackAuthProviderTest, AfterError_ThenSuccess_CachesSuccessValue)
 {
     int call_count = 0;
     bool fail = true;
-    mc::CallbackAuthProvider provider{
-        [&]() -> mt::Expected<std::string, mt::Error>
-        {
-            ++call_count;
-            if (fail)
-            {
-                return mt::Unexpected{mt::Error{}};
-            }
-            return std::string{"Bearer ok"};
-        },
-        std::chrono::seconds(60)};
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          if (fail)
+                                          {
+                                              return mt::Unexpected{mt::Error{}};
+                                          }
+                                          return std::string{"Bearer ok"};
+                                      },
+                                      std::chrono::seconds(60)};
 
     mtfk::FakeSteadyClock clock;
     (void)provider.GetAuthorization(clock.Now());  // error path
     fail = false;
     (void)provider.GetAuthorization(clock.Now());  // success — now cached
 
-    clock.Advance(std::chrono::seconds(1));  // still within TTL
+    clock.Advance(std::chrono::seconds(1));        // still within TTL
     (void)provider.GetAuthorization(clock.Now());  // should hit cache
-    EXPECT_EQ(call_count, 2);  // error + first success only; third is cached
+    EXPECT_EQ(call_count, 2);                      // error + first success only; third is cached
 }

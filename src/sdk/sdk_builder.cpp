@@ -3,24 +3,6 @@
 
 #include "microtel/sdk_builder.hpp"
 
-#include "common/config/auth_providers.hpp"
-#include "common/config/config.hpp"
-#include "common/config/config_validator.hpp"
-#include "common/config/env_resolver.hpp"
-#include "common/config/toml_loader.hpp"
-
-#include "exporter/otlp_exporter.hpp"
-
-#include "sdk/batch_span_processor.hpp"
-#include "sdk/sdk_provider.hpp"
-
-#include "transport/epoll_reactor.hpp"
-#include "transport/http2_transport.hpp"
-
-#include "wire/encoder/otlp_encoder.hpp"
-#include "wire/grpc/grpc_wire_codec.hpp"
-#include "wire/http/http_wire_codec.hpp"
-
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
@@ -29,6 +11,20 @@
 #include "microtel/protocol.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
+
+#include "common/config/auth_providers.hpp"
+#include "common/config/config.hpp"
+#include "common/config/config_validator.hpp"
+#include "common/config/env_resolver.hpp"
+#include "common/config/toml_loader.hpp"
+#include "exporter/otlp_exporter.hpp"
+#include "sdk/batch_span_processor.hpp"
+#include "sdk/sdk_provider.hpp"
+#include "transport/epoll_reactor.hpp"
+#include "transport/http2_transport.hpp"
+#include "wire/encoder/otlp_encoder.hpp"
+#include "wire/grpc/grpc_wire_codec.hpp"
+#include "wire/http/http_wire_codec.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -215,8 +211,7 @@ namespace
     };
 }
 
-[[nodiscard]] std::vector<internal::HeaderField>
-ToHeaderFields(const std::vector<KeyValue>& kvs)
+[[nodiscard]] std::vector<internal::HeaderField> ToHeaderFields(const std::vector<KeyValue>& kvs)
 {
     std::vector<internal::HeaderField> out;
     out.reserve(kvs.size());
@@ -242,8 +237,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     if (m_impl->consumed)
     {
         return Unexpected{ConfigError{.kind = ConfigError::Kind::BuildAlreadyConsumed,
-                                     .field = {},
-                                     .message = "SdkBuilder::Build() called more than once"}};
+                                      .field = {},
+                                      .message = "SdkBuilder::Build() called more than once"}};
     }
     m_impl->consumed = true;
 
@@ -328,60 +323,57 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     if (m_impl->auth_cb)
     {
         auth = std::make_unique<config::CallbackAuthProvider>(std::move(*m_impl->auth_cb),
-                                                             m_impl->auth_cache_ttl);
+                                                              m_impl->auth_cache_ttl);
     }
 
     // --- Step 5: transport --------------------------------------------------
     auto reactor = transport::EpollReactor::Create();
     if (!reactor)
     {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::Unspecified,
-                                     .field = {},
-                                     .message = "reactor init failed: " +
-                                                reactor.error().message}};
+        return Unexpected{
+            ConfigError{.kind = ConfigError::Kind::Unspecified,
+                        .field = {},
+                        .message = "reactor init failed: " + reactor.error().message}};
     }
 
     auto http2 = transport::Http2Transport::Create(std::move(*reactor));
     if (!http2)
     {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::Unspecified,
-                                     .field = {},
-                                     .message = "transport init failed: " +
-                                                http2.error().message}};
+        return Unexpected{
+            ConfigError{.kind = ConfigError::Kind::Unspecified,
+                        .field = {},
+                        .message = "transport init failed: " + http2.error().message}};
     }
 
     // --- Step 6: encoder ----------------------------------------------------
     auto encoder = std::make_unique<wire::OtlpEncoder>();
 
     // --- Step 7: wire codec -------------------------------------------------
-    const auto host_port =
-        cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
+    const auto host_port = cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
     auto extra_headers = ToHeaderFields(cfg.headers);
     internal::ITransport* const transport_ptr = (*http2).get();
 
     std::unique_ptr<internal::IWireCodec> codec;
     if (cfg.protocol == Protocol::Grpc)
     {
-        codec = std::make_unique<wire::GrpcWireCodec>(
-            transport_ptr,
-            wire::GrpcWireCodecConfig{
-                .host = host_port,
-                .scheme = cfg.endpoint.scheme,
-                .extra_headers = std::move(extra_headers),
-            },
-            auth.get());
+        codec = std::make_unique<wire::GrpcWireCodec>(transport_ptr,
+                                                      wire::GrpcWireCodecConfig{
+                                                          .host = host_port,
+                                                          .scheme = cfg.endpoint.scheme,
+                                                          .extra_headers = std::move(extra_headers),
+                                                      },
+                                                      auth.get());
     }
     else
     {
-        codec = std::make_unique<wire::HttpWireCodec>(
-            transport_ptr,
-            wire::HttpWireCodecConfig{
-                .host = host_port,
-                .scheme = cfg.endpoint.scheme,
-                .path = cfg.endpoint.path,
-                .extra_headers = std::move(extra_headers),
-            },
-            auth.get());
+        codec = std::make_unique<wire::HttpWireCodec>(transport_ptr,
+                                                      wire::HttpWireCodecConfig{
+                                                          .host = host_port,
+                                                          .scheme = cfg.endpoint.scheme,
+                                                          .path = cfg.endpoint.path,
+                                                          .extra_headers = std::move(extra_headers),
+                                                      },
+                                                      auth.get());
     }
 
     // --- Step 8: exporter ---------------------------------------------------

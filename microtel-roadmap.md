@@ -155,7 +155,7 @@ Then implementation:
 - **Optimized hot path.** Compile-time attribute key encoding (for callers using `mt::AttrKey`), refined lock-free MPSC, possible move to a fully wait-free hot path on x86-64 / ARM64.
 - **Static-link optimizations.** First-class CMake support for `-Bstatic` builds, with measured size targets. Currently mostly-static is supported; v1.5 makes it a tested release configuration.
 - **HTTP/3 transport (experimental).** The `Transport` interface gains an nghttp3-based implementation. Configurable per-endpoint. Experimental in v1.5; may stabilize in v2.0 or stay experimental indefinitely depending on real-world usage signals.
-- **Refined benchmarks.** The `microtel-bench` companion repo gets richer scenarios: bursty traffic, high-cardinality metrics, long-tail latency under collector pressure.
+- **Refined benchmarks.** The `bench/` directory gets richer scenarios: bursty traffic, high-cardinality metrics, long-tail latency under collector pressure.
 
 **Anti-goals in v1.5:** still no Windows, no coroutine-only API (callback always supported).
 
@@ -319,7 +319,7 @@ A few themes don't fit a single milestone but progress across releases:
 - **Wire-protocol conformance test corpus:** grows release-over-release as new edge cases are caught.
 
 ### Performance benchmarks
-The `microtel-bench` companion harness evolves alongside the project:
+The `bench/` directory evolves alongside the project:
 - **v1.0:** establishes baseline against `opentelemetry-cpp` for traces.
 - **v1.2:** adds metrics workload profiles.
 - **v1.3:** adds logs workload profiles.
@@ -404,7 +404,7 @@ This log is appended to, never rewritten. When a decision is reversed (none yet)
 ## 13. References
 
 - `microtel-spec.md` (v1 spec)
-- `microtel-bench-spec.md` (benchmark harness)
+- `docs/bench-spec.md` (benchmark harness)
 - [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/)
 - [OpenTelemetry SDK Specification](https://opentelemetry.io/docs/specs/otel/sdk/)
 - [OpenTelemetry Collector](https://github.com/open-telemetry/opentelemetry-collector)

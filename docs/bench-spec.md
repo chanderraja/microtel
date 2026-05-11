@@ -1,4 +1,4 @@
-# microtel-bench: Benchmark Harness Spec
+# Benchmark Harness Specification
 
 **Status:** Draft v0.1
 **Companion to:** `microtel` core spec
@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-A benchmark harness that produces **fair, reproducible, environment-portable** comparisons between **microtel** and stock **opentelemetry-cpp** (with both gRPC and HTTP exporters). Users — internal teams, prospective adopters, skeptics — can clone the repo, run a single command, and get a credible report of how the two libraries perform **on their own hardware** for **their own workload shape**.
+A benchmark harness that produces **fair, reproducible, environment-portable** comparisons between **microtel** and stock **opentelemetry-cpp** (with both gRPC and HTTP exporters). Users — internal teams, prospective adopters, skeptics — can build with `-DMICROTEL_BUILD_BENCH=ON`, run a single command, and get a credible report of how the two libraries perform **on their own hardware** for **their own workload shape**.
 
 Two audiences, one harness:
 - **microtel CI:** runs on every PR to detect performance regressions.
@@ -237,46 +237,43 @@ Every cell with a square-bracket range is `[p25–p75]`. Cells without ranges ar
 ## 9. Project Layout
 
 ```
-microtel-bench/
+microtel/bench/
 ├── README.md                       (one-page run instructions)
 ├── bench.sh                        (entry point)
-├── bench/
-│   ├── driver/                     (Python orchestration)
-│   │   ├── __main__.py
-│   │   ├── env_fingerprint.py
-│   │   ├── runner.py
-│   │   ├── stats.py
-│   │   └── report.py
-│   ├── emit-app/                   (shared C++ workload)
-│   │   ├── CMakeLists.txt
-│   │   ├── src/main.cpp
-│   │   ├── src/workload_*.cpp
-│   │   └── src/control_socket.cpp
-│   ├── sut/
-│   │   ├── microtel/Dockerfile
-│   │   ├── otelcpp-grpc/Dockerfile
-│   │   ├── otelcpp-http/Dockerfile
-│   │   ├── base.Dockerfile
-│   │   └── registry.yaml
-│   ├── sink/
-│   │   ├── blackhole/              (Go, ~500 LOC)
-│   │   └── collector/config.yaml
-│   ├── profiles/
-│   │   ├── hot-loop-traces.yaml
-│   │   ├── realistic-request.yaml
-│   │   ├── cold-start.yaml
-│   │   ├── bursty.yaml
-│   │   ├── large-attributes.yaml
-│   │   └── binary-size.yaml
-│   └── versions.lock
+├── driver/                         (Python orchestration)
+│   ├── __main__.py
+│   ├── env_fingerprint.py
+│   ├── runner.py
+│   ├── stats.py
+│   └── report.py
+├── emit-app/                       (shared C++ workload)
+│   ├── CMakeLists.txt
+│   ├── src/main.cpp
+│   ├── src/workload_*.cpp
+│   └── src/control_socket.cpp
+├── sut/
+│   ├── microtel/Dockerfile
+│   ├── otelcpp-grpc/Dockerfile
+│   ├── otelcpp-http/Dockerfile
+│   ├── base.Dockerfile
+│   └── registry.yaml
+├── sink/
+│   ├── blackhole/                  (Go, ~500 LOC)
+│   └── collector/config.yaml
+├── profiles/
+│   ├── hot-loop-traces.yaml
+│   ├── realistic-request.yaml
+│   ├── cold-start.yaml
+│   ├── bursty.yaml
+│   ├── large-attributes.yaml
+│   └── binary-size.yaml
+├── versions.lock
 ├── docs/
 │   ├── methodology.md
 │   ├── interpreting-results.md
 │   └── adding-a-library.md
 ├── results/                        (gitignored; user output lands here)
-└── ci/
-    ├── jenkinsfile                 (microtel-internal regression gate)
-    └── github-actions.yml          (matrix run on PRs)
+└── CMakeLists.txt
 ```
 
 ---

@@ -151,6 +151,12 @@ add_subdirectory(tools)
 # whole tree for cross-compilation or constrained builds (spec §14.2).
 option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
 
+option(MICROTEL_BUILD_BENCH "Build the benchmark harness (requires Docker)" OFF)
+
+if(MICROTEL_BUILD_BENCH)
+    add_subdirectory(bench)
+endif()
+
 if(MICROTEL_BUILD_TESTS)
     enable_testing()
 

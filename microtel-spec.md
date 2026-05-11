@@ -404,7 +404,7 @@ Applies to upb and to opentelemetry-proto.
 
 ## 10. Performance Targets
 
-Measured against `opentelemetry-cpp` with both its OTLP/gRPC and OTLP/HTTP exporters on identical workloads, same hardware, OTel collector pinned to the same version. Workload: traces only, 100k spans/sec sustained, 200-byte average span, 5 attributes per span. Full methodology in the companion `microtel-bench-spec.md`.
+Measured against `opentelemetry-cpp` with both its OTLP/gRPC and OTLP/HTTP exporters on identical workloads, same hardware, OTel collector pinned to the same version. Workload: traces only, 100k spans/sec sustained, 200-byte average span, 5 attributes per span. Full methodology in `docs/bench-spec.md`.
 
 ### 10.1 Hot-path metrics
 
@@ -637,7 +637,7 @@ This section covers v1.0 in detail. The path from v1.0 through full OpenTelemetr
 | **M4 – OTLP/gRPC traces over nghttp2** | gRPC framing on nghttp2 (5-byte length prefix, `te: trailers`, `:path` construction), trailer parsing including trailer-only responses, multi-frame stream parsing, status code mapping with `RetryInfo` decoding for `RESOURCE_EXHAUSTED`. Validated against real grpc-server. **Acceptance test:** a fake gRPC OTLP receiver returns `RESOURCE_EXHAUSTED` with and without `google.rpc.RetryInfo`; microtel retries only the `RetryInfo` case and treats the other as non-retryable. Runtime-selectable protocol per endpoint. | 3 wk | M2 | M3, M5 |
 | **M5 – Production correctness** | Retry / backoff / jitter (HTTP and gRPC), explicit timeout taxonomy (connect / TLS / per-export / retry-budget / flush / shutdown), partial-success parsing, `GOAWAY` and `RST_STREAM` handling, ForceFlush / Shutdown, fork-safety, drop accounting. | 3 wk | M3 | M4, M6 |
 | **M6 – Config & deployability** | Strict `microtel.toml` validation, OTel env-var fallback, endpoint URL parsing, TLS / proxy / auth (static + callback), preflight CLI flag, secret redaction. | 3 wk | M2 | M3, M4, M5 |
-| **M7 – Performance harness & footprint proof** | Benchmark harness (separate `microtel-bench` repo) measuring all hot-path / exporter / footprint metrics defined in §10. Validates the size and CPU claims that justify the project's existence. | 3 wk | M5 | — |
+| **M7 – Performance harness & footprint proof** | Benchmark harness in `bench/` measuring all hot-path / exporter / footprint metrics defined in §10. Validates the size and CPU claims that justify the project's existence. Opt-in: `cmake -DMICROTEL_BUILD_BENCH=ON`. | 3 wk | M5 | — |
 | **M8 – Python bindings (traces only)** | nanobind layer, wheels via cibuildwheel for manylinux_2_28, examples. `microtel.__capabilities__` exposes `{"traces": True}`; metrics/logs raise `NotImplementedError` with the version target. **Python is part of the v1.0 target but not a release blocker for the C++ v1.0 release** — if M8 slips, C++ ships as v1.0 and Python ships as v1.0.1 when ready. | 3 wk | M3 | M6, M7 |
 | **M9 – Hardening** | Fuzzing (gRPC framing/trailer paths, TOML parser, response-size limits), soak tests, perf gates in CI, collector interop matrix CI (Collector / Jaeger / Tempo where supported), SonarQube clean run. | 4 wk | M7 | M8 |
 | **M10 – v1.0 traces release** | Apache 2.0 OSS release, PyPI publish, `docs/migration-from-otel-cpp.md` finalized, experimental compat shims released as separate packages, conf-talk submission. | — | M9 | — |

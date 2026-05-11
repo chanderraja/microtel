@@ -1,6 +1,6 @@
 # ICP 0005: Move benchmark harness into the main repo (bench/)
 
-**Status:** Draft
+**Status:** Accepted
 **Affected interfaces / docs:** `microtel-spec.md` §13 (M7 row),
 `microtel-roadmap.md` (M7 framing, §9 benchmark trajectory),
 `docs/bench-spec.md` (all location references), `CMakeLists.txt`,
@@ -59,7 +59,7 @@ description becomes:
 ### 3. `docs/bench-spec.md`
 
 - Retitle from `microtel-bench: Benchmark Harness Spec` to
-  `microtel bench/: Benchmark Harness Spec`.
+  `Benchmark Harness Specification`.
 - Update the repo-layout tree (`microtel-bench/ …`) to reflect `bench/`
   inside the main repo.
 - Update all prose references from "the `microtel-bench` repo" to
@@ -82,6 +82,14 @@ endif()
 A scheduled + manually-triggerable workflow. Runs on `cron` (weekly or
 nightly), not on every PR. Does not block merge. Reports results as
 workflow artifacts and, optionally, a GitHub Actions summary.
+
+**Skip-noise rule:** The workflow commits benchmark results to the repo
+(or updates a results artifact) only when at least one metric changes by
+more than **N%** from the previous run (N=5 as a starting point,
+configurable via a workflow input). Runs with no significant delta are
+recorded in the workflow summary for traceability but do not produce a
+commit or an artifact diff, keeping the history signal-to-noise ratio
+high.
 
 ## Migration
 
@@ -127,8 +135,19 @@ directory can be extracted into its own repo at that point without loss of
 history (`git filter-repo --subdirectory-filter bench/`). The reverse
 direction — merging a separate repo's history — is more disruptive.
 
+Concrete triggers that would justify extraction:
+1. An external project (not microtel) wants to consume the harness as a
+   standalone tool, and vendoring the whole `microtel` repo is
+   unreasonable.
+2. The `bench/` build consistently adds more than ~5 minutes to a local
+   `MICROTEL_BUILD_BENCH=ON` configure-and-build cycle, making the
+   opt-in flag insufficient to protect developer ergonomics.
+3. The harness acquires dependencies (e.g., a comparison baseline that
+   links otel-cpp) whose transitive build graph conflicts with
+   microtel's own dependency closure rules (§12 / ICP 0002).
+
 ## Sign-off
 
 | Reviewer | Date | Status |
 |---|---|---|
-| | | Pending |
+| Chander Raja | 2026-05-11 | Accepted |

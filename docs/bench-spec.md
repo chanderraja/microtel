@@ -1,6 +1,6 @@
 # Benchmark Harness Specification
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Companion to:** `microtel` core spec
 **License (proposed):** Apache 2.0
 
@@ -9,6 +9,8 @@
 ## 1. Purpose
 
 A benchmark harness that produces **fair, reproducible, environment-portable** comparisons between **microtel** and stock **opentelemetry-cpp** (with both gRPC and HTTP exporters). Users — internal teams, prospective adopters, skeptics — can build with `-DMICROTEL_BUILD_BENCH=ON`, run a single command, and get a credible report of how the two libraries perform **on their own hardware** for **their own workload shape**.
+
+**v1 scope: traces only.** The `realistic-request` profile is traces-only in v1; metrics and logs profile slots are reserved but expand in v1.2 and v1.3 respectively.
 
 Two audiences, one harness:
 - **microtel CI:** runs on every PR to detect performance regressions.
@@ -38,18 +40,18 @@ Two audiences, one harness:
 │  - Drives workload via control socket                            │
 │  - Collects measurements, computes stats, writes report          │
 └──────────────────────────────────────────────────────────────────┘
-              │                      │                      │
-              ▼                      ▼                      ▼
-   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-   │   SUT-A:        │    │   SUT-B:        │    │   SUT-C:        │
-   │   microtel      │    │   otel-cpp +    │    │   otel-cpp +    │
-   │   (HTTP+pb)     │    │   gRPC exporter │    │   HTTP exporter │
-   │                 │    │                 │    │                 │
-   │   emit_app      │    │   emit_app      │    │   emit_app      │
-   │   (same C++)    │    │   (same C++)    │    │   (same C++)    │
-   └────────┬────────┘    └────────┬────────┘    └────────┬────────┘
-            │                      │                      │
-            └──────────────────────┼──────────────────────┘
+        │              │              │              │
+        ▼              ▼              ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│   SUT-A:     │ │   SUT-B:     │ │   SUT-C:     │ │   SUT-D:     │
+│   microtel   │ │   microtel   │ │   otel-cpp + │ │   otel-cpp + │
+│   (HTTP+pb)  │ │   (gRPC)     │ │   gRPC exp.  │ │   HTTP exp.  │
+│              │ │              │ │              │ │              │
+│   emit_app   │ │   emit_app   │ │   emit_app   │ │   emit_app   │
+│   (same C++) │ │   (same C++) │ │   (same C++) │ │   (same C++) │
+└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+       │                │                │                │
+       └────────────────┴────────────────┴────────────────┘
                                    │
                                    ▼
                   ┌───────────────────────────────┐
@@ -68,7 +70,7 @@ Two audiences, one harness:
 
 ### 3.1 The SUT (system-under-test)
 
-Three SUT images, one per library/exporter combination. All built from the **same C++ source** in `bench/emit-app/`, only the OTel headers and link target differ. Compiler, flags (`-O2 -g -fno-omit-frame-pointer`), and the rest of the toolchain are identical, enforced via a shared base Dockerfile.
+Four SUT images: two for microtel (HTTP+protobuf and gRPC) and two for otel-cpp (gRPC and HTTP exporters). All built from the **same C++ source** in `bench/emit-app/`, only the OTel headers and link target differ. The two microtel SUTs validate both wire protocols against the same SDK; the two otel-cpp SUTs provide symmetric comparison baselines. Compiler, flags (`-O2 -g -fno-omit-frame-pointer`), and the rest of the toolchain are identical, enforced via a shared base Dockerfile.
 
 The emit-app does three things:
 1. Listens on a Unix domain socket for control messages from the driver (`start`, `stop`, `flush`, `report`).
@@ -119,10 +121,11 @@ attribute_value_mean_bytes: 24
 events_per_span: 0
 links_per_span: 0
 target_rate_hz: max        # also runs at 1k, 10k, 100k
+sampler: always_on         # also runs: never, traceidratio(0.1)
 ```
 
 ### 4.2 `realistic-request`
-Simulated request handler: per "request," emit one span with two child spans, one log record, one histogram observation, one counter increment. Fixed RPS, sustained.
+Simulated request handler: per "request," emit one parent span with two child spans, each with attributes. Fixed RPS, sustained. **v1 scope: traces only.** The log record, histogram observation, and counter increment slots are reserved in the YAML but marked `# deferred`; they expand in v1.2 (metrics) and v1.3 (logs).
 
 ```yaml
 profile: realistic-request
@@ -131,7 +134,9 @@ warmup_seconds: 20
 threads: 4
 target_rate_hz: 5000
 attributes_per_span: 8
-log_message_mean_bytes: 80
+sampler: always_on
+# log_message_mean_bytes: 80    # deferred: v1.3
+# metrics_per_request: 2        # deferred: v1.2
 ```
 
 ### 4.3 `cold-start`
@@ -144,7 +149,14 @@ Idle baseline punctuated by 1-second bursts at 50k spans/sec every 10s for 5 min
 Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attributes. Measures **encoding cost on big payloads.**
 
 ### 4.6 `binary-size` (static, no execution)
-Build all three SUTs, measure stripped shared library size, statically-linked dep closure size, and `.text` / `.rodata` section sizes via `size` and `bloaty`. Pure static measurement; no runs.
+Build all four SUTs, measure per-component sizes via `size` and `bloaty`. Pure static measurement; no runs. Outputs are component-separated to match the targets in spec §10.5:
+
+| Output | Tool | Notes |
+|---|---|---|
+| Exporter library (stripped) | `bloaty` | libmicrotel_exporter.a or shared equivalent |
+| SDK library (stripped) | `bloaty` | libmicrotel_sdk.a or shared equivalent |
+| Full dep-closure size | `ldd` + file sizes | all linked shared objects |
+| `.text` / `.rodata` sections | `size` | per SUT binary |
 
 Users add their own profile by dropping a YAML file into `bench/profiles/`.
 
@@ -156,21 +168,29 @@ Per SUT, per run, per profile:
 
 | Metric | Source | Units |
 |---|---|---|
-| Caller-thread CPU time on emit | `getrusage(RUSAGE_THREAD)` deltas, integrated over the measurement window | μs / 1k spans |
+| Caller-thread CPU time on emit (sampled) | `getrusage(RUSAGE_THREAD)` deltas, integrated over measurement window | μs / 1k spans |
+| Caller-thread CPU time on emit (unsampled) | same, sampler=never run | μs / 1k spans |
 | Process CPU time | `getrusage(RUSAGE_SELF)` | seconds |
 | Peak RSS | `/proc/self/status` `VmHWM`, polled every 100 ms | MB |
 | Steady-state RSS (median) | same, median over window | MB |
 | Throughput (sink-observed) | sink counters | items/sec |
 | Items emitted | SUT counter | count |
-| Items dropped (queue overflow) | SUT counter | count |
-| Drop rate | computed | % |
-| StartSpan overhead | per-call wallclock histogram in SUT | ns p50/p95/p99 |
+| Items dropped — queue overflow | SUT counter (maps to `RecordDrop::kQueueOverflow`) | count |
+| Items dropped — span limit exceeded | SUT counter (maps to `RecordDrop::kSpanLimit`) | count |
+| Items dropped — record too large | SUT counter (maps to `RecordDrop::kRecordTooLarge`) | count |
+| Items dropped — partial success rejection | SUT counter (maps to `RecordDrop::kPartialSuccess`) | count |
+| Drop rate (total) | computed | % |
+| StartSpan overhead (sampled) | per-call wallclock histogram in SUT | ns p50/p95/p99 |
+| StartSpan overhead (unsampled) | same, sampler=never run | ns p50/p95/p99 |
 | Span lifecycle overhead | StartSpan→End wallclock | ns p50/p95/p99 |
 | Encoding cost per batch | timing around protobuf serialize | μs |
-| Wire bytes per signal | sink-observed, gzip on/off | bytes/span |
+| Wire bytes per signal ¹ | sink-observed, gzip on/off | bytes/span |
 | Cold-start to first export | driver-observed | ms |
-| Binary size (stripped) | static measurement | bytes |
+| Binary size — exporter (stripped) | `bloaty` static measurement | bytes |
+| Binary size — SDK (stripped) | `bloaty` static measurement | bytes |
 | Dep closure size | `ldd` + file sizes | bytes |
+
+¹ **Wire-bytes correctness gate:** before accepting any latency or throughput result as valid, the harness asserts that `wire bytes per signal` is identical across all microtel SUTs for the same payload (gzip setting held constant). A divergence is a correctness failure, not a performance result.
 
 All histograms ship as raw HDR-histogram data alongside the summary, so users can re-derive any percentile.
 
@@ -185,19 +205,20 @@ Full machine-readable record: environment fingerprint, profile config, every met
 Human-readable report. Layout:
 
 1. **Environment fingerprint** (CPU, kernel, lib SHAs, etc.) — first, so the reader knows what they're looking at.
-2. **TL;DR table.** Median values, side by side, with relative deltas. Includes the IQR so deltas inside the noise band are visible as such.
-3. **Per-profile sections.** Detailed stats, with notes on anomalies (e.g., "SUT-B saw 0.3% drop rate; SUT-A saw 0%").
-4. **Methodology footer.** What was measured, how, what was held constant, what wasn't.
+2. **Wire-bytes correctness check.** Confirms wire bytes are identical across microtel-HTTP and microtel-gRPC for equivalent payloads. If this fails, the run is invalid and the report says so before any other numbers.
+3. **TL;DR table.** Median values, side by side, with relative deltas. Includes the IQR so deltas inside the noise band are visible as such.
+4. **Per-profile sections.** Detailed stats, with notes on anomalies (e.g., "SUT-B saw 0.3% drop rate; SUT-A saw 0%").
+5. **Methodology footer.** What was measured, how, what was held constant, what wasn't.
 
 Example TL;DR row format:
 
 ```
-| Metric                       | microtel        | otel-cpp+gRPC   | otel-cpp+HTTP   | Δ (microtel vs gRPC) |
-|------------------------------|-----------------|-----------------|-----------------|----------------------|
-| StartSpan p50 (ns)           |  82  [76–89]    | 148  [140–161]  | 121  [115–129]  | -45%                 |
-| Peak RSS (MB)                |  18.4           |  62.1           |  41.7           | -70%                 |
-| Wire bytes/span (gzip off)   | 214             | 214             | 214             |  0%                  |
-| Binary size stripped (KB)    | 1380            | 4920            | 4220            | -72%                 |
+| Metric                       | mt-HTTP         | mt-gRPC         | otelcpp+gRPC    | otelcpp+HTTP    | Δ (mt-HTTP vs otelcpp+gRPC) |
+|------------------------------|-----------------|-----------------|-----------------|-----------------|------------------------------|
+| StartSpan p50 (ns, sampled)  |  82  [76–89]    |  84  [77–91]    | 148  [140–161]  | 121  [115–129]  | -45%                         |
+| Peak RSS (MB)                |  18.4           |  18.6           |  62.1           |  41.7           | -70%                         |
+| Wire bytes/span (gzip off) ✓ | 214             | 214             | 214             | 214             |  0% (correctness: pass)      |
+| Binary size — exporter (KB)  |  420            |  420            | 2190            | 1890            | -81%                         |
 ```
 
 Every cell with a square-bracket range is `[p25–p75]`. Cells without ranges are deterministic measurements (sizes, byte counts on identical payloads).
@@ -221,6 +242,7 @@ Every cell with a square-bracket range is `[p25–p75]`. Cells without ranges ar
   - System load average > 0.5 at start
   - SMT/hyperthreading is enabled and `--allow-smt` not passed
   - Available memory below a threshold
+- **Mitigation fingerprinting.** Driver captures microcode mitigation status from `/sys/devices/system/cpu/vulnerabilities/` and the kernel `mitigations=` boot parameter from `/proc/cmdline`. Embedded in every report; results from systems with differing mitigation postures are not directly comparable.
 - **Known-noise floor.** A `null-vs-null` calibration run (same SUT vs itself across two containers) is included in the harness; it reports the noise floor of the measurement environment so users can tell the difference between "real win" and "in the noise."
 
 ---
@@ -252,7 +274,8 @@ microtel/bench/
 │   ├── src/workload_*.cpp
 │   └── src/control_socket.cpp
 ├── sut/
-│   ├── microtel/Dockerfile
+│   ├── microtel-http/Dockerfile
+│   ├── microtel-grpc/Dockerfile
 │   ├── otelcpp-grpc/Dockerfile
 │   ├── otelcpp-http/Dockerfile
 │   ├── base.Dockerfile
@@ -282,11 +305,22 @@ microtel/bench/
 
 | Milestone | Scope |
 |---|---|
-| **B0** | Driver scaffolding, env fingerprint, blackhole sink, microtel + otel-cpp-gRPC SUTs, `hot-loop-traces` profile only, JSON output. |
-| **B1** | All v1 profiles, Markdown report, otel-cpp-HTTP SUT. |
+| **B0** | Driver scaffolding, env fingerprint, blackhole sink, microtel-HTTP + microtel-gRPC + otel-cpp-gRPC SUTs, `hot-loop-traces` profile only, JSON output. |
+| **B1** | All v1 profiles, Markdown report, otel-cpp-HTTP SUT, wire-bytes correctness gate. |
 | **B2** | otel-collector sink mode, regression-check mode, CI templates. |
 | **B3** | Flamegraph integration, Plotly plots, Rust/Go SUT examples. |
-| **B4** | Public publish: blog post + reproducible results on a known reference machine, inviting third-party validation. |
+| **B4** | Public publish: blog post + reproducible results on reference machine (c6i.xlarge, pinned AMI), inviting third-party validation. |
+
+**v1.0 release-gate minimum (M7 completion bar):**
+
+| Profile | Status |
+|---|---|
+| `hot-loop-traces` | Required |
+| `binary-size` | Required |
+| `realistic-request` | Required |
+| `cold-start` | Stretch goal for v1.0 |
+| `bursty` | Deferred to v1.0.1 |
+| `large-attributes` | Deferred to v1.0.1 |
 
 ---
 
@@ -300,13 +334,15 @@ microtel/bench/
 
 ---
 
-## 12. Open Questions
+## 12. Resolved Decisions
 
-1. **Default sink:** blackhole or collector? Leaning blackhole for primary comparison (lower noise), collector available as `--sink=collector`. Confirm.
-2. **Should the harness include otel-cpp+nghttp2 hybrid?** I.e., otel-cpp's HTTP exporter but built against nghttp2 instead of its current HTTP client. Would isolate "is the win from the transport, or from the SDK rewrite, or both?" Worthwhile but adds maintenance burden. Defer to v2?
-3. **Languages beyond C++.** Stock OTel Python, Go, Rust comparisons would be informative but they're different implementations entirely — apples-to-oranges. Document carefully if included.
-4. **Hosting reference results.** A public reference machine (GitHub-hosted runner? a known cloud VM type? a beefy local box?) for the canonical baseline numbers. Pick one, document it, run weekly.
-5. **License of the workload code.** Apache 2.0 to match microtel and OTel. Confirmed?
+All open questions from v0.1 are closed per ICP 0006.
+
+1. **Default sink:** **blackhole.** Lower noise for primary comparison. `--sink=collector` opt-in for end-to-end realism. Blackhole scope: happy-path only (no trailer-only, split-frame, or GOAWAY injection — those require collector or a purpose-built fault-injection sink, deferred to v2).
+2. **otel-cpp+nghttp2 hybrid:** **Deferred to v2.** Useful transport-isolation experiment but adds SUT maintenance burden before v1.0.
+3. **Languages beyond C++:** **Deferred.** Documented in `bench/docs/methodology.md`: v1 harness is C++-comparison-focused. Multi-language profiles may land in v2.
+4. **Reference machine:** **c6i.xlarge (or equivalent 4-vCPU compute-optimized cloud VM), pinned AMI/kernel.** Weekly cron. Not GitHub-hosted runners (too noisy). Details in `bench/docs/methodology.md`.
+5. **Workload code license:** **Apache 2.0. Confirmed.**
 
 ---
 

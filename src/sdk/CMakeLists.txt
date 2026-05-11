@@ -11,10 +11,18 @@ add_library(microtel_sdk STATIC
     noop_span.cpp
     sdk_span.cpp
     sdk_tracer.cpp
-    batch_span_processor.cpp)
+    batch_span_processor.cpp
+    sdk_provider.cpp
+    sdk_builder.cpp)
 
 target_link_libraries(microtel_sdk
-    PUBLIC microtel_headers)
+    PUBLIC  microtel_headers
+    PRIVATE microtel_config
+            microtel_exporter
+            microtel_transport
+            microtel_http_wire
+            microtel_grpc_wire
+            microtel_encoder)
 
 target_include_directories(microtel_sdk
     PRIVATE ${CMAKE_SOURCE_DIR}/src)

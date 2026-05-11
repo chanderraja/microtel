@@ -62,3 +62,9 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(batch_span_processor_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M6-C: SdkBuilder::Build() + SdkProvider lifecycle.
+microtel_add_test(
+    NAME    sdk_builder_test
+    SOURCES sdk_builder_test.cpp
+    LIBS    microtel_sdk)

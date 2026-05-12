@@ -13,8 +13,8 @@ namespace mcr = microtel::common::raii;
 
 static SSL_CTX* TestCtx()
 {
-    static SSL_CTX* s_ctx = ::SSL_CTX_new(::TLS_method());
-    return s_ctx;
+    static SSL_CTX* const kCtx = ::SSL_CTX_new(::TLS_method());  // NOLINT(misc-const-correctness)
+    return kCtx;
 }
 
 static mcr::SslSession MakeSession()
@@ -39,7 +39,7 @@ TEST(SslSessionTest, ExplicitConstruct_Valid)
 TEST(SslSessionTest, MoveConstruct_TransfersOwnership)
 {
     mcr::SslSession src = MakeSession();
-    SSL* raw = src.Get();
+    const SSL* const raw = src.Get();
 
     const mcr::SslSession dst{std::move(src)};
 
@@ -52,7 +52,7 @@ TEST(SslSessionTest, MoveAssign_TransfersOwnership)
 {
     mcr::SslSession src = MakeSession();
     mcr::SslSession dst = MakeSession();
-    SSL* raw = src.Get();
+    const SSL* const raw = src.Get();
 
     dst = std::move(src);
 
@@ -64,7 +64,7 @@ TEST(SslSessionTest, MoveAssign_TransfersOwnership)
 TEST(SslSessionTest, Release_RelinquishesOwnership)
 {
     mcr::SslSession session = MakeSession();
-    SSL* raw = session.Get();
+    const SSL* const raw = session.Get();
 
     SSL* released = session.Release();
 

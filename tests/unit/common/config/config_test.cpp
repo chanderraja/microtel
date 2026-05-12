@@ -8,12 +8,13 @@
 //   - config_validator.hpp (Validate)
 
 #include "common/config/config.hpp"
-#include "common/config/config_validator.hpp"
-#include "common/config/env_resolver.hpp"
-#include "common/config/toml_loader.hpp"
 
 #include "microtel/error.hpp"
 #include "microtel/protocol.hpp"
+
+#include "common/config/config_validator.hpp"
+#include "common/config/env_resolver.hpp"
+#include "common/config/toml_loader.hpp"
 
 #include <gtest/gtest.h>
 
@@ -43,6 +44,8 @@ static void UnsetEnv(const char* key)
 struct EnvGuard
 {
     std::vector<std::string> keys;
+
+    EnvGuard(std::initializer_list<std::string> k) : keys(k) {}
     ~EnvGuard()
     {
         for (const auto& k : keys)
@@ -50,6 +53,11 @@ struct EnvGuard
             ::unsetenv(k.c_str());
         }
     }
+
+    EnvGuard(const EnvGuard&) = delete;
+    EnvGuard& operator=(const EnvGuard&) = delete;
+    EnvGuard(EnvGuard&&) = delete;
+    EnvGuard& operator=(EnvGuard&&) = delete;
 };
 
 static mc::Config MinimalValidConfig()
@@ -363,7 +371,7 @@ TEST(LoadTomlTest, ValidFile_ParsesCorrectly)
 
 TEST(OverlayEnvTest, OtelEndpoint_Overlays)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_ENDPOINT"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_ENDPOINT"}};
     SetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env-host:4317");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -373,7 +381,7 @@ TEST(OverlayEnvTest, OtelEndpoint_Overlays)
 
 TEST(OverlayEnvTest, OtelEndpoint_OverridesFileValue)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_ENDPOINT"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_ENDPOINT"}};
     SetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://env-host:4317");
     mc::Config cfg;
     cfg.endpoint_url = "https://file-host:4317";
@@ -384,7 +392,7 @@ TEST(OverlayEnvTest, OtelEndpoint_OverridesFileValue)
 
 TEST(OverlayEnvTest, OtelProtocolGrpc_SetsGrpc)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
     SetEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -394,7 +402,7 @@ TEST(OverlayEnvTest, OtelProtocolGrpc_SetsGrpc)
 
 TEST(OverlayEnvTest, OtelProtocolHttpProtobuf_SetsHttp)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
     SetEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -404,7 +412,7 @@ TEST(OverlayEnvTest, OtelProtocolHttpProtobuf_SetsHttp)
 
 TEST(OverlayEnvTest, OtelServiceName_Overlays)
 {
-    EnvGuard guard{{"OTEL_SERVICE_NAME"}};
+    const EnvGuard guard{{"OTEL_SERVICE_NAME"}};
     SetEnv("OTEL_SERVICE_NAME", "env-service");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -414,7 +422,7 @@ TEST(OverlayEnvTest, OtelServiceName_Overlays)
 
 TEST(OverlayEnvTest, OtelResourceAttributes_ParsesKeyValuePairs)
 {
-    EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
     SetEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.env=prod,host.id=srv-1");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -428,7 +436,7 @@ TEST(OverlayEnvTest, OtelResourceAttributes_ParsesKeyValuePairs)
 
 TEST(OverlayEnvTest, OtelHeaders_ParsesKeyValuePairs)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
     SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer tok,X-Tenant=acme");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -440,7 +448,7 @@ TEST(OverlayEnvTest, OtelHeaders_ParsesKeyValuePairs)
 
 TEST(OverlayEnvTest, OtelTimeout_SetsPeerExport)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_TIMEOUT"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_TIMEOUT"}};
     SetEnv("OTEL_EXPORTER_OTLP_TIMEOUT", "15000");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -450,7 +458,7 @@ TEST(OverlayEnvTest, OtelTimeout_SetsPeerExport)
 
 TEST(OverlayEnvTest, OtelCompression_Gzip_SetsTrue)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_COMPRESSION"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_COMPRESSION"}};
     SetEnv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -460,7 +468,7 @@ TEST(OverlayEnvTest, OtelCompression_Gzip_SetsTrue)
 
 TEST(OverlayEnvTest, OtelCertificate_SetsCaBundle)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_CERTIFICATE"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_CERTIFICATE"}};
     SetEnv("OTEL_EXPORTER_OTLP_CERTIFICATE", "/etc/ssl/ca.pem");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -487,7 +495,7 @@ TEST(OverlayEnvTest, UnsetVars_LeaveConfigUnchanged)
 
 TEST(OverlayEnvTest, InvalidProtocol_ReturnsEnvParseFailure)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_PROTOCOL"}};
     SetEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "quic");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -497,7 +505,7 @@ TEST(OverlayEnvTest, InvalidProtocol_ReturnsEnvParseFailure)
 
 TEST(OverlayEnvTest, InvalidTimeout_NonInteger_ReturnsEnvParseFailure)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_TIMEOUT"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_TIMEOUT"}};
     SetEnv("OTEL_EXPORTER_OTLP_TIMEOUT", "ten-seconds");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
@@ -507,7 +515,7 @@ TEST(OverlayEnvTest, InvalidTimeout_NonInteger_ReturnsEnvParseFailure)
 
 TEST(OverlayEnvTest, MalformedHeader_MissingEquals_ReturnsEnvParseFailure)
 {
-    EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
     SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "AuthorizationBearerNoEquals");
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);

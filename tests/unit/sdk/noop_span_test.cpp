@@ -18,7 +18,6 @@
 #include <memory>
 
 namespace mt = microtel;
-namespace mti = microtel::internal;
 namespace mtfk = microtel::testing;
 
 // ---------------------------------------------------------------------------
@@ -72,7 +71,7 @@ TEST(NoopSpanTest, NoopSpan_AddLink_IsNoOp)
 {
     NoopFixture f;
     auto handle = f.tracer.StartSpan("op");
-    mt::SpanContext linked;
+    const mt::SpanContext linked;
     EXPECT_NO_THROW(handle->AddLink(linked));
 }
 
@@ -123,6 +122,6 @@ TEST(NoopSpanTest, NoopSpan_Destructor_DoesNotDelete)
 
 TEST(NoopSpanTest, SpanDeleter_NullDeleter_IsNoOp)
 {
-    mt::internal::SpanDeleter d{};
+    const mt::internal::SpanDeleter d{};
     EXPECT_NO_THROW(d(nullptr));
 }

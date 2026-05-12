@@ -7,6 +7,7 @@
 #include "microtel/protocol.hpp"
 
 #include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -68,9 +69,9 @@ struct AuthorityPath
 
     // Separate path from authority.
     const auto slash = authority_and_path.find('/');
-    const std::string_view authority =
-        (slash == std::string_view::npos) ? authority_and_path
-                                          : authority_and_path.substr(0, slash);
+    const std::string_view authority = (slash == std::string_view::npos)
+                                           ? authority_and_path
+                                           : authority_and_path.substr(0, slash);
     result.path =
         (slash == std::string_view::npos) ? std::string_view{} : authority_and_path.substr(slash);
 
@@ -88,26 +89,46 @@ struct AuthorityPath
     return result;
 }
 
+/// Parse the port component of an endpoint URL.
+[[nodiscard]] microtel::Expected<std::uint16_t, ConfigError> ParsePort(std::string_view port_str,
+                                                                       Protocol protocol)
+{
+    if (port_str.empty())
+    {
+        return (protocol == Protocol::Grpc) ? kDefaultPortGrpc : kDefaultPortHttp;
+    }
+    std::uint32_t parsed = 0;
+    const auto [ptr, ec] =
+        std::from_chars(port_str.data(), port_str.data() + port_str.size(), parsed);
+    if (ec != std::errc{} || ptr != port_str.data() + port_str.size() || parsed > kPortMax ||
+        parsed == 0)
+    {
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
+                                                     .field = "exporter.endpoint",
+                                                     .message = "invalid port in endpoint URL"});
+    }
+    return static_cast<std::uint16_t>(parsed);
+}
+
 /// Parse an endpoint URL into ParsedEndpoint components.
 /// Does not validate file-system resources.
-[[nodiscard]] microtel::Expected<ParsedEndpoint, ConfigError>
-ParseEndpointUrl(const std::string& url, Protocol protocol)
+[[nodiscard]] microtel::Expected<ParsedEndpoint, ConfigError> ParseEndpointUrl(
+    const std::string& url, Protocol protocol)
 {
     if (url.empty())
     {
-        return microtel::Unexpected{
-            ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
-                        .field = "exporter.endpoint",
-                        .message = "endpoint URL is empty"}};
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
+                                                     .field = "exporter.endpoint",
+                                                     .message = "endpoint URL is empty"});
     }
 
     const std::string_view scheme = ExtractScheme(url);
     if (scheme.empty())
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
                         .field = "exporter.endpoint",
-                        .message = "endpoint URL missing scheme (expected https:// or http://)"}};
+                        .message = "endpoint URL missing scheme (expected https:// or http://)"});
     }
 
     // Normalise scheme: grpc → https, grpcs → https, http → http, https → https.
@@ -122,43 +143,28 @@ ParseEndpointUrl(const std::string& url, Protocol protocol)
     }
     else
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
                         .field = "exporter.endpoint",
-                        .message = "unsupported scheme: " + std::string{scheme}}};
+                        .message = "unsupported scheme: " + std::string{scheme}});
     }
 
     const auto ap = SplitAuthorityPath(StripScheme(url));
 
     if (ap.host.empty())
     {
-        return microtel::Unexpected{
-            ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
-                        .field = "exporter.endpoint",
-                        .message = "endpoint URL has empty host"}};
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
+                                                     .field = "exporter.endpoint",
+                                                     .message = "endpoint URL has empty host"});
     }
 
     // Parse optional port.
-    std::uint16_t port = 0;
-    if (!ap.port_str.empty())
+    auto port_result = ParsePort(ap.port_str, protocol);
+    if (!port_result)
     {
-        std::uint32_t parsed = 0;
-        const auto [ptr, ec] =
-            std::from_chars(ap.port_str.data(), ap.port_str.data() + ap.port_str.size(), parsed);
-        if (ec != std::errc{} || ptr != ap.port_str.data() + ap.port_str.size() ||
-            parsed > kPortMax || parsed == 0)
-        {
-            return microtel::Unexpected{
-                ConfigError{.kind = ConfigError::Kind::EndpointMalformed,
-                            .field = "exporter.endpoint",
-                            .message = "invalid port in endpoint URL"}};
-        }
-        port = static_cast<std::uint16_t>(parsed);
+        return microtel::make_unexpected(port_result.error());
     }
-    else
-    {
-        port = (protocol == Protocol::Grpc) ? kDefaultPortGrpc : kDefaultPortHttp;
-    }
+    const std::uint16_t port = *port_result;
 
     // Strip trailing slash from path so it's a clean base.
     std::string path{ap.path};
@@ -198,16 +204,16 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
     auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
     if (!endpoint)
     {
-        return microtel::Unexpected{endpoint.error()};
+        return microtel::make_unexpected(endpoint.error());
     }
 
     // --- gRPC path rejection (spec §12.2) ---
     if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::ProtocolMismatch,
                         .field = "exporter.endpoint",
-                        .message = "gRPC endpoint URLs must not include a path"}};
+                        .message = "gRPC endpoint URLs must not include a path"});
     }
 
     cfg.endpoint = std::move(*endpoint);
@@ -215,10 +221,10 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
     // --- TLS material ---
     if (!IsReadable(cfg.tls.ca_bundle))
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::TlsMaterialUnreadable,
                         .field = "tls.ca_bundle",
-                        .message = "CA bundle not readable: " + cfg.tls.ca_bundle.string()}};
+                        .message = "CA bundle not readable: " + cfg.tls.ca_bundle.string()});
     }
 
     const bool has_cert = !cfg.tls.client_cert.empty();
@@ -226,40 +232,40 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
 
     if (has_cert && !has_key)
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::InvalidValue,
                         .field = "tls.client_key",
-                        .message = "client_cert is set but client_key is missing"}};
+                        .message = "client_cert is set but client_key is missing"});
     }
     if (has_key && !has_cert)
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::InvalidValue,
                         .field = "tls.client_cert",
-                        .message = "client_key is set but client_cert is missing"}};
+                        .message = "client_key is set but client_cert is missing"});
     }
     if (has_cert && !IsReadable(cfg.tls.client_cert))
     {
-        return microtel::Unexpected{ConfigError{
-            .kind = ConfigError::Kind::TlsMaterialUnreadable,
-            .field = "tls.client_cert",
-            .message = "client cert not readable: " + cfg.tls.client_cert.string()}};
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::TlsMaterialUnreadable,
+                        .field = "tls.client_cert",
+                        .message = "client cert not readable: " + cfg.tls.client_cert.string()});
     }
     if (has_key && !IsReadable(cfg.tls.client_key))
     {
-        return microtel::Unexpected{ConfigError{
-            .kind = ConfigError::Kind::TlsMaterialUnreadable,
-            .field = "tls.client_key",
-            .message = "client key not readable: " + cfg.tls.client_key.string()}};
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::TlsMaterialUnreadable,
+                        .field = "tls.client_key",
+                        .message = "client key not readable: " + cfg.tls.client_key.string()});
     }
 
     // --- Batch coherence ---
     if (cfg.batch.max_export_batch_size > cfg.batch.max_queue_size)
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::InvalidValue,
                         .field = "sdk.max_export_batch_size",
-                        .message = "max_export_batch_size must not exceed max_queue_size"}};
+                        .message = "max_export_batch_size must not exceed max_queue_size"});
     }
 
     return {};

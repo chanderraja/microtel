@@ -33,7 +33,7 @@ TEST(SslCtxTest, ExplicitConstruct_Valid)
 TEST(SslCtxTest, MoveConstruct_TransfersOwnership)
 {
     mcr::SslCtx src = MakeCtx();
-    SSL_CTX* raw = src.Get();
+    const SSL_CTX* const raw = src.Get();
 
     const mcr::SslCtx dst{std::move(src)};
 
@@ -46,7 +46,7 @@ TEST(SslCtxTest, MoveAssign_TransfersOwnership)
 {
     mcr::SslCtx src = MakeCtx();
     mcr::SslCtx dst = MakeCtx();
-    SSL_CTX* raw = src.Get();
+    const SSL_CTX* const raw = src.Get();
 
     dst = std::move(src);
 
@@ -58,7 +58,7 @@ TEST(SslCtxTest, MoveAssign_TransfersOwnership)
 TEST(SslCtxTest, Release_RelinquishesOwnership)
 {
     mcr::SslCtx ctx = MakeCtx();
-    SSL_CTX* raw = ctx.Get();
+    const SSL_CTX* const raw = ctx.Get();
 
     SSL_CTX* released = ctx.Release();
 

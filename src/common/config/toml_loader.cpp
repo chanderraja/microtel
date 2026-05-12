@@ -8,8 +8,7 @@
 #include "microtel/sdk_builder.hpp"
 
 // NOLINTNEXTLINE(misc-include-cleaner) — toml++ single-header
-#include <toml++/toml.hpp>
-
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -17,6 +16,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+
+#include <toml++/toml.hpp>
 
 namespace microtel::config
 {
@@ -46,16 +47,8 @@ constexpr std::string_view kValIgnore = "ignore";
 {
     for (const auto& [key, val] : tbl)
     {
-        bool matched = false;
-        for (const auto& k : known)
-        {
-            if (key == k)
-            {
-                matched = true;
-                break;
-            }
-        }
-        if (!matched)
+        const auto* const it = std::ranges::find(known, std::string_view{key});
+        if (it == known.end())
         {
             return std::string{key};
         }
@@ -63,11 +56,10 @@ constexpr std::string_view kValIgnore = "ignore";
     return {};
 }
 
-[[nodiscard]] std::optional<ConfigError> CheckUnknown(
-    const toml::table& tbl,
-    std::string_view section,
-    std::initializer_list<std::string_view> known,
-    UnknownKeyMode mode)
+[[nodiscard]] std::optional<ConfigError> CheckUnknown(const toml::table& tbl,
+                                                      std::string_view section,
+                                                      std::initializer_list<std::string_view> known,
+                                                      UnknownKeyMode mode)
 {
     if (mode == UnknownKeyMode::Ignore)
     {
@@ -118,7 +110,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "config.unknown_keys",
-                               .message = "must be \"error\", \"warn\", or \"ignore\""};
+                               .message = R"(must be "error", "warn", or "ignore")"};
         }
     }
     return CheckUnknown(*sec, "config", {"unknown_keys"}, cfg.unknown_key_mode);
@@ -131,7 +123,8 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(*sec, "exporter",
+    if (auto err = CheckUnknown(*sec,
+                                "exporter",
                                 {"endpoint", "protocol", "compression", "headers"},
                                 cfg.unknown_key_mode))
     {
@@ -155,7 +148,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "exporter.protocol",
-                               .message = "must be \"http\" or \"grpc\""};
+                               .message = R"(must be "http" or "grpc")"};
         }
     }
     if (const auto v = (*sec)["compression"].value<std::string>())
@@ -235,10 +228,11 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(
-            *sec, "tls",
-            {"insecure", "ca_bundle", "client_cert", "client_key", "sni_override"},
-            cfg.unknown_key_mode))
+    if (auto err =
+            CheckUnknown(*sec,
+                         "tls",
+                         {"insecure", "ca_bundle", "client_cert", "client_key", "sni_override"},
+                         cfg.unknown_key_mode))
     {
         return err;
     }
@@ -273,7 +267,8 @@ constexpr std::string_view kValIgnore = "ignore";
         return std::nullopt;
     }
     if (auto err = CheckUnknown(
-            *sec, "sdk",
+            *sec,
+            "sdk",
             {"max_queue_size", "max_export_batch_size", "schedule_delay_ms", "drop_policy"},
             cfg.unknown_key_mode))
     {
@@ -305,7 +300,7 @@ constexpr std::string_view kValIgnore = "ignore";
         {
             return ConfigError{.kind = ConfigError::Kind::InvalidValue,
                                .field = "sdk.drop_policy",
-                               .message = "must be \"newest\" or \"oldest\""};
+                               .message = R"(must be "newest" or "oldest")"};
         }
     }
     return std::nullopt;
@@ -319,9 +314,9 @@ constexpr std::string_view kValIgnore = "ignore";
         return std::nullopt;
     }
     if (auto err = CheckUnknown(
-            *sec, "timeouts",
-            {"connect_ms", "tls_ms", "per_export_ms", "retry_budget_ms", "flush_ms",
-             "shutdown_ms"},
+            *sec,
+            "timeouts",
+            {"connect_ms", "tls_ms", "per_export_ms", "retry_budget_ms", "flush_ms", "shutdown_ms"},
             cfg.unknown_key_mode))
     {
         return err;
@@ -361,44 +356,45 @@ constexpr std::string_view kValIgnore = "ignore";
     // [config] is parsed first to establish unknown_key_mode.
     if (auto err = ParseConfigSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     // Top-level section check with the now-resolved mode.
-    if (auto err = CheckUnknown(root, "",
-                                {"config", "exporter", "service", "resource", "tls", "sdk",
-                                 "timeouts"},
-                                cfg.unknown_key_mode))
+    if (auto err =
+            CheckUnknown(root,
+                         "",
+                         {"config", "exporter", "service", "resource", "tls", "sdk", "timeouts"},
+                         cfg.unknown_key_mode))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
 
     if (auto err = ParseExporterSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseExporterHeaders(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseServiceSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseResourceSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseTlsSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseSdkSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     if (auto err = ParseTimeoutsSection(root, cfg))
     {
-        return microtel::Unexpected{*err};
+        return microtel::make_unexpected(*err);
     }
     return cfg;
 }
@@ -418,9 +414,9 @@ microtel::Expected<Config, ConfigError> ParseTomlString(std::string_view content
     }
     catch (const toml::parse_error& e)
     {
-        return microtel::Unexpected{ConfigError{.kind = ConfigError::Kind::FileParseFailure,
-                                               .field = {},
-                                               .message = std::string{e.description()}}};
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::FileParseFailure,
+                                                     .field = {},
+                                                     .message = std::string{e.description()}});
     }
 }
 
@@ -429,10 +425,10 @@ microtel::Expected<Config, ConfigError> LoadToml(const std::filesystem::path& pa
     std::error_code ec;
     if (!std::filesystem::exists(path, ec) || ec)
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::FileNotFound,
                         .field = {},
-                        .message = "Config file not found: " + path.string()}};
+                        .message = "Config file not found: " + path.string()});
     }
     try
     {
@@ -441,9 +437,9 @@ microtel::Expected<Config, ConfigError> LoadToml(const std::filesystem::path& pa
     }
     catch (const toml::parse_error& e)
     {
-        return microtel::Unexpected{ConfigError{.kind = ConfigError::Kind::FileParseFailure,
-                                               .field = {},
-                                               .message = std::string{e.description()}}};
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::FileParseFailure,
+                                                     .field = {},
+                                                     .message = std::string{e.description()}});
     }
 }
 

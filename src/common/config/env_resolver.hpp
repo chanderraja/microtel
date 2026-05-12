@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "common/config/config.hpp"
-
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+
+#include "common/config/config.hpp"
 
 namespace microtel::config
 {

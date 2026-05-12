@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "common/config/config.hpp"
-
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+
+#include "common/config/config.hpp"
 
 #include <filesystem>
 #include <string_view>
@@ -25,8 +25,7 @@ namespace microtel::config
 /// @return Config on success.
 /// @return ConfigError on parse failure, unknown-key violation, or
 ///         unrecognised field value.
-[[nodiscard]] microtel::Expected<Config, ConfigError>
-ParseTomlString(std::string_view content);
+[[nodiscard]] microtel::Expected<Config, ConfigError> ParseTomlString(std::string_view content);
 
 /// @brief Load and parse a microtel.toml file.
 ///
@@ -35,7 +34,6 @@ ParseTomlString(std::string_view content);
 /// @return ConfigError::Kind::FileNotFound if the file does not exist.
 /// @return ConfigError::Kind::FileParseFailure on TOML syntax error.
 /// @return Any other ConfigError from `ParseTomlString`.
-[[nodiscard]] microtel::Expected<Config, ConfigError>
-LoadToml(const std::filesystem::path& path);
+[[nodiscard]] microtel::Expected<Config, ConfigError> LoadToml(const std::filesystem::path& path);
 
 }  // namespace microtel::config

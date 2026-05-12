@@ -28,17 +28,17 @@ namespace
 }
 
 /// Parse an integer millisecond value from a string.
-[[nodiscard]] microtel::Expected<std::chrono::milliseconds, ConfigError>
-ParseMs(std::string_view sv, const char* var_name)
+[[nodiscard]] microtel::Expected<std::chrono::milliseconds, ConfigError> ParseMs(
+    std::string_view sv, const char* var_name)
 {
     std::int64_t ms = 0;
     const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), ms);
     if (ec != std::errc{} || ptr != sv.data() + sv.size())
     {
-        return microtel::Unexpected{
+        return microtel::make_unexpected(
             ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
                         .field = var_name,
-                        .message = std::string{var_name} + ": expected integer milliseconds"}};
+                        .message = std::string{var_name} + ": expected integer milliseconds"});
     }
     return std::chrono::milliseconds{ms};
 }
@@ -46,8 +46,8 @@ ParseMs(std::string_view sv, const char* var_name)
 /// Parse a "key=value,key2=value2" list into KeyValue pairs.
 ///
 /// Each token must contain exactly one '='. Empty tokens are skipped.
-[[nodiscard]] microtel::Expected<std::vector<KeyValue>, ConfigError>
-ParseKeyValueList(std::string_view sv, const char* var_name)
+[[nodiscard]] microtel::Expected<std::vector<KeyValue>, ConfigError> ParseKeyValueList(
+    std::string_view sv, const char* var_name)
 {
     std::vector<KeyValue> result;
     while (!sv.empty())
@@ -69,15 +69,14 @@ ParseKeyValueList(std::string_view sv, const char* var_name)
         const auto eq = token.find('=');
         if (eq == std::string_view::npos)
         {
-            return microtel::Unexpected{
-                ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
-                            .field = var_name,
-                            .message = std::string{var_name} +
-                                       ": malformed key=value pair (missing '='): " +
-                                       std::string{token}}};
+            return microtel::make_unexpected(ConfigError{
+                .kind = ConfigError::Kind::EnvParseFailure,
+                .field = var_name,
+                .message = std::string{var_name} +
+                           ": malformed key=value pair (missing '='): " + std::string{token}});
         }
-        result.push_back({.key = std::string{token.substr(0, eq)},
-                          .value = std::string{token.substr(eq + 1)}});
+        result.push_back(
+            {.key = std::string{token.substr(0, eq)}, .value = std::string{token.substr(eq + 1)}});
     }
     return result;
 }
@@ -93,10 +92,44 @@ ParseKeyValueList(std::string_view sv, const char* var_name)
     {
         return Protocol::Http;
     }
-    return microtel::Unexpected{
+    return microtel::make_unexpected(
         ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
                     .field = "OTEL_EXPORTER_OTLP_PROTOCOL",
-                    .message = "expected \"grpc\" or \"http/protobuf\""}};
+                    .message = R"(expected "grpc" or "http/protobuf")"});
+}
+
+/// Apply OTEL_EXPORTER_OTLP_TIMEOUT to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayTimeout(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_EXPORTER_OTLP_TIMEOUT");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto ms = ParseMs(v, "OTEL_EXPORTER_OTLP_TIMEOUT");
+    if (!ms)
+    {
+        return microtel::make_unexpected(ms.error());
+    }
+    cfg.timeouts.per_export = *ms;
+    return {};
+}
+
+/// Apply OTEL_RESOURCE_ATTRIBUTES to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceAttrs(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_RESOURCE_ATTRIBUTES");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto attrs = ParseKeyValueList(v, "OTEL_RESOURCE_ATTRIBUTES");
+    if (!attrs)
+    {
+        return microtel::make_unexpected(attrs.error());
+    }
+    cfg.resource_attrs = std::move(*attrs);
+    return {};
 }
 
 }  // namespace
@@ -115,7 +148,7 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
         auto proto = ParseProtocol(v);
         if (!proto)
         {
-            return microtel::Unexpected{proto.error()};
+            return microtel::make_unexpected(proto.error());
         }
         cfg.protocol = *proto;
     }
@@ -126,20 +159,15 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
         auto headers = ParseKeyValueList(v, "OTEL_EXPORTER_OTLP_HEADERS");
         if (!headers)
         {
-            return microtel::Unexpected{headers.error()};
+            return microtel::make_unexpected(headers.error());
         }
         cfg.headers = std::move(*headers);
     }
 
     // OTEL_EXPORTER_OTLP_TIMEOUT (integer milliseconds)
-    if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_TIMEOUT"); !v.empty())
+    if (auto r = OverlayTimeout(cfg); !r)
     {
-        auto ms = ParseMs(v, "OTEL_EXPORTER_OTLP_TIMEOUT");
-        if (!ms)
-        {
-            return microtel::Unexpected{ms.error()};
-        }
-        cfg.timeouts.per_export = *ms;
+        return microtel::make_unexpected(r.error());
     }
 
     // OTEL_EXPORTER_OTLP_COMPRESSION
@@ -161,14 +189,9 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     // OTEL_RESOURCE_ATTRIBUTES
-    if (const auto v = GetEnv("OTEL_RESOURCE_ATTRIBUTES"); !v.empty())
+    if (auto r = OverlayResourceAttrs(cfg); !r)
     {
-        auto attrs = ParseKeyValueList(v, "OTEL_RESOURCE_ATTRIBUTES");
-        if (!attrs)
-        {
-            return microtel::Unexpected{attrs.error()};
-        }
-        cfg.resource_attrs = std::move(*attrs);
+        return microtel::make_unexpected(r.error());
     }
 
     return {};

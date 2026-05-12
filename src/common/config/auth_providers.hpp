@@ -33,8 +33,8 @@ public:
     StaticHeadersAuthProvider(StaticHeadersAuthProvider&&) = delete;
     StaticHeadersAuthProvider& operator=(StaticHeadersAuthProvider&&) = delete;
 
-    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error>
-    GetAuthorization(internal::TimePointSteady now) override;
+    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error> GetAuthorization(
+        internal::TimePointSteady now) override;
 
 private:
     std::string m_token;
@@ -61,8 +61,8 @@ public:
     CallbackAuthProvider(CallbackAuthProvider&&) = delete;
     CallbackAuthProvider& operator=(CallbackAuthProvider&&) = delete;
 
-    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error>
-    GetAuthorization(internal::TimePointSteady now) override;
+    [[nodiscard]] microtel::Expected<std::optional<std::string>, microtel::Error> GetAuthorization(
+        internal::TimePointSteady now) override;
 
 private:
     AuthCallback m_cb;

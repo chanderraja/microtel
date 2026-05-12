@@ -3,24 +3,6 @@
 
 #include "microtel/sdk_builder.hpp"
 
-#include "common/config/auth_providers.hpp"
-#include "common/config/config.hpp"
-#include "common/config/config_validator.hpp"
-#include "common/config/env_resolver.hpp"
-#include "common/config/toml_loader.hpp"
-
-#include "exporter/otlp_exporter.hpp"
-
-#include "sdk/batch_span_processor.hpp"
-#include "sdk/sdk_provider.hpp"
-
-#include "transport/epoll_reactor.hpp"
-#include "transport/http2_transport.hpp"
-
-#include "wire/encoder/otlp_encoder.hpp"
-#include "wire/grpc/grpc_wire_codec.hpp"
-#include "wire/http/http_wire_codec.hpp"
-
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
@@ -29,6 +11,20 @@
 #include "microtel/protocol.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
+
+#include "common/config/auth_providers.hpp"
+#include "common/config/config.hpp"
+#include "common/config/config_validator.hpp"
+#include "common/config/env_resolver.hpp"
+#include "common/config/toml_loader.hpp"
+#include "exporter/otlp_exporter.hpp"
+#include "sdk/batch_span_processor.hpp"
+#include "sdk/sdk_provider.hpp"
+#include "transport/epoll_reactor.hpp"
+#include "transport/http2_transport.hpp"
+#include "wire/encoder/otlp_encoder.hpp"
+#include "wire/grpc/grpc_wire_codec.hpp"
+#include "wire/http/http_wire_codec.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -66,6 +62,10 @@ struct SdkBuilder::Impl
     std::chrono::milliseconds auth_cache_ttl{std::chrono::seconds(60)};
 
     bool consumed = false;
+
+    [[nodiscard]] Expected<config::Config, ConfigError> LoadConfig() const;
+    void ApplyExporterOverrides(config::Config& cfg) const;
+    void ApplyResourceOverrides(config::Config& cfg) const;
 };
 
 // ---------------------------------------------------------------------------
@@ -215,8 +215,7 @@ namespace
     };
 }
 
-[[nodiscard]] std::vector<internal::HeaderField>
-ToHeaderFields(const std::vector<KeyValue>& kvs)
+[[nodiscard]] std::vector<internal::HeaderField> ToHeaderFields(const std::vector<KeyValue>& kvs)
 {
     std::vector<internal::HeaderField> out;
     out.reserve(kvs.size());
@@ -231,7 +230,140 @@ ToHeaderFields(const std::vector<KeyValue>& kvs)
     return out;
 }
 
+[[nodiscard]] Expected<std::unique_ptr<internal::ITransport>, ConfigError> CreateTransport()
+{
+    auto reactor = transport::EpollReactor::Create();
+    if (!reactor)
+    {
+        return make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::Unspecified,
+                        .field = {},
+                        .message = "reactor init failed: " + reactor.error().message});
+    }
+    auto http2 = transport::Http2Transport::Create(std::move(*reactor));
+    if (!http2)
+    {
+        return make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::Unspecified,
+                        .field = {},
+                        .message = "transport init failed: " + http2.error().message});
+    }
+    return std::move(*http2);
+}
+
+[[nodiscard]] std::unique_ptr<internal::IWireCodec> BuildWireCodec(
+    internal::ITransport* transport,
+    const config::Config& cfg,
+    std::vector<internal::HeaderField> extra_headers,
+    internal::IAuthProvider* auth)
+{
+    const auto host_port = cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
+    if (cfg.protocol == Protocol::Grpc)
+    {
+        return std::make_unique<wire::GrpcWireCodec>(transport,
+                                                     wire::GrpcWireCodecConfig{
+                                                         .host = host_port,
+                                                         .scheme = cfg.endpoint.scheme,
+                                                         .extra_headers = std::move(extra_headers),
+                                                     },
+                                                     auth);
+    }
+    return std::make_unique<wire::HttpWireCodec>(transport,
+                                                 wire::HttpWireCodecConfig{
+                                                     .host = host_port,
+                                                     .scheme = cfg.endpoint.scheme,
+                                                     .path = cfg.endpoint.path,
+                                                     .extra_headers = std::move(extra_headers),
+                                                 },
+                                                 auth);
+}
+
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Impl — config loading and code overrides
+// ---------------------------------------------------------------------------
+
+Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig() const
+{
+    config::Config cfg;
+    if (file_path)
+    {
+        auto file_cfg = config::LoadToml(*file_path);
+        if (!file_cfg)
+        {
+            return make_unexpected(file_cfg.error());
+        }
+        cfg = std::move(*file_cfg);
+    }
+    if (auto r = config::OverlayEnv(cfg); !r)
+    {
+        return make_unexpected(r.error());
+    }
+    ApplyExporterOverrides(cfg);
+    ApplyResourceOverrides(cfg);
+    if (auto r = config::Validate(cfg); !r)
+    {
+        return make_unexpected(r.error());
+    }
+    return cfg;
+}
+
+void SdkBuilder::Impl::ApplyExporterOverrides(config::Config& cfg) const
+{
+    if (endpoint)
+    {
+        cfg.endpoint_url = *endpoint;
+    }
+    if (protocol)
+    {
+        cfg.protocol = *protocol;
+    }
+    if (compression_gzip)
+    {
+        cfg.compression_gzip = *compression_gzip;
+    }
+    if (headers)
+    {
+        cfg.headers = *headers;
+    }
+    if (tls)
+    {
+        cfg.tls = *tls;
+    }
+}
+
+void SdkBuilder::Impl::ApplyResourceOverrides(config::Config& cfg) const
+{
+    if (service_name)
+    {
+        cfg.service_name = *service_name;
+    }
+    if (service_version)
+    {
+        cfg.service_version = *service_version;
+    }
+    if (resource_attrs)
+    {
+        cfg.resource_attrs = *resource_attrs;
+    }
+    if (batch)
+    {
+        cfg.batch = *batch;
+    }
+    if (span_limits)
+    {
+        cfg.span_limits = *span_limits;
+    }
+    if (memory_limits)
+    {
+        cfg.memory_limits = *memory_limits;
+    }
+    if (timeouts)
+    {
+        cfg.timeouts = *timeouts;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Build
@@ -241,84 +373,19 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
 {
     if (m_impl->consumed)
     {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::BuildAlreadyConsumed,
-                                     .field = {},
-                                     .message = "SdkBuilder::Build() called more than once"}};
+        return make_unexpected(ConfigError{.kind = ConfigError::Kind::BuildAlreadyConsumed,
+                                           .field = {},
+                                           .message = "SdkBuilder::Build() called more than once"});
     }
     m_impl->consumed = true;
 
-    // --- Step 1: assemble Config (file → env → code) -----------------------
-    config::Config cfg;
-
-    if (m_impl->file_path)
+    // --- Steps 1–2: assemble and validate Config (file → env → code) -------
+    auto cfg_result = m_impl->LoadConfig();
+    if (!cfg_result)
     {
-        auto file_cfg = config::LoadToml(*m_impl->file_path);
-        if (!file_cfg)
-        {
-            return Unexpected{file_cfg.error()};
-        }
-        cfg = std::move(*file_cfg);
+        return make_unexpected(cfg_result.error());
     }
-
-    if (auto r = config::OverlayEnv(cfg); !r)
-    {
-        return Unexpected{r.error()};
-    }
-
-    if (m_impl->endpoint)
-    {
-        cfg.endpoint_url = *m_impl->endpoint;
-    }
-    if (m_impl->protocol)
-    {
-        cfg.protocol = *m_impl->protocol;
-    }
-    if (m_impl->compression_gzip)
-    {
-        cfg.compression_gzip = *m_impl->compression_gzip;
-    }
-    if (m_impl->headers)
-    {
-        cfg.headers = *m_impl->headers;
-    }
-    if (m_impl->service_name)
-    {
-        cfg.service_name = *m_impl->service_name;
-    }
-    if (m_impl->service_version)
-    {
-        cfg.service_version = *m_impl->service_version;
-    }
-    if (m_impl->resource_attrs)
-    {
-        cfg.resource_attrs = *m_impl->resource_attrs;
-    }
-    if (m_impl->batch)
-    {
-        cfg.batch = *m_impl->batch;
-    }
-    if (m_impl->span_limits)
-    {
-        cfg.span_limits = *m_impl->span_limits;
-    }
-    if (m_impl->memory_limits)
-    {
-        cfg.memory_limits = *m_impl->memory_limits;
-    }
-    if (m_impl->timeouts)
-    {
-        cfg.timeouts = *m_impl->timeouts;
-    }
-    if (m_impl->tls)
-    {
-        cfg.tls = *m_impl->tls;
-    }
-
-    // --- Step 2: validate ---------------------------------------------------
-    if (auto r = config::Validate(cfg); !r)
-    {
-        return Unexpected{r.error()};
-    }
+    const config::Config cfg = std::move(*cfg_result);
 
     // --- Step 3: resource ---------------------------------------------------
     auto resource = BuildResource(cfg);
@@ -327,71 +394,34 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     std::unique_ptr<internal::IAuthProvider> auth;
     if (m_impl->auth_cb)
     {
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         auth = std::make_unique<config::CallbackAuthProvider>(std::move(*m_impl->auth_cb),
-                                                             m_impl->auth_cache_ttl);
+                                                              m_impl->auth_cache_ttl);
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
-    // --- Step 5: transport --------------------------------------------------
-    auto reactor = transport::EpollReactor::Create();
-    if (!reactor)
+    // --- Steps 5–6: transport -----------------------------------------------
+    auto transport_result = CreateTransport();
+    if (!transport_result)
     {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::Unspecified,
-                                     .field = {},
-                                     .message = "reactor init failed: " +
-                                                reactor.error().message}};
+        return make_unexpected(transport_result.error());
     }
+    auto transport = std::move(*transport_result);
 
-    auto http2 = transport::Http2Transport::Create(std::move(*reactor));
-    if (!http2)
-    {
-        return Unexpected{ConfigError{.kind = ConfigError::Kind::Unspecified,
-                                     .field = {},
-                                     .message = "transport init failed: " +
-                                                http2.error().message}};
-    }
-
-    // --- Step 6: encoder ----------------------------------------------------
+    // --- Step 7: encoder ----------------------------------------------------
     auto encoder = std::make_unique<wire::OtlpEncoder>();
 
-    // --- Step 7: wire codec -------------------------------------------------
-    const auto host_port =
-        cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
-    auto extra_headers = ToHeaderFields(cfg.headers);
-    internal::ITransport* const transport_ptr = (*http2).get();
+    // --- Step 8: wire codec -------------------------------------------------
+    auto codec = BuildWireCodec(transport.get(), cfg, ToHeaderFields(cfg.headers), auth.get());
 
-    std::unique_ptr<internal::IWireCodec> codec;
-    if (cfg.protocol == Protocol::Grpc)
-    {
-        codec = std::make_unique<wire::GrpcWireCodec>(
-            transport_ptr,
-            wire::GrpcWireCodecConfig{
-                .host = host_port,
-                .scheme = cfg.endpoint.scheme,
-                .extra_headers = std::move(extra_headers),
-            },
-            auth.get());
-    }
-    else
-    {
-        codec = std::make_unique<wire::HttpWireCodec>(
-            transport_ptr,
-            wire::HttpWireCodecConfig{
-                .host = host_port,
-                .scheme = cfg.endpoint.scheme,
-                .path = cfg.endpoint.path,
-                .extra_headers = std::move(extra_headers),
-            },
-            auth.get());
-    }
-
-    // --- Step 8: exporter ---------------------------------------------------
-    exporter::OtlpExporterConfig exporter_cfg{
+    // --- Step 9: exporter ---------------------------------------------------
+    const exporter::OtlpExporterConfig exporter_cfg{
         .export_deadline = cfg.timeouts.per_export,
     };
     auto exporter_obj =
         std::make_unique<exporter::OtlpExporter>(encoder.get(), codec.get(), exporter_cfg);
 
-    // --- Step 9: processor --------------------------------------------------
+    // --- Step 10: processor -------------------------------------------------
     internal::InstrumentationScope scope{
         .name = cfg.service_name,
         .version = cfg.service_version,
@@ -399,19 +429,19 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto processor = std::make_unique<sdk::BatchSpanProcessor>(
         exporter_obj.get(), resource, std::move(scope), cfg.batch);
 
-    // --- Step 10: provider --------------------------------------------------
-    auto connect_opts = BuildConnectOptions(cfg);
-
-    return std::make_shared<sdk::SdkProvider>(std::move(encoder),
-                                              std::move(auth),
-                                              std::move(*http2),
-                                              std::move(codec),
-                                              std::move(exporter_obj),
-                                              std::move(processor),
-                                              std::move(resource),
-                                              std::move(m_impl->sampler),
-                                              cfg.span_limits,
-                                              std::move(connect_opts));
+    // --- Step 11: provider --------------------------------------------------
+    return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
+        .encoder = std::move(encoder),
+        .auth = std::move(auth),
+        .transport = std::move(transport),
+        .codec = std::move(codec),
+        .exporter = std::move(exporter_obj),
+        .processor = std::move(processor),
+        .resource = std::move(resource),
+        .sampler = std::move(m_impl->sampler),
+        .span_limits = cfg.span_limits,
+        .connect_opts = BuildConnectOptions(cfg),
+    });
 }
 
 }  // namespace microtel

@@ -92,6 +92,7 @@ namespace internal
 /// - MICROTEL_USE_SPDLOG=OFF → minimal stderr formatter.
 ///
 /// M2 scope: stderr in both modes. M3 wires the spdlog route.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 void LogImpl(LogLevel level, std::string_view message) noexcept
 {
     LogSink local_copy;

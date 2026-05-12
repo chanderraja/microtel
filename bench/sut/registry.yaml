@@ -1,0 +1,50 @@
+schema_version: 1
+# SUT registry — one entry per system-under-test.
+# The bench driver reads this file to know what to build and run.
+#
+# Fields:
+#   name         Short identifier; used as the Docker image name suffix.
+#   description  Human-readable label shown in reports and environment fingerprint.
+#   dockerfile   Path to Dockerfile, relative to repo root.
+#   image_name   Passed to: docker build -t <image_name>
+#   protocol     Transport to the sink (grpc | http).
+#   ports:
+#     control    TCP port the emit-app listens on for driver control messages
+#                (start / stop / flush / report).
+#   env          Env vars the driver injects at `docker run` time.
+#                Empty strings are placeholders; the driver fills them in.
+#   b0           true = included in B0 runs; false = deferred to B1+.
+
+suts:
+  - name: microtel
+    description: "microtel SDK — OTLP/HTTP-protobuf exporter"
+    dockerfile: bench/sut/microtel/Dockerfile
+    image_name: bench-sut-microtel
+    protocol: http
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink-host:4318
+    b0: true
+
+  - name: otelcpp-grpc
+    description: "opentelemetry-cpp v1.19.0 — OTLP/gRPC exporter"
+    dockerfile: bench/sut/otelcpp-grpc/Dockerfile
+    image_name: bench-sut-otelcpp-grpc
+    protocol: grpc
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to grpc://sink-host:4317
+    b0: true
+
+  - name: otelcpp-http
+    description: "opentelemetry-cpp v1.19.0 — OTLP/HTTP-protobuf exporter"
+    dockerfile: bench/sut/otelcpp-http/Dockerfile
+    image_name: bench-sut-otelcpp-http
+    protocol: http
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink-host:4318
+    b0: false  # B1+

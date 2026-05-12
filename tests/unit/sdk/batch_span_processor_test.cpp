@@ -34,13 +34,21 @@ namespace
 // Minimal concrete Span for testing OnStart (which is a no-op and ignores all args).
 struct NullSpan final : mt::Span
 {
-    [[nodiscard]] mt::SpanContext GetContext() const noexcept override { return {}; }
-    [[nodiscard]] bool IsSampled() const noexcept override { return false; }
+    [[nodiscard]] mt::SpanContext GetContext() const noexcept override
+    {
+        return {};
+    }
+    [[nodiscard]] bool IsSampled() const noexcept override
+    {
+        return false;
+    }
     void SetAttribute(std::string_view /*key*/, mt::AttributeValue /*value*/) noexcept override {}
-    void AddEvent(std::string_view /*name*/, mt::AttributeSpan /*attrs*/,
-                  std::chrono::system_clock::time_point /*ts*/) noexcept override {}
-    void AddLink(const mt::SpanContext& /*ctx*/,
-                 mt::AttributeSpan /*attrs*/) noexcept override {}
+    void AddEvent(std::string_view /*name*/,
+                  mt::AttributeSpan /*attrs*/,
+                  std::chrono::system_clock::time_point /*ts*/) noexcept override
+    {
+    }
+    void AddLink(const mt::SpanContext& /*ctx*/, mt::AttributeSpan /*attrs*/) noexcept override {}
     void SetStatus(mt::StatusCode /*code*/, std::string_view /*desc*/) noexcept override {}
     void UpdateName(std::string_view /*name*/) noexcept override {}
     void End(std::chrono::system_clock::time_point /*end_time*/) noexcept override {}

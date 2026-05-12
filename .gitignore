@@ -27,6 +27,7 @@
 # Fortran module files
 *.mod
 *.smod
+!go.mod
 
 # Compiled Static libraries
 *.lai
@@ -74,3 +75,4 @@ _handoff/
 # Knowledge graph (generated; bootstrap with /graphify in Claude Code)
 graphify-out/
 bench/results/
+bench/sink/blackhole/blackhole-sink

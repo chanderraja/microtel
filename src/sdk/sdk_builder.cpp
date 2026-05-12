@@ -394,8 +394,10 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     std::unique_ptr<internal::IAuthProvider> auth;
     if (m_impl->auth_cb)
     {
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         auth = std::make_unique<config::CallbackAuthProvider>(std::move(*m_impl->auth_cb),
                                                               m_impl->auth_cache_ttl);
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
     // --- Steps 5–6: transport -----------------------------------------------

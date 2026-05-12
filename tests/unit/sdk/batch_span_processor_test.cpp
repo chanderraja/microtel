@@ -10,6 +10,7 @@
 #include "microtel/internal/batch.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
+#include "microtel/span.hpp"
 #include "microtel/status.hpp"
 #include "microtel/trace.hpp"
 
@@ -26,6 +27,26 @@
 namespace mt = microtel;
 namespace mti = microtel::internal;
 namespace mtfk = microtel::testing;
+
+namespace
+{
+
+// Minimal concrete Span for testing OnStart (which is a no-op and ignores all args).
+struct NullSpan final : mt::Span
+{
+    [[nodiscard]] mt::SpanContext GetContext() const noexcept override { return {}; }
+    [[nodiscard]] bool IsSampled() const noexcept override { return false; }
+    void SetAttribute(std::string_view /*key*/, mt::AttributeValue /*value*/) noexcept override {}
+    void AddEvent(std::string_view /*name*/, mt::AttributeSpan /*attrs*/,
+                  std::chrono::system_clock::time_point /*ts*/) noexcept override {}
+    void AddLink(const mt::SpanContext& /*ctx*/,
+                 mt::AttributeSpan /*attrs*/) noexcept override {}
+    void SetStatus(mt::StatusCode /*code*/, std::string_view /*desc*/) noexcept override {}
+    void UpdateName(std::string_view /*name*/) noexcept override {}
+    void End(std::chrono::system_clock::time_point /*end_time*/) noexcept override {}
+};
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,10 +101,9 @@ TEST(BatchSpanProcessorTest, OnStart_IsNoOp)
     mtfk::FakeExporter exp;
     auto bsp = MakeBsp(exp);
     // OnStart is a no-op; just must not crash.
-    mt::Span* null_span = nullptr;
+    NullSpan span;
     const mt::Context ctx;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    EXPECT_NO_THROW(bsp->OnStart(*reinterpret_cast<mt::Span*>(null_span), ctx));
+    EXPECT_NO_THROW(bsp->OnStart(span, ctx));
     (void)bsp->Shutdown(std::chrono::milliseconds(500));
 }
 

@@ -39,6 +39,7 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
     if(NOT TARGET microtel_sdk)
         find_package(microtel REQUIRED)
     endif()
+    target_sources(emit_app PRIVATE src/backend_microtel.cpp)
     target_link_libraries(emit_app PRIVATE microtel_sdk)
     target_include_directories(emit_app PRIVATE
         ${CMAKE_SOURCE_DIR}/include

@@ -24,6 +24,8 @@ endif()
 
 add_executable(emit_app
     src/main.cpp
+    src/histogram.cpp
+    src/control_socket.cpp
 )
 
 target_compile_definitions(emit_app PRIVATE

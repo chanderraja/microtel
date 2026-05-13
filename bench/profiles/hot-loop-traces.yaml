@@ -1,0 +1,37 @@
+# hot-loop-traces — B0 baseline profile
+#
+# Emits spans as fast as possible (no rate limiting) to stress the SDK
+# export pipeline and measure throughput ceiling and latency distribution.
+#
+# The driver runs each SUT through the warm-up phase, then issues one
+# "run" command per sample and collects the RunResult JSON from the
+# control socket.
+
+profile: hot-loop-traces
+description: "Uncapped span emission — measures SDK throughput ceiling and p99 latency"
+
+workload:
+  mode: hot_loop           # EmitSpan() called in a tight loop, no sleep
+  spans_per_sample: 10000  # spans per run command
+  samples: 10              # run commands issued per SUT
+  warmup_spans: 1000       # spans emitted before the first timed sample
+
+sink:
+  mode: blackhole          # no collector processing; raw network RTT only
+  protocol: auto           # each SUT uses its native protocol (http or grpc)
+
+# SUTs active for this profile (must match registry.yaml b0 field).
+suts:
+  - microtel
+  - otelcpp-grpc
+
+# Metrics collected from each RunResult and reported in the output JSON.
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

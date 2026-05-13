@@ -71,7 +71,7 @@ Two audiences, one harness:
 Three SUT images, one per library/exporter combination. All share the **same workload shape** — the same profile YAML drives the same workload logic — with a **compile-time-selected backend**: `bench/emit-app/` contains backend-specific adapter files, one per library, selected at build time so the microtel and otel-cpp APIs can differ while the workload logic stays identical. Compiler, flags (`-O2 -g -fno-omit-frame-pointer`), and the rest of the toolchain are identical, enforced via a shared base Dockerfile.
 
 The emit-app does three things:
-1. Listens on a Unix domain socket for control messages from the driver (`start`, `stop`, `flush`, `report`).
+1. Listens on a TCP socket (port 9090) for control messages from the driver (`start`, `stop`, `flush`, `report`). TCP is used rather than a Unix domain socket so the control channel works across Docker container boundaries without volume mounts.
 2. Runs the configured workload profile.
 3. Exposes a metrics endpoint (process-internal counters: items emitted, items dropped, queue high-water mark, wallclock spent in `StartSpan`/`End`, etc.).
 

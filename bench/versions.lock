@@ -1,0 +1,21 @@
+schema_version: 1
+# Single source of truth for all externally pinned versions in the bench harness.
+# Update one value here and open a PR — bench.sh reads this file and passes
+# --build-arg to every docker build call, so Dockerfiles never need editing.
+
+# OS base image used by all SUT stages.
+ubuntu_image: "ubuntu:24.04"
+
+# C++ toolchain pinned across all SUTs. Ubuntu 24.04 ships clang-18 in its
+# default apt repositories; no LLVM overlay needed.
+clang_version: "18"
+
+# opentelemetry-cpp release tag used for the otelcpp-grpc and otelcpp-http SUTs.
+# Dockerfile receives this as --build-arg OTELCPP_VERSION.
+otelcpp_version: "v1.19.0"
+
+# Go toolchain version for blackhole-sink (matches bench/sink/blackhole/go.mod).
+go_version: "1.25"
+
+# otel-collector image for sink/collector mode (B2+; not used in B0).
+otelcol_image: "otel/opentelemetry-collector-contrib:0.125.0"

@@ -11,8 +11,6 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-# Placeholder target so add_subdirectory(bench) resolves cleanly.
-# Populated in B0 when the emit-app CMakeLists and SUT Dockerfiles land.
-add_custom_target(bench
-    COMMENT "bench: scaffold only — driver and SUTs added in B0"
-)
+if(MICROTEL_BUILD_BENCH)
+    add_subdirectory(emit-app)
+endif()

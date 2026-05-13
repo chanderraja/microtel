@@ -22,12 +22,41 @@ else()
     add_compile_options(-O2 -g -fno-omit-frame-pointer)
 endif()
 
-add_executable(emit_app src/main.cpp)
+add_executable(emit_app
+    src/main.cpp
+)
 
 target_compile_definitions(emit_app PRIVATE
     BENCH_BACKEND_${BENCH_BACKEND}=1)
 
 target_include_directories(emit_app PRIVATE include)
 
-# Track 4 will add find_package() and target_link_libraries() calls here
-# once the real workload and backend adapters are implemented.
+if(BENCH_BACKEND STREQUAL "MICROTEL")
+    # When built as a subdirectory of the microtel repo (MICROTEL_BUILD_BENCH=ON),
+    # microtel_sdk is already defined in the parent scope — no find_package needed.
+    # When built standalone (SUT Dockerfile stage 3), CMAKE_PREFIX_PATH points to
+    # the installed microtel tree (issue #19 tracks adding install() targets).
+    if(NOT TARGET microtel_sdk)
+        find_package(microtel REQUIRED)
+    endif()
+    target_link_libraries(emit_app PRIVATE microtel_sdk)
+    target_include_directories(emit_app PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src)
+
+elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
+    find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_grpc_exporter)
+    target_link_libraries(emit_app PRIVATE
+        opentelemetry-cpp::trace
+        opentelemetry-cpp::otlp_grpc_exporter)
+
+elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
+    find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_http_exporter)
+    target_link_libraries(emit_app PRIVATE
+        opentelemetry-cpp::trace
+        opentelemetry-cpp::otlp_http_exporter)
+
+else()
+    message(FATAL_ERROR "Unknown BENCH_BACKEND: ${BENCH_BACKEND}. "
+        "Valid values: MICROTEL | OTELCPP_GRPC | OTELCPP_HTTP")
+endif()

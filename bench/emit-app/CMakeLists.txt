@@ -47,12 +47,14 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
     find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_grpc_exporter)
+    target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
         opentelemetry-cpp::otlp_grpc_exporter)
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
     find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_http_exporter)
+    target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
         opentelemetry-cpp::otlp_http_exporter)

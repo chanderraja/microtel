@@ -81,6 +81,6 @@ jobs:
           args: >
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.scm.provider=git
-            -Dsonar.exclusions=gen/**,third_party/**,proto/**,build/**,build-*/**,spike/**,**/_generated/**,**/*.upb.c,**/*.upb.h,**/*.upb_minitable.c,**/*.upb_minitable.h
+            -Dsonar.exclusions=gen/**,**/third_party/**,proto/**,build/**,build-*/**,spike/**,**/_generated/**,**/*.upb.c,**/*.upb.h,**/*.upb_minitable.c,**/*.upb_minitable.h
             -Dsonar.cfamily.compile-commands=build/coverage/compile_commands.json
             -Dsonar.cfamily.llvm-cov.reportPath=build/coverage/coverage.filtered.info

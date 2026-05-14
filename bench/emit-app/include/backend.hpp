@@ -12,11 +12,24 @@
 namespace bench
 {
 
+/// Per-reason drop counters.  Four primary DropReason buckets are named;
+/// the remaining 16 fold into `other`.  `total` is the sum of all 20.
+/// otelcpp backends return zeros for all fields (no stable API equivalent).
+struct DroppedCounts
+{
+    uint64_t queue_full{0};
+    uint64_t record_too_large{0};
+    uint64_t span_attribute_limit{0};
+    uint64_t attribute_value_truncated{0};
+    uint64_t other{0};
+    uint64_t total{0};
+};
+
 /// Counters reported by the backend after a run.
 struct BackendStats
 {
     uint64_t spans_exported_total{0};
-    uint64_t spans_dropped_total{0};
+    DroppedCounts spans_dropped{};
     uint64_t bytes_sent_total{0};
 };
 

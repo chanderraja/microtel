@@ -128,9 +128,17 @@ void RunSpans(uint64_t count, IBackend& backend, Histogram& hist)
 
 std::string SerializeRunResult(const RunResult& r)
 {
+    const auto& d = r.spans_dropped;
     std::ostringstream os;
     os << "{\"spans_emitted\":" << r.spans_emitted
-       << ",\"spans_dropped\":" << r.spans_dropped
+       << ",\"spans_dropped\":{"
+           << "\"queue_full\":"              << d.queue_full
+           << ",\"record_too_large\":"       << d.record_too_large
+           << ",\"span_attribute_limit\":"   << d.span_attribute_limit
+           << ",\"attribute_value_truncated\":" << d.attribute_value_truncated
+           << ",\"other\":"                  << d.other
+           << ",\"total\":"                  << d.total
+       << "}"
        << ",\"bytes_sent\":" << r.bytes_sent
        << ",\"duration_ns\":" << r.duration_ns
        << ",\"latency_p50_ns\":" << r.latency_p50_ns
@@ -199,7 +207,7 @@ void RunControlLoop(int port, IBackend& backend, Histogram& hist)
 
                 RunResult result{
                     .spans_emitted = hist.Count(),
-                    .spans_dropped = stats.spans_dropped_total,
+                    .spans_dropped = stats.spans_dropped,
                     .bytes_sent = stats.bytes_sent_total,
                     .duration_ns = dur_ns,
                     .latency_p50_ns = hist.Percentile(0.50),

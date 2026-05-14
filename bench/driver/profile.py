@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 
 @dataclasses.dataclass(frozen=True)
@@ -16,9 +16,10 @@ class Profile:
     spans_per_sample: int
     samples: int
     warmup_spans: int
-    sink_mode: str      # "blackhole" | "collector"
-    suts: List[str]     # SUT names enabled for this profile
-    metrics: List[str]  # metric keys to include in report
+    sink_mode: str       # "blackhole" | "collector"
+    suts: List[str]      # SUT names enabled for this profile
+    metrics: List[str]   # metric keys to include in report
+    env: Dict[str, str]  # extra env vars injected into SUT containers
 
 
 _SINK_MODES = {"blackhole", "collector"}
@@ -42,6 +43,7 @@ def load(profiles_dir: Path, name: str) -> Profile:
 
     raw_suts = data.get("suts") or []
     raw_metrics = data.get("metrics") or []
+    raw_env = data.get("env") or {}
 
     return Profile(
         name=str(data.get("profile", name)),
@@ -52,6 +54,7 @@ def load(profiles_dir: Path, name: str) -> Profile:
         sink_mode=sink_mode,
         suts=[str(s) for s in raw_suts] if isinstance(raw_suts, list) else [],
         metrics=[str(m) for m in raw_metrics] if isinstance(raw_metrics, list) else [],
+        env={k: str(v) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {},
     )
 
 

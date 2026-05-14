@@ -82,12 +82,13 @@ def _run_sut(
     n_samples: int,
     warmup_spans: int,
     spans_per_sample: int,
+    profile_env: dict,
     verbose: bool,
 ) -> list[dict]:
     """Start a SUT container, run warmup + N timed samples, return samples."""
     samples = []
     with Container(engine, f"bench-sut-{sut.name}", verbose=verbose) as c:
-        env = dict(sut.env)
+        env = {**sut.env, **profile_env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
         c.start(
             image=sut.image_name,
@@ -222,6 +223,7 @@ def main(argv=None) -> int:
                         n_samples=n_samples,
                         warmup_spans=profile.warmup_spans,
                         spans_per_sample=profile.spans_per_sample,
+                        profile_env=profile.env,
                         verbose=args.verbose,
                     )
                 except Exception as exc:

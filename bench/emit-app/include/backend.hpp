@@ -36,10 +36,12 @@ struct BackendStats
 /// Options passed to IBackend::Init().
 struct BackendOptions
 {
-    std::string endpoint;        ///< e.g. "http://sink:4318"
+    std::string endpoint;            ///< e.g. "http://sink:4318"
     std::string service_name;
     std::string service_version;
-    bool compression_gzip{false};
+    bool        compression_gzip{false};
+    int         attributes_per_span{0};    ///< 0 = no attributes (hot-loop default)
+    int         attribute_value_bytes{24}; ///< byte length of each attribute value
 };
 
 /// Abstract tracing backend.

@@ -12,6 +12,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace bench
 {
@@ -49,11 +50,24 @@ public:
 
         m_provider = std::move(*result);
         m_tracer = m_provider->GetTracer("bench");
+
+        m_attrs_per_span = opts.attributes_per_span;
+        m_attr_keys.resize(opts.attributes_per_span);
+        for (int i = 0; i < opts.attributes_per_span; ++i)
+        {
+            m_attr_keys[i] = "bench.attr." + std::to_string(i);
+        }
+        m_attr_value = std::string(
+            static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
     }
 
     void EmitSpan() override
     {
         auto span = m_tracer->StartSpan("bench.span");
+        for (int i = 0; i < m_attrs_per_span; ++i)
+        {
+            span->SetAttribute(m_attr_keys[i], m_attr_value);
+        }
         span->End();
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
@@ -94,8 +108,11 @@ public:
 
 private:
     std::shared_ptr<microtel::Provider> m_provider;
-    std::shared_ptr<microtel::Tracer> m_tracer;
-    std::atomic<uint64_t> m_emit_count{0};
+    std::shared_ptr<microtel::Tracer>   m_tracer;
+    std::atomic<uint64_t>               m_emit_count{0};
+    int                                 m_attrs_per_span{0};
+    std::vector<std::string>            m_attr_keys;
+    std::string                         m_attr_value;
 };
 
 }  // namespace

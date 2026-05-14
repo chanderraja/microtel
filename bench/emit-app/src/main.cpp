@@ -32,12 +32,16 @@ int main()
     const std::string svc_name    = EnvOr("EMIT_SERVICE_NAME", "bench");
     const std::string svc_version = EnvOr("EMIT_SERVICE_VER",  "0.0.0");
     const int control_port        = kDefaultControlPort;
+    const int attrs_per_span      = std::stoi(EnvOr("EMIT_ATTRIBUTES_PER_SPAN",  "0"));
+    const int attr_value_bytes    = std::stoi(EnvOr("EMIT_ATTRIBUTE_VALUE_BYTES", "24"));
 
     const bench::BackendOptions opts{
-        .endpoint        = endpoint,
-        .service_name    = svc_name,
-        .service_version = svc_version,
-        .compression_gzip = false,
+        .endpoint              = endpoint,
+        .service_name          = svc_name,
+        .service_version       = svc_version,
+        .compression_gzip      = false,
+        .attributes_per_span   = attrs_per_span,
+        .attribute_value_bytes = attr_value_bytes,
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};

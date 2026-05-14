@@ -13,6 +13,8 @@
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/tracer.h>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -90,7 +92,7 @@ public:
                 opentelemetry::nostd::string_view(m_attr_value));
         }
         span->End();
-        m_emit_count++;
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
     void Shutdown() override
@@ -104,7 +106,7 @@ public:
         // opentelemetry-cpp does not expose drop counters via a stable public API.
         // All DroppedCounts fields are 0.  See bench/docs/methodology.md.
         return BackendStats{
-            .spans_exported_total = m_emit_count,
+            .spans_exported_total = m_emit_count.load(std::memory_order_relaxed),
             .spans_dropped        = {},
             .bytes_sent_total     = 0,
         };
@@ -113,7 +115,7 @@ public:
 private:
     std::shared_ptr<opentelemetry::trace::TracerProvider>          m_provider;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> m_tracer;
-    uint64_t                                                        m_emit_count{0};
+    std::atomic<uint64_t>                                           m_emit_count{0};
     int                                                             m_attrs_per_span{0};
     std::vector<std::string>                                        m_attr_keys;
     std::string                                                     m_attr_value;

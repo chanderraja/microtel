@@ -3,7 +3,6 @@
 
 #include "backend.hpp"
 #include "control_socket.hpp"
-#include "histogram.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -31,9 +30,13 @@ int main()
     const std::string endpoint    = EnvOr("EMIT_ENDPOINT",     "http://sink:4318");
     const std::string svc_name    = EnvOr("EMIT_SERVICE_NAME", "bench");
     const std::string svc_version = EnvOr("EMIT_SERVICE_VER",  "0.0.0");
-    const int control_port        = kDefaultControlPort;
     const int attrs_per_span      = std::stoi(EnvOr("EMIT_ATTRIBUTES_PER_SPAN",  "0"));
     const int attr_value_bytes    = std::stoi(EnvOr("EMIT_ATTRIBUTE_VALUE_BYTES", "24"));
+    const std::string workload_env = EnvOr("EMIT_WORKLOAD", "hot_loop");
+
+    const bench::WorkloadMode mode = (workload_env == "realistic_request")
+        ? bench::WorkloadMode::RealisticRequest
+        : bench::WorkloadMode::HotLoop;
 
     const bench::BackendOptions opts{
         .endpoint              = endpoint,
@@ -45,7 +48,6 @@ int main()
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};
-    bench::Histogram hist;
 
     try
     {
@@ -57,11 +59,11 @@ int main()
         return 1;
     }
 
-    std::cerr << "emit_app: ready on control port " << control_port << '\n';
+    std::cerr << "emit_app: ready on control port " << kDefaultControlPort << '\n';
 
     try
     {
-        bench::RunControlLoop(control_port, *backend, hist);
+        bench::RunControlLoop(kDefaultControlPort, *backend, mode);
     }
     catch (const std::exception& ex)
     {

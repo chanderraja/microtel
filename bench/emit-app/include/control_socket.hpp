@@ -8,13 +8,19 @@
 #pragma once
 
 #include "backend.hpp"
-#include "histogram.hpp"
 
 #include <cstdint>
 #include <string>
 
 namespace bench
 {
+
+/// Workload pattern the emit-app runs during a "run" command.
+enum class WorkloadMode : std::uint8_t
+{
+    HotLoop,          ///< EmitSpan() called as fast as possible (or rate-limited)
+    RealisticRequest, ///< EmitRequest() — one parent span + two child spans per iteration
+};
 
 struct RunResult
 {
@@ -35,11 +41,14 @@ struct RunResult
 ///   - write a JSON response line back
 ///
 /// Commands:
-///   {"cmd":"run","spans":N,"rate_hz":R}   → runs workload, replies with RunResult JSON
-///   {"cmd":"quit"}                         → replies {"ok":true} and returns
+///   {"cmd":"run","spans":N,"threads":T,"rate_hz":R}
+///                              → runs workload, replies with RunResult JSON
+///                                T defaults to 1; R = 0 means unlimited
+///   {"cmd":"quit"}             → replies {"ok":true} and returns
 ///
 /// Blocks until "quit" is received or the connection is closed.
-void RunControlLoop(int port, class IBackend& backend, Histogram& latency_hist);
+/// `mode` is determined once at startup via the EMIT_WORKLOAD env var.
+void RunControlLoop(int port, IBackend& backend, WorkloadMode mode);
 
 /// Serialize a RunResult to a single-line JSON string (no trailing newline).
 [[nodiscard]] std::string SerializeRunResult(const RunResult& r);

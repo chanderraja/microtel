@@ -67,6 +67,10 @@ public:
     /// on the critical path (batching is handled by the SDK internally).
     virtual void EmitSpan() = 0;
 
+    /// Emit one realistic request: one parent span and two child spans.
+    /// Used by the realistic-request workload profile.
+    virtual void EmitRequest() = 0;
+
     /// Flush all pending spans and shut down the SDK.
     /// Called once after the workload completes.
     virtual void Shutdown() = 0;

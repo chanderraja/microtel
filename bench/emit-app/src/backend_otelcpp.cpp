@@ -11,6 +11,7 @@
 #include <opentelemetry/sdk/trace/batch_span_processor_options.h>
 #include <opentelemetry/sdk/trace/tracer_provider_factory.h>
 #include <opentelemetry/trace/provider.h>
+#include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/tracer.h>
 
 #include <atomic>
@@ -92,6 +93,20 @@ public:
                 opentelemetry::nostd::string_view(m_attr_value));
         }
         span->End();
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void EmitRequest() override
+    {
+        auto parent = m_tracer->StartSpan("bench.request");
+        {
+            opentelemetry::trace::Scope scope(parent);
+            auto child1 = m_tracer->StartSpan("bench.request.op1");
+            child1->End();
+            auto child2 = m_tracer->StartSpan("bench.request.op2");
+            child2->End();
+        }
+        parent->End();
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 

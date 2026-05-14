@@ -151,7 +151,7 @@ private:
 };
 
 void WorkerThread(uint64_t span_count, uint64_t rate_hz_per_thread,
-                  IBackend& backend, Histogram& hist)
+                  WorkloadMode mode, IBackend& backend, Histogram& hist)
 {
     TokenBucket tb(rate_hz_per_thread);
     for (uint64_t i = 0; i < span_count; ++i)
@@ -159,7 +159,14 @@ void WorkerThread(uint64_t span_count, uint64_t rate_hz_per_thread,
         tb.Consume();
         using Clock = std::chrono::steady_clock;
         const auto t0 = Clock::now();
-        backend.EmitSpan();
+        if (mode == WorkloadMode::RealisticRequest)
+        {
+            backend.EmitRequest();
+        }
+        else
+        {
+            backend.EmitSpan();
+        }
         const auto t1 = Clock::now();
         const uint64_t ns = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
@@ -167,9 +174,8 @@ void WorkerThread(uint64_t span_count, uint64_t rate_hz_per_thread,
     }
 }
 
-// EmitRequest() dispatch added in next commit when WorkloadMode::RealisticRequest is wired up.
 void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
-                 IBackend& backend, Histogram& hist)
+                 WorkloadMode mode, IBackend& backend, Histogram& hist)
 {
     const auto n = static_cast<uint64_t>(threads);
     const uint64_t per_thread = spans / n;
@@ -181,14 +187,14 @@ void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
     for (int t = 0; t < threads; ++t)
     {
         const uint64_t count = per_thread + (t == 0 ? remainder : 0);
-        workers.emplace_back(WorkerThread, count, rate_per_thread,
+        workers.emplace_back(WorkerThread, count, rate_per_thread, mode,
                              std::ref(backend), std::ref(hist));
     }
     // jthreads auto-join on destruction — all workers complete before return
 }
 
 [[nodiscard]] RunResult HandleRunCommand(const std::string& line,
-                                         [[maybe_unused]] WorkloadMode mode,
+                                         WorkloadMode mode,
                                          IBackend& backend)
 {
     const uint64_t spans = ExtractUint64Field(line, "spans");
@@ -199,7 +205,7 @@ void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
     Histogram run_hist;
     using Clock = std::chrono::steady_clock;
     const auto t0 = Clock::now();
-    RunWorkload(spans, threads, rate_hz, backend, run_hist);
+    RunWorkload(spans, threads, rate_hz, mode, backend, run_hist);
     const auto t1 = Clock::now();
 
     const auto stats = backend.Stats();
@@ -276,7 +282,7 @@ std::string SerializeRunResult(const RunResult& r)
     return os.str();
 }
 
-void RunControlLoop(int port, IBackend& backend, [[maybe_unused]] WorkloadMode mode)
+void RunControlLoop(int port, IBackend& backend, WorkloadMode mode)
 {
     const int listen_fd = CreateListenSocket(port);
 

@@ -14,8 +14,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from driver.control import ControlClient
 
 
-def _make_server(responses: list[dict]):
-    """Minimal server that reads one JSON line per response and writes back."""
+def _make_server(responses: list[dict], received: list | None = None):
+    """Minimal server that reads one JSON line per response and writes back.
+
+    If `received` is provided, each parsed request object is appended to it.
+    """
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -28,7 +31,9 @@ def _make_server(responses: list[dict]):
         for resp in responses:
             while b"\n" not in buf:
                 buf += conn.recv(4096)
-            _, _, buf = buf.partition(b"\n")
+            line, _, buf = buf.partition(b"\n")
+            if received is not None:
+                received.append(json.loads(line.decode()))
             conn.sendall((json.dumps(resp) + "\n").encode())
         conn.close()
         srv.close()
@@ -63,6 +68,36 @@ def test_run_returns_parsed_result():
     assert result["spans_emitted"] == 1000
     assert result["spans_dropped"]["total"] == 0
     assert result["latency_p50_ns"] == 82
+
+
+def test_run_sends_threads_and_rate_hz():
+    run_result = {
+        "spans_emitted": 500,
+        "spans_dropped": {"queue_full": 0, "record_too_large": 0,
+                          "span_attribute_limit": 0, "attribute_value_truncated": 0,
+                          "other": 0, "total": 0},
+        "bytes_sent": 0,
+        "duration_ns": 100_000_000,
+        "latency_p50_ns": 50,
+        "latency_p95_ns": 80,
+        "latency_p99_ns": 100,
+        "latency_min_ns": 20,
+        "latency_max_ns": 200,
+    }
+    quit_ack = {"ok": True}
+    received: list[dict] = []
+
+    port, t = _make_server([run_result, quit_ack], received=received)
+
+    with ControlClient("127.0.0.1", port) as c:
+        c.run(500, threads=4, rate_hz=2000)
+        c.quit()
+
+    t.join(timeout=2.0)
+
+    assert received[0]["cmd"] == "run"
+    assert received[0]["threads"] == 4
+    assert received[0]["rate_hz"] == 2000
 
 
 def test_connection_error_on_bad_port():

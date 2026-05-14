@@ -16,6 +16,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace bench
 {
@@ -68,11 +69,26 @@ public:
         auto provider = sdktrace::TracerProviderFactory::Create(std::move(processor));
         m_provider = std::move(provider);
         m_tracer = m_provider->GetTracer(opts.service_name, opts.service_version);
+
+        m_attrs_per_span = opts.attributes_per_span;
+        m_attr_keys.resize(opts.attributes_per_span);
+        for (int i = 0; i < opts.attributes_per_span; ++i)
+        {
+            m_attr_keys[i] = "bench.attr." + std::to_string(i);
+        }
+        m_attr_value = std::string(
+            static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
     }
 
     void EmitSpan() override
     {
         auto span = m_tracer->StartSpan("bench.span");
+        for (int i = 0; i < m_attrs_per_span; ++i)
+        {
+            span->SetAttribute(
+                opentelemetry::nostd::string_view(m_attr_keys[i]),
+                opentelemetry::nostd::string_view(m_attr_value));
+        }
         span->End();
         m_emit_count++;
     }
@@ -95,9 +111,12 @@ public:
     }
 
 private:
-    std::shared_ptr<opentelemetry::trace::TracerProvider> m_provider;
+    std::shared_ptr<opentelemetry::trace::TracerProvider>          m_provider;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> m_tracer;
-    uint64_t m_emit_count{0};
+    uint64_t                                                        m_emit_count{0};
+    int                                                             m_attrs_per_span{0};
+    std::vector<std::string>                                        m_attr_keys;
+    std::string                                                     m_attr_value;
 };
 
 }  // namespace

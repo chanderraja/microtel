@@ -46,5 +46,5 @@ suts:
     ports:
       control: 9090
     env:
-      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink-host:4318
-    b0: false  # B1+
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
+    b0: true

@@ -24,6 +24,7 @@ sink:
 suts:
   - microtel
   - otelcpp-grpc
+  - otelcpp-http
 
 # Metrics collected from each RunResult and reported in the output JSON.
 metrics:

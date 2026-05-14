@@ -24,7 +24,7 @@ def test_b0_filter():
     names = [s.name for s in b0]
     assert "microtel" in names
     assert "otelcpp-grpc" in names
-    assert "otelcpp-http" not in names
+    assert "otelcpp-http" in names  # enabled in B1
 
 
 def test_library_transport_derived():

@@ -3,67 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # bench.sh — entry point for the microtel benchmark harness.
-#
-# Usage:
-#   ./bench/bench.sh [options]
-#
-# Options:
-#   --profile <name>      Workload profile to run (default: hot-loop-traces)
-#   --reps <n>            Number of repetitions (default: 5)
-#   --sink <mode>         Sink mode: blackhole (default) or collector
-#   --output <dir>        Output directory (default: bench/results)
-#   --ci                  CI mode: non-zero exit on regression vs baseline
-#   --baseline <file>     Baseline JSON for --ci regression check
-#   --no-build            Skip Docker image build (use cached images)
-#   --with-plots          Generate HTML plots alongside results.md
-#   --flamegraph <sut>    Run perf + flamegraph for named SUT (requires perf)
-#   --allow-smt           Skip SMT/hyperthreading check
-#   -h, --help            Show this help
+# Thin wrapper: checks prerequisites then delegates to python3 -m driver.
+# Run with -h to see all options.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
-PROFILE="hot-loop-traces"
-REPS=5
-SINK="blackhole"
-OUTPUT="${SCRIPT_DIR}/results"
-CI_MODE=false
-BASELINE=""
-NO_BUILD=false
-WITH_PLOTS=false
-FLAMEGRAPH_SUT=""
-ALLOW_SMT=false
-
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --profile)    PROFILE="$2";       shift 2 ;;
-        --reps)       REPS="$2";          shift 2 ;;
-        --sink)       SINK="$2";          shift 2 ;;
-        --output)     OUTPUT="$2";        shift 2 ;;
-        --ci)         CI_MODE=true;       shift   ;;
-        --baseline)   BASELINE="$2";      shift 2 ;;
-        --no-build)   NO_BUILD=true;      shift   ;;
-        --with-plots) WITH_PLOTS=true;    shift   ;;
-        --flamegraph) FLAMEGRAPH_SUT="$2"; shift 2 ;;
-        --allow-smt)  ALLOW_SMT=true;     shift   ;;
-        -h|--help)
-            sed -n '/^# Usage:/,/^[^#]/p' "$0" | head -n -1 | sed 's/^# \{0,1\}//'
-            exit 0
-            ;;
-        *)
-            echo "bench.sh: unknown option: $1" >&2
-            exit 1
-            ;;
-    esac
-done
 
 # ---------------------------------------------------------------------------
 # Prerequisites
@@ -85,15 +31,7 @@ if [[ "$(echo -e "3.11\n${PYTHON_VERSION}" | sort -V | head -1)" != "3.11" ]]; t
 fi
 
 # ---------------------------------------------------------------------------
-# Status
+# Delegate to Python driver
 # ---------------------------------------------------------------------------
-echo "bench.sh: microtel benchmark harness — B0 scaffold"
-echo "bench.sh: driver implementation pending (B0 milestone)"
-echo ""
-echo "  Profile:  ${PROFILE}"
-echo "  Reps:     ${REPS}"
-echo "  Sink:     ${SINK}"
-echo "  Output:   ${OUTPUT}"
-echo ""
-echo "bench.sh: nothing to run yet — add bench/driver/__main__.py in B0"
-exit 0
+cd "${SCRIPT_DIR}"
+exec python3 -m driver "$@"

@@ -77,3 +77,5 @@ _handoff/
 graphify-out/
 bench/results/
 bench/sink/blackhole/blackhole-sink
+*.pyc
+__pycache__/

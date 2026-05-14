@@ -67,17 +67,28 @@ public:
     {
         const auto health = m_provider->GetExporterHealth();
 
-        const uint64_t dropped = std::accumulate(health.drop_counters.begin(),
-                                                 health.drop_counters.end(),
-                                                 uint64_t{0});
+        auto dc = [&health](microtel::DropReason r) -> uint64_t {
+            return health.drop_counters[static_cast<std::size_t>(r)];
+        };
+
+        DroppedCounts dropped;
+        dropped.queue_full             = dc(microtel::DropReason::QueueFull);
+        dropped.record_too_large       = dc(microtel::DropReason::RecordTooLarge);
+        dropped.span_attribute_limit   = dc(microtel::DropReason::SpanAttributeLimit);
+        dropped.attribute_value_truncated = dc(microtel::DropReason::AttributeValueTruncated);
+        dropped.total                  = std::accumulate(health.drop_counters.begin(),
+                                                         health.drop_counters.end(),
+                                                         uint64_t{0});
+        dropped.other = dropped.total - dropped.queue_full - dropped.record_too_large
+                        - dropped.span_attribute_limit - dropped.attribute_value_truncated;
 
         const uint64_t emitted = m_emit_count.load(std::memory_order_relaxed);
-        const uint64_t exported = emitted > dropped ? emitted - dropped : 0;
+        const uint64_t exported = emitted > dropped.total ? emitted - dropped.total : 0;
 
         return BackendStats{
             .spans_exported_total = exported,
-            .spans_dropped_total = dropped,
-            .bytes_sent_total = 0,  // not exposed by HealthSnapshot; driver reads from sink
+            .spans_dropped        = dropped,
+            .bytes_sent_total     = 0,  // not exposed by HealthSnapshot; driver reads from sink
         };
     }
 

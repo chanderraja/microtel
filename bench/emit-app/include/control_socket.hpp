@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "backend.hpp"
 #include "histogram.hpp"
 
 #include <cstdint>
@@ -18,7 +19,7 @@ namespace bench
 struct RunResult
 {
     uint64_t spans_emitted{0};
-    uint64_t spans_dropped{0};
+    DroppedCounts spans_dropped{};
     uint64_t bytes_sent{0};
     uint64_t duration_ns{0};
     uint64_t latency_p50_ns{0};

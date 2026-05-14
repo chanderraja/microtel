@@ -1,0 +1,221 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+"""Compute statistics and write results.json + results.md."""
+
+from __future__ import annotations
+
+import dataclasses
+import json
+import statistics
+from pathlib import Path
+from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Statistics helpers
+# ---------------------------------------------------------------------------
+
+def _pct(values: list[float], p: float) -> float:
+    """Return the p-th percentile (0..1) of a sorted or unsorted list."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    idx = (len(s) - 1) * p
+    lo, hi = int(idx), min(int(idx) + 1, len(s) - 1)
+    return s[lo] + (s[hi] - s[lo]) * (idx - lo)
+
+
+def _stats(values: list[float]) -> dict[str, float]:
+    if not values:
+        return {"median": 0.0, "p25": 0.0, "p75": 0.0, "min": 0.0, "max": 0.0}
+    return {
+        "median": _pct(values, 0.5),
+        "p25":    _pct(values, 0.25),
+        "p75":    _pct(values, 0.75),
+        "min":    min(values),
+        "max":    max(values),
+    }
+
+
+def _drop_sum(samples: list[dict], key: str) -> int:
+    return sum(s["spans_dropped"].get(key, 0) for s in samples)
+
+
+# ---------------------------------------------------------------------------
+# Build the results.json document
+# ---------------------------------------------------------------------------
+
+def build_results(
+    profile_data: dict,
+    env_data: dict,
+    sut_results: list[dict],
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Assemble the full results.json document from collected data."""
+    suts_out = []
+    for sr in sut_results:
+        samples = sr["samples"]
+        suts_out.append({
+            "name":                sr["name"],
+            "library":             sr["library"],
+            "transport":           sr["transport"],
+            "library_version":     sr["library_version"],
+            "library_build_flags": sr["library_build_flags"],
+            "image_tag":           sr["image_tag"],
+            "image_id":            sr["image_id"],
+            "samples":             samples,
+            "summary":             _summarize(samples),
+        })
+
+    return {
+        "schema_version": "1.0",
+        "generated_at":   env_data["bench_started_at"],
+        "warnings":       warnings,
+        "profile":        profile_data,
+        "environment":    env_data,
+        "suts":           suts_out,
+    }
+
+
+def _summarize(samples: list[dict]) -> dict[str, Any]:
+    if not samples:
+        return {}
+
+    def _floats(key: str) -> list[float]:
+        return [float(s[key]) for s in samples]
+
+    drop_keys = ("queue_full", "record_too_large", "span_attribute_limit",
+                 "attribute_value_truncated", "other", "total")
+
+    wire_bytes = [
+        s["sink"]["bytes_received"] / max(s["sink"]["spans_received"], 1)
+        for s in samples
+    ]
+
+    return {
+        "reps":                  len(samples),
+        "spans_emitted_total":   sum(s["spans_emitted"] for s in samples),
+        "spans_dropped":         {k: _drop_sum(samples, k) for k in drop_keys},
+        "drop_rate_pct":         _drop_rate(samples),
+        "latency_p50_ns":        _stats(_floats("latency_p50_ns")),
+        "latency_p95_ns":        _stats(_floats("latency_p95_ns")),
+        "latency_p99_ns":        _stats(_floats("latency_p99_ns")),
+        "latency_min_ns":        _stats(_floats("latency_min_ns")),
+        "latency_max_ns":        _stats(_floats("latency_max_ns")),
+        "wire_bytes_per_span":   _stats(wire_bytes),
+    }
+
+
+def _drop_rate(samples: list[dict]) -> float:
+    total_emitted = sum(s["spans_emitted"] for s in samples)
+    total_dropped = sum(s["spans_dropped"]["total"] for s in samples)
+    if total_emitted == 0:
+        return 0.0
+    return round(total_dropped / total_emitted * 100, 4)
+
+
+# ---------------------------------------------------------------------------
+# Write outputs
+# ---------------------------------------------------------------------------
+
+def write_json(doc: dict, out_dir: Path, filename: str = "results.json") -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / filename
+    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    return path
+
+
+def write_markdown(doc: dict, out_dir: Path, filename: str = "results.md") -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / filename
+    path.write_text(_render_md(doc), encoding="utf-8")
+    return path
+
+
+def _render_md(doc: dict) -> str:
+    lines = []
+    env = doc.get("environment", {})
+    profile = doc.get("profile", {})
+
+    lines += [
+        "# Benchmark Results",
+        "",
+        "## Environment",
+        "",
+        f"| Field | Value |",
+        f"|-------|-------|",
+        f"| CPU | {env.get('cpu_model', '?')} |",
+        f"| Physical cores | {env.get('cpu_physical_cores', '?')} |",
+        f"| CPU governor | {env.get('cpu_governor', '?')} |",
+        f"| Hyperthreading | {env.get('hyperthreading', '?')} |",
+        f"| Kernel | {env.get('kernel', '?')} |",
+        f"| Container engine | {env.get('container_engine', '?')} {env.get('container_engine_version', '')} |",
+        f"| Load avg (1m) | {env.get('host_load_avg_1m', '?')} |",
+        f"| Started | {env.get('bench_started_at', '?')} |",
+        "",
+    ]
+
+    if doc.get("warnings"):
+        lines += ["## Warnings", ""]
+        for w in doc["warnings"]:
+            lines.append(f"- ⚠ {w}")
+        lines.append("")
+
+    lines += [
+        "## Profile",
+        "",
+        f"| Field | Value |",
+        f"|-------|-------|",
+        f"| Name | {profile.get('name', '?')} |",
+        f"| Spans/sample | {profile.get('spans_per_sample', '?')} |",
+        f"| Samples | {profile.get('samples', '?')} |",
+        f"| Warmup spans | {profile.get('warmup_spans', '?')} |",
+        f"| Sink | {profile.get('sink_mode', '?')} |",
+        "",
+        "## Results",
+        "",
+    ]
+
+    suts = doc.get("suts", [])
+    if suts:
+        # Header row
+        sut_names = [s["name"] for s in suts]
+        lines.append("| Metric | " + " | ".join(sut_names) + " |")
+        lines.append("|--------|" + "|".join(["--------"] * len(suts)) + "|")
+
+        def _row(label: str, key: str, fmt=lambda v: str(v)):
+            cells = []
+            for s in suts:
+                summary = s.get("summary", {})
+                val = summary.get(key, {})
+                if isinstance(val, dict):
+                    med = val.get("median", 0)
+                    p25 = val.get("p25", 0)
+                    p75 = val.get("p75", 0)
+                    cells.append(f"{fmt(med)} [{fmt(p25)}–{fmt(p75)}]")
+                else:
+                    cells.append(fmt(val))
+            lines.append(f"| {label} | " + " | ".join(cells) + " |")
+
+        _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")
+        _row("StartSpan p95 (ns)",   "latency_p95_ns", lambda v: f"{v:.0f}")
+        _row("StartSpan p99 (ns)",   "latency_p99_ns", lambda v: f"{v:.0f}")
+        _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
+        for s in suts:
+            d = s.get("summary", {}).get("spans_dropped", {})
+            lines.append(
+                f"| Spans dropped (total) | " +
+                " | ".join(str(ss.get("summary", {}).get("spans_dropped", {}).get("total", 0))
+                            for ss in suts) + " |"
+            )
+            break  # one row covers all
+
+    lines += [
+        "",
+        "---",
+        "",
+        "_Generated by microtel bench driver. "
+        "See `results.json` for full data and methodology._",
+    ]
+
+    return "\n".join(lines) + "\n"

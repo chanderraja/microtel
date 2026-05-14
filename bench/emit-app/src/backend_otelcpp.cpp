@@ -86,11 +86,11 @@ public:
     [[nodiscard]] BackendStats Stats() const override
     {
         // opentelemetry-cpp does not expose drop counters via a stable public API.
-        // spans_dropped_total is reported as 0.  See bench/docs/methodology.md.
+        // All DroppedCounts fields are 0.  See bench/docs/methodology.md.
         return BackendStats{
             .spans_exported_total = m_emit_count,
-            .spans_dropped_total = 0,
-            .bytes_sent_total = 0,
+            .spans_dropped        = {},
+            .bytes_sent_total     = 0,
         };
     }
 

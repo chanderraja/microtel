@@ -87,10 +87,16 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
     drop_keys = ("queue_full", "record_too_large", "span_attribute_limit",
                  "attribute_value_truncated", "other", "total")
 
-    wire_bytes = [
-        s["sink"]["bytes_received"] / max(s["sink"]["spans_received"], 1)
-        for s in samples
-    ]
+    # wire_bytes_per_span is only available in blackhole mode; None in collector mode.
+    bytes_available = [s["sink"]["bytes_received"] for s in samples
+                       if s["sink"]["bytes_received"] is not None]
+    if bytes_available and len(bytes_available) == len(samples):
+        wire_bytes = _stats([
+            s["sink"]["bytes_received"] / max(s["sink"]["spans_received"], 1)
+            for s in samples
+        ])
+    else:
+        wire_bytes = None
 
     return {
         "reps":                  len(samples),
@@ -102,7 +108,7 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
         "latency_p99_ns":        _stats(_floats("latency_p99_ns")),
         "latency_min_ns":        _stats(_floats("latency_min_ns")),
         "latency_max_ns":        _stats(_floats("latency_max_ns")),
-        "wire_bytes_per_span":   _stats(wire_bytes),
+        "wire_bytes_per_span":   wire_bytes,
     }
 
 

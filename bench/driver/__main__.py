@@ -28,6 +28,8 @@ from .profile import load as load_profile
 from .registry import filter_b0
 from .registry import get as get_sut
 from .registry import load as load_registry
+from .regression import check as check_regression
+from .regression import format_report as format_regression_report
 from .report import build_results, write_json, write_markdown
 from .sink_client import CollectorSinkClient, SinkClient
 
@@ -66,6 +68,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--sink", default="auto",
                    choices=("auto", "blackhole", "collector"),
                    help="Sink mode: auto uses profile default (default: auto)")
+    p.add_argument("--regression-check", default=None, metavar="BASELINE",
+                   help="Path to baseline results.json; exit 2 on regression")
+    p.add_argument("--threshold", type=float, default=0.05,
+                   help="Regression threshold as a fraction (default: 0.05 = 5%%)")
     p.add_argument("--allow-smt", action="store_true",
                    help="Suppress hyperthreading/SMT warning")
     p.add_argument("--verbose", action="store_true",
@@ -342,6 +348,33 @@ def main(argv=None) -> int:
             f"samples={summary.get('reps', 0)}"
         )
 
+    if args.regression_check:
+        return _run_regression_check(args.regression_check, doc, args.threshold)
+
+    return 0
+
+
+def _run_regression_check(baseline_path: str, current: dict, threshold: float) -> int:
+    import json
+    from pathlib import Path as _Path
+
+    try:
+        baseline = json.loads(_Path(baseline_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _log(f"ERROR: could not load baseline {baseline_path!r}: {exc}")
+        return 1
+
+    regressions = check_regression(baseline, current, threshold)
+    report = format_regression_report(regressions)
+    for line in report.splitlines():
+        _log(line)
+
+    if regressions:
+        _log(f"FAIL: {len(regressions)} regression(s) detected "
+             f"(threshold {threshold * 100:.0f}%)")
+        return 2
+
+    _log(f"PASS: no regressions vs {baseline_path}")
     return 0
 
 

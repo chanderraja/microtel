@@ -72,6 +72,19 @@ public:
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
+    void EmitRequest() override
+    {
+        auto parent = m_tracer->StartSpan("bench.request");
+        auto child1 = m_tracer->StartSpan("bench.request.op1",
+                                          {.parent = parent->GetContext()});
+        child1->End();
+        auto child2 = m_tracer->StartSpan("bench.request.op2",
+                                          {.parent = parent->GetContext()});
+        child2->End();
+        parent->End();
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
     void Shutdown() override
     {
         m_provider->Shutdown(std::chrono::seconds(30));

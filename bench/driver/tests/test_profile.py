@@ -17,6 +17,8 @@ def test_load_hot_loop_traces():
     assert p.spans_per_sample == 10_000
     assert p.samples == 10
     assert p.warmup_spans == 1_000
+    assert p.threads == 1        # default when not specified
+    assert p.target_rate_hz == 0  # default: unlimited
     assert p.sink_mode == "blackhole"
     assert "microtel" in p.suts
     assert "otelcpp-grpc" in p.suts

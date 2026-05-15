@@ -83,6 +83,8 @@ def _run_sut(
     warmup_spans: int,
     spans_per_sample: int,
     profile_env: dict,
+    threads: int,
+    rate_hz: int,
     verbose: bool,
 ) -> list[dict]:
     """Start a SUT container, run warmup + N timed samples, return samples."""
@@ -101,13 +103,13 @@ def _run_sut(
 
         with ControlClient("127.0.0.1", sut.ports.control) as ctrl:
             _log(f"  warmup ({warmup_spans} spans) ...")
-            ctrl.run(warmup_spans)
+            ctrl.run(warmup_spans, threads=threads, rate_hz=rate_hz)
             time.sleep(0.5)
             sink_client.reset()
 
             for i in range(n_samples):
                 sink_client.reset()
-                result = ctrl.run(spans_per_sample)
+                result = ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
                 time.sleep(0.5)
                 sink_snap = sink_client.stats()
                 _log(
@@ -224,6 +226,8 @@ def main(argv=None) -> int:
                         warmup_spans=profile.warmup_spans,
                         spans_per_sample=profile.spans_per_sample,
                         profile_env=profile.env,
+                        threads=profile.threads,
+                        rate_hz=profile.target_rate_hz,
                         verbose=args.verbose,
                     )
                 except Exception as exc:

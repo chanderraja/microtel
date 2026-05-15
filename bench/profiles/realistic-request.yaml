@@ -1,0 +1,41 @@
+# realistic-request — v1.0 release-gate profile
+#
+# Simulates a concurrent multi-threaded workload where each "request" emits
+# one parent span and two child spans.  Designed to measure SDK overhead
+# under a realistic trace shape rather than the degenerate single-span loop.
+#
+# EMIT_WORKLOAD=realistic_request is injected via the env block below.
+# threads and target_rate_hz flow through the control socket run command
+# so they can be varied without rebuilding images.
+
+profile: realistic-request
+description: "Multi-threaded realistic-request workload — parent + 2 child spans per request"
+
+workload:
+  mode: realistic_request   # selects EmitRequest() in emit-app
+  threads: 4                # 4 concurrent worker threads per SUT
+  target_rate_hz: 5000      # total requests/s across all threads (0 = unlimited)
+  spans_per_sample: 5000    # requests per run command (3 spans each = 15 000 spans)
+  samples: 10
+  warmup_spans: 500         # warmup requests (not timed)
+
+sink:
+  mode: blackhole
+  protocol: auto
+
+env:
+  EMIT_WORKLOAD: realistic_request
+
+suts:
+  - microtel
+  - otelcpp-grpc
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

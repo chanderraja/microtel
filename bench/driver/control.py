@@ -37,9 +37,9 @@ class ControlClient:
     def __exit__(self, *_) -> None:
         self.close()
 
-    def run(self, spans: int) -> dict[str, Any]:
+    def run(self, spans: int, threads: int = 1, rate_hz: int = 0) -> dict[str, Any]:
         """Send a run command and return the parsed RunResult."""
-        self._send({"cmd": "run", "spans": spans})
+        self._send({"cmd": "run", "spans": spans, "threads": threads, "rate_hz": rate_hz})
         return self._recv()
 
     def quit(self) -> None:

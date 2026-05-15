@@ -16,6 +16,8 @@ class Profile:
     spans_per_sample: int
     samples: int
     warmup_spans: int
+    threads: int         # worker threads per SUT container (default 1)
+    target_rate_hz: int  # target emit rate; 0 = unlimited
     sink_mode: str       # "blackhole" | "collector"
     suts: List[str]      # SUT names enabled for this profile
     metrics: List[str]   # metric keys to include in report
@@ -51,6 +53,8 @@ def load(profiles_dir: Path, name: str) -> Profile:
         spans_per_sample=int(workload.get("spans_per_sample", 10_000)),
         samples=int(workload.get("samples", 10)),
         warmup_spans=int(workload.get("warmup_spans", 1_000)),
+        threads=int(workload.get("threads", 1)),
+        target_rate_hz=int(workload.get("target_rate_hz", 0)),
         sink_mode=sink_mode,
         suts=[str(s) for s in raw_suts] if isinstance(raw_suts, list) else [],
         metrics=[str(m) for m in raw_metrics] if isinstance(raw_metrics, list) else [],

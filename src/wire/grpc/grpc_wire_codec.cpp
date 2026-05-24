@@ -641,17 +641,16 @@ struct RetrySearchSignal
 [[nodiscard]] std::vector<std::byte> FramePayload(const internal::EncodedPayload& payload)
 {
     const std::size_t n = payload.Size();
-    std::vector<std::byte> framed;
-    framed.reserve(kGrpcFrameHeaderSize + n);
-    framed.push_back(std::byte{kGrpcUncompressedFlag});
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift24) & kByteMask)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift16) & kByteMask)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>((n >> kByteShift8) & kByteMask)});
-    framed.push_back(std::byte{static_cast<std::uint8_t>(n & kByteMask)});
-    for (const auto b : payload.Bytes())
-    {
-        framed.push_back(b);
-    }
+    // GCC 15 false-positive -Wfree-nonheap-object fires on reserve+push_back
+    // when inlined; size-constructor + index assignment avoids that analysis path.
+    std::vector<std::byte> framed(kGrpcFrameHeaderSize + n);
+    framed[0] = std::byte{kGrpcUncompressedFlag};
+    framed[1] = std::byte{static_cast<std::uint8_t>((n >> kByteShift24) & kByteMask)};
+    framed[2] = std::byte{static_cast<std::uint8_t>((n >> kByteShift16) & kByteMask)};
+    framed[3] = std::byte{static_cast<std::uint8_t>((n >> kByteShift8) & kByteMask)};
+    framed[4] = std::byte{static_cast<std::uint8_t>(n & kByteMask)};
+    const auto bytes = payload.Bytes();
+    std::copy(bytes.begin(), bytes.end(), framed.begin() + kGrpcFrameHeaderSize);
     return framed;
 }
 

@@ -213,15 +213,16 @@ void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
         std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 
     return RunResult{
-        .spans_emitted  = run_hist.Count(),
-        .spans_dropped  = stats.spans_dropped,
-        .bytes_sent     = stats.bytes_sent_total,
-        .duration_ns    = dur_ns,
-        .latency_p50_ns = run_hist.Percentile(0.50),
-        .latency_p95_ns = run_hist.Percentile(0.95),
-        .latency_p99_ns = run_hist.Percentile(0.99),
-        .latency_min_ns = run_hist.Min(),
-        .latency_max_ns = run_hist.Max(),
+        .spans_emitted     = run_hist.Count(),
+        .spans_dropped     = stats.spans_dropped,
+        .bytes_sent        = stats.bytes_sent_total,
+        .duration_ns       = dur_ns,
+        .latency_p50_ns    = run_hist.Percentile(0.50),
+        .latency_p95_ns    = run_hist.Percentile(0.95),
+        .latency_p99_ns    = run_hist.Percentile(0.99),
+        .latency_min_ns    = run_hist.Min(),
+        .latency_max_ns    = run_hist.Max(),
+        .latency_histogram = run_hist.Buckets(),
     };
 }
 
@@ -278,7 +279,16 @@ std::string SerializeRunResult(const RunResult& r)
        << ",\"latency_p99_ns\":" << r.latency_p99_ns
        << ",\"latency_min_ns\":" << r.latency_min_ns
        << ",\"latency_max_ns\":" << r.latency_max_ns
-       << "}";
+       << ",\"latency_histogram\":[";
+    for (std::size_t i = 0; i < r.latency_histogram.size(); ++i)
+    {
+        if (i > 0)
+        {
+            os << ',';
+        }
+        os << r.latency_histogram[i];
+    }
+    os << "]}";
     return os.str();
 }
 

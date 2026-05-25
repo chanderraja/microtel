@@ -34,6 +34,7 @@ from .profile import load as load_profile
 from .registry import filter_b0
 from .registry import get as get_sut
 from .registry import load as load_registry
+from .plots import write_plots
 from .regression import check as check_regression
 from .regression import format_report as format_regression_report
 from .report import build_results, write_json, write_markdown
@@ -423,8 +424,11 @@ def main(argv=None) -> int:
 
     json_path = write_json(doc, out_dir)
     md_path = write_markdown(doc, out_dir)
+    plots_path = write_plots(doc, out_dir)
     _log(f"results written to {json_path}")
     _log(f"report written to {md_path}")
+    if plots_path:
+        _log(f"plots written to {plots_path}")
 
     for sr in doc["suts"]:
         summary = sr.get("summary", {})

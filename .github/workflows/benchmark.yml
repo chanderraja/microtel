@@ -68,6 +68,9 @@ jobs:
       - name: Check Python version
         run: python3 --version
 
+      - name: Install Python dependencies
+        run: pip install plotly
+
       - name: Run driver unit tests
         working-directory: bench
         run: python3 -m pytest driver/tests/ -q

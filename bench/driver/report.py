@@ -65,6 +65,7 @@ def build_results(
             "image_id":            sr["image_id"],
             "samples":             samples,
             "summary":             _summarize(samples),
+            "flamegraph_svg":      sr.get("flamegraph_svg"),
         })
 
     return {
@@ -215,6 +216,23 @@ def _render_md(doc: dict) -> str:
                             for ss in suts) + " |"
             )
             break  # one row covers all
+
+    # Flamegraph links — only rendered when --flamegraph produced SVGs.
+    svg_suts = [s for s in suts if s.get("flamegraph_svg")]
+    if svg_suts:
+        lines += ["", "## Flamegraphs", ""]
+        lines.append(
+            "SVGs captured with `perf record -F 99 --call-graph fp` inside "
+            "each SUT container (`:perf` image variant, `--cap-add=PERFMON`). "
+            "Dedicated profiling sample recorded after all measurement samples."
+        )
+        lines.append("")
+        for s in svg_suts:
+            svg_abs = s["flamegraph_svg"]
+            # Link relative to results.md (both live in out_dir).
+            svg_rel = Path(svg_abs).name
+            lines.append(f"- [{s['name']}]({svg_rel})")
+        lines.append("")
 
     lines += [
         "",

@@ -48,3 +48,25 @@ suts:
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
     b0: true
+
+  - name: go-otel
+    description: "go.opentelemetry.io/otel v1.28.0 — OTLP/HTTP exporter"
+    dockerfile: bench/sut/go-otel/Dockerfile
+    image_name: bench-sut-go-otel
+    protocol: http
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
+    b0: false
+
+  - name: rust-otel
+    description: "opentelemetry-rust v0.27 — OTLP/HTTP exporter"
+    dockerfile: bench/sut/rust-otel/Dockerfile
+    image_name: bench-sut-rust-otel
+    protocol: http
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
+    b0: false

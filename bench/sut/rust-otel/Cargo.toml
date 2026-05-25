@@ -1,0 +1,22 @@
+[package]
+name = "emit_app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "emit_app"
+path = "src/main.rs"
+
+[profile.release]
+# Retain line-table debug info for flamegraph symbol resolution.
+# Full debug info (debug = true) can be enabled for richer flamegraphs
+# at the cost of a larger binary.
+debug = 1
+
+[dependencies]
+opentelemetry       = { version = "0.27", features = ["trace"] }
+opentelemetry_sdk   = { version = "0.27", features = ["trace", "rt-tokio"] }
+opentelemetry-otlp  = { version = "0.27", features = ["trace", "http-proto", "reqwest-client"] }
+serde               = { version = "1",    features = ["derive"] }
+serde_json          = "1"
+tokio               = { version = "1",    features = ["rt", "rt-multi-thread", "macros", "time"] }

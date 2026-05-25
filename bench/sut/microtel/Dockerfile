@@ -4,6 +4,11 @@
 #
 #   docker build -f bench/sut/microtel/Dockerfile -t bench-sut-microtel .
 #
+# Flamegraph variant (B3):
+#   docker build --build-arg INSTALL_PERF=true \
+#       -f bench/sut/microtel/Dockerfile -t bench-sut-microtel:perf .
+#   Run with --cap-add=PERFMON (Linux >=5.8).  Normal images never install perf.
+#
 # Layer caching:
 #   deps    OS + apt packages              — cached until ubuntu_image changes
 #   build   microtel + emit-app (in-tree)  — rebuilds on any source change
@@ -13,6 +18,9 @@
 # so that microtel_sdk is available directly without an install() step.
 # Tracked in issue #19: add install() targets so an out-of-tree build is
 # possible in a future milestone.
+
+# Global build arg — available in every stage.  Default: false (normal image).
+ARG INSTALL_PERF=false
 
 # ---------------------------------------------------------------------------
 # Stage 1: deps — OS base and C dependencies
@@ -60,10 +68,16 @@ RUN cmake -S . -B build \
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 
+# Re-declare so this stage can read the global ARG.
+ARG INSTALL_PERF=false
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libnghttp2-14 \
         libssl3 \
+    && if [ "$INSTALL_PERF" = "true" ]; then \
+        apt-get install -y --no-install-recommends linux-perf; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/build/bench/emit-app/emit_app /emit_app

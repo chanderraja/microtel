@@ -26,6 +26,11 @@
 
 ARG OTELCPP_VERSION=v1.19.0
 
+# Flamegraph variant (B3): pass --build-arg INSTALL_PERF=true to add linux-perf
+# to the runtime image and tag as bench-sut-otelcpp-grpc:perf.
+# Run with --cap-add=PERFMON (Linux >=5.8).  Normal images never install perf.
+ARG INSTALL_PERF=false
+
 # ---------------------------------------------------------------------------
 # Stage 1: base — OS and toolchain
 # Invalidated only when the ubuntu image or apt package list changes.
@@ -100,9 +105,15 @@ RUN cmake -S /src/emit-app -B /build/emit-app \
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 
+# Re-declare so this stage can read the global ARG.
+ARG INSTALL_PERF=false
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libssl3 \
+    && if [ "$INSTALL_PERF" = "true" ]; then \
+        apt-get install -y --no-install-recommends linux-perf; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=emit-build /build/emit-app/emit_app /emit_app

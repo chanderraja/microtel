@@ -1,6 +1,12 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+// GCC 15 false-positive: variant copy-assign inlined into <variant> internals
+// triggers -Wfree-nonheap-object. Not present on g++-13 (CI) or clang.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
+
 #include "microtel/sdk_builder.hpp"
 
 #include "microtel/attribute.hpp"

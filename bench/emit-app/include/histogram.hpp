@@ -50,6 +50,9 @@ public:
     /// Maximum observation recorded (0 if no observations).
     [[nodiscard]] uint64_t Max() const noexcept;
 
+    /// Snapshot of all 64 bucket counts (index i = [2^i, 2^(i+1)) ns).
+    [[nodiscard]] std::array<uint64_t, kBuckets> Buckets() const noexcept;
+
 private:
     std::array<std::atomic<uint64_t>, kBuckets> m_buckets{};
     std::atomic<uint64_t> m_count{0};

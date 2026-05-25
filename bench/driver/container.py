@@ -87,6 +87,7 @@ class Container:
         env: Optional[dict] = None,
         network: Optional[str] = None,
         network_alias: Optional[str] = None,
+        cap_add: Optional[list] = None,
     ) -> None:
         cmd = [self._engine, "run", "--rm", "-d", "--name", self._name]
         for host_port, container_port in (ports or {}).items():
@@ -97,6 +98,8 @@ class Container:
             cmd += ["--network", network]
         if network_alias:
             cmd += ["--network-alias", network_alias]
+        for cap in (cap_add or []):
+            cmd += ["--cap-add", cap]
         cmd.append(image)
 
         out = subprocess.check_output(cmd, text=True, stderr=subprocess.PIPE)

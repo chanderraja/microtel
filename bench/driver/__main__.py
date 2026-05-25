@@ -9,7 +9,7 @@ import dataclasses
 import sys
 import time
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 from .container import (
     Container,
@@ -24,10 +24,17 @@ from .container import (
 from .control import ControlClient
 from .env_fingerprint import capture as capture_env
 from .env_fingerprint import warnings as env_warnings
+from .flamegraph import (
+    FlameGraphRecorder,
+    check_prerequisites,
+    find_flamegraph_dir,
+    perf_image_name,
+)
 from .profile import load as load_profile
 from .registry import filter_b0
 from .registry import get as get_sut
 from .registry import load as load_registry
+from .plots import write_plots
 from .regression import check as check_regression
 from .regression import format_report as format_regression_report
 from .report import build_results, write_json, write_markdown
@@ -76,6 +83,18 @@ def _parse_args(argv=None) -> argparse.Namespace:
                    help="Suppress hyperthreading/SMT warning")
     p.add_argument("--verbose", action="store_true",
                    help="Show container build and run output")
+    p.add_argument("--flamegraph", action="store_true",
+                   help=(
+                       "Generate SVG flamegraphs per SUT (B3). Builds :perf image "
+                       "variants with linux-perf installed; runs one dedicated "
+                       "profiling sample after measurements using --cap-add=PERFMON. "
+                       "Requires perl on PATH and FlameGraph scripts "
+                       "(set FLAMEGRAPH_DIR or pass --flamegraph-dir). "
+                       "Normal benchmark runs never need this flag."
+                   ))
+    p.add_argument("--flamegraph-dir", default=None, metavar="DIR",
+                   help="Path to FlameGraph scripts directory (overrides FLAMEGRAPH_DIR "
+                        "env var and default search paths)")
     return p.parse_args(argv)
 
 
@@ -117,13 +136,20 @@ def _build_images(
     repo_root: Path,
     no_build: bool,
     verbose: bool,
+    flamegraph: bool = False,
 ) -> dict[str, str]:
-    """Build (or look up) all container images. Returns sut_name -> image_id."""
+    """Build (or look up) all container images. Returns sut_name -> image_id.
+
+    When flamegraph=True, additionally builds a :perf variant of each SUT image
+    (with linux-perf installed) tagged as <image_name>:perf.  Normal images are
+    also built so that measurement samples run against the unmodified binary.
+    """
     sut_image_ids: dict[str, str] = {}
     if no_build:
         _log("--no-build: skipping image builds")
         for sut in active_suts:
-            sut_image_ids[sut.name] = _image_id(engine, sut.image_name)
+            tag = perf_image_name(sut.image_name) if flamegraph else sut.image_name
+            sut_image_ids[sut.name] = _image_id(engine, tag)
         return sut_image_ids
 
     _build_sink_image(engine, sink_mode, verbose)
@@ -136,6 +162,16 @@ def _build_images(
             build_context=repo_root,
             verbose=verbose,
         )
+        if flamegraph:
+            _log(f"building {sut.name}:perf image (INSTALL_PERF=true) ...")
+            build_image(
+                engine,
+                dockerfile=str(repo_root / sut.dockerfile),
+                image_name=perf_image_name(sut.image_name),
+                build_context=repo_root,
+                build_args={"INSTALL_PERF": "true"},
+                verbose=verbose,
+            )
     return sut_image_ids
 
 
@@ -175,17 +211,31 @@ def _run_sut(
     threads: int,
     rate_hz: int,
     verbose: bool,
-) -> list[dict]:
-    """Start a SUT container, run warmup + N timed samples, return samples."""
-    samples = []
-    with Container(engine, f"bench-sut-{sut.name}", verbose=verbose) as c:
+    flamegraph_dir: Optional[Path] = None,
+    out_dir: Optional[Path] = None,
+) -> tuple[list[dict], Optional[Path]]:
+    """Start a SUT container, run warmup + N timed samples, return (samples, svg_path).
+
+    When flamegraph_dir is provided the container is started with the :perf image
+    and --cap-add=PERFMON.  After all measurement samples, one dedicated profiling
+    sample is recorded with perf; the resulting SVG is written to out_dir.
+    """
+    samples: list[dict] = []
+    svg_path: Optional[Path] = None
+
+    image = perf_image_name(sut.image_name) if flamegraph_dir else sut.image_name
+    cap_add = ["PERFMON"] if flamegraph_dir else None
+    container_name = f"bench-sut-{sut.name}"
+
+    with Container(engine, container_name, verbose=verbose) as c:
         env = {**sut.env, **profile_env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
         c.start(
-            image=sut.image_name,
+            image=image,
             ports={sut.ports.control: sut.ports.control},
             env=env,
             network=_NET_NAME,
+            cap_add=cap_add,
         )
         _log(f"  waiting for {sut.name} control port ...")
         wait_tcp("127.0.0.1", sut.ports.control, timeout=30.0)
@@ -211,11 +261,12 @@ def _run_sut(
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
                     "duration_ns":    result.get("duration_ns", 0),
-                    "latency_p50_ns": result["latency_p50_ns"],
-                    "latency_p95_ns": result["latency_p95_ns"],
-                    "latency_p99_ns": result["latency_p99_ns"],
-                    "latency_min_ns": result["latency_min_ns"],
-                    "latency_max_ns": result["latency_max_ns"],
+                    "latency_p50_ns":    result["latency_p50_ns"],
+                    "latency_p95_ns":    result["latency_p95_ns"],
+                    "latency_p99_ns":    result["latency_p99_ns"],
+                    "latency_min_ns":    result["latency_min_ns"],
+                    "latency_max_ns":    result["latency_max_ns"],
+                    "latency_histogram": result.get("latency_histogram", []),
                     "sink": {
                         "mode":           sink_snap["mode"],
                         "spans_received": sink_snap["spans_received"],
@@ -223,9 +274,20 @@ def _run_sut(
                     },
                 })
 
+            if flamegraph_dir and out_dir is not None:
+                _log(f"  flamegraph: recording dedicated profiling sample ...")
+                recorder = FlameGraphRecorder(engine, container_name)
+                recorder.start()
+                ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
+                svg_path = recorder.finish(sut.name, out_dir, flamegraph_dir)
+                if svg_path:
+                    _log(f"  flamegraph: SVG written to {svg_path}")
+                else:
+                    _log(f"  flamegraph: SVG generation failed for {sut.name}")
+
             ctrl.quit()
 
-    return samples
+    return samples, svg_path
 
 
 def _collect_sut_results(
@@ -236,12 +298,14 @@ def _collect_sut_results(
     n_samples: int,
     profile: Any,
     verbose: bool,
+    flamegraph_dir: Optional[Path] = None,
+    out_dir: Optional[Path] = None,
 ) -> list[dict]:
     sut_results = []
     for sut in active_suts:
         _log(f"--- SUT: {sut.name} ---")
         try:
-            samples = _run_sut(
+            samples, svg_path = _run_sut(
                 engine=engine,
                 sut=sut,
                 sink_client=sink_client,
@@ -252,20 +316,26 @@ def _collect_sut_results(
                 threads=profile.threads,
                 rate_hz=profile.target_rate_hz,
                 verbose=verbose,
+                flamegraph_dir=flamegraph_dir,
+                out_dir=out_dir,
             )
         except Exception as exc:
             _log(f"ERROR running {sut.name}: {exc}")
-            samples = []
+            samples, svg_path = [], None
 
+        image_tag = (
+            perf_image_name(sut.image_name) if flamegraph_dir else sut.image_name
+        )
         sut_results.append({
             "name":                sut.name,
             "library":             sut.library,
             "transport":           sut.transport,
             "library_version":     "",
             "library_build_flags": "",
-            "image_tag":           sut.image_name,
+            "image_tag":           image_tag,
             "image_id":            sut_image_ids.get(sut.name, ""),
             "samples":             samples,
+            "flamegraph_svg":      str(svg_path) if svg_path else None,
         })
     return sut_results
 
@@ -296,6 +366,21 @@ def main(argv=None) -> int:
     engine = detect_engine(args.engine)
     sink_mode = args.sink if args.sink != "auto" else profile.sink_mode
 
+    # Resolve flamegraph settings early so we can fail fast before building images.
+    flamegraph_dir: Optional[Path] = None
+    if args.flamegraph:
+        flamegraph_dir = (
+            Path(args.flamegraph_dir) if args.flamegraph_dir else find_flamegraph_dir()
+        )
+        problems = check_prerequisites(flamegraph_dir)
+        if problems:
+            for p in problems:
+                _log(f"ERROR (--flamegraph): {p}")
+            return 1
+        _log(f"flamegraph: scripts at {flamegraph_dir}")
+        _log("flamegraph: NOTE — measurement samples run inside :perf image with "
+             "--cap-add=PERFMON; a separate profiling sample is recorded afterward")
+
     _log(f"engine: {engine}")
     _log(
         f"profile: {profile.name} — "
@@ -309,8 +394,10 @@ def main(argv=None) -> int:
     for w in warns:
         _log(f"WARNING: {w}")
 
-    sut_image_ids = _build_images(engine, sink_mode, active_suts, repo_root,
-                                   args.no_build, args.verbose)
+    sut_image_ids = _build_images(
+        engine, sink_mode, active_suts, repo_root,
+        args.no_build, args.verbose, flamegraph=args.flamegraph,
+    )
 
     create_network(engine, _NET_NAME)
     sut_results = []
@@ -320,6 +407,8 @@ def main(argv=None) -> int:
             sut_results = _collect_sut_results(
                 engine, active_suts, sink_client, sut_image_ids,
                 n_samples, profile, args.verbose,
+                flamegraph_dir=flamegraph_dir,
+                out_dir=out_dir,
             )
     finally:
         remove_network(engine, _NET_NAME)
@@ -336,8 +425,11 @@ def main(argv=None) -> int:
 
     json_path = write_json(doc, out_dir)
     md_path = write_markdown(doc, out_dir)
+    plots_path = write_plots(doc, out_dir)
     _log(f"results written to {json_path}")
     _log(f"report written to {md_path}")
+    if plots_path:
+        _log(f"plots written to {plots_path}")
 
     for sr in doc["suts"]:
         summary = sr.get("summary", {})

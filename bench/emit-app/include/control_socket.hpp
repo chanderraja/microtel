@@ -9,6 +9,7 @@
 
 #include "backend.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -33,6 +34,8 @@ struct RunResult
     uint64_t latency_p99_ns{0};
     uint64_t latency_min_ns{0};
     uint64_t latency_max_ns{0};
+    /// Raw bucket counts — bucket i covers [2^i, 2^(i+1)) ns.
+    std::array<uint64_t, 64> latency_histogram{};
 };
 
 /// Listen on TCP port 9090, accept one connection, then loop:

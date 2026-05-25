@@ -12,12 +12,20 @@
 # To update the baseline: run the workflow on the reference machine,
 # download the results.json artifact, copy it to bench/baseline/results.json,
 # and commit.
+#
+# Flamegraph mode (--flamegraph input):
+#   Opt-in only — NOT enabled on the weekly scheduled run.
+#   Builds :perf image variants (linux-perf installed, debug symbols kept),
+#   runs SUT containers with --cap-add=PERFMON, records one dedicated profiling
+#   sample per SUT after measurements, and uploads SVG flamegraphs as artifacts.
+#   Requires kernel.perf_event_paranoid=1 (set below when enabled).
+#   Normal benchmark mode requires no kernel capability or sysctl change.
 
 name: benchmark
 
 on:
   schedule:
-    - cron: '0 3 * * 1'   # weekly, Monday 03:00 UTC
+    - cron: '0 3 * * 1'   # weekly, Monday 03:00 UTC — measurements only, no flamegraphs
   workflow_dispatch:
     inputs:
       profile:
@@ -32,22 +40,27 @@ on:
         description: 'Sink mode: auto|blackhole|collector (default: auto)'
         required: false
         default: 'auto'
+      flamegraph:
+        description: 'Generate SVG flamegraphs (installs perf, sets perf_event_paranoid=1)'
+        required: false
+        default: 'false'
 
 concurrency:
   group: benchmark
   cancel-in-progress: true  # only one benchmark run at a time
 
 env:
-  PROFILE:   ${{ github.event.inputs.profile   || 'hot-loop-traces' }}
-  THRESHOLD: ${{ github.event.inputs.threshold || '0.05' }}
-  SINK:      ${{ github.event.inputs.sink      || 'auto' }}
-  OUT_DIR:   ${{ github.workspace }}/bench-results
+  PROFILE:    ${{ github.event.inputs.profile   || 'hot-loop-traces' }}
+  THRESHOLD:  ${{ github.event.inputs.threshold || '0.05' }}
+  SINK:       ${{ github.event.inputs.sink      || 'auto' }}
+  FLAMEGRAPH: ${{ github.event.inputs.flamegraph || 'false' }}
+  OUT_DIR:    ${{ github.workspace }}/bench-results
 
 jobs:
   bench:
     name: Run benchmark harness
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150   # extra headroom when flamegraph mode is active
 
     steps:
       - uses: actions/checkout@v4
@@ -55,9 +68,37 @@ jobs:
       - name: Check Python version
         run: python3 --version
 
+      - name: Install Python dependencies
+        run: pip install plotly
+
       - name: Run driver unit tests
         working-directory: bench
         run: python3 -m pytest driver/tests/ -q
+
+      # ---------------------------------------------------------------------------
+      # Flamegraph prerequisites — only when --flamegraph=true
+      # Normal benchmark runs skip these entirely (no sysctl change, no perf install).
+      # ---------------------------------------------------------------------------
+
+      - name: Install linux-perf (flamegraph mode)
+        if: env.FLAMEGRAPH == 'true'
+        run: sudo apt-get install -y --no-install-recommends linux-perf
+
+      - name: Clone FlameGraph scripts (flamegraph mode)
+        if: env.FLAMEGRAPH == 'true'
+        run: git clone --depth 1 https://github.com/brendangregg/FlameGraph ~/FlameGraph
+
+      - name: Allow perf events inside containers (flamegraph mode)
+        if: env.FLAMEGRAPH == 'true'
+        run: |
+          # PERFMON capability (--cap-add=PERFMON) lets perf record inside
+          # containers on Linux >=5.8.  perf_event_paranoid=1 is also required
+          # on the host for per-process event access without SYS_ADMIN.
+          sudo sysctl -w kernel.perf_event_paranoid=1
+
+      # ---------------------------------------------------------------------------
+      # Benchmark run
+      # ---------------------------------------------------------------------------
 
       - name: Run harness (+ regression check if baseline present)
         working-directory: bench
@@ -66,12 +107,19 @@ jobs:
           if [ -f "baseline/results.json" ]; then
             EXTRA_ARGS+=(--regression-check baseline/results.json --threshold "$THRESHOLD")
           fi
+          if [ "$FLAMEGRAPH" = "true" ]; then
+            EXTRA_ARGS+=(--flamegraph --flamegraph-dir "$HOME/FlameGraph")
+          fi
           python3 -m driver \
             --profile "$PROFILE" \
             --sink    "$SINK" \
             --out     "$OUT_DIR" \
             --allow-smt \
             "${EXTRA_ARGS[@]}"
+
+      # ---------------------------------------------------------------------------
+      # Artifacts and summary
+      # ---------------------------------------------------------------------------
 
       - name: Upload results
         if: always()
@@ -86,4 +134,9 @@ jobs:
         run: |
           if [ -f "$OUT_DIR/results.md" ]; then
             cat "$OUT_DIR/results.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if compgen -G "$OUT_DIR/flamegraph-*.svg" > /dev/null 2>&1; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "## Flamegraphs" >> "$GITHUB_STEP_SUMMARY"
+            echo "SVG files uploaded in the \`bench-results\` artifact." >> "$GITHUB_STEP_SUMMARY"
           fi

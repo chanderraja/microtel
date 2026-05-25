@@ -84,4 +84,15 @@ uint64_t Histogram::Max() const noexcept
     return m_max.load(std::memory_order_relaxed);
 }
 
+std::array<uint64_t, Histogram::kBuckets> Histogram::Buckets() const noexcept
+{
+    std::array<uint64_t, kBuckets> snap{};
+    for (int i = 0; i < kBuckets; ++i)
+    {
+        snap[static_cast<std::size_t>(i)] =
+            m_buckets[static_cast<std::size_t>(i)].load(std::memory_order_relaxed);
+    }
+    return snap;
+}
+
 }  // namespace bench

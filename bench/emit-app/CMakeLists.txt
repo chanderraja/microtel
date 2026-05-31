@@ -55,6 +55,7 @@ elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
         opentelemetry-cpp::otlp_grpc_exporter)
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
+    find_package(CURL REQUIRED)
     find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_http_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE

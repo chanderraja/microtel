@@ -30,16 +30,18 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        ca-certificates \
         clang-18 \
         cmake \
         ninja-build \
         git \
         curl \
-        ca-certificates \
         pkg-config \
         libssl-dev \
         libcurl4-openssl-dev \
         zlib1g-dev \
+        libprotobuf-dev \
+        protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CC=clang-18

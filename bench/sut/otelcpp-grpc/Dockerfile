@@ -8,21 +8,18 @@
 #       -f bench/sut/otelcpp-grpc/Dockerfile \
 #       -t bench-sut-otelcpp-grpc .
 #
-# Layer caching (critical — cold otelcpp build takes 20-30 min):
-#   base          OS + apt packages                              ~2-3 min
-#   otelcpp-build otel-cpp + all superbuild deps (abseil,        ~20-30 min cold
-#                 re2, c-ares, protobuf, gRPC, otel-cpp)        seconds with cache
-#   emit-build    emit-app binary against installed otel-cpp     ~1-2 min
-#   runtime       minimal image with binary only                 seconds
+# Layer caching:
+#   base          OS + apt packages (incl. system gRPC/protobuf)  ~2-3 min
+#   otelcpp-build otel-cpp built against system gRPC/protobuf     ~5-10 min cold
+#                                                                  seconds with cache
+#   emit-build    emit-app binary against installed otel-cpp       ~1-2 min
+#   runtime       minimal image with binary only                   seconds
 #
 # The otelcpp-build stage is cached as long as OTELCPP_VERSION and the base
 # image are unchanged. Only emit-build rebuilds when emit-app source changes.
 #
-# Why CMake superbuild (not system packages)?
-# System packages pin to distro versions that may differ from what otel-cpp
-# was tested against. The superbuild ensures abseil/gRPC/protobuf are at
-# exactly the versions otel-cpp v1.19.0 expects — the same dep graph a
-# production otel-cpp user gets. This is the only fair baseline.
+# gRPC and protobuf are taken from Ubuntu 24.04 system packages rather than
+# built from source; otelcpp v1.19.0 is compatible with the shipped versions.
 
 ARG OTELCPP_VERSION=v1.19.0
 
@@ -41,25 +38,33 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        ca-certificates \
         clang-18 \
+        g++ \
         cmake \
         ninja-build \
         git \
         curl \
-        ca-certificates \
         pkg-config \
         libssl-dev \
         zlib1g-dev \
+        libgrpc++-dev \
+        libprotobuf-dev \
+        protobuf-compiler \
+        protobuf-compiler-grpc \
     && rm -rf /var/lib/apt/lists/*
 
+# clang-18 is used for the emit-app (what we measure).
+# otelcpp itself is built with GCC to avoid a clang-18.1.3 compiler crash
+# (SIGSEGV) in filtered_ordered_attribute_map.cpp (template-heavy otelcpp file).
+# Both compilers produce libstdc++ ABI-compatible code on Ubuntu 24.04.
 ENV CC=clang-18
 ENV CXX=clang++-18
 ENV BENCH_CXXFLAGS="-O2 -g -fno-omit-frame-pointer"
 
 # ---------------------------------------------------------------------------
-# Stage 2: otelcpp-build — superbuild of otel-cpp and all transitive deps
+# Stage 2: otelcpp-build — build otel-cpp against system gRPC/protobuf
 # Cached on OTELCPP_VERSION. Change the version pin → this stage re-runs.
-# abseil, re2, c-ares, protobuf, gRPC, and otel-cpp itself all build here.
 # ---------------------------------------------------------------------------
 FROM base AS otelcpp-build
 
@@ -69,9 +74,12 @@ RUN git clone --depth 1 --branch ${OTELCPP_VERSION} \
         https://github.com/open-telemetry/opentelemetry-cpp.git \
         /src/opentelemetry-cpp
 
+# Build otelcpp with GCC to work around a clang-18 crash in template-heavy files.
 RUN cmake -S /src/opentelemetry-cpp -B /build/otelcpp \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=gcc \
+        -DCMAKE_CXX_COMPILER=g++ \
         -DCMAKE_CXX_FLAGS="${BENCH_CXXFLAGS}" \
         -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
         -DCMAKE_INSTALL_PREFIX=/opt/otelcpp \
@@ -80,7 +88,7 @@ RUN cmake -S /src/opentelemetry-cpp -B /build/otelcpp \
         -DWITH_EXAMPLES=OFF \
         -DWITH_OTLP_GRPC=ON \
         -DWITH_OTLP_HTTP=OFF \
-        -DWITH_ABSEIL=ON \
+        -DWITH_ABSEIL=OFF \
         -DOPENTELEMETRY_BUILD_SHARED_LIBS=OFF \
     && cmake --build /build/otelcpp \
     && cmake --install /build/otelcpp

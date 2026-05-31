@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use opentelemetry::trace::{Span, SpanContext, Tracer, TraceContextExt};
 use opentelemetry::{global, Context, KeyValue};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{runtime, trace as sdk_trace, Resource};
 use serde::{Deserialize, Serialize};
 
@@ -232,7 +233,7 @@ struct RunResult {
     latency_p99_ns:     u64,
     latency_min_ns:     u64,
     latency_max_ns:     u64,
-    latency_histogram:  [u64; 64],
+    latency_histogram:  Vec<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +269,7 @@ fn handle_run(
         latency_p99_ns:    hist.percentile(0.99),
         latency_min_ns:    hist.get_min(),
         latency_max_ns:    hist.max_ns.load(Ordering::Relaxed),
-        latency_histogram: hist.snapshot(),
+        latency_histogram: hist.snapshot().to_vec(),
     }
 }
 
@@ -317,7 +318,7 @@ fn init_tracer(
     endpoint: &str,
     service_name: &str,
     service_version: &str,
-) -> Result<sdk_trace::SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<sdk_trace::TracerProvider, Box<dyn std::error::Error + Send + Sync>> {
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_endpoint(endpoint)
@@ -330,7 +331,7 @@ fn init_tracer(
         KeyValue::new("service.version", service_version.to_owned()),
     ]);
 
-    let provider = sdk_trace::SdkTracerProvider::builder()
+    let provider = sdk_trace::TracerProvider::builder()
         .with_span_processor(processor)
         .with_resource(resource)
         .build();

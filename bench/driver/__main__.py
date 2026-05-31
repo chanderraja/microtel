@@ -102,6 +102,22 @@ def _log(msg: str) -> None:
     print(f"[driver] {msg}", file=sys.stderr, flush=True)
 
 
+def _binary_bytes(engine: str, image_name: str) -> Optional[int]:
+    """Return the byte size of /emit_app inside the SUT image, or None on error."""
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [engine, "run", "--rm", "--entrypoint", "/bin/sh",
+             image_name, "-c", "wc -c < /emit_app"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode == 0:
+            return int(proc.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
+    return None
+
+
 def _otlp_endpoint(protocol: str) -> str:
     if protocol == "grpc":
         return "http://sink:4317"
@@ -249,12 +265,14 @@ def _run_sut(
             for i in range(n_samples):
                 sink_client.reset()
                 result = ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
+                flush_result = ctrl.flush()
                 time.sleep(0.5)
                 sink_snap = sink_client.stats()
                 _log(
                     f"  sample {i + 1}/{n_samples}: "
                     f"emitted={result['spans_emitted']} "
-                    f"p50={result['latency_p50_ns']}ns"
+                    f"p50={result['latency_p50_ns']}ns "
+                    f"flush={flush_result.get('flush_ns', 0)}ns"
                 )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
@@ -267,6 +285,7 @@ def _run_sut(
                     "latency_min_ns":    result["latency_min_ns"],
                     "latency_max_ns":    result["latency_max_ns"],
                     "latency_histogram": result.get("latency_histogram", []),
+                    "flush_ns":          flush_result.get("flush_ns", 0),
                     "sink": {
                         "mode":           sink_snap["mode"],
                         "spans_received": sink_snap["spans_received"],
@@ -326,6 +345,9 @@ def _collect_sut_results(
         image_tag = (
             perf_image_name(sut.image_name) if flamegraph_dir else sut.image_name
         )
+        binary_size = _binary_bytes(engine, image_tag)
+        if binary_size is not None:
+            _log(f"  binary size: {binary_size:,} bytes")
         sut_results.append({
             "name":                sut.name,
             "library":             sut.library,
@@ -334,6 +356,7 @@ def _collect_sut_results(
             "library_build_flags": "",
             "image_tag":           image_tag,
             "image_id":            sut_image_ids.get(sut.name, ""),
+            "binary_bytes":        binary_size,
             "samples":             samples,
             "flamegraph_svg":      str(svg_path) if svg_path else None,
         })

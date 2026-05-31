@@ -15,6 +15,7 @@
 #include <opentelemetry/trace/tracer.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -109,9 +110,19 @@ public:
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
+    [[nodiscard]] uint64_t ForceFlush() override
+    {
+        using Clock = std::chrono::steady_clock;
+        const auto t0 = Clock::now();
+        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        const auto t1 = Clock::now();
+        return static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+    }
+
     void Shutdown() override
     {
-        m_provider->ForceFlush();
+        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
         m_provider->Shutdown();
     }
 

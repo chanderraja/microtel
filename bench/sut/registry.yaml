@@ -27,6 +27,17 @@ suts:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink-host:4318
     b0: true
 
+  - name: microtel-grpc
+    description: "microtel SDK — OTLP/gRPC-over-nghttp2 exporter"
+    dockerfile: bench/sut/microtel-grpc/Dockerfile
+    image_name: bench-sut-microtel-grpc
+    protocol: grpc
+    ports:
+      control: 9090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4317
+    b0: true
+
   - name: otelcpp-grpc
     description: "opentelemetry-cpp v1.19.0 — OTLP/gRPC exporter"
     dockerfile: bench/sut/otelcpp-grpc/Dockerfile

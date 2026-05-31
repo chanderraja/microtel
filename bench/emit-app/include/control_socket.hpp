@@ -47,6 +47,7 @@ struct RunResult
 ///   {"cmd":"run","spans":N,"threads":T,"rate_hz":R}
 ///                              → runs workload, replies with RunResult JSON
 ///                                T defaults to 1; R = 0 means unlimited
+///   {"cmd":"flush"}            → flushes in-flight spans, replies {"flush_ns":N}
 ///   {"cmd":"quit"}             → replies {"ok":true} and returns
 ///
 /// Blocks until "quit" is received or the connection is closed.

@@ -252,6 +252,13 @@ void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
             ::send(conn_fd, resp.data(), resp.size(), 0);
         }
 
+        if (cmd == "flush")
+        {
+            const uint64_t flush_ns = backend.ForceFlush();
+            const std::string resp = "{\"flush_ns\":" + std::to_string(flush_ns) + "}\n";
+            ::send(conn_fd, resp.data(), resp.size(), 0);
+        }
+
         newline = line_buf.find('\n');
     }
     return true;

@@ -71,6 +71,10 @@ public:
     /// Used by the realistic-request workload profile.
     virtual void EmitRequest() = 0;
 
+    /// Flush all in-flight spans to the exporter and return elapsed time in ns.
+    /// Returns 0 if the backend has no explicit flush API.
+    [[nodiscard]] virtual uint64_t ForceFlush() { return 0; }
+
     /// Flush all pending spans and shut down the SDK.
     /// Called once after the workload completes.
     virtual void Shutdown() = 0;

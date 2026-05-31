@@ -81,6 +81,12 @@ def write_plots(doc: dict[str, Any], out_dir: Path) -> Optional[Path]:
     wire = _wire_bytes(suts)
     if wire is not None:
         figures.append(("Wire bytes / span", wire))
+    flush = _flush_latency(suts)
+    if flush is not None:
+        figures.append(("Flush latency", flush))
+    bsize = _binary_size(suts)
+    if bsize is not None:
+        figures.append(("Binary size", bsize))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "plots.html"
@@ -329,6 +335,82 @@ def _wire_bytes(suts: list[dict]) -> Optional[Any]:
         yaxis_title="bytes",
         template="plotly_white",
         margin=dict(t=80),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 5 — Flush latency (grouped bar: p50/p95/p99 across samples)
+# ---------------------------------------------------------------------------
+
+def _flush_latency(suts: list[dict]) -> Optional[Any]:
+    """Return a flush-latency bar chart, or None when flush data is unavailable."""
+    import plotly.graph_objects as go
+
+    any_flush = any(
+        bool(s.get("summary", {}).get("flush_ns"))
+        for s in suts
+    )
+    if not any_flush:
+        return None
+
+    fig = go.Figure()
+    for pct, label, color in [(0.50, "p50", _COL_P50),
+                               (0.95, "p95", _COL_P95),
+                               (0.99, "p99", _COL_P99)]:
+        xs, ys = [], []
+        for sut in suts:
+            vals = sorted(
+                float(s["flush_ns"])
+                for s in sut.get("samples", [])
+                if s.get("flush_ns") is not None
+            )
+            if not vals:
+                continue
+            idx = (len(vals) - 1) * pct
+            lo, hi = int(idx), min(int(idx) + 1, len(vals) - 1)
+            val = vals[lo] + (vals[hi] - vals[lo]) * (idx - lo)
+            xs.append(sut["name"])
+            ys.append(val)
+        if xs:
+            fig.add_trace(go.Bar(name=label, x=xs, y=ys, marker_color=color))
+
+    fig.update_layout(
+        title="Flush latency — batch exporter ForceFlush() duration",
+        xaxis_title="SUT",
+        yaxis_title="nanoseconds",
+        barmode="group",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.15),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 6 — Binary size (simple bar, one bar per SUT)
+# ---------------------------------------------------------------------------
+
+def _binary_size(suts: list[dict]) -> Optional[Any]:
+    """Return a binary-size bar chart, or None when no SUT has binary_bytes data."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    sizes: list[int] = []
+    for sut in suts:
+        bb = sut.get("binary_bytes")
+        if bb is not None:
+            names.append(sut["name"])
+            sizes.append(int(bb))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(x=names, y=sizes, marker_color=_COL_P50, showlegend=False))
+    fig.update_layout(
+        title="Executable binary size — /emit_app in SUT image",
+        xaxis_title="SUT",
+        yaxis_title="bytes",
+        template="plotly_white",
     )
     return fig
 

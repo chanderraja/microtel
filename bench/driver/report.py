@@ -63,6 +63,7 @@ def build_results(
             "library_build_flags": sr["library_build_flags"],
             "image_tag":           sr["image_tag"],
             "image_id":            sr["image_id"],
+            "binary_bytes":        sr.get("binary_bytes"),
             "samples":             samples,
             "summary":             _summarize(samples),
             "flamegraph_svg":      sr.get("flamegraph_svg"),
@@ -99,6 +100,8 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
     else:
         wire_bytes = None
 
+    flush_vals = [float(s["flush_ns"]) for s in samples if s.get("flush_ns") is not None]
+
     return {
         "reps":                  len(samples),
         "spans_emitted_total":   sum(s["spans_emitted"] for s in samples),
@@ -109,6 +112,7 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
         "latency_p99_ns":        _stats(_floats("latency_p99_ns")),
         "latency_min_ns":        _stats(_floats("latency_min_ns")),
         "latency_max_ns":        _stats(_floats("latency_max_ns")),
+        "flush_ns":              _stats(flush_vals) if flush_vals else None,
         "wire_bytes_per_span":   wire_bytes,
     }
 
@@ -207,7 +211,16 @@ def _render_md(doc: dict) -> str:
         _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p95 (ns)",   "latency_p95_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p99 (ns)",   "latency_p99_ns", lambda v: f"{v:.0f}")
+        _row("Flush latency p50 (ns)", "flush_ns",     lambda v: f"{v:.0f}")
         _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
+
+        # Binary size row — pulled from top-level sut dict, not summary.
+        bin_cells = []
+        for s in suts:
+            bb = s.get("binary_bytes")
+            bin_cells.append(f"{bb:,}" if bb is not None else "N/A")
+        lines.append(f"| Binary size (bytes) | " + " | ".join(bin_cells) + " |")
+
         for s in suts:
             d = s.get("summary", {}).get("spans_dropped", {})
             lines.append(

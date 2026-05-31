@@ -1,0 +1,18 @@
+# Local build artifacts — must not be copied into SUT Docker images.
+# The microtel SUT builds cmake in /src/build inside the container;
+# a stale host build/ directory causes CMakeCache path conflicts.
+
+build/
+build_bench/
+_deps/
+
+# Test binaries
+tests/unit/
+tests/integration/
+tools/preflight/microtel-preflight
+
+# Bench results (large, not needed for image builds)
+bench/results/
+
+# Rust/Go build caches (large, not needed for non-Rust/Go images)
+bench/sut/rust-otel/target/

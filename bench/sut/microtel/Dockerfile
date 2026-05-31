@@ -31,6 +31,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        ca-certificates \
         clang-18 \
         cmake \
         ninja-build \
@@ -58,6 +59,7 @@ RUN cmake -S . -B build \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_FLAGS="${BENCH_CXXFLAGS}" \
+        -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
         -DMICROTEL_BUILD_TESTS=OFF \
         -DMICROTEL_BUILD_BENCH=ON \
         -DBENCH_BACKEND=MICROTEL \

@@ -15,11 +15,17 @@ import (
 
 // NewHandler returns an http.Handler for the OTLP/HTTP listener on :4318.
 // Routes: POST /v1/traces (parsed), POST /v1/metrics and /v1/logs (stubbed).
+// The catch-all "/" route records unknown-path requests as errors so the bench
+// driver can distinguish "no requests arriving" from "requests hitting wrong path".
 func NewHandler(c *counters.Counters) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", &traceHandler{c: c})
 	mux.HandleFunc("/v1/metrics", stubOK)
 	mux.HandleFunc("/v1/logs", stubOK)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		c.RecordError("unknown path: " + r.URL.Path)
+		http.NotFound(w, r)
+	})
 	return mux
 }
 

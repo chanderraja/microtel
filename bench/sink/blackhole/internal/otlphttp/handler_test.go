@@ -157,6 +157,27 @@ func TestHTTP_InvalidProto_Returns400(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Unknown path catch-all
+// ---------------------------------------------------------------------------
+
+func TestHTTP_UnknownPath_Returns404AndRecordsError(t *testing.T) {
+	h, c := newTestHandler()
+	req := httptest.NewRequest(http.MethodPost, "/wrong/path", bytes.NewReader([]byte{}))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status: want 404, got %d", rec.Code)
+	}
+	if c.Snapshot().Errors != 1 {
+		t.Errorf("errors: want 1, got %d", c.Snapshot().Errors)
+	}
+	if c.Snapshot().LastError == "" {
+		t.Error("last_error should be non-empty for unknown path")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Stub paths (metrics, logs)
 // ---------------------------------------------------------------------------
 

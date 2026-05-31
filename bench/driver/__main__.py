@@ -268,12 +268,27 @@ def _run_sut(
                 flush_result = ctrl.flush()
                 time.sleep(0.5)
                 sink_snap = sink_client.stats()
+                sink_errors = sink_snap.get("errors", 0)
+                sink_http_req = sink_snap.get("http_requests_received", 0)
+                sink_grpc_req = sink_snap.get("grpc_requests_received", 0)
                 _log(
                     f"  sample {i + 1}/{n_samples}: "
                     f"emitted={result['spans_emitted']} "
+                    f"sink_received={sink_snap['spans_received']} "
+                    f"(http={sink_http_req} grpc={sink_grpc_req}) "
                     f"p50={result['latency_p50_ns']}ns "
                     f"flush={flush_result.get('flush_ns', 0)}ns"
                 )
+                if sink_errors > 0:
+                    _log(
+                        f"  WARNING: sink errors={sink_errors} "
+                        f"last_error={sink_snap.get('last_error', '')!r}"
+                    )
+                elif sink_snap["spans_received"] == 0 and sink_http_req == 0 and sink_grpc_req == 0:
+                    _log(
+                        "  WARNING: sink received 0 requests — "
+                        "check endpoint URL, port, and container network"
+                    )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_dropped":  result["spans_dropped"],
@@ -287,9 +302,13 @@ def _run_sut(
                     "latency_histogram": result.get("latency_histogram", []),
                     "flush_ns":          flush_result.get("flush_ns", 0),
                     "sink": {
-                        "mode":           sink_snap["mode"],
-                        "spans_received": sink_snap["spans_received"],
-                        "bytes_received": sink_snap["bytes_received"],
+                        "mode":                   sink_snap["mode"],
+                        "spans_received":         sink_snap["spans_received"],
+                        "bytes_received":         sink_snap["bytes_received"],
+                        "http_requests_received": sink_http_req,
+                        "grpc_requests_received": sink_grpc_req,
+                        "errors":                 sink_errors,
+                        "last_error":             sink_snap.get("last_error", ""),
                     },
                 })
 

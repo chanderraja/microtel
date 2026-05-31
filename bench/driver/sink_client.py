@@ -23,6 +23,10 @@ class SinkClient:
             "mode": "blackhole",
             "spans_received": data["spans_received"],
             "bytes_received": data["bytes_received"],
+            "http_requests_received": data.get("http_requests_received", 0),
+            "grpc_requests_received": data.get("grpc_requests_received", 0),
+            "errors": data.get("errors", 0),
+            "last_error": data.get("last_error", ""),
         }
 
     def reset(self) -> None:

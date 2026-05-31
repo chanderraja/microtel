@@ -98,12 +98,15 @@ RUN cmake -S /src/emit-app -B /build/emit-app \
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 
+COPY --from=emit-build /opt/otelcpp/lib/libopentelemetry_proto.so /usr/local/lib/
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libssl3 \
         libcurl4 \
+        libprotobuf32t64 \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
-
 COPY --from=emit-build /build/emit-app/emit_app /emit_app
 
 EXPOSE 9090

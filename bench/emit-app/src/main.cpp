@@ -27,7 +27,12 @@ int main()
 {
     // Configuration via environment variables — injected by the SUT Dockerfile
     // or overridden on the developer machine.
-    const std::string endpoint    = EnvOr("EMIT_ENDPOINT",     "http://sink:4318");
+    // OTEL_EXPORTER_OTLP_ENDPOINT is the canonical env var set by the bench driver.
+    // Fall back to EMIT_ENDPOINT for developer convenience.
+    const char* otel_ep = std::getenv("OTEL_EXPORTER_OTLP_ENDPOINT");  // NOLINT(concurrency-mt-unsafe)
+    const std::string endpoint = (otel_ep != nullptr && otel_ep[0] != '\0')
+        ? std::string(otel_ep)
+        : EnvOr("EMIT_ENDPOINT", "http://sink:4318");
     const std::string svc_name    = EnvOr("EMIT_SERVICE_NAME", "bench");
     const std::string svc_version = EnvOr("EMIT_SERVICE_VER",  "0.0.0");
     const int attrs_per_span      = std::stoi(EnvOr("EMIT_ATTRIBUTES_PER_SPAN",  "0"));

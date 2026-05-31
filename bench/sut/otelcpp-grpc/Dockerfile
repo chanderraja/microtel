@@ -118,14 +118,22 @@ FROM ubuntu:24.04 AS runtime
 # Re-declare so this stage can read the global ARG.
 ARG INSTALL_PERF=false
 
+COPY --from=emit-build /opt/otelcpp/lib/libopentelemetry_proto.so /usr/local/lib/
+COPY --from=emit-build /opt/otelcpp/lib/libopentelemetry_proto_grpc.so /usr/local/lib/
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libssl3 \
+        libgrpc++1.51t64 \
+        libprotobuf32t64 \
+        libcares2 \
+        libre2-10 \
+        libabsl20220623t64 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
         apt-get install -y --no-install-recommends linux-perf; \
     fi \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
-
 COPY --from=emit-build /build/emit-app/emit_app /emit_app
 
 EXPOSE 9090

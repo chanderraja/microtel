@@ -81,6 +81,9 @@ def write_plots(doc: dict[str, Any], out_dir: Path) -> Optional[Path]:
     wire = _wire_bytes(suts)
     if wire is not None:
         figures.append(("Wire bytes / span", wire))
+    tp = _throughput(suts)
+    if tp is not None:
+        figures.append(("Throughput (Mbps)", tp))
     flush = _flush_latency(suts)
     if flush is not None:
         figures.append(("Flush latency", flush))
@@ -340,7 +343,58 @@ def _wire_bytes(suts: list[dict]) -> Optional[Any]:
 
 
 # ---------------------------------------------------------------------------
-# Chart 5 — Flush latency (grouped bar: p50/p95/p99 across samples)
+# Chart 5 — Throughput (Mbps, median ± IQR)
+# ---------------------------------------------------------------------------
+
+def _throughput(suts: list[dict]) -> Optional[Any]:
+    """Return a throughput bar chart (Mbps), or None when data is unavailable."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    medians: list[float] = []
+    err_plus: list[float] = []
+    err_minus: list[float] = []
+
+    for sut in suts:
+        tp = sut.get("summary", {}).get("throughput_mbps")
+        if not tp or not isinstance(tp, dict):
+            continue
+        med = tp.get("median", 0.0)
+        if med == 0.0:
+            continue
+        names.append(sut["name"])
+        medians.append(med)
+        err_plus.append(tp.get("p75", med) - med)
+        err_minus.append(med - tp.get("p25", med))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(
+        x=names,
+        y=medians,
+        marker_color=_COL_OK,
+        showlegend=False,
+        error_y=dict(
+            type="data",
+            symmetric=False,
+            array=err_plus,
+            arrayminus=err_minus,
+            thickness=1.5,
+            width=4,
+        ),
+    ))
+    fig.update_layout(
+        title="Throughput — median Mbps ± IQR (sink bytes_received / sample duration)",
+        xaxis_title="SUT",
+        yaxis_title="Mbps",
+        template="plotly_white",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 6 — Flush latency (grouped bar: p50/p95/p99 across samples)
 # ---------------------------------------------------------------------------
 
 def _flush_latency(suts: list[dict]) -> Optional[Any]:
@@ -387,7 +441,7 @@ def _flush_latency(suts: list[dict]) -> Optional[Any]:
 
 
 # ---------------------------------------------------------------------------
-# Chart 6 — Binary size (simple bar, one bar per SUT)
+# Chart 7 — Binary size (simple bar, one bar per SUT)
 # ---------------------------------------------------------------------------
 
 def _binary_size(suts: list[dict]) -> Optional[Any]:

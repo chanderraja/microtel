@@ -289,11 +289,19 @@ def _run_sut(
                         "  WARNING: sink received 0 requests — "
                         "check endpoint URL, port, and container network"
                     )
+                dur_ns = result.get("duration_ns", 0)
+                bytes_rx = sink_snap.get("bytes_received")
+                throughput_mbps = (
+                    bytes_rx * 8000.0 / dur_ns
+                    if (bytes_rx is not None and dur_ns > 0)
+                    else None
+                )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
-                    "duration_ns":    result.get("duration_ns", 0),
+                    "duration_ns":    dur_ns,
+                    "throughput_mbps": throughput_mbps,
                     "latency_p50_ns":    result["latency_p50_ns"],
                     "latency_p95_ns":    result["latency_p95_ns"],
                     "latency_p99_ns":    result["latency_p99_ns"],

@@ -54,6 +54,13 @@ public:
         }
 
         m_provider = std::move(*result);
+
+        if (auto conn = m_provider->Connect(); !conn)
+        {
+            throw std::runtime_error("microtel::Provider::Connect() failed: " +
+                                     conn.error().message);
+        }
+
         m_tracer = m_provider->GetTracer("bench");
 
         m_attrs_per_span = opts.attributes_per_span;

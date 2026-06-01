@@ -95,6 +95,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--flamegraph-dir", default=None, metavar="DIR",
                    help="Path to FlameGraph scripts directory (overrides FLAMEGRAPH_DIR "
                         "env var and default search paths)")
+    p.add_argument("--sweep-attr-bytes", default=None, metavar="SIZES",
+                   help="Comma-separated list of EMIT_ATTRIBUTE_VALUE_BYTES values to sweep "
+                        "(e.g. '0,64,256,1024,4096'). Each value produces a separate SUT "
+                        "result named <sut>-<N>b so all sizes appear in one results.json.")
     return p.parse_args(argv)
 
 
@@ -244,7 +248,8 @@ def _run_sut(
     container_name = f"bench-sut-{sut.name}"
 
     with Container(engine, container_name, verbose=verbose) as c:
-        env = {**sut.env, **profile_env}
+        # profile_env is the base; sut.env overrides (sweep values live in sut.env).
+        env = {**profile_env, **sut.env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
         c.start(
             image=image,
@@ -259,7 +264,8 @@ def _run_sut(
         with ControlClient("127.0.0.1", sut.ports.control) as ctrl:
             _log(f"  warmup ({warmup_spans} spans) ...")
             ctrl.run(warmup_spans, threads=threads, rate_hz=rate_hz)
-            time.sleep(0.5)
+            ctrl.flush()   # drain both BSP and exporter queues before resetting
+            time.sleep(0.1)
             sink_client.reset()
 
             for i in range(n_samples):
@@ -290,17 +296,28 @@ def _run_sut(
                         "check endpoint URL, port, and container network"
                     )
                 dur_ns = result.get("duration_ns", 0)
+                flush_ns = flush_result.get("flush_ns", 0)
                 bytes_rx = sink_snap.get("bytes_received")
+                total_ns = dur_ns + flush_ns
+                spans_rx = sink_snap["spans_received"]
+                # Wire throughput: bytes land at sink during flush, not during emit.
+                # Use flush_ns (the actual HTTP-transfer window) as denominator.
                 throughput_mbps = (
-                    bytes_rx * 8000.0 / dur_ns
-                    if (bytes_rx is not None and dur_ns > 0)
+                    bytes_rx * 8000.0 / flush_ns
+                    if (bytes_rx is not None and flush_ns > 0)
+                    else None
+                )
+                spans_per_sec = (
+                    spans_rx / total_ns * 1e9
+                    if (spans_rx > 0 and total_ns > 0)
                     else None
                 )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
-                    "duration_ns":    dur_ns,
+                    "duration_ns":     dur_ns,
+                    "spans_per_sec":   spans_per_sec,
                     "throughput_mbps": throughput_mbps,
                     "latency_p50_ns":    result["latency_p50_ns"],
                     "latency_p95_ns":    result["latency_p95_ns"],
@@ -308,7 +325,7 @@ def _run_sut(
                     "latency_min_ns":    result["latency_min_ns"],
                     "latency_max_ns":    result["latency_max_ns"],
                     "latency_histogram": result.get("latency_histogram", []),
-                    "flush_ns":          flush_result.get("flush_ns", 0),
+                    "flush_ns":          flush_ns,
                     "sink": {
                         "mode":                   sink_snap["mode"],
                         "spans_received":         sink_snap["spans_received"],
@@ -444,10 +461,33 @@ def main(argv=None) -> int:
     for w in warns:
         _log(f"WARNING: {w}")
 
+    # Build images before sweep expansion (deduplicated by image).
     sut_image_ids = _build_images(
         engine, sink_mode, active_suts, repo_root,
         args.no_build, args.verbose, flamegraph=args.flamegraph,
     )
+
+    # Expand active_suts for --sweep-attr-bytes: one virtual SUT per size,
+    # named <sut>-<N>b. Image ID is shared with the original SUT.
+    if args.sweep_attr_bytes:
+        try:
+            sweep_sizes = [int(s.strip()) for s in args.sweep_attr_bytes.split(",")]
+        except ValueError:
+            _log("ERROR: --sweep-attr-bytes must be comma-separated integers")
+            return 1
+        expanded = []
+        for sut in active_suts:
+            for size in sweep_sizes:
+                sweep_sut = dataclasses.replace(
+                    sut,
+                    name=f"{sut.name}-{size}b",
+                    env={**sut.env, "EMIT_ATTRIBUTE_VALUE_BYTES": str(size)},
+                )
+                expanded.append(sweep_sut)
+                sut_image_ids[sweep_sut.name] = sut_image_ids.get(sut.name, "")
+        active_suts = expanded
+        _log(f"sweep: {len(sweep_sizes)} sizes × {len(active_suts)//len(sweep_sizes)} SUT(s) "
+             f"= {len(active_suts)} runs")
 
     create_network(engine, _NET_NAME)
     sut_results = []

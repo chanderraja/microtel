@@ -103,6 +103,8 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
     flush_vals = [float(s["flush_ns"]) for s in samples if s.get("flush_ns") is not None]
     tp_vals = [float(s["throughput_mbps"]) for s in samples
                if s.get("throughput_mbps") is not None]
+    sps_vals = [float(s["spans_per_sec"]) for s in samples
+                if s.get("spans_per_sec") is not None]
 
     return {
         "reps":                  len(samples),
@@ -115,6 +117,7 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
         "latency_min_ns":        _stats(_floats("latency_min_ns")),
         "latency_max_ns":        _stats(_floats("latency_max_ns")),
         "flush_ns":              _stats(flush_vals) if flush_vals else None,
+        "spans_per_sec":         _stats(sps_vals) if sps_vals else None,
         "throughput_mbps":       _stats(tp_vals) if tp_vals else None,
         "wire_bytes_per_span":   wire_bytes,
     }
@@ -214,8 +217,9 @@ def _render_md(doc: dict) -> str:
         _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p95 (ns)",   "latency_p95_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p99 (ns)",   "latency_p99_ns", lambda v: f"{v:.0f}")
-        _row("Flush latency p50 (ns)", "flush_ns",     lambda v: f"{v:.0f}")
-        _row("Throughput (Mbps)",    "throughput_mbps", lambda v: f"{v:.1f}")
+        _row("Flush latency p50 (ns)", "flush_ns",      lambda v: f"{v:.0f}")
+        _row("Spans/sec",             "spans_per_sec",  lambda v: f"{v:,.0f}")
+        _row("Throughput (Mbps)",     "throughput_mbps", lambda v: f"{v:.1f}")
         _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
 
         # Binary size row — pulled from top-level sut dict, not summary.

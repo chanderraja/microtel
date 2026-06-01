@@ -81,6 +81,9 @@ def write_plots(doc: dict[str, Any], out_dir: Path) -> Optional[Path]:
     wire = _wire_bytes(suts)
     if wire is not None:
         figures.append(("Wire bytes / span", wire))
+    sps = _spans_per_sec(suts)
+    if sps is not None:
+        figures.append(("Spans/sec", sps))
     tp = _throughput(suts)
     if tp is not None:
         figures.append(("Throughput (Mbps)", tp))
@@ -343,7 +346,58 @@ def _wire_bytes(suts: list[dict]) -> Optional[Any]:
 
 
 # ---------------------------------------------------------------------------
-# Chart 5 — Throughput (Mbps, median ± IQR)
+# Chart 5 — Spans/sec (median ± IQR)
+# ---------------------------------------------------------------------------
+
+def _spans_per_sec(suts: list[dict]) -> Optional[Any]:
+    """Return a spans/sec bar chart, or None when data is unavailable."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    medians: list[float] = []
+    err_plus: list[float] = []
+    err_minus: list[float] = []
+
+    for sut in suts:
+        sps = sut.get("summary", {}).get("spans_per_sec")
+        if not sps or not isinstance(sps, dict):
+            continue
+        med = sps.get("median", 0.0)
+        if med == 0.0:
+            continue
+        names.append(sut["name"])
+        medians.append(med)
+        err_plus.append(sps.get("p75", med) - med)
+        err_minus.append(med - sps.get("p25", med))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(
+        x=names,
+        y=medians,
+        marker_color=_COL_P50,
+        showlegend=False,
+        error_y=dict(
+            type="data",
+            symmetric=False,
+            array=err_plus,
+            arrayminus=err_minus,
+            thickness=1.5,
+            width=4,
+        ),
+    ))
+    fig.update_layout(
+        title="Spans/sec — median ± IQR (wire-delivered spans / (emit+flush) duration)",
+        xaxis_title="SUT",
+        yaxis_title="spans/sec",
+        template="plotly_white",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 6 — Throughput (Mbps, median ± IQR)
 # ---------------------------------------------------------------------------
 
 def _throughput(suts: list[dict]) -> Optional[Any]:

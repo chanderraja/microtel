@@ -23,6 +23,7 @@
 
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -117,6 +118,13 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
         {
             continue;
         }
+
+        // Disable Nagle's algorithm: batching is done at the BSP/exporter layer;
+        // small trailing DATA frames must not stall 40ms on delayed-ACK interaction.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+        const int nodelay = 1;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+        ::setsockopt(fd.Get(), IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
         // Non-blocking connect so we can enforce the timeout.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise)

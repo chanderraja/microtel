@@ -62,7 +62,15 @@ Expected<void, Error> SdkProvider::Connect()
 
 Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
 {
-    return m_processor->ForceFlush(timeout);
+    // Two-stage flush: drain the BSP queue into the exporter queue first,
+    // then drain the exporter queue (actual HTTP sends). Both are async
+    // workers; flushing only the processor leaves batches undelivered.
+    const Status s = m_processor->ForceFlush(timeout);
+    if (s != Status::Completed)
+    {
+        return s;
+    }
+    return m_exporter->ForceFlush(timeout);
 }
 
 Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept

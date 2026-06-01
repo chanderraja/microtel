@@ -1,0 +1,40 @@
+# throughput-vs-size — measures wire-delivered spans/sec and Mbps at varying
+# attribute payload sizes.
+#
+# Run with --sweep-attr-bytes to vary EMIT_ATTRIBUTE_VALUE_BYTES across sizes:
+#
+#   python3 -m bench.driver --profile throughput-vs-size \
+#       --sut microtel --sweep-attr-bytes 0,64,256,1024,4096
+#
+# Each size produces one result entry named <sut>-<N>b.  The resulting
+# plots.html shows spans/sec and Mbps vs. size side by side.
+
+profile: throughput-vs-size
+description: "Wire-delivered spans/sec and Mbps vs. span attribute payload size"
+
+workload:
+  mode: hot_loop
+  spans_per_sample: 10000
+  samples: 5
+  warmup_spans: 1000
+
+sink:
+  mode: blackhole
+
+# Default: 1 attribute of 256 bytes.  Override via --sweep-attr-bytes.
+env:
+  EMIT_ATTRIBUTES_PER_SPAN: 1
+  EMIT_ATTRIBUTE_VALUE_BYTES: 256
+
+suts:
+  - microtel
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - spans_per_sec
+  - throughput_mbps
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns

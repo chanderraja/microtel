@@ -1,0 +1,28 @@
+[config]
+unknown_keys = "warn"
+
+[service]
+name    = "my-service"
+version = "1.0.0"
+
+[exporter]
+endpoint    = "https://collector:4318"
+protocol    = "http"
+compression = "gzip"
+drop_policy = "oldest"
+
+[exporter.headers]
+x-api-key = "token"
+
+[tls]
+insecure = false
+
+[sdk]
+max_queue_size    = 2048
+max_export_batch  = 512
+schedule_delay_ms = 5000
+
+[timeouts]
+export_deadline_ms    = 10000
+connect_timeout_ms    = 5000
+retry_budget_ms       = 60000

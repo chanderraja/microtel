@@ -176,3 +176,12 @@ if(MICROTEL_BUILD_TESTS)
 
     add_subdirectory(tests)
 endif()
+
+# Fuzz harnesses — libFuzzer, clang-only, independent of the gtest tree.
+# cmake -S . -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+#       -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
+option(MICROTEL_BUILD_FUZZ "Build libFuzzer harnesses (requires clang -fsanitize=fuzzer)" OFF)
+
+if(MICROTEL_BUILD_FUZZ)
+    add_subdirectory(tests/fuzz)
+endif()

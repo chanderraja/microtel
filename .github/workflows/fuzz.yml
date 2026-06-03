@@ -1,0 +1,106 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fuzzing job — runs weekly and on manual dispatch. NOT a per-PR gate.
+#
+# Two steps run every time:
+#   1. corpus-regression: replays committed crashes/ inputs; exits non-zero
+#      if any re-crash (this IS a hard quality bar even for the periodic run).
+#   2. fuzz: runs each harness for `duration` seconds looking for new crashes;
+#      uploads any findings as artifacts.
+#
+# To reproduce a finding locally:
+#   cmake -S . -B build-fuzz \
+#         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+#         -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
+#   cmake --build build-fuzz
+#   ./build-fuzz/tests/fuzz/<harness> <crash_file>
+#
+# To add a finding to the permanent corpus once confirmed and fixed:
+#   cp <crash_file> tests/fuzz/crashes/<harness>/
+#   git add tests/fuzz/crashes/<harness>/<crash_file>
+#   git commit -m "fuzz: add regression input for <harness> finding"
+
+name: fuzz
+
+on:
+  schedule:
+    - cron: '0 4 * * 3'   # weekly, Wednesday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Fuzz duration per harness in seconds'
+        required: false
+        default: '120'
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y clang cmake ninja-build libssl-dev libnghttp2-dev
+
+      - name: Build fuzz targets
+        run: |
+          cmake -S . -B build-fuzz \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_BUILD_TESTS=OFF \
+            -G Ninja
+          cmake --build build-fuzz --parallel
+
+      - name: Corpus regression check
+        run: |
+          any_crash=0
+          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz response_decompression_fuzz; do
+            crash_dir="tests/fuzz/crashes/${harness}"
+            # Filter out .gitkeep so we don't pass it to the harness.
+            inputs=$(find "${crash_dir}" -maxdepth 1 -type f ! -name '.gitkeep' 2>/dev/null)
+            if [ -n "${inputs}" ]; then
+              echo "=== Replaying crash corpus: ${harness} ==="
+              # shellcheck disable=SC2086
+              ./build-fuzz/tests/fuzz/${harness} -runs=0 ${inputs} || {
+                echo "::error::${harness} crash corpus re-triggered — fix the bug before merging."
+                any_crash=1
+              }
+            else
+              echo "No committed crash inputs for ${harness} — skip."
+            fi
+          done
+          exit ${any_crash}
+
+      - name: Fuzz (${{ inputs.duration || 120 }}s per harness)
+        run: |
+          mkdir -p fuzz-findings
+          DURATION="${{ inputs.duration || 120 }}"
+          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz; do
+            echo "=== Fuzzing ${harness} for ${DURATION}s ==="
+            seed_dir="tests/fuzz/corpus/${harness}"
+            ./build-fuzz/tests/fuzz/${harness} \
+              -max_total_time="${DURATION}" \
+              -artifact_prefix="fuzz-findings/${harness}-" \
+              -print_final_stats=1 \
+              "${seed_dir}" || {
+                echo "::error::${harness} found a new crash — see artifact for repro input."
+                exit 1
+              }
+          done
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-inputs-${{ github.run_id }}
+          path: fuzz-findings/
+          retention-days: 30

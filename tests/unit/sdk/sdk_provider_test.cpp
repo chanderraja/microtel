@@ -19,7 +19,7 @@
 #include <chrono>
 #include <memory>
 
-namespace mt  = microtel;
+namespace mt = microtel;
 namespace mts = microtel::sdk;
 namespace mtm = microtel::testing;
 
@@ -32,27 +32,27 @@ constexpr auto kTimeout = std::chrono::milliseconds(500);
 // Returns the provider; raw non-owning pointers to the mocks are written
 // through the out-params so callers can observe call counts after the call.
 std::unique_ptr<mts::SdkProvider> MakeProvider(mtm::MockSpanProcessor** out_proc,
-                                                mtm::MockExporter**      out_exp,
-                                                mtm::MockTransport**     out_transport)
+                                               mtm::MockExporter** out_exp,
+                                               mtm::MockTransport** out_transport)
 {
-    auto proc      = std::make_unique<mtm::MockSpanProcessor>();
-    auto exp       = std::make_unique<mtm::MockExporter>();
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
     auto transport = std::make_unique<mtm::MockTransport>();
 
-    *out_proc      = proc.get();
-    *out_exp       = exp.get();
+    *out_proc = proc.get();
+    *out_exp = exp.get();
     *out_transport = transport.get();
 
     return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
-        .encoder      = nullptr,
-        .auth         = nullptr,
-        .transport    = std::move(transport),
-        .codec        = nullptr,
-        .exporter     = std::move(exp),
-        .processor    = std::move(proc),
-        .resource     = std::make_shared<mt::Resource>(),
-        .sampler      = mt::MakeAlwaysOnSampler(),
-        .span_limits  = {},
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
         .connect_opts = {},
     });
 }
@@ -66,9 +66,9 @@ std::unique_ptr<mts::SdkProvider> MakeProvider(mtm::MockSpanProcessor** out_proc
 // Both processor and exporter ForceFlush must be called on the happy path.
 TEST(SdkProviderTest, ForceFlush_CallsBothProcessorAndExporter)
 {
-    mtm::MockSpanProcessor* proc      = nullptr;
-    mtm::MockExporter*      exp       = nullptr;
-    mtm::MockTransport*     transport = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     const auto status = provider->ForceFlush(kTimeout);
@@ -83,9 +83,9 @@ TEST(SdkProviderTest, ForceFlush_CallsBothProcessorAndExporter)
 // a misleading Completed result.
 TEST(SdkProviderTest, ForceFlush_ProcessorTimedOut_ExporterNotFlushed)
 {
-    mtm::MockSpanProcessor* proc      = nullptr;
-    mtm::MockExporter*      exp       = nullptr;
-    mtm::MockTransport*     transport = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     proc->force_flush_result = mt::Status::TimedOut;
@@ -100,9 +100,9 @@ TEST(SdkProviderTest, ForceFlush_ProcessorTimedOut_ExporterNotFlushed)
 // If the exporter times out the caller receives TimedOut.
 TEST(SdkProviderTest, ForceFlush_ExporterTimedOut_ReturnTimedOut)
 {
-    mtm::MockSpanProcessor* proc      = nullptr;
-    mtm::MockExporter*      exp       = nullptr;
-    mtm::MockTransport*     transport = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     exp->force_flush_result = mt::Status::TimedOut;

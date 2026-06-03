@@ -81,8 +81,7 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
-    void RunRetryLoop(const internal::BatchHandle& batch,
-                      std::uint32_t starting_attempt = 0U);
+    void RunRetryLoop(const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
     [[nodiscard]] double DrawJitter01() noexcept;
 

@@ -43,8 +43,8 @@ public:
     /// into one.
     ///
     /// Results are returned in the same order as `payloads`.
-    [[nodiscard]] virtual std::vector<WireResult> SendAll(
-        std::vector<EncodedPayload>&& payloads, std::chrono::milliseconds deadline)
+    [[nodiscard]] virtual std::vector<WireResult> SendAll(std::vector<EncodedPayload> payloads,
+                                                          std::chrono::milliseconds deadline)
     {
         std::vector<WireResult> results;
         results.reserve(payloads.size());

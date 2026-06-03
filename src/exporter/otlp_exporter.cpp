@@ -103,8 +103,7 @@ microtel::Status OtlpExporter::Shutdown(std::chrono::milliseconds timeout) noexc
     return completed ? microtel::Status::Completed : microtel::Status::TimedOut;
 }
 
-void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch,
-                                std::uint32_t starting_attempt)
+void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch, std::uint32_t starting_attempt)
 {
     const RetryPolicyConfig& rp = m_config.retry_policy;
     const std::uint32_t max_attempts = (rp.max_attempts > 0U) ? rp.max_attempts : 1U;

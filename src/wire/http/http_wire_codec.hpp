@@ -64,15 +64,23 @@ public:
                                             std::chrono::milliseconds deadline) override;
 
     [[nodiscard]] std::vector<internal::WireResult> SendAll(
-        std::vector<internal::EncodedPayload>&& payloads,
+        std::vector<internal::EncodedPayload> payloads,
         std::chrono::milliseconds deadline) override;
 
 private:
+    struct InFlight
+    {
+        internal::EncodedPayload payload;
+        internal::RequestHandle handle;
+    };
+
     [[nodiscard]] std::string ResolvePath() const noexcept;
     [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(
         std::size_t content_length) const noexcept;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
     [[nodiscard]] static std::string BuildExcerpt(const std::vector<std::byte>& body);
+    [[nodiscard]] internal::WireResult CollectOneResult(
+        InFlight& item, std::chrono::steady_clock::time_point deadline_point);
 
     internal::ITransport* m_transport;
     HttpWireCodecConfig m_config;

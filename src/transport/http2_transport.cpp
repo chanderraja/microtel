@@ -91,6 +91,16 @@ microtel::Expected<EndpointInfo, microtel::Error> ParseEndpoint(const std::strin
     return EndpointInfo{.host = std::move(host), .port = std::move(port), .use_tls = use_tls};
 }
 
+// Disable Nagle's algorithm: batching is done at the BSP/exporter layer;
+// small trailing DATA frames must not stall 40ms on delayed-ACK interaction.
+void SetTcpNoDelay(int fd) noexcept
+{
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+    static constexpr int kEnable = 1;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &kEnable, sizeof(kEnable));
+}
+
 microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
     const std::string& host, const std::string& port, std::chrono::milliseconds timeout)
 {
@@ -119,12 +129,7 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
             continue;
         }
 
-        // Disable Nagle's algorithm: batching is done at the BSP/exporter layer;
-        // small trailing DATA frames must not stall 40ms on delayed-ACK interaction.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-        const int nodelay = 1;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-        ::setsockopt(fd.Get(), IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+        SetTcpNoDelay(fd.Get());
 
         // Non-blocking connect so we can enforce the timeout.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise)

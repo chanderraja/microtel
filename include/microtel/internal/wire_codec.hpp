@@ -7,6 +7,7 @@
 #include "microtel/internal/wire_result.hpp"
 
 #include <chrono>
+#include <vector>
 
 namespace microtel::internal
 {
@@ -33,6 +34,26 @@ public:
 
     [[nodiscard]] virtual WireResult Send(EncodedPayload&& payload,
                                           std::chrono::milliseconds deadline) = 0;
+
+    /// @brief Submit N payloads and wait for all responses.
+    ///
+    /// Default implementation calls `Send` in a loop — correct for all codecs
+    /// that do not override. `HttpWireCodec` overrides to submit all requests
+    /// as concurrent HTTP/2 streams before waiting, collapsing N round trips
+    /// into one.
+    ///
+    /// Results are returned in the same order as `payloads`.
+    [[nodiscard]] virtual std::vector<WireResult> SendAll(
+        std::vector<EncodedPayload>&& payloads, std::chrono::milliseconds deadline)
+    {
+        std::vector<WireResult> results;
+        results.reserve(payloads.size());
+        for (auto& p : payloads)
+        {
+            results.push_back(Send(std::move(p), deadline));
+        }
+        return results;
+    }
 };
 
 }  // namespace microtel::internal

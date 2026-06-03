@@ -63,6 +63,10 @@ public:
     [[nodiscard]] internal::WireResult Send(internal::EncodedPayload&& payload,
                                             std::chrono::milliseconds deadline) override;
 
+    [[nodiscard]] std::vector<internal::WireResult> SendAll(
+        std::vector<internal::EncodedPayload>&& payloads,
+        std::chrono::milliseconds deadline) override;
+
 private:
     [[nodiscard]] std::string ResolvePath() const noexcept;
     [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(

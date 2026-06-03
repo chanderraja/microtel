@@ -103,18 +103,21 @@ microtel::Status OtlpExporter::Shutdown(std::chrono::milliseconds timeout) noexc
     return completed ? microtel::Status::Completed : microtel::Status::TimedOut;
 }
 
-void OtlpExporter::ProcessBatch(const internal::BatchHandle& batch)
-{
-    RunRetryLoop(batch);
-}
-
-void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch)
+void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch,
+                                std::uint32_t starting_attempt)
 {
     const RetryPolicyConfig& rp = m_config.retry_policy;
     const std::uint32_t max_attempts = (rp.max_attempts > 0U) ? rp.max_attempts : 1U;
     const auto budget_deadline = ClockNow() + rp.retry_budget;
 
-    for (std::uint32_t attempt = 0; attempt < max_attempts; ++attempt)
+    // When starting after attempt 0 (fan-out already made the first send),
+    // skip all retries if the budget is already exhausted.
+    if (starting_attempt > 0U && ClockNow() >= budget_deadline)
+    {
+        return;
+    }
+
+    for (std::uint32_t attempt = starting_attempt; attempt < max_attempts; ++attempt)
     {
         auto payload = m_encoder->Encode(batch);
         const auto result = m_codec->Send(std::move(payload), m_config.export_deadline);
@@ -156,20 +159,50 @@ double OtlpExporter::DrawJitter01() noexcept
 
 void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
 {
+    std::vector<internal::BatchHandle> batches;
     while (!m_queue.empty())
     {
-        auto batch = std::move(m_queue.front());
+        batches.push_back(std::move(m_queue.front()));
         m_queue.pop_front();
-        lock.unlock();
-        try
+    }
+    lock.unlock();
+    try
+    {
+        FanOutAndProcess(batches);
+    }
+    // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook added in M3-C
+    catch (const std::exception&)
+    {
+    }
+    lock.lock();
+}
+
+void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& batches)
+{
+    if (batches.empty())
+    {
+        return;
+    }
+
+    std::vector<internal::EncodedPayload> payloads;
+    payloads.reserve(batches.size());
+    for (const auto& batch : batches)
+    {
+        payloads.push_back(m_encoder->Encode(batch));
+    }
+
+    // Fan-out: all requests submitted concurrently; SendAll collapses N
+    // sequential round trips into one (see ICP 0007).
+    const auto results = m_codec->SendAll(std::move(payloads), m_config.export_deadline);
+
+    // The fan-out counts as attempt 0; pass starting_attempt=1 so that the
+    // retry loop does not exceed the configured max_attempts total.
+    for (std::size_t i = 0; i < results.size(); ++i)
+    {
+        if (!results[i].success && results[i].retryable)
         {
-            ProcessBatch(batch);
+            RunRetryLoop(batches[i], 1U);
         }
-        // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook added in M3-C
-        catch (const std::exception&)
-        {
-        }
-        lock.lock();
     }
 }
 

@@ -10,6 +10,7 @@
 
 #include "wire/otlp_response.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -252,6 +253,98 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
     }
     wire.response_excerpt = BuildExcerpt(result.response_body);
     return wire;
+}
+
+std::vector<internal::WireResult> HttpWireCodec::SendAll(
+    std::vector<internal::EncodedPayload>&& payloads,
+    std::chrono::milliseconds deadline)
+{
+    if (payloads.empty())
+    {
+        return {};
+    }
+
+    // Bundle each payload with its in-flight transport handle. Keeping the
+    // EncodedPayload alive here is required: RequestSpec::payload is a span
+    // that borrows from it; the I/O thread reads those bytes until the stream
+    // closes.
+    struct InFlight
+    {
+        internal::EncodedPayload payload;
+        internal::RequestHandle handle;
+    };
+
+    std::vector<InFlight> in_flight;
+    in_flight.reserve(payloads.size());
+
+    const auto deadline_point = std::chrono::steady_clock::now() + deadline;
+
+    // Submit all requests without waiting for any response. nghttp2 opens
+    // each as a separate stream on the single HTTP/2 connection.
+    for (auto& payload : payloads)
+    {
+        auto headers = BuildHeaders(payload.Size());
+        AppendAuthHeader(headers);
+        internal::RequestSpec spec{
+            .headers = std::move(headers),
+            .payload = payload.Bytes(),
+            .deadline = deadline,
+        };
+        auto handle = m_transport->Send(std::move(spec));
+        in_flight.push_back(InFlight{.payload = std::move(payload), .handle = std::move(handle)});
+    }
+
+    // Collect results in submission order, honouring the shared deadline.
+    std::vector<internal::WireResult> results;
+    results.reserve(in_flight.size());
+
+    for (auto& item : in_flight)
+    {
+        const auto remaining = deadline_point - std::chrono::steady_clock::now();
+        const auto wait_ms = (remaining > std::chrono::nanoseconds{0})
+                                 ? std::chrono::duration_cast<std::chrono::milliseconds>(remaining)
+                                 : std::chrono::milliseconds{0};
+
+        const auto status = item.handle.Future().wait_for(wait_ms);
+        if (status != std::future_status::ready)
+        {
+            m_transport->Cancel(item.handle);
+            results.push_back({
+                .success          = false,
+                .retryable        = true,
+                .retry_after      = {},
+                .error            = Error{.kind    = Error::Kind::Cancelled,
+                                          .message = "request deadline exceeded"},
+                .response_excerpt = {},
+            });
+            continue;
+        }
+
+        auto result = item.handle.Future().get();
+        if (!result.success)
+        {
+            results.push_back({
+                .success          = false,
+                .retryable        = true,
+                .retry_after      = {},
+                .error            = result.error,
+                .response_excerpt = {},
+            });
+            continue;
+        }
+
+        const int code = ParseStatusCode(result.response_headers);
+        auto wire = ClassifyStatus(code, result.response_headers);
+        if (wire.success && !result.response_body.empty())
+        {
+            wire.partial_success_rejected =
+                ParseRejectedSpans(std::span<const std::byte>{result.response_body});
+        }
+        wire.response_excerpt = BuildExcerpt(result.response_body);
+        results.push_back(std::move(wire));
+    }
+
+    return results;
 }
 
 }  // namespace microtel::wire

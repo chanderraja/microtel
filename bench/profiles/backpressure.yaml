@@ -1,0 +1,36 @@
+# backpressure — measures drop rate and delivery rate when the sink responds
+# slowly, driving the exporter queue toward saturation.
+#
+# Run with --sink-delay-ms to inject per-request response latency:
+#
+#   ./bench/bench.sh --profile backpressure --sink-delay-ms 50
+#   ./bench/bench.sh --profile backpressure --sink-delay-ms 200
+#   ./bench/bench.sh --profile backpressure --sink-delay-ms 1000
+#
+# Higher delay → more backpressure → higher drop rate.
+# The OtlpExporter queue (max 256 batches × 512 spans = 131072 spans) is
+# the first thing to fill; BSP queue saturation follows.
+
+profile: backpressure
+description: "Drop rate and delivery rate vs. sink response delay — backpressure curve"
+
+workload:
+  mode: hot_loop
+  spans_per_sample: 100000
+  samples: 3
+  warmup_spans: 1000
+
+sink:
+  mode: blackhole
+
+suts:
+  - microtel
+  - microtel-grpc
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - spans_per_sec
+  - latency_p50_ns
+  - latency_p99_ns

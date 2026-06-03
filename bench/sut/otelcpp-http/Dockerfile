@@ -30,16 +30,18 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        ca-certificates \
         clang-18 \
         cmake \
         ninja-build \
         git \
         curl \
-        ca-certificates \
         pkg-config \
         libssl-dev \
         libcurl4-openssl-dev \
         zlib1g-dev \
+        libprotobuf-dev \
+        protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CC=clang-18
@@ -63,6 +65,7 @@ RUN cmake -S /src/opentelemetry-cpp -B /build/otelcpp \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_FLAGS="${BENCH_CXXFLAGS}" \
+        -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
         -DCMAKE_INSTALL_PREFIX=/opt/otelcpp \
         -DBUILD_TESTING=OFF \
         -DWITH_BENCHMARK=OFF \
@@ -85,6 +88,7 @@ RUN cmake -S /src/emit-app -B /build/emit-app \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_FLAGS="${BENCH_CXXFLAGS}" \
+        -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
         -DBENCH_BACKEND=OTELCPP_HTTP \
         -DCMAKE_PREFIX_PATH=/opt/otelcpp \
     && cmake --build /build/emit-app
@@ -94,12 +98,15 @@ RUN cmake -S /src/emit-app -B /build/emit-app \
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 
+COPY --from=emit-build /opt/otelcpp/lib/libopentelemetry_proto.so /usr/local/lib/
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libssl3 \
         libcurl4 \
+        libprotobuf32t64 \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
-
 COPY --from=emit-build /build/emit-app/emit_app /emit_app
 
 EXPOSE 9090

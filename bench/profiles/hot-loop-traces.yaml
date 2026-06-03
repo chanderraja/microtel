@@ -23,6 +23,7 @@ sink:
 # SUTs active for this profile (must match registry.yaml b0 field).
 suts:
   - microtel
+  - microtel-grpc
   - otelcpp-grpc
   - otelcpp-http
 

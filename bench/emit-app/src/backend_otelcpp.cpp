@@ -9,12 +9,13 @@
 #include <opentelemetry/exporters/otlp/otlp_http_exporter_options.h>
 #include <opentelemetry/sdk/trace/batch_span_processor_factory.h>
 #include <opentelemetry/sdk/trace/batch_span_processor_options.h>
-#include <opentelemetry/sdk/trace/tracer_provider_factory.h>
+#include <opentelemetry/sdk/trace/tracer_provider.h>
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/tracer.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -69,8 +70,7 @@ public:
         auto processor = sdktrace::BatchSpanProcessorFactory::Create(std::move(exporter),
                                                                      proc_opts);
 
-        auto provider = sdktrace::TracerProviderFactory::Create(std::move(processor));
-        m_provider = std::move(provider);
+        m_provider = std::make_shared<sdktrace::TracerProvider>(std::move(processor));
         m_tracer = m_provider->GetTracer(opts.service_name, opts.service_version);
 
         m_attrs_per_span = opts.attributes_per_span;
@@ -110,9 +110,19 @@ public:
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
+    [[nodiscard]] uint64_t ForceFlush() override
+    {
+        using Clock = std::chrono::steady_clock;
+        const auto t0 = Clock::now();
+        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        const auto t1 = Clock::now();
+        return static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+    }
+
     void Shutdown() override
     {
-        m_provider->ForceFlush();
+        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
         m_provider->Shutdown();
     }
 
@@ -128,7 +138,7 @@ public:
     }
 
 private:
-    std::shared_ptr<opentelemetry::trace::TracerProvider>          m_provider;
+    std::shared_ptr<sdktrace::TracerProvider>                       m_provider;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> m_tracer;
     std::atomic<uint64_t>                                           m_emit_count{0};
     int                                                             m_attrs_per_span{0};

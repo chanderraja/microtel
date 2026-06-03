@@ -20,6 +20,7 @@
 #include <mutex>
 #include <random>
 #include <thread>
+#include <vector>
 
 namespace microtel::exporter
 {
@@ -79,8 +80,8 @@ public:
 private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
-    void ProcessBatch(const internal::BatchHandle& batch);
-    void RunRetryLoop(const internal::BatchHandle& batch);
+    void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
+    void RunRetryLoop(const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
     [[nodiscard]] double DrawJitter01() noexcept;
 

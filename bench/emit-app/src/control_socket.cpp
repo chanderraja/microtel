@@ -252,6 +252,13 @@ void RunWorkload(uint64_t spans, int threads, uint64_t rate_hz,
             ::send(conn_fd, resp.data(), resp.size(), 0);
         }
 
+        if (cmd == "flush")
+        {
+            const uint64_t flush_ns = backend.ForceFlush();
+            const std::string resp = "{\"flush_ns\":" + std::to_string(flush_ns) + "}\n";
+            ::send(conn_fd, resp.data(), resp.size(), 0);
+        }
+
         newline = line_buf.find('\n');
     }
     return true;
@@ -296,34 +303,42 @@ void RunControlLoop(int port, IBackend& backend, WorkloadMode mode)
 {
     const int listen_fd = CreateListenSocket(port);
 
-    const int conn_fd = ::accept(listen_fd, nullptr, nullptr);
+    // Accept connections in a loop. The bench driver's wait_tcp probe
+    // opens and immediately closes a connection before the real ControlClient
+    // connects. By re-accepting after a zero-byte close we handle both.
+    bool done = false;
+    while (!done)
+    {
+        const int conn_fd = ::accept(listen_fd, nullptr, nullptr);
+        if (conn_fd < 0)
+        {
+            break;
+        }
+
+        std::string line_buf;
+        char buf[kBufSize];
+
+        for (;;)
+        {
+            const ssize_t n = ::recv(conn_fd, buf, sizeof(buf) - 1, 0);
+            if (n <= 0)
+            {
+                break;
+            }
+            buf[n] = '\0';  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+            line_buf += buf;
+
+            if (!ProcessConnectionData(line_buf, conn_fd, mode, backend))
+            {
+                done = true;
+                break;
+            }
+        }
+
+        ::close(conn_fd);
+    }
+
     ::close(listen_fd);
-
-    if (conn_fd < 0)
-    {
-        throw std::runtime_error(std::string("accept: ") + std::strerror(errno));
-    }
-
-    std::string line_buf;
-    char buf[kBufSize];
-
-    for (;;)
-    {
-        const ssize_t n = ::recv(conn_fd, buf, sizeof(buf) - 1, 0);
-        if (n <= 0)
-        {
-            break;
-        }
-        buf[n] = '\0';  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-        line_buf += buf;
-
-        if (!ProcessConnectionData(line_buf, conn_fd, mode, backend))
-        {
-            break;
-        }
-    }
-
-    ::close(conn_fd);
 }
 
 }  // namespace bench

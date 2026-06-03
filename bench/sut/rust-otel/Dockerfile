@@ -23,7 +23,7 @@ ARG INSTALL_PERF=false
 # Stage 1: deps — build dependency crate graph with a stub binary
 # Cached as long as Cargo.toml (and Cargo.lock if present) are unchanged.
 # ---------------------------------------------------------------------------
-FROM rust:1.82-bookworm AS deps
+FROM rust:1.87-bookworm AS deps
 
 WORKDIR /build
 

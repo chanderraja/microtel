@@ -68,3 +68,11 @@ microtel_add_test(
     NAME    sdk_builder_test
     SOURCES sdk_builder_test.cpp
     LIBS    microtel_sdk)
+
+# SdkProvider::ForceFlush two-stage flush (processor → exporter).
+microtel_add_test(
+    NAME    sdk_provider_test
+    SOURCES sdk_provider_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_provider_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -1,0 +1,38 @@
+# concurrent-emitters — measures StartSpan latency and throughput vs. the
+# number of threads calling StartSpan concurrently against one Provider.
+#
+# Run with --sweep-threads to vary concurrency:
+#
+#   ./bench/bench.sh --profile concurrent-emitters --sweep-threads 1,2,4,8,16
+#
+# Each thread count produces one result named <sut>-<N>t.
+
+profile: concurrent-emitters
+description: "StartSpan latency and throughput vs. concurrent emitter threads"
+
+workload:
+  mode: hot_loop
+  spans_per_sample: 10000
+  samples: 10
+  warmup_spans: 1000
+  threads: 1
+  target_rate_hz: 0
+
+sink:
+  mode: blackhole
+
+suts:
+  - microtel
+  - microtel-grpc
+  - otelcpp-grpc
+  - otelcpp-http
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

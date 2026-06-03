@@ -47,6 +47,11 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/src)
 
+    option(BENCH_MICROTEL_GRPC "Build microtel backend with gRPC transport" OFF)
+    if(BENCH_MICROTEL_GRPC)
+        target_compile_definitions(emit_app PRIVATE BENCH_MICROTEL_GRPC=1)
+    endif()
+
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
     find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_grpc_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
@@ -55,6 +60,7 @@ elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
         opentelemetry-cpp::otlp_grpc_exporter)
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
+    find_package(CURL REQUIRED)
     find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_http_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE

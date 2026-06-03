@@ -28,6 +28,7 @@ class Sut:
     ports: SutPorts
     env: Dict[str, str]
     b0: bool
+    threads_override: Optional[int] = None
 
 
 _PROTOCOLS = {"http", "grpc"}

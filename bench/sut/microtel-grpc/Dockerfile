@@ -1,23 +1,14 @@
 # syntax=docker/dockerfile:1
-# microtel SUT: builds microtel + emit-app together from source.
+# microtel-grpc SUT: builds microtel + emit-app together from source,
+# configured to use microtel's gRPC-over-nghttp2 transport.
 # Build context must be the repo root.
 #
-#   docker build -f bench/sut/microtel/Dockerfile -t bench-sut-microtel .
-#
-# Flamegraph variant (B3):
-#   docker build --build-arg INSTALL_PERF=true \
-#       -f bench/sut/microtel/Dockerfile -t bench-sut-microtel:perf .
-#   Run with --cap-add=PERFMON (Linux >=5.8).  Normal images never install perf.
+#   docker build -f bench/sut/microtel-grpc/Dockerfile -t bench-sut-microtel-grpc .
 #
 # Layer caching:
 #   deps    OS + apt packages              — cached until ubuntu_image changes
 #   build   microtel + emit-app (in-tree)  — rebuilds on any source change
 #   runtime minimal image with binary      — seconds
-#
-# emit-app is built as an in-tree cmake subdirectory (MICROTEL_BUILD_BENCH=ON)
-# so that microtel_sdk is available directly without an install() step.
-# Tracked in issue #19: add install() targets so an out-of-tree build is
-# possible in a future milestone.
 
 # Global build arg — available in every stage.  Default: false (normal image).
 ARG INSTALL_PERF=false
@@ -47,8 +38,7 @@ ENV CXX=clang++-18
 ENV BENCH_CXXFLAGS="-O2 -g -fno-omit-frame-pointer"
 
 # ---------------------------------------------------------------------------
-# Stage 2: build — compile microtel + emit-app together
-# emit-app links against in-tree microtel_sdk; no install() step needed.
+# Stage 2: build — compile microtel + emit-app together with gRPC transport
 # ---------------------------------------------------------------------------
 FROM deps AS build
 
@@ -63,6 +53,7 @@ RUN cmake -S . -B build \
         -DMICROTEL_BUILD_TESTS=OFF \
         -DMICROTEL_BUILD_BENCH=ON \
         -DBENCH_BACKEND=MICROTEL \
+        -DBENCH_MICROTEL_GRPC=ON \
     && cmake --build build --target emit_app
 
 # ---------------------------------------------------------------------------

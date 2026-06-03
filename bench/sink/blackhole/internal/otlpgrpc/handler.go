@@ -5,6 +5,7 @@ package otlpgrpc
 
 import (
 	"context"
+	"time"
 
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
@@ -15,12 +16,13 @@ import (
 // TraceHandler implements the OTLP TraceService gRPC endpoint.
 type TraceHandler struct {
 	tracepb.UnimplementedTraceServiceServer
-	c *counters.Counters
+	c       *counters.Counters
+	delayMs int
 }
 
 // New returns a TraceHandler that records exports into c.
-func New(c *counters.Counters) *TraceHandler {
-	return &TraceHandler{c: c}
+func New(c *counters.Counters, delayMs int) *TraceHandler {
+	return &TraceHandler{c: c, delayMs: delayMs}
 }
 
 // Export counts spans and bytes, then returns an empty success response.
@@ -35,6 +37,9 @@ func (h *TraceHandler) Export(
 	resp := &tracepb.ExportTraceServiceResponse{}
 	respBytes := uint64(proto.Size(resp))
 
+	if h.delayMs > 0 {
+		time.Sleep(time.Duration(h.delayMs) * time.Millisecond)
+	}
 	h.c.RecordGRPCExport(spans, reqBytes, respBytes)
 	return resp, nil
 }

@@ -81,6 +81,18 @@ def write_plots(doc: dict[str, Any], out_dir: Path) -> Optional[Path]:
     wire = _wire_bytes(suts)
     if wire is not None:
         figures.append(("Wire bytes / span", wire))
+    sps = _spans_per_sec(suts)
+    if sps is not None:
+        figures.append(("Spans/sec", sps))
+    tp = _throughput(suts)
+    if tp is not None:
+        figures.append(("Throughput (Mbps)", tp))
+    flush = _flush_latency(suts)
+    if flush is not None:
+        figures.append(("Flush latency", flush))
+    bsize = _binary_size(suts)
+    if bsize is not None:
+        figures.append(("Binary size", bsize))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "plots.html"
@@ -329,6 +341,184 @@ def _wire_bytes(suts: list[dict]) -> Optional[Any]:
         yaxis_title="bytes",
         template="plotly_white",
         margin=dict(t=80),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 5 — Spans/sec (median ± IQR)
+# ---------------------------------------------------------------------------
+
+def _spans_per_sec(suts: list[dict]) -> Optional[Any]:
+    """Return a spans/sec bar chart, or None when data is unavailable."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    medians: list[float] = []
+    err_plus: list[float] = []
+    err_minus: list[float] = []
+
+    for sut in suts:
+        sps = sut.get("summary", {}).get("spans_per_sec")
+        if not sps or not isinstance(sps, dict):
+            continue
+        med = sps.get("median", 0.0)
+        if med == 0.0:
+            continue
+        names.append(sut["name"])
+        medians.append(med)
+        err_plus.append(sps.get("p75", med) - med)
+        err_minus.append(med - sps.get("p25", med))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(
+        x=names,
+        y=medians,
+        marker_color=_COL_P50,
+        showlegend=False,
+        error_y=dict(
+            type="data",
+            symmetric=False,
+            array=err_plus,
+            arrayminus=err_minus,
+            thickness=1.5,
+            width=4,
+        ),
+    ))
+    fig.update_layout(
+        title="Spans/sec — median ± IQR (wire-delivered spans / (emit+flush) duration)",
+        xaxis_title="SUT",
+        yaxis_title="spans/sec",
+        template="plotly_white",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 6 — Throughput (Mbps, median ± IQR)
+# ---------------------------------------------------------------------------
+
+def _throughput(suts: list[dict]) -> Optional[Any]:
+    """Return a throughput bar chart (Mbps), or None when data is unavailable."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    medians: list[float] = []
+    err_plus: list[float] = []
+    err_minus: list[float] = []
+
+    for sut in suts:
+        tp = sut.get("summary", {}).get("throughput_mbps")
+        if not tp or not isinstance(tp, dict):
+            continue
+        med = tp.get("median", 0.0)
+        if med == 0.0:
+            continue
+        names.append(sut["name"])
+        medians.append(med)
+        err_plus.append(tp.get("p75", med) - med)
+        err_minus.append(med - tp.get("p25", med))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(
+        x=names,
+        y=medians,
+        marker_color=_COL_OK,
+        showlegend=False,
+        error_y=dict(
+            type="data",
+            symmetric=False,
+            array=err_plus,
+            arrayminus=err_minus,
+            thickness=1.5,
+            width=4,
+        ),
+    ))
+    fig.update_layout(
+        title="Throughput — median Mbps ± IQR (sink bytes_received / sample duration)",
+        xaxis_title="SUT",
+        yaxis_title="Mbps",
+        template="plotly_white",
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 6 — Flush latency (grouped bar: p50/p95/p99 across samples)
+# ---------------------------------------------------------------------------
+
+def _flush_latency(suts: list[dict]) -> Optional[Any]:
+    """Return a flush-latency bar chart, or None when flush data is unavailable."""
+    import plotly.graph_objects as go
+
+    any_flush = any(
+        bool(s.get("summary", {}).get("flush_ns"))
+        for s in suts
+    )
+    if not any_flush:
+        return None
+
+    fig = go.Figure()
+    for pct, label, color in [(0.50, "p50", _COL_P50),
+                               (0.95, "p95", _COL_P95),
+                               (0.99, "p99", _COL_P99)]:
+        xs, ys = [], []
+        for sut in suts:
+            vals = sorted(
+                float(s["flush_ns"])
+                for s in sut.get("samples", [])
+                if s.get("flush_ns") is not None
+            )
+            if not vals:
+                continue
+            idx = (len(vals) - 1) * pct
+            lo, hi = int(idx), min(int(idx) + 1, len(vals) - 1)
+            val = vals[lo] + (vals[hi] - vals[lo]) * (idx - lo)
+            xs.append(sut["name"])
+            ys.append(val)
+        if xs:
+            fig.add_trace(go.Bar(name=label, x=xs, y=ys, marker_color=color))
+
+    fig.update_layout(
+        title="Flush latency — batch exporter ForceFlush() duration",
+        xaxis_title="SUT",
+        yaxis_title="nanoseconds",
+        barmode="group",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.15),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Chart 7 — Binary size (simple bar, one bar per SUT)
+# ---------------------------------------------------------------------------
+
+def _binary_size(suts: list[dict]) -> Optional[Any]:
+    """Return a binary-size bar chart, or None when no SUT has binary_bytes data."""
+    import plotly.graph_objects as go
+
+    names: list[str] = []
+    sizes: list[int] = []
+    for sut in suts:
+        bb = sut.get("binary_bytes")
+        if bb is not None:
+            names.append(sut["name"])
+            sizes.append(int(bb))
+
+    if not names:
+        return None
+
+    fig = go.Figure(go.Bar(x=names, y=sizes, marker_color=_COL_P50, showlegend=False))
+    fig.update_layout(
+        title="Executable binary size — /emit_app in SUT image",
+        xaxis_title="SUT",
+        yaxis_title="bytes",
+        template="plotly_white",
     )
     return fig
 

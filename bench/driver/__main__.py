@@ -95,11 +95,43 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--flamegraph-dir", default=None, metavar="DIR",
                    help="Path to FlameGraph scripts directory (overrides FLAMEGRAPH_DIR "
                         "env var and default search paths)")
+    p.add_argument("--sweep-attr-bytes", default=None, metavar="SIZES",
+                   help="Comma-separated list of EMIT_ATTRIBUTE_VALUE_BYTES values to sweep "
+                        "(e.g. '0,64,256,1024,4096'). Each value produces a separate SUT "
+                        "result named <sut>-<N>b so all sizes appear in one results.json.")
+    p.add_argument(
+        "--sweep-threads", default=None,
+        metavar="N,N,...",
+        help="Comma-separated thread counts to sweep (e.g. 1,2,4,8,16). "
+             "Creates one virtual SUT per count named {sut}-{N}t.",
+    )
+    p.add_argument(
+        "--sink-delay-ms", type=int, default=0, dest="sink_delay_ms",
+        metavar="MS",
+        help="Artificial per-request response delay injected into the blackhole sink (ms). "
+             "Drives the BSP queue toward saturation to measure backpressure behaviour.",
+    )
     return p.parse_args(argv)
 
 
 def _log(msg: str) -> None:
     print(f"[driver] {msg}", file=sys.stderr, flush=True)
+
+
+def _binary_bytes(engine: str, image_name: str) -> Optional[int]:
+    """Return the byte size of /emit_app inside the SUT image, or None on error."""
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [engine, "run", "--rm", "--entrypoint", "/bin/sh",
+             image_name, "-c", "wc -c < /emit_app"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode == 0:
+            return int(proc.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
+    return None
 
 
 def _otlp_endpoint(protocol: str) -> str:
@@ -175,15 +207,19 @@ def _build_images(
     return sut_image_ids
 
 
-def _start_sink(engine: str, sink_mode: str, verbose: bool) -> tuple[Any, AnySinkClient]:
+def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int = 0) -> tuple[Any, AnySinkClient]:
     """Start the sink container and return (Container context, SinkClient)."""
     sink_c = Container(engine, "bench-sink", verbose=verbose)
     if sink_mode == "blackhole":
+        sink_env: dict = {}
+        if sink_delay_ms > 0:
+            sink_env["SINK_RESPONSE_DELAY_MS"] = str(sink_delay_ms)
         sink_c.start(
             image=_BLACKHOLE_IMAGE,
             ports={8080: 8080},
             network=_NET_NAME,
             network_alias="sink",
+            env=sink_env if sink_env else None,
         )
         _log("waiting for blackhole-sink /health ...")
         wait_http("http://127.0.0.1:8080/health", timeout=30.0)
@@ -228,7 +264,8 @@ def _run_sut(
     container_name = f"bench-sut-{sut.name}"
 
     with Container(engine, container_name, verbose=verbose) as c:
-        env = {**sut.env, **profile_env}
+        # profile_env is the base; sut.env overrides (sweep values live in sut.env).
+        env = {**profile_env, **sut.env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
         c.start(
             image=image,
@@ -243,34 +280,81 @@ def _run_sut(
         with ControlClient("127.0.0.1", sut.ports.control) as ctrl:
             _log(f"  warmup ({warmup_spans} spans) ...")
             ctrl.run(warmup_spans, threads=threads, rate_hz=rate_hz)
-            time.sleep(0.5)
+            ctrl.flush()   # drain both BSP and exporter queues before resetting
+            time.sleep(0.1)
             sink_client.reset()
 
             for i in range(n_samples):
                 sink_client.reset()
                 result = ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
+                flush_result = ctrl.flush()
                 time.sleep(0.5)
                 sink_snap = sink_client.stats()
+                sink_errors = sink_snap.get("errors", 0)
+                sink_http_req = sink_snap.get("http_requests_received", 0)
+                sink_grpc_req = sink_snap.get("grpc_requests_received", 0)
                 _log(
                     f"  sample {i + 1}/{n_samples}: "
                     f"emitted={result['spans_emitted']} "
-                    f"p50={result['latency_p50_ns']}ns"
+                    f"sink_received={sink_snap['spans_received']} "
+                    f"(http={sink_http_req} grpc={sink_grpc_req}) "
+                    f"p50={result['latency_p50_ns']}ns "
+                    f"flush={flush_result.get('flush_ns', 0)}ns"
+                )
+                if sink_errors > 0:
+                    _log(
+                        f"  WARNING: sink errors={sink_errors} "
+                        f"last_error={sink_snap.get('last_error', '')!r}"
+                    )
+                elif sink_snap["spans_received"] == 0 and sink_http_req == 0 and sink_grpc_req == 0:
+                    _log(
+                        "  WARNING: sink received 0 requests — "
+                        "check endpoint URL, port, and container network"
+                    )
+                dur_ns = result.get("duration_ns", 0)
+                flush_ns = flush_result.get("flush_ns", 0)
+                bytes_rx = sink_snap.get("bytes_received")
+                total_ns = dur_ns + flush_ns
+                spans_rx = sink_snap["spans_received"]
+                # Wire throughput: bytes land at sink during flush, not during emit.
+                # Use flush_ns (the actual HTTP-transfer window) as denominator.
+                throughput_mbps = (
+                    bytes_rx * 8000.0 / flush_ns
+                    if (bytes_rx is not None and flush_ns > 0)
+                    else None
+                )
+                spans_per_sec = (
+                    spans_rx / total_ns * 1e9
+                    if (spans_rx > 0 and total_ns > 0)
+                    else None
+                )
+                spans_emitted_n = result["spans_emitted"]
+                delivery_rate_pct = round(
+                    sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2
                 )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
-                    "duration_ns":    result.get("duration_ns", 0),
+                    "duration_ns":     dur_ns,
+                    "spans_per_sec":   spans_per_sec,
+                    "throughput_mbps": throughput_mbps,
+                    "delivery_rate_pct": delivery_rate_pct,
                     "latency_p50_ns":    result["latency_p50_ns"],
                     "latency_p95_ns":    result["latency_p95_ns"],
                     "latency_p99_ns":    result["latency_p99_ns"],
                     "latency_min_ns":    result["latency_min_ns"],
                     "latency_max_ns":    result["latency_max_ns"],
                     "latency_histogram": result.get("latency_histogram", []),
+                    "flush_ns":          flush_ns,
                     "sink": {
-                        "mode":           sink_snap["mode"],
-                        "spans_received": sink_snap["spans_received"],
-                        "bytes_received": sink_snap["bytes_received"],
+                        "mode":                   sink_snap["mode"],
+                        "spans_received":         sink_snap["spans_received"],
+                        "bytes_received":         sink_snap["bytes_received"],
+                        "http_requests_received": sink_http_req,
+                        "grpc_requests_received": sink_grpc_req,
+                        "errors":                 sink_errors,
+                        "last_error":             sink_snap.get("last_error", ""),
                     },
                 })
 
@@ -313,7 +397,7 @@ def _collect_sut_results(
                 warmup_spans=profile.warmup_spans,
                 spans_per_sample=profile.spans_per_sample,
                 profile_env=profile.env,
-                threads=profile.threads,
+                threads=sut.threads_override if sut.threads_override is not None else profile.threads,
                 rate_hz=profile.target_rate_hz,
                 verbose=verbose,
                 flamegraph_dir=flamegraph_dir,
@@ -326,6 +410,9 @@ def _collect_sut_results(
         image_tag = (
             perf_image_name(sut.image_name) if flamegraph_dir else sut.image_name
         )
+        binary_size = _binary_bytes(engine, image_tag)
+        if binary_size is not None:
+            _log(f"  binary size: {binary_size:,} bytes")
         sut_results.append({
             "name":                sut.name,
             "library":             sut.library,
@@ -334,6 +421,7 @@ def _collect_sut_results(
             "library_build_flags": "",
             "image_tag":           image_tag,
             "image_id":            sut_image_ids.get(sut.name, ""),
+            "binary_bytes":        binary_size,
             "samples":             samples,
             "flamegraph_svg":      str(svg_path) if svg_path else None,
         })
@@ -388,21 +476,56 @@ def main(argv=None) -> int:
     )
     _log(f"SUTs: {[s.name for s in active_suts]}")
     _log(f"sink: {sink_mode}")
+    if args.sink_delay_ms > 0:
+        _log(f"sink delay: {args.sink_delay_ms} ms per request")
 
     fp = capture_env(engine)
     warns = env_warnings(fp, args.allow_smt)
     for w in warns:
         _log(f"WARNING: {w}")
 
+    # Build images before sweep expansion (deduplicated by image).
     sut_image_ids = _build_images(
         engine, sink_mode, active_suts, repo_root,
         args.no_build, args.verbose, flamegraph=args.flamegraph,
     )
 
+    # Expand active_suts for --sweep-attr-bytes: one virtual SUT per size,
+    # named <sut>-<N>b. Image ID is shared with the original SUT.
+    if args.sweep_attr_bytes:
+        try:
+            sweep_sizes = [int(s.strip()) for s in args.sweep_attr_bytes.split(",")]
+        except ValueError:
+            _log("ERROR: --sweep-attr-bytes must be comma-separated integers")
+            return 1
+        expanded = []
+        for sut in active_suts:
+            for size in sweep_sizes:
+                sweep_sut = dataclasses.replace(
+                    sut,
+                    name=f"{sut.name}-{size}b",
+                    env={**sut.env, "EMIT_ATTRIBUTE_VALUE_BYTES": str(size)},
+                )
+                expanded.append(sweep_sut)
+                sut_image_ids[sweep_sut.name] = sut_image_ids.get(sut.name, "")
+        active_suts = expanded
+        _log(f"sweep: {len(sweep_sizes)} sizes × {len(active_suts)//len(sweep_sizes)} SUT(s) "
+             f"= {len(active_suts)} runs")
+
+    if args.sweep_threads:
+        sweep_thread_counts = [int(t.strip()) for t in args.sweep_threads.split(",")]
+        expanded = []
+        for t in sweep_thread_counts:
+            for sut in active_suts:
+                expanded.append(dataclasses.replace(sut, name=f"{sut.name}-{t}t",
+                                                     threads_override=t))
+        active_suts = expanded
+        _log(f"thread sweep: {sweep_thread_counts} — {len(active_suts)} total runs")
+
     create_network(engine, _NET_NAME)
     sut_results = []
     try:
-        sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose)
+        sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose, sink_delay_ms=args.sink_delay_ms)
         with sink_c:
             sut_results = _collect_sut_results(
                 engine, active_suts, sink_client, sut_image_ids,
@@ -437,6 +560,7 @@ def main(argv=None) -> int:
         _log(
             f"{sr['name']}: p50={p50.get('median', 0):.0f}ns  "
             f"drop_rate={summary.get('drop_rate_pct', 0)}%  "
+            f"delivery={summary.get('delivery_rate_pct', 100.0):.2f}%  "
             f"samples={summary.get('reps', 0)}"
         )
 

@@ -6,6 +6,7 @@ package otlphttp
 import (
 	"io"
 	"net/http"
+	"time"
 
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
@@ -15,11 +16,17 @@ import (
 
 // NewHandler returns an http.Handler for the OTLP/HTTP listener on :4318.
 // Routes: POST /v1/traces (parsed), POST /v1/metrics and /v1/logs (stubbed).
-func NewHandler(c *counters.Counters) http.Handler {
+// The catch-all "/" route records unknown-path requests as errors so the bench
+// driver can distinguish "no requests arriving" from "requests hitting wrong path".
+func NewHandler(c *counters.Counters, delayMs int) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/v1/traces", &traceHandler{c: c})
+	mux.Handle("/v1/traces", &traceHandler{c: c, delayMs: delayMs})
 	mux.HandleFunc("/v1/metrics", stubOK)
 	mux.HandleFunc("/v1/logs", stubOK)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		c.RecordError("unknown path: " + r.URL.Path)
+		http.NotFound(w, r)
+	})
 	return mux
 }
 
@@ -35,7 +42,8 @@ func stubOK(w http.ResponseWriter, r *http.Request) {
 }
 
 type traceHandler struct {
-	c *counters.Counters
+	c       *counters.Counters
+	delayMs int
 }
 
 func (h *traceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +82,9 @@ func (h *traceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp := &tracepb.ExportTraceServiceResponse{}
 	respBody, _ := proto.Marshal(resp)
 
+	if h.delayMs > 0 {
+		time.Sleep(time.Duration(h.delayMs) * time.Millisecond)
+	}
 	w.Header().Set("Content-Type", "application/x-protobuf")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(respBody)

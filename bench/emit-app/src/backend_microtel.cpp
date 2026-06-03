@@ -7,6 +7,7 @@
 #include "microtel/sdk_builder.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <numeric>
@@ -36,7 +37,11 @@ public:
     {
         auto result = microtel::SdkBuilder{}
                           .WithEndpoint(opts.endpoint)
+#if defined(BENCH_MICROTEL_GRPC)
+                          .WithProtocol(microtel::Protocol::Grpc)
+#else
                           .WithProtocol(microtel::Protocol::Http)
+#endif
                           .WithServiceName(opts.service_name)
                           .WithServiceVersion(opts.service_version)
                           .WithCompressionGzip(opts.compression_gzip)
@@ -49,6 +54,13 @@ public:
         }
 
         m_provider = std::move(*result);
+
+        if (auto conn = m_provider->Connect(); !conn)
+        {
+            throw std::runtime_error("microtel::Provider::Connect() failed: " +
+                                     conn.error().message);
+        }
+
         m_tracer = m_provider->GetTracer("bench");
 
         m_attrs_per_span = opts.attributes_per_span;
@@ -83,6 +95,16 @@ public:
         child2->End();
         parent->End();
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] uint64_t ForceFlush() override
+    {
+        using Clock = std::chrono::steady_clock;
+        const auto t0 = Clock::now();
+        m_provider->ForceFlush(std::chrono::milliseconds(30'000));
+        const auto t1 = Clock::now();
+        return static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
     }
 
     void Shutdown() override

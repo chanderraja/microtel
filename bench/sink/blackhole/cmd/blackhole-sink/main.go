@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -36,8 +37,16 @@ const (
 func main() {
 	c := counters.New()
 
-	grpcSrv := buildGRPC(c)
-	httpSrv := buildHTTP(c)
+	delayMs := 0
+	if v := os.Getenv("SINK_RESPONSE_DELAY_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			delayMs = n
+			log.Printf("sink response delay: %d ms per request", delayMs)
+		}
+	}
+
+	grpcSrv := buildGRPC(c, delayMs)
+	httpSrv := buildHTTP(c, delayMs)
 	ctrlSrv := buildControl(c)
 
 	grpcLis, err := net.Listen("tcp", grpcAddr)
@@ -84,16 +93,16 @@ func main() {
 	_ = ctrlSrv.Shutdown(ctx)
 }
 
-func buildGRPC(c *counters.Counters) *grpc.Server {
+func buildGRPC(c *counters.Counters, delayMs int) *grpc.Server {
 	srv := grpc.NewServer()
-	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c))
+	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, delayMs))
 	reflection.Register(srv)
 	return srv
 }
 
-func buildHTTP(c *counters.Counters) *http.Server {
+func buildHTTP(c *counters.Counters, delayMs int) *http.Server {
 	h2s := &http2.Server{}
-	handler := otlphttp.NewHandler(c)
+	handler := otlphttp.NewHandler(c, delayMs)
 	return &http.Server{
 		Handler: h2c.NewHandler(handler, h2s),
 	}

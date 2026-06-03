@@ -63,6 +63,7 @@ def build_results(
             "library_build_flags": sr["library_build_flags"],
             "image_tag":           sr["image_tag"],
             "image_id":            sr["image_id"],
+            "binary_bytes":        sr.get("binary_bytes"),
             "samples":             samples,
             "summary":             _summarize(samples),
             "flamegraph_svg":      sr.get("flamegraph_svg"),
@@ -99,16 +100,26 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
     else:
         wire_bytes = None
 
+    flush_vals = [float(s["flush_ns"]) for s in samples if s.get("flush_ns") is not None]
+    tp_vals = [float(s["throughput_mbps"]) for s in samples
+               if s.get("throughput_mbps") is not None]
+    sps_vals = [float(s["spans_per_sec"]) for s in samples
+                if s.get("spans_per_sec") is not None]
+
     return {
         "reps":                  len(samples),
         "spans_emitted_total":   sum(s["spans_emitted"] for s in samples),
         "spans_dropped":         {k: _drop_sum(samples, k) for k in drop_keys},
         "drop_rate_pct":         _drop_rate(samples),
+        "delivery_rate_pct":     _delivery_rate_from_sink(samples),
         "latency_p50_ns":        _stats(_floats("latency_p50_ns")),
         "latency_p95_ns":        _stats(_floats("latency_p95_ns")),
         "latency_p99_ns":        _stats(_floats("latency_p99_ns")),
         "latency_min_ns":        _stats(_floats("latency_min_ns")),
         "latency_max_ns":        _stats(_floats("latency_max_ns")),
+        "flush_ns":              _stats(flush_vals) if flush_vals else None,
+        "spans_per_sec":         _stats(sps_vals) if sps_vals else None,
+        "throughput_mbps":       _stats(tp_vals) if tp_vals else None,
         "wire_bytes_per_span":   wire_bytes,
     }
 
@@ -119,6 +130,14 @@ def _drop_rate(samples: list[dict]) -> float:
     if total_emitted == 0:
         return 0.0
     return round(total_dropped / total_emitted * 100, 4)
+
+
+def _delivery_rate_from_sink(samples: list[dict]) -> float:
+    total_emitted = sum(s["spans_emitted"] for s in samples)
+    total_received = sum(s["sink"]["spans_received"] for s in samples)
+    if total_emitted == 0:
+        return 100.0
+    return round(total_received / total_emitted * 100, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +226,24 @@ def _render_md(doc: dict) -> str:
         _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p95 (ns)",   "latency_p95_ns", lambda v: f"{v:.0f}")
         _row("StartSpan p99 (ns)",   "latency_p99_ns", lambda v: f"{v:.0f}")
+        _row("Flush latency p50 (ns)", "flush_ns",      lambda v: f"{v:.0f}")
+        _row("Spans/sec",             "spans_per_sec",  lambda v: f"{v:,.0f}")
+        _row("Throughput (Mbps)",     "throughput_mbps", lambda v: f"{v:.1f}")
+        # Delivery rate row — computed from sink vs emitted, works even when SUT drop counters are unavailable.
+        dr_cells = []
+        for s in suts:
+            dr = s.get("summary", {}).get("delivery_rate_pct", 100.0)
+            dr_cells.append(f"{dr:.2f}%")
+        lines.append(f"| Delivery rate (sink/emitted) | " + " | ".join(dr_cells) + " |")
         _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
+
+        # Binary size row — pulled from top-level sut dict, not summary.
+        bin_cells = []
+        for s in suts:
+            bb = s.get("binary_bytes")
+            bin_cells.append(f"{bb:,}" if bb is not None else "N/A")
+        lines.append(f"| Binary size (bytes) | " + " | ".join(bin_cells) + " |")
+
         for s in suts:
             d = s.get("summary", {}).get("spans_dropped", {})
             lines.append(

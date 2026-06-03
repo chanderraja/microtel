@@ -42,6 +42,11 @@ class ControlClient:
         self._send({"cmd": "run", "spans": spans, "threads": threads, "rate_hz": rate_hz})
         return self._recv()
 
+    def flush(self) -> dict[str, Any]:
+        """Send a flush command and return {"flush_ns": N}."""
+        self._send({"cmd": "flush"})
+        return self._recv()
+
     def quit(self) -> None:
         """Send quit and wait for acknowledgement."""
         self._send({"cmd": "quit"})

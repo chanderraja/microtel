@@ -111,6 +111,7 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
         "spans_emitted_total":   sum(s["spans_emitted"] for s in samples),
         "spans_dropped":         {k: _drop_sum(samples, k) for k in drop_keys},
         "drop_rate_pct":         _drop_rate(samples),
+        "delivery_rate_pct":     _delivery_rate_from_sink(samples),
         "latency_p50_ns":        _stats(_floats("latency_p50_ns")),
         "latency_p95_ns":        _stats(_floats("latency_p95_ns")),
         "latency_p99_ns":        _stats(_floats("latency_p99_ns")),
@@ -129,6 +130,14 @@ def _drop_rate(samples: list[dict]) -> float:
     if total_emitted == 0:
         return 0.0
     return round(total_dropped / total_emitted * 100, 4)
+
+
+def _delivery_rate_from_sink(samples: list[dict]) -> float:
+    total_emitted = sum(s["spans_emitted"] for s in samples)
+    total_received = sum(s["sink"]["spans_received"] for s in samples)
+    if total_emitted == 0:
+        return 100.0
+    return round(total_received / total_emitted * 100, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +229,12 @@ def _render_md(doc: dict) -> str:
         _row("Flush latency p50 (ns)", "flush_ns",      lambda v: f"{v:.0f}")
         _row("Spans/sec",             "spans_per_sec",  lambda v: f"{v:,.0f}")
         _row("Throughput (Mbps)",     "throughput_mbps", lambda v: f"{v:.1f}")
+        # Delivery rate row — computed from sink vs emitted, works even when SUT drop counters are unavailable.
+        dr_cells = []
+        for s in suts:
+            dr = s.get("summary", {}).get("delivery_rate_pct", 100.0)
+            dr_cells.append(f"{dr:.2f}%")
+        lines.append(f"| Delivery rate (sink/emitted) | " + " | ".join(dr_cells) + " |")
         _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
 
         # Binary size row — pulled from top-level sut dict, not summary.

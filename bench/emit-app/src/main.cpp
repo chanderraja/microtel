@@ -43,11 +43,13 @@ int main()
         ? bench::WorkloadMode::RealisticRequest
         : bench::WorkloadMode::HotLoop;
 
+    const bool compression_gzip = EnvOr("EMIT_COMPRESSION_GZIP", "0") == "1";
+
     const bench::BackendOptions opts{
         .endpoint              = endpoint,
         .service_name          = svc_name,
         .service_version       = svc_version,
-        .compression_gzip      = false,
+        .compression_gzip      = compression_gzip,
         .attributes_per_span   = attrs_per_span,
         .attribute_value_bytes = attr_value_bytes,
     };

@@ -99,6 +99,18 @@ def _parse_args(argv=None) -> argparse.Namespace:
                    help="Comma-separated list of EMIT_ATTRIBUTE_VALUE_BYTES values to sweep "
                         "(e.g. '0,64,256,1024,4096'). Each value produces a separate SUT "
                         "result named <sut>-<N>b so all sizes appear in one results.json.")
+    p.add_argument(
+        "--sweep-threads", default=None,
+        metavar="N,N,...",
+        help="Comma-separated thread counts to sweep (e.g. 1,2,4,8,16). "
+             "Creates one virtual SUT per count named {sut}-{N}t.",
+    )
+    p.add_argument(
+        "--sink-delay-ms", type=int, default=0, dest="sink_delay_ms",
+        metavar="MS",
+        help="Artificial per-request response delay injected into the blackhole sink (ms). "
+             "Drives the BSP queue toward saturation to measure backpressure behaviour.",
+    )
     return p.parse_args(argv)
 
 
@@ -195,15 +207,19 @@ def _build_images(
     return sut_image_ids
 
 
-def _start_sink(engine: str, sink_mode: str, verbose: bool) -> tuple[Any, AnySinkClient]:
+def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int = 0) -> tuple[Any, AnySinkClient]:
     """Start the sink container and return (Container context, SinkClient)."""
     sink_c = Container(engine, "bench-sink", verbose=verbose)
     if sink_mode == "blackhole":
+        sink_env: dict = {}
+        if sink_delay_ms > 0:
+            sink_env["SINK_RESPONSE_DELAY_MS"] = str(sink_delay_ms)
         sink_c.start(
             image=_BLACKHOLE_IMAGE,
             ports={8080: 8080},
             network=_NET_NAME,
             network_alias="sink",
+            env=sink_env if sink_env else None,
         )
         _log("waiting for blackhole-sink /health ...")
         wait_http("http://127.0.0.1:8080/health", timeout=30.0)
@@ -312,6 +328,10 @@ def _run_sut(
                     if (spans_rx > 0 and total_ns > 0)
                     else None
                 )
+                spans_emitted_n = result["spans_emitted"]
+                delivery_rate_pct = round(
+                    sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2
+                )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_dropped":  result["spans_dropped"],
@@ -319,6 +339,7 @@ def _run_sut(
                     "duration_ns":     dur_ns,
                     "spans_per_sec":   spans_per_sec,
                     "throughput_mbps": throughput_mbps,
+                    "delivery_rate_pct": delivery_rate_pct,
                     "latency_p50_ns":    result["latency_p50_ns"],
                     "latency_p95_ns":    result["latency_p95_ns"],
                     "latency_p99_ns":    result["latency_p99_ns"],
@@ -376,7 +397,7 @@ def _collect_sut_results(
                 warmup_spans=profile.warmup_spans,
                 spans_per_sample=profile.spans_per_sample,
                 profile_env=profile.env,
-                threads=profile.threads,
+                threads=sut.threads_override if sut.threads_override is not None else profile.threads,
                 rate_hz=profile.target_rate_hz,
                 verbose=verbose,
                 flamegraph_dir=flamegraph_dir,
@@ -455,6 +476,8 @@ def main(argv=None) -> int:
     )
     _log(f"SUTs: {[s.name for s in active_suts]}")
     _log(f"sink: {sink_mode}")
+    if args.sink_delay_ms > 0:
+        _log(f"sink delay: {args.sink_delay_ms} ms per request")
 
     fp = capture_env(engine)
     warns = env_warnings(fp, args.allow_smt)
@@ -489,10 +512,20 @@ def main(argv=None) -> int:
         _log(f"sweep: {len(sweep_sizes)} sizes × {len(active_suts)//len(sweep_sizes)} SUT(s) "
              f"= {len(active_suts)} runs")
 
+    if args.sweep_threads:
+        sweep_thread_counts = [int(t.strip()) for t in args.sweep_threads.split(",")]
+        expanded = []
+        for t in sweep_thread_counts:
+            for sut in active_suts:
+                expanded.append(dataclasses.replace(sut, name=f"{sut.name}-{t}t",
+                                                     threads_override=t))
+        active_suts = expanded
+        _log(f"thread sweep: {sweep_thread_counts} — {len(active_suts)} total runs")
+
     create_network(engine, _NET_NAME)
     sut_results = []
     try:
-        sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose)
+        sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose, sink_delay_ms=args.sink_delay_ms)
         with sink_c:
             sut_results = _collect_sut_results(
                 engine, active_suts, sink_client, sut_image_ids,
@@ -527,6 +560,7 @@ def main(argv=None) -> int:
         _log(
             f"{sr['name']}: p50={p50.get('median', 0):.0f}ns  "
             f"drop_rate={summary.get('drop_rate_pct', 0)}%  "
+            f"delivery={summary.get('delivery_rate_pct', 100.0):.2f}%  "
             f"samples={summary.get('reps', 0)}"
         )
 

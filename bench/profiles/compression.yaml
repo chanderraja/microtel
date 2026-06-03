@@ -1,0 +1,42 @@
+# compression — compares gzip vs no-gzip across payload sizes.
+#
+# Run standalone (256-byte attributes):
+#
+#   ./bench/bench.sh --profile compression
+#
+# Or sweep attribute sizes to find the crossover point:
+#
+#   ./bench/bench.sh --profile compression \
+#       --sweep-attr-bytes 64,256,1024,4096
+
+profile: compression
+description: "Gzip vs no-gzip: Mbps, wire bytes/span, and spans/sec vs payload size"
+
+workload:
+  mode: hot_loop
+  spans_per_sample: 10000
+  samples: 5
+  warmup_spans: 1000
+
+sink:
+  mode: blackhole
+
+# Default: 1 attribute of 256 bytes. Override via --sweep-attr-bytes.
+env:
+  EMIT_ATTRIBUTES_PER_SPAN: "1"
+  EMIT_ATTRIBUTE_VALUE_BYTES: "256"
+
+suts:
+  - microtel
+  - microtel-gzip
+  - microtel-grpc
+  - microtel-grpc-gzip
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - spans_per_sec
+  - throughput_mbps
+  - latency_p50_ns
+  - latency_p99_ns

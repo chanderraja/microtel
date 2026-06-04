@@ -1,0 +1,42 @@
+# soak — long-running stability profile
+#
+# Emits a large sustained volume of spans to surface:
+#   - Memory growth (RSS creep under sustained load)
+#   - Span drop instability (drop rate must stay < 1% across all samples)
+#   - Delivery rate degradation (sink must receive >= 99% of emitted spans)
+#   - Throughput floor collapse
+#
+# Run via the weekly soak.yml CI job or manually:
+#   cd bench && python3 -m driver --profile soak --sink blackhole --out /tmp/soak-out
+#
+# The soak.yml job checks delivery_rate_pct >= 99.0 and drop_rate_pct <= 1.0
+# for every SUT in the results; either failure exits non-zero.
+
+profile: soak
+description: "Sustained-load stability — 600 K spans/SUT, 6 samples, checks delivery and drop rate"
+
+workload:
+  mode: hot_loop
+  spans_per_sample: 100000   # 100 K spans per sample (10x hot-loop)
+  samples: 6                 # 6 samples → 600 K spans per SUT
+  warmup_spans: 10000        # discard first 10 K spans before timing
+
+sink:
+  mode: blackhole
+  protocol: auto
+
+suts:
+  - microtel
+  - microtel-grpc
+  - otelcpp-grpc
+  - otelcpp-http
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

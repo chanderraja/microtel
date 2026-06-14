@@ -158,6 +158,7 @@ public:
 
     void Stop()
     {
+        m_stop.store(true, std::memory_order_release);
         if (m_listen_fd >= 0)
         {
             ::close(m_listen_fd);
@@ -178,6 +179,15 @@ private:
             return;
         }
         RunHandshake(client_fd);
+        // Keep the connection open until Stop().  Closing immediately after the
+        // handshake makes the client's Connected state transient: the reactor
+        // I/O thread observes the peer close and correctly resets to
+        // Disconnected, which races the test's GetState() check (and loses under
+        // TSAN's slower scheduling).
+        while (!m_stop.load(std::memory_order_acquire))
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
         ::close(client_fd);
     }
 
@@ -232,6 +242,7 @@ private:
     int m_port = 0;
     std::thread m_thread;
     std::atomic<bool> m_handshake_done{false};
+    std::atomic<bool> m_stop{false};
 };
 
 }  // namespace
@@ -263,6 +274,15 @@ TEST(Http2TransportIntegrationTest, Connect_InsecureLoopback_Succeeds)
 
     if (result.has_value())
     {
+        // Connect() publishes Connected synchronously, but the reactor I/O
+        // thread owns the state afterward; poll briefly so the assertion does
+        // not race a transient transition under heavy instrumentation (TSAN).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (t->GetState() != mt::ConnectionState::Connected &&
+               std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
         EXPECT_EQ(t->GetState(), mt::ConnectionState::Connected);
     }
 

@@ -1,0 +1,38 @@
+# otel-collector config for interop testing and --sink collector bench runs.
+#
+# Accepts OTLP/gRPC on :4317 and OTLP/HTTP on :4318.
+# Exports to the debug exporter (logs spans to stdout).
+# Exposes Prometheus metrics on :8888 — the interop CI job reads
+# otelcol_receiver_accepted_spans_total to verify delivery.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 200ms
+    send_batch_size: 512
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [debug]

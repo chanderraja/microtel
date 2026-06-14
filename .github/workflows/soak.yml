@@ -1,0 +1,104 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Soak test — weekly stability run. NOT a per-PR gate.
+#
+# Runs the soak profile (600 K spans per SUT) and enforces two hard thresholds:
+#   delivery_rate_pct >= 99.0%  (sink received / emitted)
+#   drop_rate_pct     <= 1.0%   (SUT internal drop counter / emitted)
+#
+# Any SUT that violates either threshold fails the job.
+#
+# Results are uploaded as artifacts for 90 days. No baseline comparison is
+# done here — the soak job is about absolute stability, not relative change.
+
+name: soak
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'   # weekly, Sunday 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: soak
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    name: Soak test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    env:
+      OUT_DIR: ${{ github.workspace }}/soak-results
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Python version
+        run: python3 --version
+
+      - name: Install Python dependencies
+        run: pip install plotly
+
+      - name: Run driver unit tests
+        working-directory: bench
+        run: python3 -m pytest driver/tests/ -q
+
+      - name: Run soak profile
+        working-directory: bench
+        run: |
+          python3 -m driver \
+            --profile soak \
+            --sink    blackhole \
+            --out     "$OUT_DIR" \
+            --allow-smt
+
+      - name: Check stability thresholds
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          from pathlib import Path
+
+          results_path = Path("${{ env.OUT_DIR }}/results.json")
+          if not results_path.exists():
+              print("ERROR: results.json not found")
+              sys.exit(1)
+
+          doc = json.loads(results_path.read_text())
+          failed = []
+
+          for sut in doc.get("suts", []):
+              name    = sut["name"]
+              summary = sut.get("summary", {})
+              delivery = summary.get("delivery_rate_pct", 0.0)
+              drop     = summary.get("drop_rate_pct",     100.0)
+
+              if delivery < 99.0:
+                  failed.append(f"  {name}: delivery_rate_pct={delivery:.4f}% < 99.0%")
+              if drop > 1.0:
+                  failed.append(f"  {name}: drop_rate_pct={drop:.4f}% > 1.0%")
+
+          if failed:
+              print("FAIL — soak thresholds violated:")
+              for line in failed:
+                  print(line)
+              sys.exit(1)
+
+          print(f"PASS — all {len(doc.get('suts', []))} SUTs within soak thresholds.")
+          EOF
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-results-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}/
+          retention-days: 90
+
+      - name: Print summary
+        if: always()
+        run: |
+          if [ -f "$OUT_DIR/results.md" ]; then
+            cat "$OUT_DIR/results.md" >> "$GITHUB_STEP_SUMMARY"
+          fi

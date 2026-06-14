@@ -79,3 +79,14 @@ bench/results/
 bench/sink/blackhole/blackhole-sink
 *.pyc
 __pycache__/
+
+# In-tree CMake configure/build artifacts (e.g. the MICROTEL_BUILD_BENCH=ON in-tree build)
+_deps/
+build_*/
+
+# Compiled test binaries from in-tree builds (test sources are *_test.cpp and stay tracked)
+tests/**/*_test
+
+# Compiled tool/check binaries from in-tree builds
+/microtel_header_check
+/tools/preflight/microtel-preflight

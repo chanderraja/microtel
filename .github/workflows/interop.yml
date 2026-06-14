@@ -1,0 +1,130 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Collector interop matrix — validates that microtel can export spans to
+# real OTLP-compatible backends. Runs weekly and on manual dispatch.
+# NOT a per-PR gate (image builds + collector startup are too slow).
+#
+# Backends tested:
+#   otel-collector  OTLP/HTTP (microtel) and OTLP/gRPC (microtel-grpc) via the
+#                   bench driver's built-in --sink collector mode.
+#                   Verification: delivery_rate_pct >= 95% in results.json.
+#
+#   jaeger          OTLP/gRPC and OTLP/HTTP via jaegertracing/all-in-one.
+#                   Verification: Jaeger query API returns at least one user
+#                   service name (i.e. spans arrived and were indexed).
+#
+# otelcol job uses the bench driver's --sink collector mode, which builds and
+# manages the otel-collector container internally (bench/sink/collector/).
+#
+# jaeger job uses bench/scripts/jaeger_interop.py which manages containers
+# directly — the bench driver has no built-in Jaeger sink mode.
+#
+# Failure modes caught:
+#   - Wire incompatibility (wrong framing, missing headers, unexpected status)
+#   - Content-type negotiation failures
+#   - TLS / plaintext mismatch (insecure mode)
+#   - Partial-success parsing edge cases with real collector responses
+
+name: interop
+
+on:
+  schedule:
+    - cron: '0 5 * * 2'   # weekly, Tuesday 05:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: interop
+  cancel-in-progress: true
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # otel-collector interop — driver handles container lifecycle
+  # ---------------------------------------------------------------------------
+
+  otelcol:
+    name: otel-collector (OTLP/HTTP + gRPC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install plotly
+
+      - name: Run microtel HTTP → otel-collector
+        working-directory: bench
+        run: |
+          python3 -m driver \
+            --sink collector \
+            --sut microtel \
+            --reps 3 \
+            --out /tmp/interop-otelcol-http
+
+      - name: Run microtel-grpc gRPC → otel-collector
+        working-directory: bench
+        run: |
+          python3 -m driver \
+            --sink collector \
+            --sut microtel-grpc \
+            --reps 3 \
+            --out /tmp/interop-otelcol-grpc
+
+      - name: Verify delivery
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+
+          failed = False
+          for label, path in [
+              ("microtel HTTP",    "/tmp/interop-otelcol-http/results.json"),
+              ("microtel-grpc gRPC", "/tmp/interop-otelcol-grpc/results.json"),
+          ]:
+              doc = json.loads(open(path).read())
+              for sut in doc["suts"]:
+                  rate = sut["summary"].get("delivery_rate_pct", 0.0)
+                  if rate < 95.0:
+                      print(f"FAIL [{label}] {sut['name']}: delivery_rate_pct={rate}% < 95%")
+                      failed = True
+                  else:
+                      print(f"PASS [{label}] {sut['name']}: delivery_rate_pct={rate}%")
+
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-otelcol-${{ github.run_id }}
+          path: |
+            /tmp/interop-otelcol-http/
+            /tmp/interop-otelcol-grpc/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Jaeger interop — standalone script manages containers directly
+  # ---------------------------------------------------------------------------
+
+  jaeger:
+    name: Jaeger (OTLP/HTTP + gRPC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install plotly
+
+      - name: Pull Jaeger image
+        run: docker pull jaegertracing/all-in-one:latest
+
+      - name: Run Jaeger interop
+        run: python3 bench/scripts/jaeger_interop.py --engine docker
+
+      - name: Jaeger container logs on failure
+        if: failure()
+        run: docker logs jaeger-interop 2>/dev/null || true

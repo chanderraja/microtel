@@ -43,7 +43,7 @@ public:
     }
 
     microtel::Expected<void, microtel::Error> Connect(
-        const microtel::internal::ConnectOptions&) override
+        const microtel::internal::ConnectOptions& /*opts*/) override
     {
         return {};
     }
@@ -56,14 +56,14 @@ public:
         return microtel::internal::RequestHandle{0, p.get_future()};
     }
 
-    void Cancel(const microtel::internal::RequestHandle&) noexcept override {}
+    void Cancel(const microtel::internal::RequestHandle& /*handle*/) noexcept override {}
 
     microtel::ConnectionState GetState() const noexcept override
     {
         return microtel::ConnectionState::Connected;
     }
 
-    microtel::Status Close(std::chrono::milliseconds) noexcept override
+    microtel::Status Close(std::chrono::milliseconds /*timeout*/) noexcept override
     {
         return microtel::Status::Completed;
     }

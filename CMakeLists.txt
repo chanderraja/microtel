@@ -155,6 +155,14 @@ if(MICROTEL_BUILD_BENCH)
     add_subdirectory(bench)
 endif()
 
+# Standalone, runnable demonstrations of the public API. Default OFF; the
+# examples link microtel_sdk, so they require the libraries to be configured.
+option(MICROTEL_BUILD_EXAMPLES "Build the standalone API examples" OFF)
+
+if(MICROTEL_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
 option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
 
 if(MICROTEL_BUILD_TESTS)

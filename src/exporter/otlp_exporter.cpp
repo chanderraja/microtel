@@ -158,22 +158,31 @@ double OtlpExporter::DrawJitter01() noexcept
 
 void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
 {
-    std::vector<internal::BatchHandle> batches;
+    // Drain until the queue is genuinely empty. The lock is released while
+    // FanOutAndProcess runs, so Export() can enqueue more batches mid-drain. A
+    // single pass would leave those undrained while WorkerLoop still marked a
+    // pending flush complete — letting ForceFlush return before every queued
+    // batch was processed. Looping until empty under the held lock closes that
+    // window and upholds ForceFlush's "queue drained" contract.
     while (!m_queue.empty())
     {
-        batches.push_back(std::move(m_queue.front()));
-        m_queue.pop_front();
+        std::vector<internal::BatchHandle> batches;
+        while (!m_queue.empty())
+        {
+            batches.push_back(std::move(m_queue.front()));
+            m_queue.pop_front();
+        }
+        lock.unlock();
+        try
+        {
+            FanOutAndProcess(batches);
+        }
+        // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook added in M3-C
+        catch (const std::exception&)
+        {
+        }
+        lock.lock();
     }
-    lock.unlock();
-    try
-    {
-        FanOutAndProcess(batches);
-    }
-    // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook added in M3-C
-    catch (const std::exception&)
-    {
-    }
-    lock.lock();
 }
 
 void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& batches)

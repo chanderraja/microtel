@@ -69,8 +69,8 @@ TEST(OtlpExporterTest, Export_CallsEncoderAndCodec)
     EXPECT_EQ(result, mti::ExportResult::Success);
 
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(encoder.encode_call_count, 1);
-    EXPECT_EQ(codec.send_call_count, 1);
+    EXPECT_EQ(encoder.encode_call_count.load(), 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
 }
 
 TEST(OtlpExporterTest, Export_MultipleExports_AllProcessed)
@@ -85,8 +85,8 @@ TEST(OtlpExporterTest, Export_MultipleExports_AllProcessed)
     (void)exporter.Export(MakeBatch());
 
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(encoder.encode_call_count, 3);
-    EXPECT_EQ(codec.send_call_count, 3);
+    EXPECT_EQ(encoder.encode_call_count.load(), 3);
+    EXPECT_EQ(codec.send_call_count.load(), 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ TEST(OtlpExporterTest, Shutdown_WaitsForPendingBatch)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.Shutdown(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(encoder.encode_call_count, 1);
+    EXPECT_EQ(encoder.encode_call_count.load(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ TEST(OtlpExporterTest, Export_NonRetryableFailure_SingleAttempt)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,8 +188,8 @@ TEST(OtlpExporterTest, Retry_RetryableFailure_ExhaustsMaxAttempts)
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
     // 3 attempts total (1 initial + 2 retries)
-    EXPECT_EQ(codec.send_call_count, 3);
-    EXPECT_EQ(encoder.encode_call_count, 3);
+    EXPECT_EQ(codec.send_call_count.load(), 3);
+    EXPECT_EQ(encoder.encode_call_count.load(), 3);
 }
 
 TEST(OtlpExporterTest, Retry_SuccessOnSecondAttempt_StopsRetrying)
@@ -205,8 +205,8 @@ TEST(OtlpExporterTest, Retry_SuccessOnSecondAttempt_StopsRetrying)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 2);
-    EXPECT_EQ(encoder.encode_call_count, 2);
+    EXPECT_EQ(codec.send_call_count.load(), 2);
+    EXPECT_EQ(encoder.encode_call_count.load(), 2);
 }
 
 TEST(OtlpExporterTest, Retry_NonRetryableAfterRetryable_StopsImmediately)
@@ -222,7 +222,7 @@ TEST(OtlpExporterTest, Retry_NonRetryableAfterRetryable_StopsImmediately)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 2);
+    EXPECT_EQ(codec.send_call_count.load(), 2);
 }
 
 TEST(OtlpExporterTest, Retry_MaxAttemptsOne_NeverRetries)
@@ -237,7 +237,7 @@ TEST(OtlpExporterTest, Retry_MaxAttemptsOne_NeverRetries)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
 }
 
 TEST(OtlpExporterTest, Retry_BudgetExhausted_StopsAfterFirstAttempt)
@@ -260,7 +260,7 @@ TEST(OtlpExporterTest, Retry_BudgetExhausted_StopsAfterFirstAttempt)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
 }
 
 TEST(OtlpExporterTest, Retry_SuccessOnFirstAttempt_NeverRetries)
@@ -275,5 +275,5 @@ TEST(OtlpExporterTest, Retry_SuccessOnFirstAttempt_NeverRetries)
 
     (void)exporter.Export(MakeBatch());
     ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count, 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
 }

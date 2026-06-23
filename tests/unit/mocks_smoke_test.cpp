@@ -44,7 +44,7 @@ TEST(MockOtlpEncoder, ReturnsConfiguredBytes)
     const mt::internal::BatchHandle batch{};
     const auto payload = mock.Encode(batch);
 
-    EXPECT_EQ(mock.encode_call_count, 1);
+    EXPECT_EQ(mock.encode_call_count.load(), 1);
     EXPECT_EQ(payload.Size(), std::size_t{3});
     EXPECT_EQ(payload.Bytes()[0], std::byte{0x01});
     EXPECT_EQ(payload.Bytes()[2], std::byte{0x03});
@@ -59,7 +59,7 @@ TEST(MockWireCodec, ReturnsConfiguredResult)
     mt::internal::EncodedPayload empty{};
     auto result = mock.Send(std::move(empty), std::chrono::seconds{1});
 
-    EXPECT_EQ(mock.send_call_count, 1);
+    EXPECT_EQ(mock.send_call_count.load(), 1);
     EXPECT_TRUE(result.success);
     EXPECT_EQ(result.partial_success_rejected, std::uint32_t{7});
 }

@@ -6,6 +6,7 @@
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -27,7 +28,9 @@ public:
     std::vector<std::byte> bytes_to_return{};
 
     // --- Recording ---
-    int encode_call_count = 0;
+    // Atomic: OtlpExporter's worker thread calls Encode() while the test thread
+    // reads the count after ForceFlush, so the counter is accessed cross-thread.
+    std::atomic<int> encode_call_count{0};
 
     // --- IOtlpEncoder ---
 

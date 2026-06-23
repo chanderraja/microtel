@@ -7,6 +7,7 @@
 #include "microtel/internal/wire_codec.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include <atomic>
 #include <chrono>
 
 namespace microtel::testing
@@ -26,7 +27,9 @@ public:
     internal::WireResult result_to_return{};
 
     // --- Recording ---
-    int send_call_count = 0;
+    // Atomic: OtlpExporter's worker thread calls Send() (via SendAll) while the
+    // test thread reads the count after ForceFlush, so it is accessed cross-thread.
+    std::atomic<int> send_call_count{0};
 
     // --- IWireCodec ---
 

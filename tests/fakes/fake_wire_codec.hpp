@@ -7,6 +7,7 @@
 #include "microtel/internal/wire_codec.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <deque>
 
@@ -23,7 +24,9 @@ class FakeWireCodec : public internal::IWireCodec
 {
 public:
     // --- Recording ---
-    int send_call_count = 0;
+    // Atomic: OtlpExporter's worker thread calls Send() while the test thread
+    // reads the count after ForceFlush, so it is accessed cross-thread.
+    std::atomic<int> send_call_count{0};
 
     // --- Configurable ---
     /// @brief FIFO of scripted results; each Send pops the front.

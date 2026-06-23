@@ -1,0 +1,14 @@
+# graphify corpus exclusions (gitignore syntax; graphify does NOT read .gitignore).
+# Keeps the knowledge graph focused on source + design docs.
+
+# The committed graph snapshot itself. It lists node and community names, so
+# indexing it makes graphify generate nodes about its own prior output —
+# self-referential churn that inflated every snapshot refresh.
+docs/graph-report.md
+
+# In-tree CMake build directories and vendored dependency trees. graphify
+# scans these unless excluded here, pulling googletest/spdlog/tomlplusplus and
+# build artifacts into the graph. Listing them lets `graphify update .` run
+# clean without moving these dirs out of the tree first.
+build*/
+_deps/

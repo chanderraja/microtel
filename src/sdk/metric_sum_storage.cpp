@@ -21,12 +21,12 @@ void SumStorage<T>::Add(T value, AttributeSpan attrs)
 }
 
 template <typename T>
-internal::SumData SumStorage<T>::Collect() const
+internal::SumData SumStorage<T>::Collect(internal::AggregationTemporality temporality)
 {
     const std::scoped_lock lock{m_mu};
 
     internal::SumData data;
-    data.temporality = internal::AggregationTemporality::Cumulative;
+    data.temporality = temporality;
     data.is_monotonic = m_monotonic;
     data.points.reserve(m_points.size());
 
@@ -37,6 +37,12 @@ internal::SumData SumStorage<T>::Collect() const
         point.attributes.assign(pairs.begin(), pairs.end());
         point.value = sum;  // T (int64_t/double) selects the MetricValue alternative
         data.points.push_back(std::move(point));
+    }
+
+    // Delta reports the increment since the last collect, so clear live state.
+    if (temporality == internal::AggregationTemporality::Delta)
+    {
+        m_points.clear();
     }
     return data;
 }

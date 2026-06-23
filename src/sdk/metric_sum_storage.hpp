@@ -38,8 +38,13 @@ public:
     /// @brief Accumulate `value` into the point for `attrs` (hot path).
     void Add(T value, AttributeSpan attrs);
 
-    /// @brief Snapshot the running totals as cumulative `SumData`.
-    [[nodiscard]] internal::SumData Collect() const;
+    /// @brief Snapshot the running totals as `SumData`.
+    ///
+    /// Cumulative (default) retains state across collects. Delta reports the
+    /// totals accumulated since the previous collect and then clears the live
+    /// state (so series with no new measurements are simply absent next cycle).
+    [[nodiscard]] internal::SumData Collect(internal::AggregationTemporality temporality =
+                                                internal::AggregationTemporality::Cumulative);
 
 private:
     mutable std::mutex m_mu;

@@ -104,8 +104,31 @@ TEST(SumStorageTest, MonotonicFlagPropagates)
 
 TEST(SumStorageTest, CollectIsCumulativeTemporality)
 {
-    const mts::SumStorage<std::int64_t> storage{true};
+    mts::SumStorage<std::int64_t> storage{true};
     EXPECT_EQ(storage.Collect().temporality, mti::AggregationTemporality::Cumulative);
+}
+
+TEST(SumStorageTest, DeltaReportsSinceLastCollectAndClears)
+{
+    mts::SumStorage<std::int64_t> storage{true};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Add(5, mt::AttributeSpan{attrs});
+    storage.Add(3, mt::AttributeSpan{attrs});
+
+    const mti::SumData first = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(first.points.size(), 1U);
+    EXPECT_EQ(first.temporality, mti::AggregationTemporality::Delta);
+    EXPECT_EQ(PointValue<std::int64_t>(first, 0), 8);
+
+    // Nothing recorded since the previous delta collect → empty.
+    EXPECT_TRUE(storage.Collect(mti::AggregationTemporality::Delta).points.empty());
+
+    // New activity reports only the new increment.
+    storage.Add(4, mt::AttributeSpan{attrs});
+    const mti::SumData third = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(third.points.size(), 1U);
+    EXPECT_EQ(PointValue<std::int64_t>(third, 0), 4);
 }
 
 TEST(SumStorageTest, DoubleValuesAccumulate)

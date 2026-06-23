@@ -44,6 +44,14 @@ microtel_add_test(
 target_include_directories(metric_histogram_storage_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — base-2 exponential Histogram aggregation storage.
+microtel_add_test(
+    NAME    metric_exp_histogram_storage_test
+    SOURCES metric_exp_histogram_storage_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_exp_histogram_storage_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp

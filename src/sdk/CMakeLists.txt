@@ -11,6 +11,7 @@ add_library(microtel_sdk STATIC
     metric_sum_storage.cpp
     metric_gauge_storage.cpp
     metric_histogram_storage.cpp
+    metric_exp_histogram_storage.cpp
     simple_span_processor.cpp
     noop_span.cpp
     sdk_span.cpp

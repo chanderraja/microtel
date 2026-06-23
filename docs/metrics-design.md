@@ -1,7 +1,7 @@
 # microtel Metrics Design
 
-**Status:** Draft — M11 skeleton. **Not yet signed off.** No implementation
-until this document is complete and a reviewer has approved it (per
+**Status:** Draft — M11, **proposed decisions pending reviewer sign-off.** No
+implementation until the sign-off checklist below is fully checked (per
 `microtel-roadmap.md` §1.2 and `microtel-spec.md` §M11). Implementation is M12.
 
 This document settles the semantic decisions that v1.0 deliberately deferred so
@@ -11,23 +11,27 @@ design document, not an interface header: it decides *what* and *why*; the
 concrete `include/microtel/` headers it implies are drafted during M12 and, if
 they touch any locked surface, follow the ICP process.
 
+Each section now carries a concrete **Decision**. Defaults follow the
+OpenTelemetry SDK spec unless a project constraint (footprint, the existing
+trace conventions) dictates otherwise; where that's the case it is called out.
+
 ## Scope
 
-In scope for v1.2 (this doc must decide all of these):
+In scope for v1.2 (this doc decides all of these):
 
 - Synchronous instruments: `Counter`, `UpDownCounter`, `Gauge`, `Histogram`.
 - Asynchronous instruments: `ObservableCounter`, `ObservableUpDownCounter`,
   `ObservableGauge`.
-- `MeterProvider` / `Meter` surface and lifecycle.
-- `MetricReader` / `MetricExporter` pipeline reusing the existing OTLP encoder
+- `Meter` surface and lifecycle (acquired from the existing `Provider`).
+- `MetricReader` / `MetricExporter` pipeline reusing the OTLP encoder
   (`src/wire/encoder/`) and nghttp2 transport (`src/transport/`).
 - Aggregation temporality (delta / cumulative), per-metric configurable.
 - Cardinality limits with the OTel overflow attribute and drop accounting.
 - Views (basic: rename, attribute filter, aggregation override).
 - Exemplars linked to active span context.
-- `mt::Timer` sugar wired into histograms (completes the v1.1-deferred piece).
+- `mt::Timer` sugar wired into histograms.
 
-Explicitly **out of scope** for v1.2 (anti-goals; do not design here):
+Explicitly **out of scope** for v1.2 (anti-goals):
 
 - Logs (v1.3).
 - Advanced exemplar storage/formats beyond span-context linkage.
@@ -36,146 +40,220 @@ Explicitly **out of scope** for v1.2 (anti-goals; do not design here):
 
 ## Sign-off checklist
 
-Each item below must reach a concrete **Decision** (not "TBD") before sign-off.
-Reviewer approves by checking every box.
+Each item has a proposed **Decision** below. Reviewer approves by checking every
+box (and editing any decision they want changed first).
 
-- [ ] §1 Aggregation temporality (delta vs cumulative; default; per-metric override)
-- [ ] §2 Cardinality limits (limit, overflow attribute, drop accounting)
-- [ ] §3 Histogram bucket configuration (default boundaries; per-view override; exponential?)
-- [ ] §4 Async-instrument callback semantics (registration, timing, threading, re-entrancy)
-- [ ] §5 MetricReader / MetricExporter interaction (collect cadence, push vs pull, flush/shutdown)
-- [ ] §6 Views (selector surface, allowed transforms, conflict rules)
-- [ ] §7 Exemplars (reservoir, span-context linkage, sampling interaction)
-- [ ] §8 Instrument API surface (the seven instruments + MeterProvider/Meter)
-- [ ] §9 Memory & threading model (hot-path noexcept, allocation budget, lock strategy)
+- [ ] §1 Aggregation temporality — **default cumulative**, per-metric override
+- [ ] §2 Cardinality limits — default 2000, OTel overflow attribute, new `DropReason` (**ICP**)
+- [ ] §3 Histogram buckets — **explicit + exponential**, configurable
+- [ ] §4 Async-instrument callback semantics
+- [ ] §5 MetricReader / MetricExporter interaction
+- [ ] §6 Views — selector surface, transforms, conflict rules
+- [ ] §7 Exemplars — **in for v1.2**, reservoir + span-context linkage
+- [ ] §8 Instrument API surface (`Provider::GetMeter` + the seven instruments)
+- [ ] §9 Memory & threading model
 - [ ] §10 Wire mapping (OTLP metrics protobuf; encoder/transport reuse)
-- [ ] §11 Configuration & compatibility (SdkBuilder additions, env vars, tier impact)
+- [ ] §11 Configuration & compatibility
 
 ---
 
 ## §1 Aggregation temporality
 
 **Context.** OTLP supports DELTA and CUMULATIVE temporality. The choice affects
-collector compatibility, memory (cumulative retains state), and counter-reset
-semantics.
+collector compatibility, exporter memory (cumulative retains per-series state),
+and counter-reset semantics.
 
-**Decisions needed.**
-- Default temporality, and whether it differs per instrument kind (e.g.
-  cumulative for monotonic counters, delta for histograms).
-- Per-metric / per-reader override mechanism.
-- Interaction with the `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` env var.
-
-**Options considered.** _TBD._
-
-**Decision.** _TBD._
+**Decision.**
+- **Default: CUMULATIVE for all instrument kinds.** Matches the OpenTelemetry SDK
+  default and is accepted by every OTLP backend without reconfiguration — the
+  safest default for an exporter-first project whose headline claim is wire
+  compatibility.
+- The **delta path is fully implemented** and selectable per-reader via a
+  temporality preference (`cumulative` | `delta` | `lowmemory`, where
+  `lowmemory` = delta for Counter/Histogram, cumulative for UpDownCounter — the
+  OTel-defined preset). Per-View aggregation override can also force temporality
+  on a specific instrument.
+- Honor `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`.
 
 ## §2 Cardinality limits
 
-**Context.** Unbounded attribute combinations are the dominant metrics
-failure mode. OTel defines an overflow attribute (`otel.metric.overflow=true`)
-once a limit is hit.
+**Context.** Unbounded attribute combinations are the dominant metrics failure
+mode. OTel defines an overflow attribute (`otel.metric.overflow=true`) once a
+limit is hit.
 
-**Decisions needed.**
-- Default per-instrument cardinality limit and how it is configured.
-- Overflow attribute behaviour and when aggregation collapses into it.
-- Drop accounting: which `DropReason` enumerator(s) — note `provider.hpp`'s
-  `DropReason` is an ICP-gated public enum, so new metric drop reasons are an ICP.
-
-**Decision.** _TBD._
+**Decision.**
+- **Default limit: 2000 distinct attribute sets per instrument** (OTel spec
+  default), configurable.
+- On overflow, measurements collapse into a single overflow series carrying
+  `otel.metric.overflow=true` (per OTel) rather than being dropped outright.
+- **Drop accounting requires a new `DropReason::CardinalityOverflow`.**
+  `DropReason` is the **ICP-gated** public health array in
+  `include/microtel/provider.hpp` (its enumerator order is part of the
+  `HealthSnapshot::drop_counters` indexing contract), so M12 must land an ICP
+  adding this (and any other metric drop reasons) before implementation.
+- Configured via a `MetricLimitOptions` struct on `SdkBuilder`, mirroring the
+  existing `SpanLimitOptions`.
 
 ## §3 Histogram bucket configuration
 
-**Decisions needed.**
-- Default explicit bucket boundaries.
-- Per-view boundary override.
-- Whether exponential (base-2) histograms ship in v1.2 or defer.
-
-**Decision.** _TBD._
+**Decision.**
+- **Ship both explicit-bucket and base-2 exponential histograms** in v1.2 (full
+  OTel histogram parity).
+- **Explicit** default boundaries = the OTel default ladder
+  `[0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000]`,
+  overridable per-View.
+- **Exponential** defaults: `max_scale = 20`, `max_buckets = 160` (OTel
+  defaults), with automatic downscale when the bucket budget is exceeded.
+- Instrument advice / View selects which aggregation a given histogram uses;
+  explicit is the default when unspecified.
 
 ## §4 Async-instrument callback semantics
 
 **Context.** Observable instruments report via callbacks invoked at collection
-time. Threading and re-entrancy must be pinned down given the project's
-strict threading model (`docs/threading-model.md`).
+time. Threading and re-entrancy must be pinned given the strict threading model.
 
-**Decisions needed.**
-- Callback registration / unregistration API and lifetime.
-- Which thread invokes callbacks; timeout/budget; behaviour on a slow callback.
-- Re-entrancy and exception/`noexcept` policy (hot-path methods are `noexcept`).
-- Duplicate-measurement and missing-measurement handling.
-
-**Decision.** _TBD._
+**Decision.**
+- Callbacks are registered at instrument creation, and additionally via
+  `Meter::RegisterCallback(...)` which returns an **RAII registration handle**
+  (move-only; unregisters on destruction — consistent with the project's RAII
+  rules).
+- Callbacks run **on the MetricReader's collection thread, never on a caller
+  hot path.** They are serialized per collection cycle and bounded by a
+  per-collection deadline; a callback that exceeds it is abandoned, its
+  measurements for that cycle dropped, and a diagnostic incremented.
+- The measurement-recording API exposed to a callback is `noexcept`; an
+  exception escaping user callback code is caught at the boundary and counted
+  (no `catch(...)` — caught as `std::exception`, matching the existing exporter
+  boundary).
+- **No re-entrancy:** a callback must not record into the same `Meter` it is
+  serving (documented contract; not enforced in v1.2).
+- Duplicate measurements for the same attribute set within one callback →
+  last-write-wins + diagnostic.
 
 ## §5 MetricReader / MetricExporter interaction
 
-**Decisions needed.**
-- Periodic (push) reader cadence vs pull; default interval; config.
-- How `ForceFlush` / `Shutdown` propagate through reader → exporter (reuse the
-  `Status` taxonomy in `include/microtel/status.hpp`).
-- Reuse of the OTLP encoder (`src/wire/encoder/`) and transport
-  (`src/transport/`); per-signal vs shared batch pipeline.
-
-**Decision.** _TBD._
+**Decision.**
+- **`PeriodicExportingMetricReader` is the default** — push model, default
+  interval **60s** (OTel default), configurable; honor
+  `OTEL_METRIC_EXPORT_INTERVAL`. Manual/pull collection is available via an
+  explicit `Collect()` for tests and synchronous flush.
+- `ForceFlush` / `Shutdown` propagate reader → exporter and reuse the existing
+  `Status` taxonomy in `include/microtel/status.hpp`
+  (`Completed`/`TimedOut`/`AlreadyShutDown`/`Failed`).
+- **The metrics pipeline is separate from the span `BatchSpanProcessor`** (its
+  own collection + serialization path) but **shares the nghttp2 transport
+  connection** to the endpoint. Rationale: metrics collection is pull-at-interval
+  (reader-driven), spans are push-at-enqueue (processor-driven) — different
+  lifecycles, same socket.
 
 ## §6 Views
 
-**Decisions needed.**
-- Selector surface for v1.2 (instrument name / kind / meter) — full grammar
-  deferred to v1.4.
-- Allowed transforms: rename, attribute-key filter, aggregation override.
-- Conflict resolution when multiple views match one instrument.
-
-**Decision.** _TBD._
+**Decision.**
+- v1.2 selector surface: **instrument name** (with a single trailing `*`
+  wildcard), **instrument kind**, and **meter name/version**. Full regex /
+  selector grammar deferred to v1.4.
+- Transforms: **rename**, **attribute-key allow-list filter**, **aggregation
+  override** (including explicit-bucket boundaries, exponential params, or
+  `drop`).
+- Conflict rule: every matching View produces a stream (an instrument can feed
+  multiple streams). When two streams collide on identical
+  (name, unit, attributes), emit both and raise a **conflict diagnostic** — per
+  OTel guidance — rather than silently dropping one.
 
 ## §7 Exemplars
 
-**Decisions needed.**
-- Reservoir strategy and size.
-- Linkage to active span context (trace_id / span_id) when present.
-- Interaction with trace sampling and with cardinality overflow.
+**Context.** Exemplars sample raw measurements and attach the trace context of
+the span active at record time, letting a backend jump from a metric to an
+example trace.
 
-**Decision.** _TBD._
+**Decision.**
+- **In for v1.2.** Reservoirs follow the OTel defaults:
+  - Histograms: `AlignedHistogramBucketExemplarReservoir` — one exemplar slot
+    per bucket.
+  - Sum / Gauge: `SimpleFixedSizeExemplarReservoir` — fixed size (default = number
+    of CPU cores, capped, per OTel) with reservoir sampling.
+- **Default filter = `trace_based`** (OTel default): an exemplar is recorded only
+  when a *sampled* span is active in the current `Context`. Honor
+  `OTEL_METRICS_EXEMPLAR_FILTER` (`always_off` | `always_on` | `trace_based`).
+- Captured fields: `trace_id`, `span_id`, timestamp, value, and any filtered
+  attributes.
+- **Dependency:** exemplars read the current span from the thread-local
+  `Context`, which is the machinery `tracer.hpp` notes is fleshed out in v1.1
+  (`StartAsCurrentSpan`). M12 depends on that v1.1 work being complete.
 
 ## §8 Instrument API surface
 
-**Decisions needed.**
-- Public signatures for the four sync and three async instruments.
-- `MeterProvider` / `Meter` acquisition (mirrors `Provider::GetTracer`?).
-- Value types (int64 / double) and measurement attribute passing.
-- `mt::Timer` sugar shape and how it binds to a histogram.
-
-**Decision.** _TBD._
+**Decision.**
+- **No separate `MeterProvider`.** Extend the existing `Provider` with
+  `GetMeter(name, version)` returning `std::shared_ptr<Meter>`, mirroring
+  `Provider::GetTracer` exactly (same ownership and lifetime contract).
+- `Meter` factory methods, value type `T ∈ {std::int64_t, double}`:
+  - Sync: `CreateCounter<T>`, `CreateUpDownCounter<T>`, `CreateGauge<T>`,
+    `CreateHistogram<T>`.
+  - Async: `CreateObservableCounter<T>(callback)`,
+    `CreateObservableUpDownCounter<T>(callback)`,
+    `CreateObservableGauge<T>(callback)`.
+- Record API (hot path, `noexcept`, drop-and-count on failure — same contract as
+  the span API in `src/api/README.md`): `Counter<T>::Add(value, AttributeSpan)`,
+  `Histogram<T>::Record(value, AttributeSpan)`, etc.
+- `mt::Timer` sugar: RAII; records elapsed wall-time to a bound `Histogram` on
+  destruction (completes the v1.1-deferred sugar piece).
 
 ## §9 Memory & threading model
 
-**Decisions needed.**
-- Hot-path `noexcept` and allocation policy for `Add`/`Record` (cf.
-  `docs/memory-model.md`, `docs/threading-model.md`).
-- Aggregation state storage and lock strategy (per-instrument? striped?).
-- Per-metric memory budget and its place in `MemoryLimitOptions`.
-
-**Decision.** _TBD._
+**Decision.**
+- Hot-path `Add`/`Record` are `noexcept` and allocate nothing in steady state:
+  aggregation state for a known (instrument, attribute-set) is updated in place.
+  A *new* attribute set allocates once, bounded by the §2 cardinality limit.
+- Aggregation storage: a per-instrument map keyed by attribute-set, guarded by a
+  **per-instrument mutex** for v1.2. Sharded/striped locking is an explicit
+  follow-up if benchmarks show contention — same "measure before optimizing"
+  stance as ICP 0003's span-allocation decision; not premature in v1.2.
+- A per-metrics memory budget is added to `MemoryLimitOptions` (additive public
+  field — no ICP needed, unlike the `DropReason` change in §2).
+- Collection (callback invocation + snapshot) runs on the reader thread; caller
+  threads only touch the live aggregation state under the per-instrument lock.
 
 ## §10 Wire mapping
 
-**Decisions needed.**
-- OTLP metrics protobuf message mapping via upb (encoder additions).
-- Resource / scope reuse from the trace path.
-- gRPC vs HTTP path parity (no new transport surface expected).
-
-**Decision.** _TBD._
+**Decision.**
+- Extend the upb `OtlpEncoder` (`src/wire/encoder/`) with the OTLP metrics
+  messages: `MetricsData` / `ResourceMetrics` / `ScopeMetrics` / `Metric` and the
+  point types `Sum`, `Gauge`, `Histogram`, `ExponentialHistogram`, plus
+  `Exemplar`. The encoder remains the **only** file that touches upb (per the
+  CLAUDE.md rule).
+- Resource and instrumentation-scope resolution reuse the trace path unchanged.
+- **No new transport surface:** `MetricsService/Export` rides the existing
+  OTLP/HTTP-protobuf and OTLP/gRPC (unary-RPC-over-nghttp2) paths; HTTP and gRPC
+  reach parity automatically because they share the transport.
 
 ## §11 Configuration & compatibility
 
-**Decisions needed.**
-- `SdkBuilder` additions (e.g. `WithMetricReader`, temporality, cardinality).
-- Metrics-relevant `OTEL_*` env vars honoured.
-- Compatibility-tier impact (Tier 1/2 advance to metrics; Tier 3 shim
-  experimental) and the interop-matrix additions needed (`§14` / `interop.yml`).
-
-**Decision.** _TBD._
+**Decision.**
+- `SdkBuilder` additions: `WithPeriodicMetricReader(interval)` /
+  `WithMetricReader(...)`, `WithMetricTemporality(pref)`,
+  `WithMetricLimits(MetricLimitOptions)`, `WithView(...)`,
+  `WithExemplarFilter(...)`.
+- Env vars honored: `OTEL_METRIC_EXPORT_INTERVAL`,
+  `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`,
+  `OTEL_METRICS_EXEMPLAR_FILTER`.
+- Compatibility tiers (`microtel-spec.md` §2.2): **Tier 1 and Tier 2 advance to
+  include metrics**; the Tier 3 shim gains metric instruments (still
+  experimental). The interop matrix (`.github/workflows/interop.yml`) gains a
+  metrics-export check against otel-collector.
 
 ---
+
+## Open items flagged for the reviewer
+
+- **§2 ICP:** adding `DropReason::CardinalityOverflow` (and any sibling metric
+  drop reasons) is an interface change to the locked `provider.hpp` health
+  surface — must be PR'd as an ICP at the start of M12.
+- **§7 dependency:** exemplars require the thread-local `Context` / current-span
+  machinery that `tracer.hpp` defers to v1.1. M12 cannot start exemplars until
+  that lands.
+- **§9 lock strategy:** per-instrument mutex chosen for simplicity; flagged as a
+  benchmark-driven revisit, not a locked decision.
 
 ## References
 
@@ -185,4 +263,7 @@ strict threading model (`docs/threading-model.md`).
 - `docs/interfaces.md` — the locked trace contracts this doc parallels for metrics.
 - `docs/error-model.md` — `DropReason` / `Status` taxonomy to extend.
 - `docs/memory-model.md`, `docs/threading-model.md` — hot-path and allocation rules.
-- OpenTelemetry Metrics SDK & data-model specification (pinned version: _TBD_).
+- `docs/icps/0003-m0-deferred-decisions.md` — precedent for "measure before
+  optimizing" deferrals (§9 lock strategy).
+- OpenTelemetry Metrics SDK & data-model specification (pinned version: _TBD —
+  set alongside the `opentelemetry-proto` tag in M12_).

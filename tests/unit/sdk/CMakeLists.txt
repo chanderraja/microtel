@@ -11,6 +11,15 @@ microtel_add_test(
     SOURCES always_on_sampler_test.cpp
     LIBS    microtel_sdk)
 
+# M12 — metric aggregation key (AttributeSet).
+microtel_add_test(
+    NAME    metric_attribute_set_test
+    SOURCES metric_attribute_set_test.cpp
+    LIBS    microtel_sdk)
+# Reaches into src/sdk/metric_attribute_set.hpp directly (internal header).
+target_include_directories(metric_attribute_set_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp

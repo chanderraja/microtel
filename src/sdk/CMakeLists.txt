@@ -7,6 +7,7 @@
 
 add_library(microtel_sdk STATIC
     sampler_factories.cpp
+    metric_attribute_set.cpp
     simple_span_processor.cpp
     noop_span.cpp
     sdk_span.cpp

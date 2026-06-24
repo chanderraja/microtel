@@ -142,11 +142,24 @@ template <typename T>
 void ExponentialHistogramStorage<T>::Record(T value, AttributeSpan attrs)
 {
     const auto observation = static_cast<double>(value);
+    if (!std::isfinite(observation))
+    {
+        return;
+    }
 
     const std::scoped_lock lock{m_mu};
-    auto [it, inserted] = m_points.try_emplace(AttributeSet{attrs});
+    AttributeSet key{attrs};
+    auto it = m_points.find(key);
+    if (it == m_points.end())
+    {
+        if (m_points.size() >= m_max_cardinality)
+        {
+            key = OverflowAttributeSet();
+        }
+        it = m_points.try_emplace(std::move(key)).first;
+    }
     ExpHistoPoint& point = it->second;
-    if (inserted)
+    if (point.count == 0)  // newly inserted entry (normal or first overflow use)
     {
         point.scale = m_max_scale;
         point.min = observation;

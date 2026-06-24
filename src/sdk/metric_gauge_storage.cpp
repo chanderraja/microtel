@@ -3,6 +3,7 @@
 
 #include "sdk/metric_gauge_storage.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -13,9 +14,22 @@ namespace microtel::sdk
 template <typename T>
 void GaugeStorage<T>::Record(T value, AttributeSpan attrs)
 {
+    if (!std::isfinite(static_cast<double>(value)))
+    {
+        return;
+    }
     const std::scoped_lock lock{m_mu};
-    // Last-write-wins: insert or overwrite the latest reading for this set.
-    m_points[AttributeSet{attrs}] = value;
+    AttributeSet key{attrs};
+    auto it = m_points.find(key);
+    if (it == m_points.end())
+    {
+        if (m_points.size() >= m_max_cardinality)
+        {
+            key = OverflowAttributeSet();
+        }
+        it = m_points.try_emplace(std::move(key)).first;
+    }
+    it->second = value;
 }
 
 template <typename T>

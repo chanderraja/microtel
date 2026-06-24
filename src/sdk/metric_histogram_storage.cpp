@@ -4,6 +4,7 @@
 #include "sdk/metric_histogram_storage.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -16,11 +17,24 @@ template <typename T>
 void HistogramStorage<T>::Record(T value, AttributeSpan attrs)
 {
     const auto observation = static_cast<double>(value);
+    if (!std::isfinite(observation))
+    {
+        return;
+    }
 
     const std::scoped_lock lock{m_mu};
-    auto [it, inserted] = m_points.try_emplace(AttributeSet{attrs});
+    AttributeSet key{attrs};
+    auto it = m_points.find(key);
+    if (it == m_points.end())
+    {
+        if (m_points.size() >= m_max_cardinality)
+        {
+            key = OverflowAttributeSet();
+        }
+        it = m_points.try_emplace(std::move(key)).first;
+    }
     Point& point = it->second;
-    if (inserted)
+    if (point.bucket_counts.empty())  // newly inserted entry (normal or first overflow use)
     {
         point.bucket_counts.assign(m_boundaries.size() + 1, 0);
         point.min = observation;

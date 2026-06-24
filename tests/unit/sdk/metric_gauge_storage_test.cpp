@@ -18,8 +18,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <thread>
 #include <variant>
@@ -52,6 +54,17 @@ void RecordSame(mts::GaugeStorage<std::int64_t>& storage,
     {
         storage.Record(value, attrs);
     }
+}
+
+bool IsOverflowPoint(const mti::NumberPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -125,6 +138,37 @@ TEST(GaugeStorageTest, PointCarriesItsAttributes)
     ASSERT_EQ(data.points[0].attributes.size(), 1U);
     EXPECT_EQ(data.points[0].attributes[0].key, "host");
     EXPECT_EQ(std::get<std::string>(data.points[0].attributes[0].value), "h1");
+}
+
+TEST(GaugeStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(3, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Record(9, mt::AttributeSpan{c});  // also overflows → last write = 9
+
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 9);  // last write wins
+}
+
+TEST(GaugeStorageTest, NonFiniteValueIsDropped)
+{
+    mts::GaugeStorage<double> storage;
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(5.0, mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].value), 5.0);
 }
 
 TEST(GaugeStorageTest, ConcurrentRecordsAreSafe)

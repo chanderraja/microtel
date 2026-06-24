@@ -16,8 +16,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
@@ -44,6 +46,17 @@ void RecordN(mts::HistogramStorage<std::int64_t>& storage,
     {
         storage.Record(value, attrs);
     }
+}
+
+bool IsOverflowPoint(const mti::HistogramPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -161,6 +174,40 @@ TEST(HistogramStorageTest, DeltaReportsSinceLastCollectAndClears)
     const mti::HistogramData third = storage.Collect(mti::AggregationTemporality::Delta);
     ASSERT_EQ(third.points.size(), 1U);
     EXPECT_EQ(third.points[0].count, 1U);  // only the value since the last collect
+}
+
+TEST(HistogramStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    mts::HistogramStorage<std::int64_t> storage{std::vector<double>{10}, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(3, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Record(4, mt::AttributeSpan{c});  // also overflows
+
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(ov_it->count, 2U);  // 2 overflowed recordings
+    EXPECT_DOUBLE_EQ(ov_it->sum, 7.0);
+}
+
+TEST(HistogramStorageTest, NonFiniteValueIsDropped)
+{
+    mts::HistogramStorage<double> storage{std::vector<double>{10.0}};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(5.0, mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_EQ(data.points[0].count, 1U);
+    EXPECT_DOUBLE_EQ(data.points[0].sum, 5.0);
 }
 
 TEST(HistogramStorageTest, PointCarriesItsAttributes)

@@ -36,7 +36,9 @@ template <typename T>
 class HistogramStorage
 {
 public:
-    explicit HistogramStorage(std::vector<double> boundaries) : m_boundaries(std::move(boundaries))
+    explicit HistogramStorage(std::vector<double> boundaries,
+                              std::size_t max_cardinality = kDefaultMaxCardinality)
+        : m_boundaries(std::move(boundaries)), m_max_cardinality(max_cardinality)
     {
     }
 
@@ -62,6 +64,7 @@ private:
     mutable std::mutex m_mu;
     std::vector<double> m_boundaries;  ///< shared, immutable upper bounds (sorted)
     std::unordered_map<AttributeSet, Point, AttributeSetHash> m_points;
+    std::size_t m_max_cardinality;
 };
 
 }  // namespace microtel::sdk

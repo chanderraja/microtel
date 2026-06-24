@@ -19,8 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <thread>
 #include <variant>
@@ -52,6 +54,17 @@ void AddOnes(mts::SumStorage<std::int64_t>& storage, mt::AttributeSpan attrs, in
     {
         storage.Add(1, attrs);
     }
+}
+
+bool IsOverflowPoint(const mti::NumberPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -173,6 +186,40 @@ TEST(SumStorageTest, PointCarriesItsAttributes)
     ASSERT_EQ(data.points[0].attributes.size(), 1U);
     EXPECT_EQ(data.points[0].attributes[0].key, "route");
     EXPECT_EQ(std::get<std::string>(data.points[0].attributes[0].value), "/x");
+}
+
+TEST(SumStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    // limit=2: first two distinct attr sets get their own series; the third
+    // and beyond accumulate into the overflow series.
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});
+    storage.Add(3, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Add(4, mt::AttributeSpan{c});  // also overflows → overflow series += 4
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);  // a, b, overflow
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 7);  // 3 + 4
+}
+
+TEST(SumStorageTest, NonFiniteValueIsDropped)
+{
+    mts::SumStorage<double> storage{true};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Add(1.0, mt::AttributeSpan{attrs});
+    storage.Add(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
+    storage.Add(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].value), 1.0);
 }
 
 TEST(SumStorageTest, ConcurrentAddsConserveTotal)

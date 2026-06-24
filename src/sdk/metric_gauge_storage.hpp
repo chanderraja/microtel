@@ -32,6 +32,11 @@ template <typename T>
 class GaugeStorage
 {
 public:
+    explicit GaugeStorage(std::size_t max_cardinality = kDefaultMaxCardinality) noexcept
+        : m_max_cardinality(max_cardinality)
+    {
+    }
+
     /// @brief Store `value` as the latest reading for `attrs` (hot path).
     void Record(T value, AttributeSpan attrs);
 
@@ -41,6 +46,7 @@ public:
 private:
     mutable std::mutex m_mu;
     std::unordered_map<AttributeSet, T, AttributeSetHash> m_points;
+    std::size_t m_max_cardinality;
 };
 
 }  // namespace microtel::sdk

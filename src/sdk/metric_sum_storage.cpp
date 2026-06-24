@@ -3,6 +3,7 @@
 
 #include "sdk/metric_sum_storage.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -13,10 +14,21 @@ namespace microtel::sdk
 template <typename T>
 void SumStorage<T>::Add(T value, AttributeSpan attrs)
 {
+    if (!std::isfinite(static_cast<double>(value)))
+    {
+        return;
+    }
     const std::scoped_lock lock{m_mu};
-    // Materialises an AttributeSet for the probe (allocates only on first
-    // sight of a set — try_emplace inserts the key once, then accumulates).
-    auto [it, inserted] = m_points.try_emplace(AttributeSet{attrs}, T{0});
+    AttributeSet key{attrs};
+    auto it = m_points.find(key);
+    if (it == m_points.end())
+    {
+        if (m_points.size() >= m_max_cardinality)
+        {
+            key = OverflowAttributeSet();
+        }
+        it = m_points.try_emplace(std::move(key), T{}).first;
+    }
     it->second += value;
 }
 

@@ -129,4 +129,11 @@ bool AttributeSet::MatchesSpan(AttributeSpan attrs) const
                                });
 }
 
+const AttributeSet& OverflowAttributeSet()
+{
+    static const KeyValue kAttr{.key = "otel.metric.overflow", .value = true};
+    static const AttributeSet kSet{AttributeSpan{&kAttr, 1}};
+    return kSet;
+}
+
 }  // namespace microtel::sdk

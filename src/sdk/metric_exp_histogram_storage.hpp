@@ -61,8 +61,10 @@ template <typename T>
 class ExponentialHistogramStorage
 {
 public:
-    ExponentialHistogramStorage(std::int32_t max_scale, std::int32_t max_buckets)
-        : m_max_scale(max_scale), m_max_buckets(max_buckets)
+    ExponentialHistogramStorage(std::int32_t max_scale,
+                                std::int32_t max_buckets,
+                                std::size_t max_cardinality = kDefaultMaxCardinality)
+        : m_max_scale(max_scale), m_max_buckets(max_buckets), m_max_cardinality(max_cardinality)
     {
     }
 
@@ -80,6 +82,7 @@ private:
     mutable std::mutex m_mu;
     std::int32_t m_max_scale;
     std::int32_t m_max_buckets;  ///< per-sign bucket-count cap (downscale trigger)
+    std::size_t m_max_cardinality;
     std::unordered_map<AttributeSet, ExpHistoPoint, AttributeSetHash> m_points;
 };
 

@@ -33,7 +33,11 @@ template <typename T>
 class SumStorage
 {
 public:
-    explicit SumStorage(bool monotonic) noexcept : m_monotonic(monotonic) {}
+    explicit SumStorage(bool monotonic,
+                        std::size_t max_cardinality = kDefaultMaxCardinality) noexcept
+        : m_monotonic(monotonic), m_max_cardinality(max_cardinality)
+    {
+    }
 
     /// @brief Accumulate `value` into the point for `attrs` (hot path).
     void Add(T value, AttributeSpan attrs);
@@ -50,6 +54,7 @@ private:
     mutable std::mutex m_mu;
     std::unordered_map<AttributeSet, T, AttributeSetHash> m_points;
     bool m_monotonic;
+    std::size_t m_max_cardinality;
 };
 
 }  // namespace microtel::sdk

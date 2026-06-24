@@ -18,8 +18,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <string>
 #include <thread>
@@ -51,6 +53,17 @@ void RecordN(mts::ExponentialHistogramStorage<std::int64_t>& storage,
     {
         storage.Record(value, attrs);
     }
+}
+
+bool IsOverflowPoint(const mti::ExponentialHistogramPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -183,6 +196,37 @@ TEST(ExpHistogramStorageTest, DeltaReportsSinceLastCollectAndClears)
     const mti::ExponentialHistogramData third = storage.Collect(mti::AggregationTemporality::Delta);
     ASSERT_EQ(third.points.size(), 1U);
     EXPECT_EQ(third.points[0].count, 1U);  // only the value since the last collect
+}
+
+TEST(ExpHistogramStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Record(2, mt::AttributeSpan{a});
+    storage.Record(3, mt::AttributeSpan{b});
+    storage.Record(4, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Record(5, mt::AttributeSpan{c});  // also overflows
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(ov_it->count, 2U);  // 2 overflowed recordings
+}
+
+TEST(ExpHistogramStorageTest, NonFiniteValueIsDropped)
+{
+    mts::ExponentialHistogramStorage<double> storage{20, 160};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(2.0, mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_EQ(data.points[0].count, 1U);
 }
 
 TEST(ExpHistogramStorageTest, ConcurrentRecordsConserveCount)

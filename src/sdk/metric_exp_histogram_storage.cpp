@@ -4,10 +4,12 @@
 #include "sdk/metric_exp_histogram_storage.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -146,6 +148,20 @@ void ExponentialHistogramStorage<T>::Record(T value, AttributeSpan attrs)
     {
         return;
     }
+    std::optional<internal::Exemplar> exemplar;
+    if (m_span_source != nullptr)
+    {
+        const auto span = m_span_source->GetCurrentSpan();
+        if (span.IsValid() && span.trace_flags.IsSampled())
+        {
+            exemplar = internal::Exemplar{
+                .span_context = span,
+                .time = std::chrono::system_clock::now(),
+                .value = internal::MetricValue{observation},
+                .filtered_attributes = {},
+            };
+        }
+    }
 
     const std::scoped_lock lock{m_mu};
     AttributeSet key{attrs};
@@ -179,6 +195,10 @@ void ExponentialHistogramStorage<T>::Record(T value, AttributeSpan attrs)
         return;
     }
     InsertValue(point, std::abs(observation), observation < 0.0, m_max_buckets);
+    if (exemplar.has_value())
+    {
+        m_exemplars.insert_or_assign(it->first, std::move(*exemplar));
+    }
 }
 
 template <typename T>
@@ -206,9 +226,14 @@ internal::ExponentialHistogramData ExponentialHistogramStorage<T>::Collect(
         out.positive.bucket_counts = point.positive.counts;
         out.negative.offset = point.negative.offset;
         out.negative.bucket_counts = point.negative.counts;
+        if (const auto ex_it = m_exemplars.find(key); ex_it != m_exemplars.end())
+        {
+            out.exemplars.push_back(ex_it->second);
+        }
         data.points.push_back(std::move(out));
     }
 
+    m_exemplars.clear();
     if (temporality == internal::AggregationTemporality::Delta)
     {
         m_points.clear();

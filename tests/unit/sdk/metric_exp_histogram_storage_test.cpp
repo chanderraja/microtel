@@ -14,7 +14,9 @@
 #include "sdk/metric_exp_histogram_storage.hpp"
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/trace.hpp"
 
 #include <gtest/gtest.h>
 
@@ -64,6 +66,36 @@ bool IsOverflowPoint(const mti::ExponentialHistogramPoint& pt)
                                           std::holds_alternative<bool>(kv.value) &&
                                           std::get<bool>(kv.value);
                                });
+}
+
+class FakeSpanSource : public mti::ICurrentSpanSource
+{
+public:
+    void SetSpan(mt::SpanContext ctx) noexcept
+    {
+        m_span = ctx;
+    }
+    [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
+    {
+        return m_span;
+    }
+
+private:
+    mt::SpanContext m_span;
+};
+
+mt::SpanContext MakeSampledContext()
+{
+    mt::TraceId::Bytes tb{};
+    tb[0] = 0x01;
+    mt::SpanId::Bytes sb{};
+    sb[0] = 0x01;
+    return mt::SpanContext{
+        .trace_id = mt::TraceId{tb},
+        .span_id = mt::SpanId{sb},
+        .trace_flags = mt::TraceFlags{mt::TraceFlags::kSampled},
+        .trace_state = {},
+    };
 }
 
 }  // namespace
@@ -227,6 +259,41 @@ TEST(ExpHistogramStorageTest, NonFiniteValueIsDropped)
     const mti::ExponentialHistogramData data = storage.Collect();
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_EQ(data.points[0].count, 1U);
+}
+
+TEST(ExpHistogramStorageTest, ExemplarCapturedWhenSampledSpanActive)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::ExponentialHistogramStorage<std::int64_t> storage{
+        0, 160, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(4, mt::AttributeSpan{attrs});
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    ASSERT_EQ(data.points[0].exemplars.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars[0].span_context.IsValid());
+    EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].exemplars[0].value), 4.0);
+}
+
+TEST(ExpHistogramStorageTest, ExemplarIsResetAfterCollect)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::ExponentialHistogramStorage<std::int64_t> storage{
+        0, 160, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(2, mt::AttributeSpan{attrs});
+    (void)storage.Collect();  // drains exemplar window
+
+    source.SetSpan({});
+    storage.Record(3, mt::AttributeSpan{attrs});
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars.empty());
 }
 
 TEST(ExpHistogramStorageTest, ConcurrentRecordsConserveCount)

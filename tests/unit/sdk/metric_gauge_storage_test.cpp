@@ -14,7 +14,9 @@
 #include "sdk/metric_gauge_storage.hpp"
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/trace.hpp"
 
 #include <gtest/gtest.h>
 
@@ -54,6 +56,36 @@ void RecordSame(mts::GaugeStorage<std::int64_t>& storage,
     {
         storage.Record(value, attrs);
     }
+}
+
+class FakeSpanSource : public mti::ICurrentSpanSource
+{
+public:
+    void SetSpan(mt::SpanContext ctx) noexcept
+    {
+        m_span = ctx;
+    }
+    [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
+    {
+        return m_span;
+    }
+
+private:
+    mt::SpanContext m_span;
+};
+
+mt::SpanContext MakeSampledContext()
+{
+    mt::TraceId::Bytes tb{};
+    tb[0] = 0x01;
+    mt::SpanId::Bytes sb{};
+    sb[0] = 0x01;
+    return mt::SpanContext{
+        .trace_id = mt::TraceId{tb},
+        .span_id = mt::SpanId{sb},
+        .trace_flags = mt::TraceFlags{mt::TraceFlags::kSampled},
+        .trace_state = {},
+    };
 }
 
 bool IsOverflowPoint(const mti::NumberPoint& pt)
@@ -138,6 +170,39 @@ TEST(GaugeStorageTest, PointCarriesItsAttributes)
     ASSERT_EQ(data.points[0].attributes.size(), 1U);
     EXPECT_EQ(data.points[0].attributes[0].key, "host");
     EXPECT_EQ(std::get<std::string>(data.points[0].attributes[0].value), "h1");
+}
+
+TEST(GaugeStorageTest, ExemplarCapturedWhenSampledSpanActive)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::GaugeStorage<std::int64_t> storage{mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(7, mt::AttributeSpan{attrs});
+
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    ASSERT_EQ(data.points[0].exemplars.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars[0].span_context.IsValid());
+    EXPECT_EQ(std::get<std::int64_t>(data.points[0].exemplars[0].value), 7);
+}
+
+TEST(GaugeStorageTest, ExemplarIsResetAfterCollect)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::GaugeStorage<std::int64_t> storage{mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(1, mt::AttributeSpan{attrs});
+    (void)storage.Collect();  // drains exemplar window
+
+    source.SetSpan({});
+    storage.Record(2, mt::AttributeSpan{attrs});
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars.empty());
 }
 
 TEST(GaugeStorageTest, CardinalityOverflowRoutesToOverflowSeries)

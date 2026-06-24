@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
@@ -63,8 +64,12 @@ class ExponentialHistogramStorage
 public:
     ExponentialHistogramStorage(std::int32_t max_scale,
                                 std::int32_t max_buckets,
-                                std::size_t max_cardinality = kDefaultMaxCardinality)
-        : m_max_scale(max_scale), m_max_buckets(max_buckets), m_max_cardinality(max_cardinality)
+                                std::size_t max_cardinality = kDefaultMaxCardinality,
+                                const internal::ICurrentSpanSource* span_source = nullptr)
+        : m_max_scale(max_scale),
+          m_max_buckets(max_buckets),
+          m_max_cardinality(max_cardinality),
+          m_span_source(span_source)
     {
     }
 
@@ -83,7 +88,9 @@ private:
     std::int32_t m_max_scale;
     std::int32_t m_max_buckets;  ///< per-sign bucket-count cap (downscale trigger)
     std::size_t m_max_cardinality;
+    const internal::ICurrentSpanSource* m_span_source;  ///< non-owning; null disables exemplars
     std::unordered_map<AttributeSet, ExpHistoPoint, AttributeSetHash> m_points;
+    std::unordered_map<AttributeSet, internal::Exemplar, AttributeSetHash> m_exemplars;
 };
 
 }  // namespace microtel::sdk

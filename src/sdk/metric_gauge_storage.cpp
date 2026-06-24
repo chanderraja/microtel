@@ -3,9 +3,11 @@
 
 #include "sdk/metric_gauge_storage.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <utility>
 
 namespace microtel::sdk
@@ -17,6 +19,20 @@ void GaugeStorage<T>::Record(T value, AttributeSpan attrs)
     if (!std::isfinite(static_cast<double>(value)))
     {
         return;
+    }
+    std::optional<internal::Exemplar> exemplar;
+    if (m_span_source != nullptr)
+    {
+        const auto span = m_span_source->GetCurrentSpan();
+        if (span.IsValid() && span.trace_flags.IsSampled())
+        {
+            exemplar = internal::Exemplar{
+                .span_context = span,
+                .time = std::chrono::system_clock::now(),
+                .value = internal::MetricValue{value},
+                .filtered_attributes = {},
+            };
+        }
     }
     const std::scoped_lock lock{m_mu};
     AttributeSet key{attrs};
@@ -30,10 +46,14 @@ void GaugeStorage<T>::Record(T value, AttributeSpan attrs)
         it = m_points.try_emplace(std::move(key)).first;
     }
     it->second = value;
+    if (exemplar.has_value())
+    {
+        m_exemplars.insert_or_assign(it->first, std::move(*exemplar));
+    }
 }
 
 template <typename T>
-internal::GaugeData GaugeStorage<T>::Collect() const
+internal::GaugeData GaugeStorage<T>::Collect()
 {
     const std::scoped_lock lock{m_mu};
 
@@ -46,8 +66,14 @@ internal::GaugeData GaugeStorage<T>::Collect() const
         const auto pairs = key.Pairs();
         point.attributes.assign(pairs.begin(), pairs.end());
         point.value = value;  // T (int64_t/double) selects the MetricValue alternative
+        if (const auto ex_it = m_exemplars.find(key); ex_it != m_exemplars.end())
+        {
+            point.exemplars.push_back(ex_it->second);
+        }
         data.points.push_back(std::move(point));
     }
+
+    m_exemplars.clear();
     return data;
 }
 

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
@@ -32,21 +33,25 @@ template <typename T>
 class GaugeStorage
 {
 public:
-    explicit GaugeStorage(std::size_t max_cardinality = kDefaultMaxCardinality) noexcept
-        : m_max_cardinality(max_cardinality)
+    explicit GaugeStorage(std::size_t max_cardinality = kDefaultMaxCardinality,
+                          const internal::ICurrentSpanSource* span_source = nullptr) noexcept
+        : m_max_cardinality(max_cardinality), m_span_source(span_source)
     {
     }
 
     /// @brief Store `value` as the latest reading for `attrs` (hot path).
     void Record(T value, AttributeSpan attrs);
 
-    /// @brief Snapshot the latest readings as `GaugeData`.
-    [[nodiscard]] internal::GaugeData Collect() const;
+    /// @brief Snapshot the latest readings as `GaugeData`. Clears the exemplar
+    /// window on every call (exemplars represent the current collection period).
+    [[nodiscard]] internal::GaugeData Collect();
 
 private:
     mutable std::mutex m_mu;
-    std::unordered_map<AttributeSet, T, AttributeSetHash> m_points;
     std::size_t m_max_cardinality;
+    const internal::ICurrentSpanSource* m_span_source;  ///< non-owning; null disables exemplars
+    std::unordered_map<AttributeSet, T, AttributeSetHash> m_points;
+    std::unordered_map<AttributeSet, internal::Exemplar, AttributeSetHash> m_exemplars;
 };
 
 }  // namespace microtel::sdk

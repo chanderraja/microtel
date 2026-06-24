@@ -155,14 +155,34 @@ TEST(ExpHistogramStorageTest, DistinctAttributeSetsAreDistinctPoints)
 
 TEST(ExpHistogramStorageTest, EmptyStorageCollectsNoPoints)
 {
-    const mts::ExponentialHistogramStorage<double> storage{20, 160};
+    mts::ExponentialHistogramStorage<double> storage{20, 160};
     EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(ExpHistogramStorageTest, CollectIsCumulativeTemporality)
 {
-    const mts::ExponentialHistogramStorage<std::int64_t> storage{20, 160};
+    mts::ExponentialHistogramStorage<std::int64_t> storage{20, 160};
     EXPECT_EQ(storage.Collect().temporality, mti::AggregationTemporality::Cumulative);
+}
+
+TEST(ExpHistogramStorageTest, DeltaReportsSinceLastCollectAndClears)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(2, mt::AttributeSpan{attrs});
+    const mti::ExponentialHistogramData first = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(first.points.size(), 1U);
+    EXPECT_EQ(first.temporality, mti::AggregationTemporality::Delta);
+    EXPECT_EQ(first.points[0].count, 1U);
+
+    // Nothing recorded since → empty delta.
+    EXPECT_TRUE(storage.Collect(mti::AggregationTemporality::Delta).points.empty());
+
+    storage.Record(4, mt::AttributeSpan{attrs});
+    const mti::ExponentialHistogramData third = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(third.points.size(), 1U);
+    EXPECT_EQ(third.points[0].count, 1U);  // only the value since the last collect
 }
 
 TEST(ExpHistogramStorageTest, ConcurrentRecordsConserveCount)

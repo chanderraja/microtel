@@ -69,8 +69,12 @@ public:
     /// @brief Record `value` into the point for `attrs` (hot path).
     void Record(T value, AttributeSpan attrs);
 
-    /// @brief Snapshot the buckets as cumulative `ExponentialHistogramData`.
-    [[nodiscard]] internal::ExponentialHistogramData Collect() const;
+    /// @brief Snapshot the buckets as `ExponentialHistogramData`. Cumulative
+    /// (default) retains state; Delta reports the buckets accumulated since the
+    /// previous collect and then clears the live state.
+    [[nodiscard]] internal::ExponentialHistogramData Collect(
+        internal::AggregationTemporality temporality =
+            internal::AggregationTemporality::Cumulative);
 
 private:
     mutable std::mutex m_mu;

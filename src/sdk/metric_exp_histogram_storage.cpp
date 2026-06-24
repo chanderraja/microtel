@@ -169,12 +169,13 @@ void ExponentialHistogramStorage<T>::Record(T value, AttributeSpan attrs)
 }
 
 template <typename T>
-internal::ExponentialHistogramData ExponentialHistogramStorage<T>::Collect() const
+internal::ExponentialHistogramData ExponentialHistogramStorage<T>::Collect(
+    internal::AggregationTemporality temporality)
 {
     const std::scoped_lock lock{m_mu};
 
     internal::ExponentialHistogramData data;
-    data.temporality = internal::AggregationTemporality::Cumulative;
+    data.temporality = temporality;
     data.points.reserve(m_points.size());
 
     for (const auto& [key, point] : m_points)
@@ -193,6 +194,11 @@ internal::ExponentialHistogramData ExponentialHistogramStorage<T>::Collect() con
         out.negative.offset = point.negative.offset;
         out.negative.bucket_counts = point.negative.counts;
         data.points.push_back(std::move(out));
+    }
+
+    if (temporality == internal::AggregationTemporality::Delta)
+    {
+        m_points.clear();
     }
     return data;
 }

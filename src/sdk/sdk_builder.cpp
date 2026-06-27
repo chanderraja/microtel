@@ -24,6 +24,7 @@
 #include "common/config/env_resolver.hpp"
 #include "common/config/toml_loader.hpp"
 #include "exporter/otlp_exporter.hpp"
+#include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/sdk_provider.hpp"
 #include "transport/epoll_reactor.hpp"
@@ -257,11 +258,16 @@ namespace
     return std::move(*http2);
 }
 
+constexpr std::string_view kHttpMetricsPath = "/v1/metrics";
+constexpr std::string_view kGrpcMetricsPath =
+    "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
+
 [[nodiscard]] std::unique_ptr<internal::IWireCodec> BuildWireCodec(
     internal::ITransport* transport,
     const config::Config& cfg,
     std::vector<internal::HeaderField> extra_headers,
-    internal::IAuthProvider* auth)
+    internal::IAuthProvider* auth,
+    std::string_view signal_path = {})
 {
     const auto host_port = cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
     if (cfg.protocol == Protocol::Grpc)
@@ -271,6 +277,7 @@ namespace
                                                          .host = host_port,
                                                          .scheme = cfg.endpoint.scheme,
                                                          .extra_headers = std::move(extra_headers),
+                                                         .service_path = std::string{signal_path},
                                                      },
                                                      auth);
     }
@@ -279,9 +286,44 @@ namespace
                                                      .host = host_port,
                                                      .scheme = cfg.endpoint.scheme,
                                                      .path = cfg.endpoint.path,
+                                                     .signal_path = std::string{signal_path},
                                                      .extra_headers = std::move(extra_headers),
                                                  },
                                                  auth);
+}
+
+struct ExporterPack
+{
+    std::unique_ptr<internal::IWireCodec> codec;
+    std::unique_ptr<internal::IWireCodec> metric_codec;
+    std::unique_ptr<internal::IExporter> exporter;
+    std::unique_ptr<internal::IMetricExporter> metric_exporter;
+};
+
+[[nodiscard]] ExporterPack BuildExporters(wire::OtlpEncoder* encoder,
+                                          internal::ITransport* transport,
+                                          internal::IAuthProvider* auth,
+                                          const config::Config& cfg)
+{
+    auto codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth);
+    const std::string_view metric_path =
+        cfg.protocol == Protocol::Grpc ? kGrpcMetricsPath : kHttpMetricsPath;
+    auto metric_codec =
+        BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, metric_path);
+
+    const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
+    auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg);
+    auto metric_exp = std::make_unique<exporter::OtlpMetricExporter>(
+        encoder,
+        metric_codec.get(),
+        exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export});
+
+    return ExporterPack{
+        .codec = std::move(codec),
+        .metric_codec = std::move(metric_codec),
+        .exporter = std::move(trace_exp),
+        .metric_exporter = std::move(metric_exp),
+    };
 }
 
 }  // namespace
@@ -414,18 +456,9 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     }
     auto transport = std::move(*transport_result);
 
-    // --- Step 7: encoder ----------------------------------------------------
+    // --- Steps 7–9: encoder + codecs + exporters ----------------------------
     auto encoder = std::make_unique<wire::OtlpEncoder>();
-
-    // --- Step 8: wire codec -------------------------------------------------
-    auto codec = BuildWireCodec(transport.get(), cfg, ToHeaderFields(cfg.headers), auth.get());
-
-    // --- Step 9: exporter ---------------------------------------------------
-    const exporter::OtlpExporterConfig exporter_cfg{
-        .export_deadline = cfg.timeouts.per_export,
-    };
-    auto exporter_obj =
-        std::make_unique<exporter::OtlpExporter>(encoder.get(), codec.get(), exporter_cfg);
+    auto exporters = BuildExporters(encoder.get(), transport.get(), auth.get(), cfg);
 
     // --- Step 10: processor -------------------------------------------------
     internal::InstrumentationScope scope{
@@ -433,21 +466,22 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .version = cfg.service_version,
     };
     auto processor = std::make_unique<sdk::BatchSpanProcessor>(
-        exporter_obj.get(), resource, std::move(scope), cfg.batch);
+        exporters.exporter.get(), resource, std::move(scope), cfg.batch);
 
     // --- Step 11: provider --------------------------------------------------
     return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
         .encoder = std::move(encoder),
         .auth = std::move(auth),
         .transport = std::move(transport),
-        .codec = std::move(codec),
-        .exporter = std::move(exporter_obj),
+        .codec = std::move(exporters.codec),
+        .exporter = std::move(exporters.exporter),
         .processor = std::move(processor),
         .resource = std::move(resource),
         .sampler = std::move(m_impl->sampler),
         .span_limits = cfg.span_limits,
         .connect_opts = BuildConnectOptions(cfg),
-        .metric_exporter = nullptr,
+        .metric_codec = std::move(exporters.metric_codec),
+        .metric_exporter = std::move(exporters.metric_exporter),
     });
 }
 

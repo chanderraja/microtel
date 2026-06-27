@@ -34,6 +34,7 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_auth(std::move(args.auth)),
       m_transport(std::move(args.transport)),
       m_codec(std::move(args.codec)),
+      m_metric_codec(std::move(args.metric_codec)),
       m_exporter(std::move(args.exporter)),
       m_metric_exporter(std::move(args.metric_exporter)),
       m_metric_interval(args.metric_interval),

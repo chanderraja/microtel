@@ -679,7 +679,9 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders() const
     headers.push_back({.name = ":method", .value = "POST"});
     headers.push_back({.name = ":scheme", .value = m_config.scheme});
     headers.push_back({.name = ":authority", .value = m_config.host});
-    headers.push_back({.name = ":path", .value = std::string{kGrpcTracesPath}});
+    const std::string path =
+        m_config.service_path.empty() ? std::string{kGrpcTracesPath} : m_config.service_path;
+    headers.push_back({.name = ":path", .value = path});
     headers.push_back({.name = "te", .value = "trailers"});
     headers.push_back({.name = "content-type", .value = "application/grpc+proto"});
     headers.push_back({.name = "user-agent", .value = "microtel-cpp/0.1.0"});

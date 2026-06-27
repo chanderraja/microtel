@@ -24,6 +24,10 @@ struct HttpWireCodecConfig
     /// @brief URL base path. Empty string or "/" resolves to `/v1/traces`.
     /// Any other value is used as a prefix: `<path>/v1/traces`.
     std::string path;
+    /// @brief Full signal path override. When non-empty, used as-is for the
+    /// `:path` pseudo-header, ignoring `path` and the default `/v1/traces`
+    /// suffix. Use `/v1/metrics` to point this codec at the metrics endpoint.
+    std::string signal_path;
     std::vector<internal::HeaderField> extra_headers;  ///< forwarded verbatim
 };
 

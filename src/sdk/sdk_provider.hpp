@@ -47,6 +47,10 @@ struct SdkProviderArgs
     SamplerHandle sampler;
     SpanLimitOptions span_limits;
     internal::ConnectOptions connect_opts;
+    /// @brief Optional wire codec for the metrics endpoint. Must outlive
+    /// `metric_exporter` (i.e. declared before it in this struct so the
+    /// SdkProvider member initializer list initializes it first).
+    std::unique_ptr<internal::IWireCodec> metric_codec;
     /// @brief Optional metrics export pipeline. When non-null, a
     /// `PeriodicExportingMetricReader` is created on the first `GetMeter()` call.
     std::unique_ptr<internal::IMetricExporter> metric_exporter;
@@ -103,6 +107,8 @@ private:
     // Transport owns the I/O thread; must outlive all codecs and exporters.
     std::unique_ptr<internal::ITransport> m_transport;
     std::unique_ptr<internal::IWireCodec> m_codec;
+    // Metric codec must outlive m_metric_exporter (which holds a raw pointer to it).
+    std::unique_ptr<internal::IWireCodec> m_metric_codec;
     // Trace exporter thread; must outlive codec and transport.
     std::unique_ptr<internal::IExporter> m_exporter;
     // Metric exporter thread; must outlive m_metric_reader.

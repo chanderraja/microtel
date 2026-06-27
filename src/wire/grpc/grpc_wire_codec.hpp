@@ -22,6 +22,10 @@ struct GrpcWireCodecConfig
     std::string host;    ///< value for the `:authority` header (e.g. "host:4317")
     std::string scheme;  ///< "https" or "http"
     std::vector<internal::HeaderField> extra_headers;  ///< forwarded verbatim
+    /// @brief gRPC method path override. When non-empty, used as-is for the
+    /// `:path` pseudo-header instead of the default trace service path.
+    /// Use the metrics service path to point this codec at the metrics endpoint.
+    std::string service_path;
 };
 
 /// @brief OTLP/gRPC implementation of `IWireCodec` — no gRPC library.

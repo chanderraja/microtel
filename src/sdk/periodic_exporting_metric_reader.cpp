@@ -56,7 +56,7 @@ microtel::Status PeriodicExportingMetricReader::Shutdown(std::chrono::millisecon
         return microtel::Status::AlreadyShutDown;
     }
     {
-        std::scoped_lock lk{m_mu};
+        const std::scoped_lock lk{m_mu};
         m_wake = true;
     }
     m_cv.notify_all();
@@ -81,7 +81,7 @@ void PeriodicExportingMetricReader::RunLoop() noexcept
 
 microtel::Status PeriodicExportingMetricReader::DoCollectExport() noexcept
 {
-    std::scoped_lock lk{m_collect_mu};
+    const std::scoped_lock lk{m_collect_mu};
     std::vector<internal::MetricBatchHandle> handles;
     try
     {

@@ -75,6 +75,7 @@ public:
     {
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
     [[nodiscard]] mti::ExportResult Export(mti::MetricBatchHandle&& /*batch*/) noexcept override
     {
         ++m_export_count;

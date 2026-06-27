@@ -32,3 +32,17 @@ target_include_directories(otlp_encoder_test
 # those — suppress it for this test TU only.
 target_compile_options(otlp_encoder_test PRIVATE
     -Wno-missing-field-initializers)
+
+microtel_add_test(
+    NAME    otlp_metric_encoder_test
+    SOURCES otlp_metric_encoder_test.cpp
+    LIBS    microtel_encoder microtel_upb_gen)
+
+target_include_directories(otlp_metric_encoder_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/gen
+        ${CMAKE_SOURCE_DIR}/third_party/upb)
+
+target_compile_options(otlp_metric_encoder_test PRIVATE
+    -Wno-missing-field-initializers)

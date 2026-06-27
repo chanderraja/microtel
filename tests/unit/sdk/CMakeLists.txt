@@ -52,6 +52,14 @@ microtel_add_test(
 target_include_directories(metric_exp_histogram_storage_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — MetricProducer: IMetricProducer impl that assembles MetricBatchHandles.
+microtel_add_test(
+    NAME    metric_producer_test
+    SOURCES metric_producer_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_producer_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp

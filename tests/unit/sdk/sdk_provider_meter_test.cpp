@@ -15,8 +15,10 @@
 #include "microtel/internal/sampler.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
+#include "microtel/status.hpp"
 
 #include "mocks/mock_exporter.hpp"
+#include "mocks/mock_metric_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
 #include "sdk/meter.hpp"
@@ -135,4 +137,68 @@ TEST(SdkProviderMeterTest, InstrumentsFromSameScopeAreAddedToSameScope)
     auto c2 = m2->CreateCounter<int64_t>("misses", "", "");
     c1.Add(5, {});
     c2.Add(2, {});
+}
+
+// ── Metric exporter wiring ────────────────────────────────────────────────────
+
+TEST(SdkProviderMeterTest, ForceFlush_WithMetricExporter_FlushesExporter)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+    auto metric_exp = std::make_unique<mtm::MockMetricExporter>();
+    const auto* metric_exp_ptr = metric_exp.get();
+
+    auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_exporter = std::move(metric_exp),
+        .metric_interval = std::chrono::milliseconds{60'000},
+    });
+
+    // Trigger lazy init of the metric reader.
+    (void)provider->GetMeter("test.lib");
+
+    EXPECT_EQ(provider->ForceFlush(500ms), mt::Status::Completed);
+    // Reader's ForceFlush calls DoCollectExport then exporter ForceFlush.
+    EXPECT_GE(metric_exp_ptr->flush_call_count.load(), 1);
+}
+
+TEST(SdkProviderMeterTest, Shutdown_WithMetricExporter_ShutsDownExporter)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+    auto metric_exp = std::make_unique<mtm::MockMetricExporter>();
+    const auto* metric_exp_ptr = metric_exp.get();
+
+    auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_exporter = std::move(metric_exp),
+        .metric_interval = std::chrono::milliseconds{60'000},
+    });
+
+    // Trigger lazy init of the metric reader.
+    (void)provider->GetMeter("test.lib");
+
+    EXPECT_EQ(provider->Shutdown(500ms), mt::Status::Completed);
+    // Metric reader Shutdown delegates to the exporter.
+    EXPECT_GE(metric_exp_ptr->shutdown_call_count.load(), 1);
 }

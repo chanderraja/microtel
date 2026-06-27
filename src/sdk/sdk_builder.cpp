@@ -447,6 +447,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .sampler = std::move(m_impl->sampler),
         .span_limits = cfg.span_limits,
         .connect_opts = BuildConnectOptions(cfg),
+        .metric_exporter = nullptr,
     });
 }
 

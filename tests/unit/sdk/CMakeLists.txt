@@ -158,7 +158,12 @@ microtel_add_test(
     SOURCES sdk_provider_meter_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_meter_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(sdk_provider_meter_test PRIVATE
+    -Wno-missing-field-initializers)
 
 # M6-C: SdkBuilder::Build() + SdkProvider lifecycle.
 microtel_add_test(
@@ -172,4 +177,9 @@ microtel_add_test(
     SOURCES sdk_provider_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(sdk_provider_test PRIVATE
+    -Wno-missing-field-initializers)

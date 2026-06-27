@@ -5,6 +5,7 @@
 
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/exporter.hpp"
+#include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/internal/transport.hpp"
@@ -24,9 +25,10 @@
 namespace microtel::sdk
 {
 
-// Forward-declared to keep meter.hpp out of this header's transitive closure.
+// Forward-declared to keep implementation headers out of this header's transitive closure.
 class Meter;
 class MetricProducer;
+class PeriodicExportingMetricReader;
 
 /// @brief All owned objects passed to SdkProvider at construction.
 ///
@@ -45,6 +47,11 @@ struct SdkProviderArgs
     SamplerHandle sampler;
     SpanLimitOptions span_limits;
     internal::ConnectOptions connect_opts;
+    /// @brief Optional metrics export pipeline. When non-null, a
+    /// `PeriodicExportingMetricReader` is created on the first `GetMeter()` call.
+    std::unique_ptr<internal::IMetricExporter> metric_exporter;
+    /// @brief Background export interval for the metrics reader (default 30 s).
+    std::chrono::milliseconds metric_interval{30'000};
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -93,13 +100,18 @@ private:
     // Declared first → destroyed last. Encoder is stateless; no teardown order concern.
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
     std::unique_ptr<internal::IAuthProvider> m_auth;
-    // Transport owns the I/O thread; must outlive codec and exporter.
+    // Transport owns the I/O thread; must outlive all codecs and exporters.
     std::unique_ptr<internal::ITransport> m_transport;
     std::unique_ptr<internal::IWireCodec> m_codec;
-    // Exporter owns the export worker thread; must outlive codec and transport.
+    // Trace exporter thread; must outlive codec and transport.
     std::unique_ptr<internal::IExporter> m_exporter;
-    // Processor owns the batch worker thread; declared last → destroyed first.
+    // Metric exporter thread; must outlive m_metric_reader.
+    std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
+    std::chrono::milliseconds m_metric_interval;
+    // BSP thread — destroyed before trace exporter.
     std::unique_ptr<internal::ISpanProcessor> m_processor;
+    // Metric reader thread — declared last → destroyed first (before metric exporter).
+    std::unique_ptr<PeriodicExportingMetricReader> m_metric_reader;
 
     std::shared_ptr<const Resource> m_resource;
     SamplerHandle m_sampler;

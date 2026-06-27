@@ -136,3 +136,16 @@ TEST(SdkBuilderTest, Provider_GetExporterHealth_ReturnsSnapshot)
     const auto health = (*result)->GetExporterHealth();
     EXPECT_EQ(health.batches_sent, 0U);
 }
+
+// ---------------------------------------------------------------------------
+// WithMetricInterval (M12)
+// ---------------------------------------------------------------------------
+
+TEST(SdkBuilderTest, WithMetricInterval_BuildSucceeds)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithMetricInterval(std::chrono::seconds(5))
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+}

@@ -115,6 +115,40 @@ namespace
     return {};
 }
 
+/// Apply OTEL_EXPORTER_OTLP_HEADERS to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayHeaders(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_EXPORTER_OTLP_HEADERS");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto headers = ParseKeyValueList(v, "OTEL_EXPORTER_OTLP_HEADERS");
+    if (!headers)
+    {
+        return microtel::make_unexpected(headers.error());
+    }
+    cfg.headers = std::move(*headers);
+    return {};
+}
+
+/// Apply OTEL_METRIC_EXPORT_INTERVAL to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayMetricInterval(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_METRIC_EXPORT_INTERVAL");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto ms = ParseMs(v, "OTEL_METRIC_EXPORT_INTERVAL");
+    if (!ms)
+    {
+        return microtel::make_unexpected(ms.error());
+    }
+    cfg.metric_interval = *ms;
+    return {};
+}
+
 /// Apply OTEL_RESOURCE_ATTRIBUTES to cfg if the env var is set.
 [[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceAttrs(Config& cfg)
 {
@@ -154,14 +188,9 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     // OTEL_EXPORTER_OTLP_HEADERS
-    if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_HEADERS"); !v.empty())
+    if (auto r = OverlayHeaders(cfg); !r)
     {
-        auto headers = ParseKeyValueList(v, "OTEL_EXPORTER_OTLP_HEADERS");
-        if (!headers)
-        {
-            return microtel::make_unexpected(headers.error());
-        }
-        cfg.headers = std::move(*headers);
+        return microtel::make_unexpected(r.error());
     }
 
     // OTEL_EXPORTER_OTLP_TIMEOUT (integer milliseconds)
@@ -190,6 +219,12 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
 
     // OTEL_RESOURCE_ATTRIBUTES
     if (auto r = OverlayResourceAttrs(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+
+    // OTEL_METRIC_EXPORT_INTERVAL (integer milliseconds)
+    if (auto r = OverlayMetricInterval(cfg); !r)
     {
         return microtel::make_unexpected(r.error());
     }

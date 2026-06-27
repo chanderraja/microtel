@@ -7,6 +7,7 @@
 #include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -59,6 +60,13 @@ struct Config
     TimeoutOptions timeouts;
     SpanLimitOptions span_limits;
     MemoryLimitOptions memory_limits;
+
+    // Metrics pipeline
+    /// @brief Background export interval for `PeriodicExportingMetricReader`.
+    ///
+    /// Honors `OTEL_METRIC_EXPORT_INTERVAL` (integer milliseconds).
+    /// OTel spec default: 60 000 ms.
+    std::chrono::milliseconds metric_interval{60'000};
 };
 
 }  // namespace microtel::config

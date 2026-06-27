@@ -76,6 +76,14 @@ microtel_add_test(
 target_include_directories(meter_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — Observable instruments (callback-driven streams + Meter factories).
+microtel_add_test(
+    NAME    metric_observable_instruments_test
+    SOURCES metric_observable_instruments_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_observable_instruments_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp

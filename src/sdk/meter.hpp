@@ -4,6 +4,7 @@
 #pragma once
 
 #include "sdk/meter_instruments.hpp"
+#include "sdk/metric_observable_instruments.hpp"
 #include "sdk/metric_producer.hpp"
 #include "sdk/metric_stream_impls.hpp"
 
@@ -120,6 +121,55 @@ public:
                                   std::move(unit),
                                   std::vector<double>(kDefaultHistogramBoundaries.begin(),
                                                       kDefaultHistogramBoundaries.end()));
+    }
+
+    // ── Observable instruments ────────────────────────────────────────────
+
+    /// @brief Create a monotonic observable Sum instrument (ObservableCounter).
+    template <typename T>
+    ObservableCounter<T> CreateObservableCounter(std::string name,
+                                                 std::string description,
+                                                 std::string unit,
+                                                 ObservableCallback<T> callback)
+    {
+        m_producer->AddStream(m_scope,
+                              std::make_unique<MetricStreamObservableSum<T>>(std::move(name),
+                                                                             std::move(description),
+                                                                             std::move(unit),
+                                                                             /*monotonic=*/true,
+                                                                             std::move(callback)));
+        return ObservableCounter<T>{};
+    }
+
+    /// @brief Create a non-monotonic observable Sum instrument
+    /// (ObservableUpDownCounter).
+    template <typename T>
+    ObservableUpDownCounter<T> CreateObservableUpDownCounter(std::string name,
+                                                             std::string description,
+                                                             std::string unit,
+                                                             ObservableCallback<T> callback)
+    {
+        m_producer->AddStream(m_scope,
+                              std::make_unique<MetricStreamObservableSum<T>>(std::move(name),
+                                                                             std::move(description),
+                                                                             std::move(unit),
+                                                                             /*monotonic=*/false,
+                                                                             std::move(callback)));
+        return ObservableUpDownCounter<T>{};
+    }
+
+    /// @brief Create an observable Gauge instrument (ObservableGauge).
+    template <typename T>
+    ObservableGauge<T> CreateObservableGauge(std::string name,
+                                             std::string description,
+                                             std::string unit,
+                                             ObservableCallback<T> callback)
+    {
+        m_producer->AddStream(
+            m_scope,
+            std::make_unique<MetricStreamObservableGauge<T>>(
+                std::move(name), std::move(description), std::move(unit), std::move(callback)));
+        return ObservableGauge<T>{};
     }
 
 private:

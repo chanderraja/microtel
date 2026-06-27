@@ -68,6 +68,14 @@ microtel_add_test(
 target_include_directories(metric_stream_impls_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — Meter: instrument factory wrapping MetricProducer.
+microtel_add_test(
+    NAME    meter_test
+    SOURCES meter_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(meter_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp

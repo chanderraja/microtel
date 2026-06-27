@@ -16,10 +16,17 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace microtel::sdk
 {
+
+// Forward-declared to keep meter.hpp out of this header's transitive closure.
+class Meter;
+class MetricProducer;
 
 /// @brief All owned objects passed to SdkProvider at construction.
 ///
@@ -72,6 +79,16 @@ public:
 
     [[nodiscard]] HealthSnapshot GetExporterHealth() const noexcept override;
 
+    /// @brief Acquire (or create) the `Meter` for one instrumentation scope.
+    ///
+    /// Lazily initialises the shared `MetricProducer` on the first call.
+    /// Subsequent calls with the same `(name, version)` return the cached
+    /// `Meter` instance. `schema_url` is stored in the scope but does not
+    /// affect caching in v1 (deferred to M12-hardening).
+    [[nodiscard]] std::shared_ptr<Meter> GetMeter(std::string_view name,
+                                                  std::string_view version = {},
+                                                  std::string_view schema_url = {});
+
 private:
     // Declared first → destroyed last. Encoder is stateless; no teardown order concern.
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
@@ -88,6 +105,11 @@ private:
     SamplerHandle m_sampler;
     SpanLimitOptions m_span_limits;
     internal::ConnectOptions m_connect_opts;
+
+    // Metrics pipeline: lazily initialised on first GetMeter() call.
+    std::mutex m_meter_mu;
+    std::shared_ptr<MetricProducer> m_metric_producer;
+    std::unordered_map<std::string, std::shared_ptr<Meter>> m_meters;
 };
 
 }  // namespace microtel::sdk

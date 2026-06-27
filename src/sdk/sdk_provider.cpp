@@ -8,6 +8,8 @@
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
+#include "sdk/meter.hpp"
+#include "sdk/metric_producer.hpp"
 #include "sdk/sdk_tracer.hpp"
 
 #include <chrono>
@@ -86,6 +88,31 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
     HealthSnapshot health;
     health.connection_state = m_transport->GetState();
     return health;
+}
+
+std::shared_ptr<Meter> SdkProvider::GetMeter(std::string_view name,
+                                             std::string_view version,
+                                             std::string_view /*schema_url*/)
+{
+    const std::scoped_lock lk{m_meter_mu};
+    if (!m_metric_producer)
+    {
+        m_metric_producer = std::make_shared<MetricProducer>(m_resource);
+    }
+    std::string key;
+    key.reserve(name.size() + 1 + version.size());
+    key.append(name);
+    key += '\0';
+    key.append(version);
+    auto& entry = m_meters[key];
+    if (!entry)
+    {
+        entry =
+            std::make_shared<Meter>(internal::InstrumentationScope{.name = std::string{name},
+                                                                   .version = std::string{version}},
+                                    m_metric_producer);
+    }
+    return entry;
 }
 
 }  // namespace microtel::sdk

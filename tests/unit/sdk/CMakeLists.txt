@@ -152,6 +152,14 @@ microtel_add_test(
 target_include_directories(batch_span_processor_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — SdkProvider::GetMeter: meter factory + scope caching.
+microtel_add_test(
+    NAME    sdk_provider_meter_test
+    SOURCES sdk_provider_meter_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_provider_meter_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # M6-C: SdkBuilder::Build() + SdkProvider lifecycle.
 microtel_add_test(
     NAME    sdk_builder_test

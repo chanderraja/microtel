@@ -35,7 +35,7 @@ std::vector<internal::MetricBatchHandle> MetricProducer::Collect(
 {
     std::vector<internal::MetricBatchHandle> handles;
     handles.reserve(m_scopes.size());
-    for (ScopeEntry& entry : m_scopes)
+    for (const ScopeEntry& entry : m_scopes)
     {
         std::vector<internal::MetricRecord> records;
         records.reserve(entry.streams.size());

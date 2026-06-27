@@ -41,12 +41,12 @@ void HistogramStorage<T>::Record(T value, AttributeSpan attrs)
 }
 
 template <typename T>
-internal::HistogramData HistogramStorage<T>::Collect() const
+internal::HistogramData HistogramStorage<T>::Collect(internal::AggregationTemporality temporality)
 {
     const std::scoped_lock lock{m_mu};
 
     internal::HistogramData data;
-    data.temporality = internal::AggregationTemporality::Cumulative;
+    data.temporality = temporality;
     data.points.reserve(m_points.size());
 
     for (const auto& [key, point] : m_points)
@@ -61,6 +61,11 @@ internal::HistogramData HistogramStorage<T>::Collect() const
         out.bucket_counts = point.bucket_counts;
         out.explicit_bounds = m_boundaries;
         data.points.push_back(std::move(out));
+    }
+
+    if (temporality == internal::AggregationTemporality::Delta)
+    {
+        m_points.clear();
     }
     return data;
 }

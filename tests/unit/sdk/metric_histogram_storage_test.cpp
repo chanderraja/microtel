@@ -133,14 +133,34 @@ TEST(HistogramStorageTest, DistinctAttributeSetsAreDistinctPoints)
 
 TEST(HistogramStorageTest, EmptyStorageCollectsNoPoints)
 {
-    const mts::HistogramStorage<double> storage{std::vector<double>{1, 2}};
+    mts::HistogramStorage<double> storage{std::vector<double>{1, 2}};
     EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(HistogramStorageTest, CollectIsCumulativeTemporality)
 {
-    const mts::HistogramStorage<std::int64_t> storage{std::vector<double>{1}};
+    mts::HistogramStorage<std::int64_t> storage{std::vector<double>{1}};
     EXPECT_EQ(storage.Collect().temporality, mti::AggregationTemporality::Cumulative);
+}
+
+TEST(HistogramStorageTest, DeltaReportsSinceLastCollectAndClears)
+{
+    mts::HistogramStorage<std::int64_t> storage{std::vector<double>{10}};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(5, mt::AttributeSpan{attrs});
+    const mti::HistogramData first = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(first.points.size(), 1U);
+    EXPECT_EQ(first.temporality, mti::AggregationTemporality::Delta);
+    EXPECT_EQ(first.points[0].count, 1U);
+
+    // Nothing recorded since → empty delta.
+    EXPECT_TRUE(storage.Collect(mti::AggregationTemporality::Delta).points.empty());
+
+    storage.Record(15, mt::AttributeSpan{attrs});
+    const mti::HistogramData third = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(third.points.size(), 1U);
+    EXPECT_EQ(third.points[0].count, 1U);  // only the value since the last collect
 }
 
 TEST(HistogramStorageTest, PointCarriesItsAttributes)

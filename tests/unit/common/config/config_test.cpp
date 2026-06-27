@@ -657,3 +657,37 @@ TEST(ValidateTest, ValidMinimalConfig_Succeeds)
     const auto result = mc::Validate(cfg);
     ASSERT_TRUE(result.has_value()) << result.error().message;
 }
+
+// ---------------------------------------------------------------------------
+// OverlayEnv — OTEL_METRIC_EXPORT_INTERVAL (M12)
+// ---------------------------------------------------------------------------
+
+TEST(OverlayEnvTest, OtelMetricExportInterval_SetsMetricInterval)
+{
+    const EnvGuard guard{{"OTEL_METRIC_EXPORT_INTERVAL"}};
+    SetEnv("OTEL_METRIC_EXPORT_INTERVAL", "5000");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.metric_interval, std::chrono::milliseconds{5000});
+}
+
+TEST(OverlayEnvTest, OtelMetricExportInterval_InvalidValue_ReturnsEnvParseFailure)
+{
+    const EnvGuard guard{{"OTEL_METRIC_EXPORT_INTERVAL"}};
+    SetEnv("OTEL_METRIC_EXPORT_INTERVAL", "not-a-number");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
+    EXPECT_EQ(result.error().field, "OTEL_METRIC_EXPORT_INTERVAL");
+}
+
+TEST(OverlayEnvTest, OtelMetricExportInterval_Unset_LeavesDefault)
+{
+    UnsetEnv("OTEL_METRIC_EXPORT_INTERVAL");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(cfg.metric_interval, std::chrono::milliseconds{60'000});
+}

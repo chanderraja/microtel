@@ -79,11 +79,11 @@ struct SpanLimitOptions
 /// @brief Memory-budget configuration (per `microtel-spec.md` §5.5).
 struct MemoryLimitOptions
 {
-    std::uint64_t max_total_queue_bytes = 16 * 1024 * 1024;  // 16 MiB
-    std::uint32_t max_record_bytes = 64 * 1024;              // 64 KiB
-    std::uint32_t max_response_bytes = 1 * 1024 * 1024;      // 1 MiB
-    std::uint32_t max_trailer_bytes = 64 * 1024;             // 64 KiB
-    std::uint32_t max_decompressed_bytes = 4 * 1024 * 1024;  // 4 MiB
+    std::uint64_t max_total_queue_bytes = 16ULL * 1024ULL * 1024ULL;  // 16 MiB
+    std::uint32_t max_record_bytes = 64 * 1024;                       // 64 KiB
+    std::uint32_t max_response_bytes = 1 * 1024 * 1024;               // 1 MiB
+    std::uint32_t max_trailer_bytes = 64 * 1024;                      // 64 KiB
+    std::uint32_t max_decompressed_bytes = 4 * 1024 * 1024;           // 4 MiB
 };
 
 /// @brief Callback returning the current `Authorization` header value.
@@ -134,6 +134,11 @@ public:
     SdkBuilder& WithTls(TlsOptions opts);
     SdkBuilder& WithAuthProvider(AuthCallback cb,
                                  std::chrono::milliseconds cache_ttl = std::chrono::seconds(60));
+
+    /// @brief Set the `PeriodicExportingMetricReader` export interval.
+    ///
+    /// Overrides `OTEL_METRIC_EXPORT_INTERVAL`. OTel default: 60 s.
+    SdkBuilder& WithMetricInterval(std::chrono::milliseconds interval);
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

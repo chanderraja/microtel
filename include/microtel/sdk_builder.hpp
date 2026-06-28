@@ -23,6 +23,21 @@
 namespace microtel
 {
 
+/// @brief Aggregation temporality preference for the metrics pipeline.
+///
+/// Selects whether metric data points accumulate since process start
+/// (`Cumulative`) or reset each export cycle (`Delta`). `LowMemory` approximates
+/// delta for all instruments; per-instrument-kind selection is v1.3 work.
+///
+/// Maps to `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`
+/// ("cumulative" | "delta" | "lowmemory"). OTel default: cumulative.
+enum class TemporalityPreference : std::uint8_t
+{
+    Cumulative = 0,  ///< All instruments report cumulative sums.
+    Delta = 1,       ///< All instruments reset each collection cycle.
+    LowMemory = 2,   ///< Delta for all instruments (per-kind mapping: v1.3).
+};
+
 /// @brief Drop policy when the span queue reaches `max_queue_size`.
 enum class DropPolicy : std::uint8_t
 {
@@ -139,6 +154,12 @@ public:
     ///
     /// Overrides `OTEL_METRIC_EXPORT_INTERVAL`. OTel default: 60 s.
     SdkBuilder& WithMetricInterval(std::chrono::milliseconds interval);
+
+    /// @brief Set the aggregation temporality preference for the metrics pipeline.
+    ///
+    /// Overrides `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`.
+    /// OTel default: `Cumulative`.
+    SdkBuilder& WithMetricTemporality(TemporalityPreference pref);
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

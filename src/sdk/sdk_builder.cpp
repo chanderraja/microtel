@@ -68,6 +68,7 @@ struct SdkBuilder::Impl
     std::optional<AuthCallback> auth_cb;
     std::chrono::milliseconds auth_cache_ttl{std::chrono::seconds(60)};
     std::optional<std::chrono::milliseconds> metric_interval;
+    std::optional<TemporalityPreference> metric_temporality;
 
     bool consumed = false;
 
@@ -185,6 +186,12 @@ SdkBuilder& SdkBuilder::WithAuthProvider(AuthCallback cb, std::chrono::milliseco
 SdkBuilder& SdkBuilder::WithMetricInterval(std::chrono::milliseconds interval)
 {
     m_impl->metric_interval = interval;
+    return *this;
+}
+
+SdkBuilder& SdkBuilder::WithMetricTemporality(TemporalityPreference pref)
+{
+    m_impl->metric_temporality = pref;
     return *this;
 }
 
@@ -390,6 +397,10 @@ void SdkBuilder::Impl::ApplyExporterOverrides(config::Config& cfg) const
     {
         cfg.metric_interval = *metric_interval;
     }
+    if (metric_temporality)
+    {
+        cfg.metric_temporality = *metric_temporality;
+    }
 }
 
 void SdkBuilder::Impl::ApplyResourceOverrides(config::Config& cfg) const
@@ -494,6 +505,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .metric_codec = std::move(exporters.metric_codec),
         .metric_exporter = std::move(exporters.metric_exporter),
         .metric_interval = cfg.metric_interval,
+        .metric_temporality = cfg.metric_temporality,
     });
 }
 

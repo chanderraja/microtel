@@ -67,6 +67,12 @@ struct Config
     /// Honors `OTEL_METRIC_EXPORT_INTERVAL` (integer milliseconds).
     /// OTel spec default: 60 000 ms.
     std::chrono::milliseconds metric_interval{60'000};
+
+    /// @brief Aggregation temporality preference for the metrics pipeline.
+    ///
+    /// Honors `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`
+    /// ("cumulative" | "delta" | "lowmemory"). OTel default: cumulative.
+    microtel::TemporalityPreference metric_temporality{microtel::TemporalityPreference::Cumulative};
 };
 
 }  // namespace microtel::config

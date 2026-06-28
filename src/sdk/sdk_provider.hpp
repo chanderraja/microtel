@@ -56,6 +56,8 @@ struct SdkProviderArgs
     std::unique_ptr<internal::IMetricExporter> metric_exporter;
     /// @brief Background export interval for the metrics reader (default 30 s).
     std::chrono::milliseconds metric_interval{30'000};
+    /// @brief Aggregation temporality preference for the metrics reader.
+    microtel::TemporalityPreference metric_temporality{microtel::TemporalityPreference::Cumulative};
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -114,6 +116,7 @@ private:
     // Metric exporter thread; must outlive m_metric_reader.
     std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
     std::chrono::milliseconds m_metric_interval;
+    microtel::TemporalityPreference m_metric_temporality;
     // BSP thread — destroyed before trace exporter.
     std::unique_ptr<internal::ISpanProcessor> m_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).

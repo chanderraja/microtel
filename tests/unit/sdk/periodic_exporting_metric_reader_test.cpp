@@ -272,6 +272,7 @@ TEST(PeriodicExportingMetricReaderTest, DestructorShutdownDoesNotCrash)
     FakeMetricProducer producer;
     FakeMetricExporter exporter;
     {
+        // NOLINTNEXTLINE(misc-const-correctness) — dtor is non-const; cf18 false positive
         mts::PeriodicExportingMetricReader reader{producer, exporter, 60'000ms};
         // Destructor runs here — must not crash or block indefinitely.
     }

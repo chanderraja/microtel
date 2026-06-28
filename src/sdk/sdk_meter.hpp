@@ -74,6 +74,39 @@ private:
         std::string unit,
         std::vector<double> boundaries) override;
 
+    microtel::ObservableCounter<std::int64_t> DoCreateObservableCounterI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<std::int64_t> callback) override;
+    microtel::ObservableCounter<double> DoCreateObservableCounterDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<double> callback) override;
+
+    microtel::ObservableUpDownCounter<std::int64_t> DoCreateObservableUpDownCounterI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<std::int64_t> callback) override;
+    microtel::ObservableUpDownCounter<double> DoCreateObservableUpDownCounterDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<double> callback) override;
+
+    microtel::ObservableGauge<std::int64_t> DoCreateObservableGaugeI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<std::int64_t> callback) override;
+    microtel::ObservableGauge<double> DoCreateObservableGaugeDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        microtel::ObservableCallback<double> callback) override;
+
     internal::InstrumentationScope m_scope;
     std::shared_ptr<MetricProducer> m_producer;
 };

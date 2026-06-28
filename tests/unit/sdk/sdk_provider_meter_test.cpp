@@ -13,11 +13,10 @@
 //    (instruments from different scopes both appear in Collect()).
 
 #include "microtel/internal/sampler.hpp"
+#include "microtel/meter.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
-
-#include "microtel/meter.hpp"
 
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_metric_exporter.hpp"

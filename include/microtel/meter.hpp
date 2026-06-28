@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -115,6 +116,92 @@ public:
     virtual void Record(T value, AttributeSpan attrs) noexcept = 0;
 };
 
+// ── Observable instrument support ─────────────────────────────────────────────
+
+/// @brief Observer API passed to an observable instrument callback.
+///
+/// Implementations call `Observe()` once per distinct attribute set per cycle.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ObservableResult
+{
+public:
+    ObservableResult() noexcept = default;
+    virtual ~ObservableResult() noexcept = default;
+
+    ObservableResult(const ObservableResult&) = delete;
+    ObservableResult& operator=(const ObservableResult&) = delete;
+    ObservableResult(ObservableResult&&) = delete;
+    ObservableResult& operator=(ObservableResult&&) = delete;
+
+    /// @brief Report one observation for @p attrs. Last call wins per attribute set.
+    virtual void Observe(T value, AttributeSpan attrs) = 0;
+};
+
+/// @brief Signature of an observable instrument callback.
+///
+/// The function is invoked once per collection cycle. The @p result reference
+/// is valid only for the duration of the call.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+using ObservableCallback = std::function<void(ObservableResult<T>&)>;
+
+/// @brief RAII handle for a registered ObservableCounter.
+///
+/// Move-only. In M12 this is an empty token; v1.2 will add deregistration.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ObservableCounter
+{
+public:
+    ObservableCounter() noexcept = default;
+    ~ObservableCounter() noexcept = default;
+
+    ObservableCounter(const ObservableCounter&) = delete;
+    ObservableCounter& operator=(const ObservableCounter&) = delete;
+    ObservableCounter(ObservableCounter&&) noexcept = default;
+    ObservableCounter& operator=(ObservableCounter&&) noexcept = default;
+};
+
+/// @brief RAII handle for a registered ObservableUpDownCounter.
+///
+/// Move-only. In M12 this is an empty token; v1.2 will add deregistration.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ObservableUpDownCounter
+{
+public:
+    ObservableUpDownCounter() noexcept = default;
+    ~ObservableUpDownCounter() noexcept = default;
+
+    ObservableUpDownCounter(const ObservableUpDownCounter&) = delete;
+    ObservableUpDownCounter& operator=(const ObservableUpDownCounter&) = delete;
+    ObservableUpDownCounter(ObservableUpDownCounter&&) noexcept = default;
+    ObservableUpDownCounter& operator=(ObservableUpDownCounter&&) noexcept = default;
+};
+
+/// @brief RAII handle for a registered ObservableGauge.
+///
+/// Move-only. In M12 this is an empty token; v1.2 will add deregistration.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ObservableGauge
+{
+public:
+    ObservableGauge() noexcept = default;
+    ~ObservableGauge() noexcept = default;
+
+    ObservableGauge(const ObservableGauge&) = delete;
+    ObservableGauge& operator=(const ObservableGauge&) = delete;
+    ObservableGauge(ObservableGauge&&) noexcept = default;
+    ObservableGauge& operator=(ObservableGauge&&) noexcept = default;
+};
+
 /// @brief Factory for metric instruments bound to one instrumentation scope.
 ///
 /// Obtained via `Provider::GetMeter(name, version)`. Each `Create*<T>()` call
@@ -177,6 +264,29 @@ public:
                                                       kDefaultHistogramBoundaries.end()));
     }
 
+    // ── Asynchronous (observable) instruments ──────────────────────────────
+
+    /// @brief Create an observable monotonic Sum instrument.
+    template <typename T>
+    ObservableCounter<T> CreateObservableCounter(std::string name,
+                                                 std::string description,
+                                                 std::string unit,
+                                                 ObservableCallback<T> callback);
+
+    /// @brief Create an observable non-monotonic Sum instrument.
+    template <typename T>
+    ObservableUpDownCounter<T> CreateObservableUpDownCounter(std::string name,
+                                                             std::string description,
+                                                             std::string unit,
+                                                             ObservableCallback<T> callback);
+
+    /// @brief Create an observable last-write-wins Gauge instrument.
+    template <typename T>
+    ObservableGauge<T> CreateObservableGauge(std::string name,
+                                             std::string description,
+                                             std::string unit,
+                                             ObservableCallback<T> callback);
+
 private:
     virtual std::shared_ptr<Counter<std::int64_t>> DoCreateCounterI64(std::string name,
                                                                       std::string description,
@@ -207,6 +317,39 @@ private:
         std::string description,
         std::string unit,
         std::vector<double> boundaries) = 0;
+
+    virtual ObservableCounter<std::int64_t> DoCreateObservableCounterI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<std::int64_t> callback) = 0;
+    virtual ObservableCounter<double> DoCreateObservableCounterDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<double> callback) = 0;
+
+    virtual ObservableUpDownCounter<std::int64_t> DoCreateObservableUpDownCounterI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<std::int64_t> callback) = 0;
+    virtual ObservableUpDownCounter<double> DoCreateObservableUpDownCounterDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<double> callback) = 0;
+
+    virtual ObservableGauge<std::int64_t> DoCreateObservableGaugeI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<std::int64_t> callback) = 0;
+    virtual ObservableGauge<double> DoCreateObservableGaugeDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        ObservableCallback<double> callback) = 0;
 };
 
 // ── Explicit specializations — Counter ────────────────────────────────────────
@@ -275,6 +418,78 @@ inline std::shared_ptr<Histogram<double>> Meter::CreateHistogram<double>(
 {
     return DoCreateHistogramDouble(
         std::move(name), std::move(description), std::move(unit), std::move(boundaries));
+}
+
+// ── Explicit specializations — ObservableCounter ──────────────────────────────
+
+template <>
+inline ObservableCounter<std::int64_t> Meter::CreateObservableCounter<std::int64_t>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<std::int64_t> callback)
+{
+    return DoCreateObservableCounterI64(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+template <>
+inline ObservableCounter<double> Meter::CreateObservableCounter<double>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<double> callback)
+{
+    return DoCreateObservableCounterDouble(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+// ── Explicit specializations — ObservableUpDownCounter ────────────────────────
+
+template <>
+inline ObservableUpDownCounter<std::int64_t> Meter::CreateObservableUpDownCounter<std::int64_t>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<std::int64_t> callback)
+{
+    return DoCreateObservableUpDownCounterI64(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+template <>
+inline ObservableUpDownCounter<double> Meter::CreateObservableUpDownCounter<double>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<double> callback)
+{
+    return DoCreateObservableUpDownCounterDouble(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+// ── Explicit specializations — ObservableGauge ────────────────────────────────
+
+template <>
+inline ObservableGauge<std::int64_t> Meter::CreateObservableGauge<std::int64_t>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<std::int64_t> callback)
+{
+    return DoCreateObservableGaugeI64(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+template <>
+inline ObservableGauge<double> Meter::CreateObservableGauge<double>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    ObservableCallback<double> callback)
+{
+    return DoCreateObservableGaugeDouble(
+        std::move(name), std::move(description), std::move(unit), std::move(callback));
 }
 
 }  // namespace microtel

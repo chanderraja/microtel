@@ -176,3 +176,55 @@ TEST(MeterApiTest, HistogramDouble_CustomBoundaries_DoesNotCrash)
         "payload.size", "Payload size", "by", {100.0, 1'000.0, 10'000.0});
     h->Record(500.0, {});
 }
+
+// ── ObservableCounter<int64_t> ────────────────────────────────────────────────
+
+TEST(MeterApiTest, ObservableCounterI64_CreateDoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    auto handle = meter->CreateObservableCounter<std::int64_t>(
+        "process.cpu_time",
+        "CPU time",
+        "s",
+        [](mt::ObservableResult<std::int64_t>& result) { result.Observe(42, {}); });
+    (void)handle;
+}
+
+// ── ObservableCounter<double> ─────────────────────────────────────────────────
+
+TEST(MeterApiTest, ObservableCounterDouble_CreateDoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    auto handle = meter->CreateObservableCounter<double>("cache.hit_ratio",
+                                                         "Cache hit ratio",
+                                                         "1",
+                                                         [](mt::ObservableResult<double>& result)
+                                                         { result.Observe(0.95, {}); });
+    (void)handle;
+}
+
+// ── ObservableUpDownCounter<int64_t> ──────────────────────────────────────────
+
+TEST(MeterApiTest, ObservableUpDownCounterI64_CreateDoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    auto handle = meter->CreateObservableUpDownCounter<std::int64_t>(
+        "process.open_fds",
+        "Open file descriptors",
+        "1",
+        [](mt::ObservableResult<std::int64_t>& result) { result.Observe(12, {}); });
+    (void)handle;
+}
+
+// ── ObservableGauge<double> ───────────────────────────────────────────────────
+
+TEST(MeterApiTest, ObservableGaugeDouble_CreateDoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    auto handle = meter->CreateObservableGauge<double>("system.memory.usage",
+                                                       "Memory usage",
+                                                       "by",
+                                                       [](mt::ObservableResult<double>& result)
+                                                       { result.Observe(1024.0 * 1024.0, {}); });
+    (void)handle;
+}

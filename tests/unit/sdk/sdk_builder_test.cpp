@@ -149,3 +149,25 @@ TEST(SdkBuilderTest, WithMetricInterval_BuildSucceeds)
                       .Build();
     ASSERT_TRUE(result.has_value());
 }
+
+// ---------------------------------------------------------------------------
+// WithMetricTemporality (M12 — increment 21)
+// ---------------------------------------------------------------------------
+
+TEST(SdkBuilderTest, WithMetricTemporality_Delta_BuildSucceeds)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithMetricTemporality(microtel::TemporalityPreference::Delta)
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+}
+
+TEST(SdkBuilderTest, WithMetricTemporality_LowMemory_BuildSucceeds)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithMetricTemporality(microtel::TemporalityPreference::LowMemory)
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+}

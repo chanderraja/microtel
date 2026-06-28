@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "microtel/internal/metric_batch.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/metric_producer.hpp"
 #include "microtel/internal/metric_reader.hpp"
@@ -43,12 +44,15 @@ public:
 
     /// @brief Construct the reader and start the background export thread.
     ///
-    /// @param producer  Source of metric snapshots; must outlive this reader.
-    /// @param exporter  Sink for exported batches; must outlive this reader.
-    /// @param interval  Background export period; defaults to 60 s.
+    /// @param producer     Source of metric snapshots; must outlive this reader.
+    /// @param exporter     Sink for exported batches; must outlive this reader.
+    /// @param interval     Background export period; defaults to 60 s.
+    /// @param temporality  Passed to `IMetricProducer::Collect()` each cycle.
     PeriodicExportingMetricReader(internal::IMetricProducer& producer,
                                   internal::IMetricExporter& exporter,
-                                  std::chrono::milliseconds interval = kDefaultInterval) noexcept;
+                                  std::chrono::milliseconds interval = kDefaultInterval,
+                                  internal::AggregationTemporality temporality =
+                                      internal::AggregationTemporality::Cumulative) noexcept;
 
     PeriodicExportingMetricReader(const PeriodicExportingMetricReader&) = delete;
     PeriodicExportingMetricReader& operator=(const PeriodicExportingMetricReader&) = delete;
@@ -84,6 +88,7 @@ private:
     internal::IMetricProducer& m_producer;
     internal::IMetricExporter& m_exporter;
     std::chrono::milliseconds m_interval;
+    internal::AggregationTemporality m_temporality;
 
     std::atomic<bool> m_shut_down{false};
 

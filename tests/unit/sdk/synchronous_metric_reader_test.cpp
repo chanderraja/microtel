@@ -50,7 +50,9 @@ public:
     {
     }
 
-    [[nodiscard]] std::vector<mti::MetricBatchHandle> Collect() override
+    [[nodiscard]] std::vector<mti::MetricBatchHandle> Collect(
+        mti::AggregationTemporality /*temporality*/ =
+            mti::AggregationTemporality::Cumulative) override
     {
         ++m_collect_count;
         return std::move(m_handles);

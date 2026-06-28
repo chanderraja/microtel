@@ -25,11 +25,6 @@ void MetricProducer::AddStream(internal::InstrumentationScope scope,
     m_scopes.back().streams.push_back(std::move(stream));
 }
 
-std::vector<internal::MetricBatchHandle> MetricProducer::Collect()
-{
-    return Collect(internal::AggregationTemporality::Cumulative);
-}
-
 std::vector<internal::MetricBatchHandle> MetricProducer::Collect(
     internal::AggregationTemporality temporality)
 {

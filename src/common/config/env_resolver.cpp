@@ -6,6 +6,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/protocol.hpp"
+#include "microtel/sdk_builder.hpp"
 
 #include <charconv>
 #include <cstdlib>
@@ -132,6 +133,23 @@ namespace
     return {};
 }
 
+/// Apply OTEL_EXPORTER_OTLP_PROTOCOL to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayProtocol(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_EXPORTER_OTLP_PROTOCOL");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto proto = ParseProtocol(v);
+    if (!proto)
+    {
+        return microtel::make_unexpected(proto.error());
+    }
+    cfg.protocol = *proto;
+    return {};
+}
+
 /// Apply OTEL_METRIC_EXPORT_INTERVAL to cfg if the env var is set.
 [[nodiscard]] microtel::Expected<void, ConfigError> OverlayMetricInterval(Config& cfg)
 {
@@ -147,6 +165,35 @@ namespace
     }
     cfg.metric_interval = *ms;
     return {};
+}
+
+/// Apply OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE to cfg if the env var is set.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayMetricTemporality(Config& cfg)
+{
+    const auto v = GetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE");
+    if (v.empty())
+    {
+        return {};
+    }
+    if (v == "cumulative")
+    {
+        cfg.metric_temporality = microtel::TemporalityPreference::Cumulative;
+        return {};
+    }
+    if (v == "delta")
+    {
+        cfg.metric_temporality = microtel::TemporalityPreference::Delta;
+        return {};
+    }
+    if (v == "lowmemory")
+    {
+        cfg.metric_temporality = microtel::TemporalityPreference::LowMemory;
+        return {};
+    }
+    return microtel::make_unexpected(
+        ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                    .field = "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+                    .message = R"(expected "cumulative", "delta", or "lowmemory")"});
 }
 
 /// Apply OTEL_RESOURCE_ATTRIBUTES to cfg if the env var is set.
@@ -177,14 +224,9 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     // OTEL_EXPORTER_OTLP_PROTOCOL
-    if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_PROTOCOL"); !v.empty())
+    if (auto r = OverlayProtocol(cfg); !r)
     {
-        auto proto = ParseProtocol(v);
-        if (!proto)
-        {
-            return microtel::make_unexpected(proto.error());
-        }
-        cfg.protocol = *proto;
+        return microtel::make_unexpected(r.error());
     }
 
     // OTEL_EXPORTER_OTLP_HEADERS
@@ -225,6 +267,12 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
 
     // OTEL_METRIC_EXPORT_INTERVAL (integer milliseconds)
     if (auto r = OverlayMetricInterval(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+
+    // OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+    if (auto r = OverlayMetricTemporality(cfg); !r)
     {
         return microtel::make_unexpected(r.error());
     }

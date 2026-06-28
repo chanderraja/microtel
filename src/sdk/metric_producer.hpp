@@ -44,13 +44,11 @@ public:
     /// @brief Register `stream` under `scope`. Creates the scope entry if new.
     void AddStream(internal::InstrumentationScope scope, std::unique_ptr<IMetricStream> stream);
 
-    /// @brief Snapshot all streams with `Cumulative` temporality.
-    [[nodiscard]] std::vector<internal::MetricBatchHandle> Collect() override;
-
-    /// @brief Snapshot all streams with an explicit temporality (for tests /
-    /// readers that override the default).
+    /// @brief Snapshot all streams. `temporality` defaults to `Cumulative` per the
+    /// `IMetricProducer` contract; pass `Delta` to reset each stream after collection.
     [[nodiscard]] std::vector<internal::MetricBatchHandle> Collect(
-        internal::AggregationTemporality temporality);
+        internal::AggregationTemporality temporality =
+            internal::AggregationTemporality::Cumulative) override;
 
 private:
     struct ScopeEntry

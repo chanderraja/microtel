@@ -30,7 +30,8 @@ class IMetricProducer
 public:
     virtual ~IMetricProducer() noexcept = default;
 
-    [[nodiscard]] virtual std::vector<MetricBatchHandle> Collect() = 0;
+    [[nodiscard]] virtual std::vector<MetricBatchHandle> Collect(
+        AggregationTemporality temporality = AggregationTemporality::Cumulative) = 0;
 };
 
 }  // namespace microtel::internal

@@ -184,8 +184,7 @@ TEST(MetricStreamObservableGaugeTest, ObservationAppearsAsGaugePoint)
         "room.temp",
         "Room temperature",
         "Cel",
-        [&attrs](mts::ObservableResult<double>& result)
-        { result.Observe(21.5, mt::AttributeSpan{attrs}); }};
+        [&attrs](auto& result) { result.Observe(21.5, mt::AttributeSpan{attrs}); }};
 
     const auto rec = stream.Collect(mti::AggregationTemporality::Cumulative);
     const auto& gd = std::get<mti::GaugeData>(rec.data);

@@ -114,6 +114,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
             .host = "fuzz",
             .scheme = "http",
             .extra_headers = {},
+            .service_path = {},
         },
     };
 

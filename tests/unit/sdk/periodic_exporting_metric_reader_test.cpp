@@ -255,6 +255,7 @@ TEST(PeriodicExportingMetricReaderTest, BackgroundThreadFiresAtConfiguredInterva
     FakeMetricProducer producer;
     FakeMetricExporter exporter;
     // Very short interval so the background thread fires quickly in CI.
+    // NOLINTNEXTLINE(misc-const-correctness) — Shutdown() is non-const; cf18 false positive
     mts::PeriodicExportingMetricReader reader{producer, exporter, 5ms};
 
     // Wait long enough for at least 3 background cycles.

@@ -691,3 +691,53 @@ TEST(OverlayEnvTest, OtelMetricExportInterval_Unset_LeavesDefault)
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(cfg.metric_interval, std::chrono::milliseconds{60'000});
 }
+
+TEST(OverlayEnvTest, OtelMetricTemporalityPreference_Cumulative_SetsCumulative)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"}};
+    SetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "cumulative");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.metric_temporality, mt::TemporalityPreference::Cumulative);
+}
+
+TEST(OverlayEnvTest, OtelMetricTemporalityPreference_Delta_SetsDelta)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"}};
+    SetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "delta");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.metric_temporality, mt::TemporalityPreference::Delta);
+}
+
+TEST(OverlayEnvTest, OtelMetricTemporalityPreference_LowMemory_SetsLowMemory)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"}};
+    SetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "lowmemory");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.metric_temporality, mt::TemporalityPreference::LowMemory);
+}
+
+TEST(OverlayEnvTest, OtelMetricTemporalityPreference_Invalid_ReturnsEnvParseFailure)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"}};
+    SetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE", "unknown");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
+    EXPECT_EQ(result.error().field, "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE");
+}
+
+TEST(OverlayEnvTest, OtelMetricTemporalityPreference_Unset_LeavesDefault)
+{
+    UnsetEnv("OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(cfg.metric_temporality, mt::TemporalityPreference::Cumulative);
+}

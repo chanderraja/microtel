@@ -14,8 +14,9 @@ namespace microtel::sdk
 PeriodicExportingMetricReader::PeriodicExportingMetricReader(
     internal::IMetricProducer& producer,
     internal::IMetricExporter& exporter,
-    std::chrono::milliseconds interval) noexcept
-    : m_producer(producer), m_exporter(exporter), m_interval(interval)
+    std::chrono::milliseconds interval,
+    internal::AggregationTemporality temporality) noexcept
+    : m_producer(producer), m_exporter(exporter), m_interval(interval), m_temporality(temporality)
 {
     m_thread = std::thread{[this] { RunLoop(); }};
 }
@@ -85,7 +86,7 @@ microtel::Status PeriodicExportingMetricReader::DoCollectExport() noexcept
     std::vector<internal::MetricBatchHandle> handles;
     try
     {
-        handles = m_producer.Collect();
+        handles = m_producer.Collect(m_temporality);
     }
     catch (const std::exception&)
     {

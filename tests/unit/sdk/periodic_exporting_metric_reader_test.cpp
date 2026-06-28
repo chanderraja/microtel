@@ -51,10 +51,12 @@ public:
     {
     }
 
-    [[nodiscard]] std::vector<mti::MetricBatchHandle> Collect() override
+    [[nodiscard]] std::vector<mti::MetricBatchHandle> Collect(
+        mti::AggregationTemporality temporality = mti::AggregationTemporality::Cumulative) override
     {
         m_collect_count.fetch_add(1, std::memory_order_relaxed);
-        return std::move(m_handles);  // after first call returns empty; count still increments
+        m_last_temporality.store(static_cast<int>(temporality), std::memory_order_relaxed);
+        return std::move(m_handles);
     }
 
     [[nodiscard]] int CollectCount() const noexcept
@@ -62,9 +64,16 @@ public:
         return m_collect_count.load(std::memory_order_relaxed);
     }
 
+    [[nodiscard]] mti::AggregationTemporality LastTemporality() const noexcept
+    {
+        return static_cast<mti::AggregationTemporality>(
+            m_last_temporality.load(std::memory_order_relaxed));
+    }
+
 private:
     std::vector<mti::MetricBatchHandle> m_handles;
     std::atomic<int> m_collect_count{0};
+    std::atomic<int> m_last_temporality{static_cast<int>(mti::AggregationTemporality::Cumulative)};
 };
 
 class FakeMetricExporter : public mti::IMetricExporter
@@ -276,4 +285,28 @@ TEST(PeriodicExportingMetricReaderTest, DestructorShutdownDoesNotCrash)
         mts::PeriodicExportingMetricReader reader{producer, exporter, 60'000ms};
         // Destructor runs here — must not crash or block indefinitely.
     }
+}
+
+// ── Temporality threading ─────────────────────────────────────────────────────
+
+TEST(PeriodicExportingMetricReaderTest, Collect_DefaultTemporality_PassesCumulativeToProducer)
+{
+    FakeMetricProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{
+        producer, exporter, 60'000ms, mti::AggregationTemporality::Cumulative};
+
+    EXPECT_EQ(reader.Collect(100ms), mt::Status::Completed);
+    EXPECT_EQ(producer.LastTemporality(), mti::AggregationTemporality::Cumulative);
+}
+
+TEST(PeriodicExportingMetricReaderTest, Collect_WithDeltaTemporality_PassesDeltaToProducer)
+{
+    FakeMetricProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{
+        producer, exporter, 60'000ms, mti::AggregationTemporality::Delta};
+
+    EXPECT_EQ(reader.Collect(100ms), mt::Status::Completed);
+    EXPECT_EQ(producer.LastTemporality(), mti::AggregationTemporality::Delta);
 }

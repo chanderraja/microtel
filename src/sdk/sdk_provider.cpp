@@ -4,6 +4,7 @@
 #include "sdk/sdk_provider.hpp"
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/metric_batch.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
@@ -27,6 +28,21 @@ namespace
 
 constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 
+[[nodiscard]] internal::AggregationTemporality ToAggregationTemporality(
+    microtel::TemporalityPreference pref) noexcept
+{
+    switch (pref)
+    {
+        case microtel::TemporalityPreference::Delta:
+        case microtel::TemporalityPreference::LowMemory:
+            // LowMemory uses delta for all instruments; per-kind mapping deferred to v1.3.
+            return internal::AggregationTemporality::Delta;
+        case microtel::TemporalityPreference::Cumulative:
+        default:
+            return internal::AggregationTemporality::Cumulative;
+    }
+}
+
 }  // namespace
 
 SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
@@ -38,6 +54,7 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_exporter(std::move(args.exporter)),
       m_metric_exporter(std::move(args.metric_exporter)),
       m_metric_interval(args.metric_interval),
+      m_metric_temporality(args.metric_temporality),
       m_processor(std::move(args.processor)),
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
@@ -124,7 +141,10 @@ std::shared_ptr<Meter> SdkProvider::GetMeter(std::string_view name,
         if (m_metric_exporter != nullptr)
         {
             m_metric_reader = std::make_unique<PeriodicExportingMetricReader>(
-                *m_metric_producer, *m_metric_exporter, m_metric_interval);
+                *m_metric_producer,
+                *m_metric_exporter,
+                m_metric_interval,
+                ToAggregationTemporality(m_metric_temporality));
         }
     }
     std::string key;

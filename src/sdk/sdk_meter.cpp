@@ -8,6 +8,7 @@
 
 #include "sdk/metric_gauge_storage.hpp"
 #include "sdk/metric_histogram_storage.hpp"
+#include "sdk/metric_observable_instruments.hpp"
 #include "sdk/metric_producer.hpp"
 #include "sdk/metric_stream_impls.hpp"
 #include "sdk/metric_sum_storage.hpp"
@@ -85,6 +86,32 @@ public:
 
 private:
     HistogramStorage<T>* m_storage;
+};
+
+// ── Public-to-internal ObservableResult bridge ────────────────────────────────
+// Adapts microtel::ObservableResult<T> (public abstract) to sdk::ObservableResult<T>
+// (internal concrete). The adapter is stack-allocated inside the bridge lambda that
+// wraps the user's public callback for each collection cycle.
+
+template <typename T>
+class SdkObservableResultAdapter final : public microtel::ObservableResult<T>
+{
+public:
+    explicit SdkObservableResultAdapter(ObservableResult<T>& target) noexcept : m_target(target) {}
+
+    SdkObservableResultAdapter(const SdkObservableResultAdapter&) = delete;
+    SdkObservableResultAdapter& operator=(const SdkObservableResultAdapter&) = delete;
+    SdkObservableResultAdapter(SdkObservableResultAdapter&&) = delete;
+    SdkObservableResultAdapter& operator=(SdkObservableResultAdapter&&) = delete;
+    ~SdkObservableResultAdapter() noexcept override = default;
+
+    void Observe(T value, microtel::AttributeSpan attrs) override
+    {
+        m_target.Observe(value, attrs);
+    }
+
+private:
+    ObservableResult<T>& m_target;
 };
 
 }  // namespace
@@ -178,6 +205,126 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
     HistogramStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkHistogram<double>>(&storage);
+}
+
+microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<std::int64_t> callback)
+{
+    ObservableCallback<std::int64_t> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<std::int64_t>& sdk_result)
+        {
+            SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableSum<std::int64_t>>(std::move(name),
+                                                                            std::move(description),
+                                                                            std::move(unit),
+                                                                            /*monotonic=*/true,
+                                                                            std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
+}
+
+microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<double> callback)
+{
+    ObservableCallback<double> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<double>& sdk_result)
+        {
+            SdkObservableResultAdapter<double> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableSum<double>>(std::move(name),
+                                                                      std::move(description),
+                                                                      std::move(unit),
+                                                                      /*monotonic=*/true,
+                                                                      std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
+}
+
+microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDownCounterI64(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<std::int64_t> callback)
+{
+    ObservableCallback<std::int64_t> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<std::int64_t>& sdk_result)
+        {
+            SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableSum<std::int64_t>>(std::move(name),
+                                                                            std::move(description),
+                                                                            std::move(unit),
+                                                                            /*monotonic=*/false,
+                                                                            std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
+}
+
+microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCounterDouble(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<double> callback)
+{
+    ObservableCallback<double> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<double>& sdk_result)
+        {
+            SdkObservableResultAdapter<double> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableSum<double>>(std::move(name),
+                                                                      std::move(description),
+                                                                      std::move(unit),
+                                                                      /*monotonic=*/false,
+                                                                      std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
+}
+
+microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<std::int64_t> callback)
+{
+    ObservableCallback<std::int64_t> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<std::int64_t>& sdk_result)
+        {
+            SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableGauge<std::int64_t>>(
+        std::move(name), std::move(description), std::move(unit), std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
+}
+
+microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
+    std::string name,
+    std::string description,
+    std::string unit,
+    microtel::ObservableCallback<double> callback)
+{
+    ObservableCallback<double> bridge{
+        [pub_cb = std::move(callback)](ObservableResult<double>& sdk_result)
+        {
+            SdkObservableResultAdapter<double> adapter{sdk_result};
+            pub_cb(adapter);
+        }};
+    auto stream = std::make_unique<MetricStreamObservableGauge<double>>(
+        std::move(name), std::move(description), std::move(unit), std::move(bridge));
+    m_producer->AddStream(m_scope, std::move(stream));
+    return {};
 }
 
 }  // namespace microtel::sdk

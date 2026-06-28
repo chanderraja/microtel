@@ -10,8 +10,8 @@
 #include "microtel/tracer.hpp"
 
 #include "sdk/metric_producer.hpp"
-#include "sdk/sdk_meter.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
+#include "sdk/sdk_meter.hpp"
 #include "sdk/sdk_tracer.hpp"
 
 #include <chrono>

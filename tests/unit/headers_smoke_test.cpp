@@ -19,6 +19,7 @@
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
 #include "microtel/log_sink.hpp"
+#include "microtel/meter.hpp"
 #include "microtel/propagator.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"

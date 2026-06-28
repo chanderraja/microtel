@@ -137,6 +137,10 @@ HttpWireCodec::HttpWireCodec(internal::ITransport* transport,
 
 std::string HttpWireCodec::ResolvePath() const noexcept
 {
+    if (!m_config.signal_path.empty())
+    {
+        return m_config.signal_path;
+    }
     if (m_config.path.empty() || m_config.path == "/")
     {
         return std::string{kV1TracesPath};

@@ -54,6 +54,7 @@ static mtw::HttpWireCodecConfig MakeConfig()
         .host = "localhost:4318",
         .scheme = "http",
         .path = "",
+        .signal_path = {},
         .extra_headers = {},
     };
 }
@@ -445,4 +446,38 @@ TEST(HttpWireCodecTest, PartialSuccess_NonSuccessStatus_BodyIgnored)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.partial_success_rejected, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// signal_path override (M12 metrics codec wiring)
+// ---------------------------------------------------------------------------
+
+TEST(HttpWireCodecTest, Send_SignalPath_OverridesDefaultTracesPath)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.signal_path = "/v1/metrics";
+    mtw::HttpWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, ":path"), "/v1/metrics");
+}
+
+TEST(HttpWireCodecTest, Send_SignalPath_WithBasePath_UsesSignalPathDirectly)
+{
+    // signal_path wins even when a base `path` prefix is also set.
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.path = "/prefix";
+    cfg.signal_path = "/v1/metrics";
+    mtw::HttpWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, ":path"), "/v1/metrics");
 }

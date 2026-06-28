@@ -10,8 +10,10 @@
 // Suppress the pedantic warning for this include block only.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+#include "opentelemetry/proto/collector/metrics/v1/metrics_service.upb.h"
 #include "opentelemetry/proto/collector/trace/v1/trace_service.upb.h"
 #include "opentelemetry/proto/common/v1/common.upb.h"
+#include "opentelemetry/proto/metrics/v1/metrics.upb.h"
 #include "opentelemetry/proto/resource/v1/resource.upb.h"
 #include "opentelemetry/proto/trace/v1/trace.upb.h"
 #include "upb/mem/arena.h"
@@ -21,6 +23,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/internal/batch.hpp"
 #include "microtel/internal/encoded_payload.hpp"
+#include "microtel/internal/metric_batch.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/trace.hpp"
 
@@ -367,10 +370,230 @@ void EncodeScope(const internal::InstrumentationScope& scope, UpbScopeSp* ss, up
     opentelemetry_proto_common_v1_InstrumentationScope_set_version(usc, Sv(scope.version));
 }
 
+// ---------------------------------------------------------------------------
+// Metrics type aliases
+// ---------------------------------------------------------------------------
+
+using UpbResMet = opentelemetry_proto_metrics_v1_ResourceMetrics;
+using UpbScoMet = opentelemetry_proto_metrics_v1_ScopeMetrics;
+using UpbMetric = opentelemetry_proto_metrics_v1_Metric;
+using UpbNDP = opentelemetry_proto_metrics_v1_NumberDataPoint;
+using UpbHDP = opentelemetry_proto_metrics_v1_HistogramDataPoint;
+using UpbMetReq = opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest;
+
+// ---------------------------------------------------------------------------
+// Metrics temporality mapping
+// ---------------------------------------------------------------------------
+
+int32_t MapTemporality(internal::AggregationTemporality t) noexcept
+{
+    using T = internal::AggregationTemporality;
+    return t == T::Delta ? opentelemetry_proto_metrics_v1_AGGREGATION_TEMPORALITY_DELTA
+                         : opentelemetry_proto_metrics_v1_AGGREGATION_TEMPORALITY_CUMULATIVE;
+}
+
+// ---------------------------------------------------------------------------
+// NumberDataPoint encoding
+// ---------------------------------------------------------------------------
+
+void EncodeNumberPoint(const internal::NumberPoint& pt, UpbNDP* dp, upb_Arena* arena)
+{
+    opentelemetry_proto_metrics_v1_NumberDataPoint_set_start_time_unix_nano(dp,
+                                                                            ToNanos(pt.start_time));
+    opentelemetry_proto_metrics_v1_NumberDataPoint_set_time_unix_nano(dp, ToNanos(pt.time));
+    std::visit(
+        [dp](const auto& v)
+        {
+            if constexpr (std::is_same_v<std::decay_t<decltype(v)>, std::int64_t>)
+            {
+                opentelemetry_proto_metrics_v1_NumberDataPoint_set_as_int(dp, v);
+            }
+            else
+            {
+                opentelemetry_proto_metrics_v1_NumberDataPoint_set_as_double(dp, v);
+            }
+        },
+        pt.value);
+    EncodeAttributes(
+        pt.attributes,
+        arena,
+        [dp](upb_Arena* a)
+        { return opentelemetry_proto_metrics_v1_NumberDataPoint_add_attributes(dp, a); });
+}
+
+// ---------------------------------------------------------------------------
+// Gauge encoding
+// ---------------------------------------------------------------------------
+
+void EncodeGauge(const internal::GaugeData& data, UpbMetric* m, upb_Arena* arena)
+{
+    auto* g = opentelemetry_proto_metrics_v1_Metric_mutable_gauge(m, arena);
+    if (g == nullptr)
+    {
+        return;
+    }
+    for (const auto& pt : data.points)
+    {
+        UpbNDP* dp = opentelemetry_proto_metrics_v1_Gauge_add_data_points(g, arena);
+        if (dp != nullptr)
+        {
+            EncodeNumberPoint(pt, dp, arena);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sum encoding
+// ---------------------------------------------------------------------------
+
+void EncodeSum(const internal::SumData& data, UpbMetric* m, upb_Arena* arena)
+{
+    auto* s = opentelemetry_proto_metrics_v1_Metric_mutable_sum(m, arena);
+    if (s == nullptr)
+    {
+        return;
+    }
+    opentelemetry_proto_metrics_v1_Sum_set_aggregation_temporality(
+        s, MapTemporality(data.temporality));
+    opentelemetry_proto_metrics_v1_Sum_set_is_monotonic(s, data.is_monotonic);
+    for (const auto& pt : data.points)
+    {
+        UpbNDP* dp = opentelemetry_proto_metrics_v1_Sum_add_data_points(s, arena);
+        if (dp != nullptr)
+        {
+            EncodeNumberPoint(pt, dp, arena);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HistogramDataPoint encoding
+// ---------------------------------------------------------------------------
+
+void EncodeHistogramPoint(const internal::HistogramPoint& pt, UpbHDP* dp, upb_Arena* arena)
+{
+    opentelemetry_proto_metrics_v1_HistogramDataPoint_set_start_time_unix_nano(
+        dp, ToNanos(pt.start_time));
+    opentelemetry_proto_metrics_v1_HistogramDataPoint_set_time_unix_nano(dp, ToNanos(pt.time));
+    opentelemetry_proto_metrics_v1_HistogramDataPoint_set_count(dp, pt.count);
+    opentelemetry_proto_metrics_v1_HistogramDataPoint_set_sum(dp, pt.sum);
+    if (pt.min.has_value())
+    {
+        opentelemetry_proto_metrics_v1_HistogramDataPoint_set_min(dp, *pt.min);
+    }
+    if (pt.max.has_value())
+    {
+        opentelemetry_proto_metrics_v1_HistogramDataPoint_set_max(dp, *pt.max);
+    }
+    for (const auto bc : pt.bucket_counts)
+    {
+        (void)opentelemetry_proto_metrics_v1_HistogramDataPoint_add_bucket_counts(dp, bc, arena);
+    }
+    for (const auto eb : pt.explicit_bounds)
+    {
+        (void)opentelemetry_proto_metrics_v1_HistogramDataPoint_add_explicit_bounds(dp, eb, arena);
+    }
+    EncodeAttributes(
+        pt.attributes,
+        arena,
+        [dp](upb_Arena* a)
+        { return opentelemetry_proto_metrics_v1_HistogramDataPoint_add_attributes(dp, a); });
+}
+
+// ---------------------------------------------------------------------------
+// Histogram encoding
+// ---------------------------------------------------------------------------
+
+void EncodeHistogram(const internal::HistogramData& data, UpbMetric* m, upb_Arena* arena)
+{
+    auto* h = opentelemetry_proto_metrics_v1_Metric_mutable_histogram(m, arena);
+    if (h == nullptr)
+    {
+        return;
+    }
+    opentelemetry_proto_metrics_v1_Histogram_set_aggregation_temporality(
+        h, MapTemporality(data.temporality));
+    for (const auto& pt : data.points)
+    {
+        UpbHDP* dp = opentelemetry_proto_metrics_v1_Histogram_add_data_points(h, arena);
+        if (dp != nullptr)
+        {
+            EncodeHistogramPoint(pt, dp, arena);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Metric record encoding (variant dispatch)
+// ---------------------------------------------------------------------------
+
+void EncodeMetricRecord(const internal::MetricRecord& rec, UpbScoMet* sm, upb_Arena* arena)
+{
+    UpbMetric* m = opentelemetry_proto_metrics_v1_ScopeMetrics_add_metrics(sm, arena);
+    if (m == nullptr)
+    {
+        return;
+    }
+    opentelemetry_proto_metrics_v1_Metric_set_name(m, Sv(rec.name));
+    opentelemetry_proto_metrics_v1_Metric_set_description(m, Sv(rec.description));
+    opentelemetry_proto_metrics_v1_Metric_set_unit(m, Sv(rec.unit));
+    std::visit(
+        [m, arena](const auto& data)
+        {
+            using T = std::decay_t<decltype(data)>;
+            if constexpr (std::is_same_v<T, internal::SumData>)
+            {
+                EncodeSum(data, m, arena);
+            }
+            else if constexpr (std::is_same_v<T, internal::GaugeData>)
+            {
+                EncodeGauge(data, m, arena);
+            }
+            else if constexpr (std::is_same_v<T, internal::HistogramData>)
+            {
+                EncodeHistogram(data, m, arena);
+            }
+            // ExponentialHistogramData deferred to v1.1
+        },
+        rec.data);
+}
+
+// ---------------------------------------------------------------------------
+// Metrics resource encoding
+// ---------------------------------------------------------------------------
+
+void EncodeMetricResource(const microtel::Resource& res, UpbResMet* rm, upb_Arena* arena)
+{
+    UpbResource* ures = opentelemetry_proto_metrics_v1_ResourceMetrics_mutable_resource(rm, arena);
+    if (ures == nullptr)
+    {
+        return;
+    }
+    EncodeAttributes(res.Attributes(),
+                     arena,
+                     [ures](upb_Arena* a)
+                     { return opentelemetry_proto_resource_v1_Resource_add_attributes(ures, a); });
+}
+
+// ---------------------------------------------------------------------------
+// Metrics scope encoding
+// ---------------------------------------------------------------------------
+
+void EncodeMetricScope(const internal::InstrumentationScope& scope, UpbScoMet* sm, upb_Arena* arena)
+{
+    UpbScope* usc = opentelemetry_proto_metrics_v1_ScopeMetrics_mutable_scope(sm, arena);
+    if (usc == nullptr)
+    {
+        return;
+    }
+    opentelemetry_proto_common_v1_InstrumentationScope_set_name(usc, Sv(scope.name));
+    opentelemetry_proto_common_v1_InstrumentationScope_set_version(usc, Sv(scope.version));
+}
+
 }  // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// OtlpEncoder::Encode
+// OtlpEncoder::Encode (traces)
 // ---------------------------------------------------------------------------
 
 internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
@@ -400,6 +623,52 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
     std::size_t len = 0;
     const char* buf = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_serialize(
         req, arena, &len);
+
+    internal::EncodedPayload payload;
+    if (buf != nullptr && len > 0)
+    {
+        auto bytes = std::make_unique<std::byte[]>(len);
+        std::memcpy(bytes.get(), buf, len);
+        payload = internal::EncodedPayload{std::move(bytes), len};
+    }
+
+    upb_Arena_Free(arena);
+    return payload;
+}
+
+// ---------------------------------------------------------------------------
+// OtlpEncoder::Encode (metrics)
+// ---------------------------------------------------------------------------
+
+internal::EncodedPayload OtlpEncoder::Encode(const internal::MetricBatchHandle& batch)
+{
+    if (batch.Metrics().empty())
+    {
+        return {};
+    }
+
+    upb_Arena* arena = upb_Arena_New();
+
+    UpbMetReq* req =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_new(arena);
+    UpbResMet* rm =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_add_resource_metrics(
+            req, arena);
+
+    EncodeMetricResource(batch.ResourceRef(), rm, arena);
+
+    UpbScoMet* sm = opentelemetry_proto_metrics_v1_ResourceMetrics_add_scope_metrics(rm, arena);
+    EncodeMetricScope(batch.Scope(), sm, arena);
+
+    for (const auto& rec : batch.Metrics())
+    {
+        EncodeMetricRecord(rec, sm, arena);
+    }
+
+    std::size_t len = 0;
+    const char* buf =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_serialize(
+            req, arena, &len);
 
     internal::EncodedPayload payload;
     if (buf != nullptr && len > 0)

@@ -15,12 +15,16 @@
 #include "sdk/metric_sum_storage.hpp"
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/trace.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <thread>
 #include <variant>
@@ -52,6 +56,47 @@ void AddOnes(mts::SumStorage<std::int64_t>& storage, mt::AttributeSpan attrs, in
     {
         storage.Add(1, attrs);
     }
+}
+
+class FakeSpanSource : public mti::ICurrentSpanSource
+{
+public:
+    void SetSpan(mt::SpanContext ctx) noexcept
+    {
+        m_span = ctx;
+    }
+    [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
+    {
+        return m_span;
+    }
+
+private:
+    mt::SpanContext m_span;
+};
+
+mt::SpanContext MakeSampledContext()
+{
+    mt::TraceId::Bytes tb{};
+    tb[0] = 0x01;
+    mt::SpanId::Bytes sb{};
+    sb[0] = 0x01;
+    return mt::SpanContext{
+        .trace_id = mt::TraceId{tb},
+        .span_id = mt::SpanId{sb},
+        .trace_flags = mt::TraceFlags{mt::TraceFlags::kSampled},
+        .trace_state = {},
+    };
+}
+
+bool IsOverflowPoint(const mti::NumberPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -173,6 +218,87 @@ TEST(SumStorageTest, PointCarriesItsAttributes)
     ASSERT_EQ(data.points[0].attributes.size(), 1U);
     EXPECT_EQ(data.points[0].attributes[0].key, "route");
     EXPECT_EQ(std::get<std::string>(data.points[0].attributes[0].value), "/x");
+}
+
+TEST(SumStorageTest, ExemplarCapturedWhenSampledSpanActive)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::SumStorage<std::int64_t> storage{true, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Add(5, mt::AttributeSpan{attrs});
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    ASSERT_EQ(data.points[0].exemplars.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars[0].span_context.IsValid());
+    EXPECT_TRUE(data.points[0].exemplars[0].span_context.trace_flags.IsSampled());
+    EXPECT_EQ(std::get<std::int64_t>(data.points[0].exemplars[0].value), 5);
+}
+
+TEST(SumStorageTest, NoExemplarWhenNoSpanActive)
+{
+    FakeSpanSource source;  // default-constructed span is invalid
+    mts::SumStorage<std::int64_t> storage{true, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Add(5, mt::AttributeSpan{attrs});
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars.empty());
+}
+
+TEST(SumStorageTest, ExemplarIsResetAfterCollect)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::SumStorage<std::int64_t> storage{true, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Add(1, mt::AttributeSpan{attrs});
+    (void)storage.Collect();  // drains exemplar window
+
+    source.SetSpan({});  // clear active span
+    storage.Add(2, mt::AttributeSpan{attrs});
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars.empty());  // window was reset
+}
+
+TEST(SumStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    // limit=2: first two distinct attr sets get their own series; the third
+    // and beyond accumulate into the overflow series.
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});
+    storage.Add(3, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Add(4, mt::AttributeSpan{c});  // also overflows → overflow series += 4
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);  // a, b, overflow
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 7);  // 3 + 4
+}
+
+TEST(SumStorageTest, NonFiniteValueIsDropped)
+{
+    mts::SumStorage<double> storage{true};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Add(1.0, mt::AttributeSpan{attrs});
+    storage.Add(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
+    storage.Add(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].value), 1.0);
 }
 
 TEST(SumStorageTest, ConcurrentAddsConserveTotal)

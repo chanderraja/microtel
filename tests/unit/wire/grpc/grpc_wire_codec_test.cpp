@@ -43,6 +43,7 @@ static mtw::GrpcWireCodecConfig MakeConfig()
         .host = "localhost:4317",
         .scheme = "https",
         .extra_headers = {},
+        .service_path = {},
     };
 }
 
@@ -562,4 +563,31 @@ TEST(GrpcWireCodecTest, PartialSuccess_NonZeroGrpcStatus_BodyIgnored)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.partial_success_rejected, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// service_path override (M12 metrics codec wiring)
+// ---------------------------------------------------------------------------
+
+TEST(GrpcWireCodecTest, Send_ServicePath_OverridesDefaultTracesPath)
+{
+    mtfk::FakeTransport transport;
+    const mti::TransportResult resp{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "0"}},
+        .response_body = {},
+        .error = {},
+    };
+    transport.default_response = resp;
+
+    mtw::GrpcWireCodecConfig cfg = MakeConfig();
+    cfg.service_path = "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
+    mtw::GrpcWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, ":path"),
+              "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export");
 }

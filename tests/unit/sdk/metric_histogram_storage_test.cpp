@@ -12,12 +12,16 @@
 #include "sdk/metric_histogram_storage.hpp"
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/trace.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
@@ -44,6 +48,47 @@ void RecordN(mts::HistogramStorage<std::int64_t>& storage,
     {
         storage.Record(value, attrs);
     }
+}
+
+class FakeSpanSource : public mti::ICurrentSpanSource
+{
+public:
+    void SetSpan(mt::SpanContext ctx) noexcept
+    {
+        m_span = ctx;
+    }
+    [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
+    {
+        return m_span;
+    }
+
+private:
+    mt::SpanContext m_span;
+};
+
+mt::SpanContext MakeSampledContext()
+{
+    mt::TraceId::Bytes tb{};
+    tb[0] = 0x01;
+    mt::SpanId::Bytes sb{};
+    sb[0] = 0x01;
+    return mt::SpanContext{
+        .trace_id = mt::TraceId{tb},
+        .span_id = mt::SpanId{sb},
+        .trace_flags = mt::TraceFlags{mt::TraceFlags::kSampled},
+        .trace_state = {},
+    };
+}
+
+bool IsOverflowPoint(const mti::HistogramPoint& pt)
+{
+    return std::ranges::any_of(pt.attributes,
+                               [](const mt::KeyValue& kv)
+                               {
+                                   return kv.key == "otel.metric.overflow" &&
+                                          std::holds_alternative<bool>(kv.value) &&
+                                          std::get<bool>(kv.value);
+                               });
 }
 
 }  // namespace
@@ -161,6 +206,75 @@ TEST(HistogramStorageTest, DeltaReportsSinceLastCollectAndClears)
     const mti::HistogramData third = storage.Collect(mti::AggregationTemporality::Delta);
     ASSERT_EQ(third.points.size(), 1U);
     EXPECT_EQ(third.points[0].count, 1U);  // only the value since the last collect
+}
+
+TEST(HistogramStorageTest, ExemplarCapturedWhenSampledSpanActive)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::HistogramStorage<std::int64_t> storage{
+        std::vector<double>{10}, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(5, mt::AttributeSpan{attrs});
+
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    ASSERT_EQ(data.points[0].exemplars.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars[0].span_context.IsValid());
+    EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].exemplars[0].value), 5.0);
+}
+
+TEST(HistogramStorageTest, ExemplarIsResetAfterCollect)
+{
+    FakeSpanSource source;
+    source.SetSpan(MakeSampledContext());
+    mts::HistogramStorage<std::int64_t> storage{
+        std::vector<double>{10}, mts::kDefaultMaxCardinality, &source};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+
+    storage.Record(1, mt::AttributeSpan{attrs});
+    (void)storage.Collect();  // drains exemplar window
+
+    source.SetSpan({});
+    storage.Record(2, mt::AttributeSpan{attrs});
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_TRUE(data.points[0].exemplars.empty());
+}
+
+TEST(HistogramStorageTest, CardinalityOverflowRoutesToOverflowSeries)
+{
+    mts::HistogramStorage<std::int64_t> storage{std::vector<double>{10}, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(3, mt::AttributeSpan{c});  // overflows → overflow series
+    storage.Record(4, mt::AttributeSpan{c});  // also overflows
+
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(ov_it->count, 2U);  // 2 overflowed recordings
+    EXPECT_DOUBLE_EQ(ov_it->sum, 7.0);
+}
+
+TEST(HistogramStorageTest, NonFiniteValueIsDropped)
+{
+    mts::HistogramStorage<double> storage{std::vector<double>{10.0}};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(5.0, mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    const mti::HistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_EQ(data.points[0].count, 1U);
+    EXPECT_DOUBLE_EQ(data.points[0].sum, 5.0);
 }
 
 TEST(HistogramStorageTest, PointCarriesItsAttributes)

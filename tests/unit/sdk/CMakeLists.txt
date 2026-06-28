@@ -52,6 +52,54 @@ microtel_add_test(
 target_include_directories(metric_exp_histogram_storage_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — MetricProducer: IMetricProducer impl that assembles MetricBatchHandles.
+microtel_add_test(
+    NAME    metric_producer_test
+    SOURCES metric_producer_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_producer_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — Concrete IMetricStream implementations (one per storage kind).
+microtel_add_test(
+    NAME    metric_stream_impls_test
+    SOURCES metric_stream_impls_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_stream_impls_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — Meter: instrument factory wrapping MetricProducer.
+microtel_add_test(
+    NAME    meter_test
+    SOURCES meter_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(meter_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — Observable instruments (callback-driven streams + Meter factories).
+microtel_add_test(
+    NAME    metric_observable_instruments_test
+    SOURCES metric_observable_instruments_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(metric_observable_instruments_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — PeriodicExportingMetricReader: background-thread push-model reader.
+microtel_add_test(
+    NAME    periodic_exporting_metric_reader_test
+    SOURCES periodic_exporting_metric_reader_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(periodic_exporting_metric_reader_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — SynchronousMetricReader: collect + export pipeline (pull-on-demand).
+microtel_add_test(
+    NAME    synchronous_metric_reader_test
+    SOURCES synchronous_metric_reader_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(synchronous_metric_reader_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 microtel_add_test(
     NAME    always_off_sampler_test
     SOURCES always_off_sampler_test.cpp
@@ -104,6 +152,19 @@ microtel_add_test(
 target_include_directories(batch_span_processor_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M12 — SdkProvider::GetMeter: meter factory + scope caching.
+microtel_add_test(
+    NAME    sdk_provider_meter_test
+    SOURCES sdk_provider_meter_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_provider_meter_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(sdk_provider_meter_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M6-C: SdkBuilder::Build() + SdkProvider lifecycle.
 microtel_add_test(
     NAME    sdk_builder_test
@@ -116,4 +177,9 @@ microtel_add_test(
     SOURCES sdk_provider_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(sdk_provider_test PRIVATE
+    -Wno-missing-field-initializers)

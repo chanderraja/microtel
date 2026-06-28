@@ -69,4 +69,13 @@ struct AttributeSetHash
     }
 };
 
+/// @brief Default maximum number of distinct attribute sets per instrument,
+/// matching the OpenTelemetry SDK recommendation.
+constexpr std::size_t kDefaultMaxCardinality = 2000;
+
+/// @brief Returns the stable "overflow series" key used when an instrument's
+/// cardinality limit is exceeded (OTel attribute: `otel.metric.overflow=true`).
+/// @note The returned reference is valid for the lifetime of the process.
+[[nodiscard]] const AttributeSet& OverflowAttributeSet();
+
 }  // namespace microtel::sdk

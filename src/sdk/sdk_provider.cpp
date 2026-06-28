@@ -8,6 +8,9 @@
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
+#include "sdk/meter.hpp"
+#include "sdk/metric_producer.hpp"
+#include "sdk/periodic_exporting_metric_reader.hpp"
 #include "sdk/sdk_tracer.hpp"
 
 #include <chrono>
@@ -31,7 +34,10 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_auth(std::move(args.auth)),
       m_transport(std::move(args.transport)),
       m_codec(std::move(args.codec)),
+      m_metric_codec(std::move(args.metric_codec)),
       m_exporter(std::move(args.exporter)),
+      m_metric_exporter(std::move(args.metric_exporter)),
+      m_metric_interval(args.metric_interval),
       m_processor(std::move(args.processor)),
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
@@ -70,12 +76,31 @@ Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
     {
         return s;
     }
-    return m_exporter->ForceFlush(timeout);
+    const Status s2 = m_exporter->ForceFlush(timeout);
+    if (s2 != Status::Completed)
+    {
+        return s2;
+    }
+    // Metric reader ForceFlush: collect a snapshot then flush the exporter.
+    if (m_metric_reader != nullptr)
+    {
+        return m_metric_reader->ForceFlush(timeout);
+    }
+    return Status::Completed;
 }
 
 Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 {
     const Status status = m_processor->Shutdown(timeout);
+    // Metric reader shutdown (also shuts down the metric exporter internally).
+    if (m_metric_reader != nullptr)
+    {
+        (void)m_metric_reader->Shutdown(timeout);
+    }
+    else if (m_metric_exporter != nullptr)
+    {
+        (void)m_metric_exporter->Shutdown(timeout);
+    }
     (void)m_exporter->Shutdown(timeout);
     (void)m_transport->Close(timeout);
     return status;
@@ -86,6 +111,36 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
     HealthSnapshot health;
     health.connection_state = m_transport->GetState();
     return health;
+}
+
+std::shared_ptr<Meter> SdkProvider::GetMeter(std::string_view name,
+                                             std::string_view version,
+                                             std::string_view /*schema_url*/)
+{
+    const std::scoped_lock lk{m_meter_mu};
+    if (!m_metric_producer)
+    {
+        m_metric_producer = std::make_shared<MetricProducer>(m_resource);
+        if (m_metric_exporter != nullptr)
+        {
+            m_metric_reader = std::make_unique<PeriodicExportingMetricReader>(
+                *m_metric_producer, *m_metric_exporter, m_metric_interval);
+        }
+    }
+    std::string key;
+    key.reserve(name.size() + 1 + version.size());
+    key.append(name);
+    key += '\0';
+    key.append(version);
+    auto& entry = m_meters[key];
+    if (!entry)
+    {
+        entry =
+            std::make_shared<Meter>(internal::InstrumentationScope{.name = std::string{name},
+                                                                   .version = std::string{version}},
+                                    m_metric_producer);
+    }
+    return entry;
 }
 
 }  // namespace microtel::sdk

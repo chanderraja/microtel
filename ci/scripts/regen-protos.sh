@@ -75,6 +75,8 @@ echo "regen-protos: protoc-gen-upb_minitable = $GEN_UPB_MT"
     opentelemetry/proto/common/v1/common.proto \
     opentelemetry/proto/resource/v1/resource.proto \
     opentelemetry/proto/trace/v1/trace.proto \
-    opentelemetry/proto/collector/trace/v1/trace_service.proto
+    opentelemetry/proto/collector/trace/v1/trace_service.proto \
+    opentelemetry/proto/metrics/v1/metrics.proto \
+    opentelemetry/proto/collector/metrics/v1/metrics_service.proto
 
 echo "regen-protos: done — check 'git diff gen/' for changes"

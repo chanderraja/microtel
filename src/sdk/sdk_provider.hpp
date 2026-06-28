@@ -26,7 +26,7 @@ namespace microtel::sdk
 {
 
 // Forward-declared to keep implementation headers out of this header's transitive closure.
-class Meter;
+class SdkMeter;
 class MetricProducer;
 class PeriodicExportingMetricReader;
 
@@ -96,11 +96,12 @@ public:
     ///
     /// Lazily initialises the shared `MetricProducer` on the first call.
     /// Subsequent calls with the same `(name, version)` return the cached
-    /// `Meter` instance. `schema_url` is stored in the scope but does not
-    /// affect caching in v1 (deferred to M12-hardening).
-    [[nodiscard]] std::shared_ptr<Meter> GetMeter(std::string_view name,
-                                                  std::string_view version = {},
-                                                  std::string_view schema_url = {});
+    /// instance. `schema_url` is stored in the scope but does not affect
+    /// caching in v1 (deferred to M12-hardening).
+    [[nodiscard]] std::shared_ptr<microtel::Meter> GetMeter(
+        std::string_view name,
+        std::string_view version = {},
+        std::string_view schema_url = {}) override;
 
 private:
     // Declared first → destroyed last. Encoder is stateless; no teardown order concern.
@@ -130,7 +131,7 @@ private:
     // Metrics pipeline: lazily initialised on first GetMeter() call.
     std::mutex m_meter_mu;
     std::shared_ptr<MetricProducer> m_metric_producer;
-    std::unordered_map<std::string, std::shared_ptr<Meter>> m_meters;
+    std::unordered_map<std::string, std::shared_ptr<SdkMeter>> m_meters;
 };
 
 }  // namespace microtel::sdk

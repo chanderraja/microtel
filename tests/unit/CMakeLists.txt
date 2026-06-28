@@ -49,3 +49,6 @@ add_subdirectory(exporter)
 
 # M6-D — preflight CLI logic.
 add_subdirectory(preflight)
+
+# M12 — public API contract tests (Meter, instruments via Provider interface).
+add_subdirectory(api)

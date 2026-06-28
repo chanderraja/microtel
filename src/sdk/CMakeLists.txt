@@ -15,6 +15,7 @@ add_library(microtel_sdk STATIC
     metric_producer.cpp
     synchronous_metric_reader.cpp
     periodic_exporting_metric_reader.cpp
+    sdk_meter.cpp
     simple_span_processor.cpp
     noop_span.cpp
     sdk_span.cpp

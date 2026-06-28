@@ -13,6 +13,7 @@
 //    (instruments from different scopes both appear in Collect()).
 
 #include "microtel/internal/sampler.hpp"
+#include "microtel/meter.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
@@ -21,7 +22,6 @@
 #include "mocks/mock_metric_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
-#include "sdk/meter.hpp"
 #include "sdk/sdk_provider.hpp"
 
 #include <gtest/gtest.h>
@@ -119,10 +119,10 @@ TEST(SdkProviderMeterTest, InstrumentsCanBeCreatedFromMultipleScopes)
     auto meter_b = provider->GetMeter("scope.b", "1.0");
 
     // Both meters share the same MetricProducer; instruments must not crash.
-    auto counter_a = meter_a->CreateCounter<int64_t>("requests", "", "");
-    auto counter_b = meter_b->CreateCounter<int64_t>("errors", "", "");
-    counter_a.Add(10, {});
-    counter_b.Add(3, {});
+    const auto counter_a = meter_a->CreateCounter<std::int64_t>("requests", "", "");
+    const auto counter_b = meter_b->CreateCounter<std::int64_t>("errors", "", "");
+    counter_a->Add(10, {});
+    counter_b->Add(3, {});
 }
 
 TEST(SdkProviderMeterTest, InstrumentsFromSameScopeAreAddedToSameScope)
@@ -133,10 +133,10 @@ TEST(SdkProviderMeterTest, InstrumentsFromSameScopeAreAddedToSameScope)
     auto m1 = provider->GetMeter("scope", "1.0");
     auto m2 = provider->GetMeter("scope", "1.0");
 
-    auto c1 = m1->CreateCounter<int64_t>("hits", "", "");
-    auto c2 = m2->CreateCounter<int64_t>("misses", "", "");
-    c1.Add(5, {});
-    c2.Add(2, {});
+    const auto c1 = m1->CreateCounter<std::int64_t>("hits", "", "");
+    const auto c2 = m2->CreateCounter<std::int64_t>("misses", "", "");
+    c1->Add(5, {});
+    c2->Add(2, {});
 }
 
 // ── Metric exporter wiring ────────────────────────────────────────────────────

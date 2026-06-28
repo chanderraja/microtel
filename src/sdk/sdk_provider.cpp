@@ -9,9 +9,9 @@
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
-#include "sdk/meter.hpp"
 #include "sdk/metric_producer.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
+#include "sdk/sdk_meter.hpp"
 #include "sdk/sdk_tracer.hpp"
 
 #include <chrono>
@@ -130,9 +130,9 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
     return health;
 }
 
-std::shared_ptr<Meter> SdkProvider::GetMeter(std::string_view name,
-                                             std::string_view version,
-                                             std::string_view /*schema_url*/)
+std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
+                                                       std::string_view version,
+                                                       std::string_view /*schema_url*/)
 {
     const std::scoped_lock lk{m_meter_mu};
     if (!m_metric_producer)
@@ -155,10 +155,10 @@ std::shared_ptr<Meter> SdkProvider::GetMeter(std::string_view name,
     auto& entry = m_meters[key];
     if (!entry)
     {
-        entry =
-            std::make_shared<Meter>(internal::InstrumentationScope{.name = std::string{name},
-                                                                   .version = std::string{version}},
-                                    m_metric_producer);
+        entry = std::make_shared<SdkMeter>(
+            internal::InstrumentationScope{.name = std::string{name},
+                                           .version = std::string{version}},
+            m_metric_producer);
     }
     return entry;
 }

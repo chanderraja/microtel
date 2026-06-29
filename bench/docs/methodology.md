@@ -22,7 +22,7 @@ API.
 
 The blackhole sink accepts all incoming OTLP spans and discards them
 immediately, providing minimal processing overhead.  It exposes `/stats`
-(spans received, bytes received) and `/reset` over HTTP on port 8080.
+(spans received, bytes received) and `/reset` over HTTP on port 19080.
 
 `bytes_received` is available in blackhole mode and is used for the
 wire-bytes correctness check (bench-spec §6.2 step 2 / ICP 0006 §7):

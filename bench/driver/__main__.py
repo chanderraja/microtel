@@ -216,14 +216,14 @@ def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int =
             sink_env["SINK_RESPONSE_DELAY_MS"] = str(sink_delay_ms)
         sink_c.start(
             image=_BLACKHOLE_IMAGE,
-            ports={8080: 8080},
+            ports={19080: 19080},
             network=_NET_NAME,
             network_alias="sink",
             env=sink_env if sink_env else None,
         )
         _log("waiting for blackhole-sink /health ...")
-        wait_http("http://127.0.0.1:8080/health", timeout=30.0)
-        return sink_c, SinkClient("127.0.0.1", 8080)
+        wait_http("http://127.0.0.1:19080/health", timeout=30.0)
+        return sink_c, SinkClient("127.0.0.1", 19080)
 
     sink_c.start(
         image=_COLLECTOR_IMAGE,
@@ -525,7 +525,20 @@ def main(argv=None) -> int:
     create_network(engine, _NET_NAME)
     sut_results = []
     try:
-        sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose, sink_delay_ms=args.sink_delay_ms)
+        try:
+            sink_c, sink_client = _start_sink(engine, sink_mode, args.verbose, sink_delay_ms=args.sink_delay_ms)
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").lower()
+            if "address already in use" in stderr or "already in use" in stderr:
+                _log(
+                    f"ERROR: sink container failed to start — a port required by the "
+                    f"bench sink is already in use. Check with: ss -tlnp | grep "
+                    f"'4317\\|4318\\|19080'"
+                )
+            else:
+                _log(f"ERROR: sink container failed to start (exit {exc.returncode}): "
+                     f"{exc.stderr.strip() if exc.stderr else '(no stderr)'}")
+            return 1
         with sink_c:
             sut_results = _collect_sut_results(
                 engine, active_suts, sink_client, sut_image_ids,

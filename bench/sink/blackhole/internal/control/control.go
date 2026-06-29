@@ -10,7 +10,7 @@ import (
 	"github.com/chanderraja/microtel/bench/sink/blackhole/internal/counters"
 )
 
-// NewHandler returns an http.Handler for the control API on :8080.
+// NewHandler returns an http.Handler for the control API on :19080.
 // Routes: GET /health, GET /stats, POST /reset.
 func NewHandler(c *counters.Counters) http.Handler {
 	mux := http.NewServeMux()

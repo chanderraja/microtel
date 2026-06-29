@@ -3,7 +3,7 @@
 
 // blackhole-sink is a zero-logic OTLP receiver for benchmarking microtel.
 // It accepts OTLP/gRPC on :4317 and OTLP/HTTP on :4318, counts spans and
-// bytes with atomic counters, and exposes a control API on :8080.
+// bytes with atomic counters, and exposes a control API on :19080.
 package main
 
 import (
@@ -31,7 +31,7 @@ import (
 const (
 	grpcAddr    = ":4317"
 	httpAddr    = ":4318"
-	controlAddr = ":8080"
+	controlAddr = ":19080"
 )
 
 func main() {

@@ -11,7 +11,7 @@ microtel SDK and network path, not any collector work.
 |------|----------|----------|
 | 4317 | gRPC (plaintext) | OTLP TraceService.Export |
 | 4318 | HTTP/2 cleartext (h2c) | POST /v1/traces, /v1/metrics, /v1/logs |
-| 8080 | HTTP/1.1 | GET /health, GET /stats, POST /reset |
+| 19080 | HTTP/1.1 | GET /health, GET /stats, POST /reset |
 
 ## Control API
 
@@ -39,7 +39,7 @@ POST /reset    → 200 "{}" (zeroes all counters; uptime is not reset)
 
 ```bash
 docker build -t blackhole-sink .
-docker run --rm -p 4317:4317 -p 4318:4318 -p 8080:8080 blackhole-sink
+docker run --rm -p 4317:4317 -p 4318:4318 -p 19080:19080 blackhole-sink
 ```
 
 ## Run locally

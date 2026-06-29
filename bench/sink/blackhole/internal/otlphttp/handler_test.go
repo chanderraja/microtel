@@ -33,7 +33,7 @@ func buildTraceRequest(nSpans int) []byte {
 
 func newTestHandler() (http.Handler, *counters.Counters) {
 	c := counters.New()
-	return otlphttp.NewHandler(c), c
+	return otlphttp.NewHandler(c, 0), c
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +181,8 @@ func TestHTTP_UnknownPath_Returns404AndRecordsError(t *testing.T) {
 // Stub paths (metrics, logs)
 // ---------------------------------------------------------------------------
 
-func TestHTTP_MetricsStub_Returns200(t *testing.T) {
-	h, _ := newTestHandler()
+func TestHTTP_MetricsStub_Returns200AndCounts(t *testing.T) {
+	h, c := newTestHandler()
 	req := httptest.NewRequest(http.MethodPost, "/v1/metrics", bytes.NewReader([]byte{}))
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	rec := httptest.NewRecorder()
@@ -190,15 +190,26 @@ func TestHTTP_MetricsStub_Returns200(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status: want 200, got %d", rec.Code)
 	}
+	snap := c.Snapshot()
+	if snap.HTTPRequestsReceived != 1 {
+		t.Errorf("http_requests_received: want 1, got %d", snap.HTTPRequestsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
 }
 
-func TestHTTP_LogsStub_Returns200(t *testing.T) {
-	h, _ := newTestHandler()
+func TestHTTP_LogsStub_Returns200AndCounts(t *testing.T) {
+	h, c := newTestHandler()
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewReader([]byte{}))
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status: want 200, got %d", rec.Code)
+	}
+	snap := c.Snapshot()
+	if snap.HTTPRequestsReceived != 1 {
+		t.Errorf("http_requests_received: want 1, got %d", snap.HTTPRequestsReceived)
 	}
 }

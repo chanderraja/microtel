@@ -220,7 +220,7 @@ def _render_md(doc: dict) -> str:
                     p75 = val.get("p75", 0)
                     cells.append(f"{fmt(med)} [{fmt(p25)}–{fmt(p75)}]")
                 else:
-                    cells.append(fmt(val))
+                    cells.append(fmt(val) if val is not None else "—")
             lines.append(f"| {label} | " + " | ".join(cells) + " |")
 
         _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")

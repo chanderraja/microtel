@@ -25,7 +25,7 @@ func newTestServer(t *testing.T) (tracepb.TraceServiceClient, *counters.Counters
 	c := counters.New()
 	lis := bufconn.Listen(bufSize)
 	srv := grpc.NewServer()
-	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c))
+	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, 0))
 	t.Cleanup(func() { srv.Stop() })
 	go srv.Serve(lis) //nolint:errcheck
 

@@ -177,6 +177,49 @@ TEST(MeterApiTest, HistogramDouble_CustomBoundaries_DoesNotCrash)
     h->Record(500.0, {});
 }
 
+// ── ExponentialHistogram<double> — default scale ──────────────────────────────
+
+TEST(MeterApiTest, ExpHistogramDouble_DefaultScale_DoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const auto h = meter->CreateExponentialHistogram<double>("rpc.duration", "RPC duration", "ms");
+    h->Record(1.5, {});
+}
+
+// ── ExponentialHistogram<int64_t> — default scale ─────────────────────────────
+
+TEST(MeterApiTest, ExpHistogramI64_DefaultScale_DoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const auto h =
+        meter->CreateExponentialHistogram<std::int64_t>("response.size", "Response size", "by");
+    h->Record(4096, {});
+}
+
+// ── ExponentialHistogram<double> — custom scale/buckets ───────────────────────
+
+TEST(MeterApiTest, ExpHistogramDouble_CustomScaleBuckets_DoesNotCrash)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const auto h =
+        meter->CreateExponentialHistogram<double>("payload.size", "Payload size", "by", 10, 80);
+    h->Record(256.0, {});
+}
+
+// ── ExponentialHistogram — returns non-null ────────────────────────────────────
+
+TEST(MeterApiTest, CreateExpHistogramDouble_ReturnsNonNull)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    EXPECT_NE(meter->CreateExponentialHistogram<double>("x", "", ""), nullptr);
+}
+
+TEST(MeterApiTest, CreateExpHistogramI64_ReturnsNonNull)
+{
+    const auto meter = MakeProvider()->GetMeter("test.lib");
+    EXPECT_NE(meter->CreateExponentialHistogram<std::int64_t>("x", "", ""), nullptr);
+}
+
 // ── ObservableCounter<int64_t> ────────────────────────────────────────────────
 
 TEST(MeterApiTest, ObservableCounterI64_CreateDoesNotCrash)

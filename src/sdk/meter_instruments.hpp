@@ -5,6 +5,7 @@
 
 #include "microtel/attribute.hpp"
 
+#include "sdk/metric_exp_histogram_storage.hpp"
 #include "sdk/metric_gauge_storage.hpp"
 #include "sdk/metric_histogram_storage.hpp"
 #include "sdk/metric_sum_storage.hpp"
@@ -94,6 +95,32 @@ public:
 
 private:
     HistogramStorage<T>* m_storage;
+};
+
+/// @brief Handle to a base-2 exponential Histogram instrument.
+///
+/// Thin value type; holds a non-owning pointer to the
+/// `ExponentialHistogramStorage<T>` owned by the `MetricStreamExpHistogram<T>`
+/// registered with the `MetricProducer`.
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ExponentialHistogram
+{
+public:
+    explicit ExponentialHistogram(ExponentialHistogramStorage<T>* storage) noexcept
+        : m_storage(storage)
+    {
+    }
+
+    /// @brief Record an observation into the exponential histogram.
+    void Record(T value, AttributeSpan attrs)
+    {
+        m_storage->Record(value, attrs);
+    }
+
+private:
+    ExponentialHistogramStorage<T>* m_storage;
 };
 
 }  // namespace microtel::sdk

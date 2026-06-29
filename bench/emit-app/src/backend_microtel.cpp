@@ -3,6 +3,7 @@
 
 #include "backend.hpp"
 
+#include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 
@@ -35,6 +36,11 @@ public:
 
     void Init(const BackendOptions& opts) override
     {
+        const auto metric_interval =
+            opts.metric_interval_ms > 0
+                ? std::chrono::milliseconds(opts.metric_interval_ms)
+                : std::chrono::milliseconds(60'000);
+
         auto result = microtel::SdkBuilder{}
                           .WithEndpoint(opts.endpoint)
 #if defined(BENCH_MICROTEL_GRPC)
@@ -45,6 +51,7 @@ public:
                           .WithServiceName(opts.service_name)
                           .WithServiceVersion(opts.service_version)
                           .WithCompressionGzip(opts.compression_gzip)
+                          .WithMetricInterval(metric_interval)
                           .Build();
 
         if (!result)
@@ -63,6 +70,12 @@ public:
 
         m_tracer = m_provider->GetTracer("bench");
 
+        auto meter = m_provider->GetMeter("bench");
+        m_counter   = meter->CreateCounter<int64_t>("bench.records",
+                                                    "Records emitted", "{record}");
+        m_histogram = meter->CreateHistogram<double>("bench.record_latency_ns",
+                                                     "Record hot-path latency", "ns");
+
         m_attrs_per_span = opts.attributes_per_span;
         m_attr_keys.resize(opts.attributes_per_span);
         for (int i = 0; i < opts.attributes_per_span; ++i)
@@ -71,6 +84,13 @@ public:
         }
         m_attr_value = std::string(
             static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
+    }
+
+    void EmitRecord() override
+    {
+        m_counter->Add(1, {});
+        m_histogram->Record(1.0, {});
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
     void EmitSpan() override
@@ -142,12 +162,14 @@ public:
     }
 
 private:
-    std::shared_ptr<microtel::Provider> m_provider;
-    std::shared_ptr<microtel::Tracer>   m_tracer;
-    std::atomic<uint64_t>               m_emit_count{0};
-    int                                 m_attrs_per_span{0};
-    std::vector<std::string>            m_attr_keys;
-    std::string                         m_attr_value;
+    std::shared_ptr<microtel::Provider>          m_provider;
+    std::shared_ptr<microtel::Tracer>            m_tracer;
+    std::shared_ptr<microtel::Counter<int64_t>>  m_counter;
+    std::shared_ptr<microtel::Histogram<double>> m_histogram;
+    std::atomic<uint64_t>                        m_emit_count{0};
+    int                                          m_attrs_per_span{0};
+    std::vector<std::string>                     m_attr_keys;
+    std::string                                  m_attr_value;
 };
 
 }  // namespace

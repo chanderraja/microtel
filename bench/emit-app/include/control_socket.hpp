@@ -21,6 +21,7 @@ enum class WorkloadMode : std::uint8_t
 {
     HotLoop,          ///< EmitSpan() called as fast as possible (or rate-limited)
     RealisticRequest, ///< EmitRequest() — one parent span + two child spans per iteration
+    HotLoopMetrics,   ///< EmitRecord() — one Counter::Add() + one Histogram::Record() per iteration
 };
 
 struct RunResult

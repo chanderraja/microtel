@@ -1,0 +1,39 @@
+# hot-loop-metrics — metrics pipeline throughput baseline
+#
+# Exercises the synchronous instrument hot path: each iteration calls
+# Counter<int64_t>::Add(1) and Histogram<double>::Record(1.0).
+# The PeriodicExportingMetricReader is configured with a 100 ms interval
+# (set automatically when EMIT_WORKLOAD=hot_loop_metrics) to bound in-memory
+# state without affecting the hot-path measurement.
+#
+# otelcpp SUTs are excluded: the emit-app metrics path is microtel-only.
+# Wire throughput is not the primary concern here — latency of the Add/Record
+# pair on the calling thread is what we measure.
+
+profile: hot-loop-metrics
+description: "Uncapped metric record emission — measures instrument hot-path throughput and latency"
+
+workload:
+  spans_per_sample: 10000  # Add+Record pairs per run command
+  samples: 10
+  warmup_spans: 1000
+
+sink:
+  mode: blackhole          # /v1/metrics accepted on port 4318 (HTTP) and 4317 (gRPC)
+
+suts:
+  - microtel
+  - microtel-grpc
+
+env:
+  EMIT_WORKLOAD: hot_loop_metrics  # switches emit-app to EmitRecord() mode
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

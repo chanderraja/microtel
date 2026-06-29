@@ -163,6 +163,10 @@ void WorkerThread(uint64_t span_count, uint64_t rate_hz_per_thread,
         {
             backend.EmitRequest();
         }
+        else if (mode == WorkloadMode::HotLoopMetrics)
+        {
+            backend.EmitRecord();
+        }
         else
         {
             backend.EmitSpan();

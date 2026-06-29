@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"syscall"
 
+	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -96,6 +97,7 @@ func main() {
 func buildGRPC(c *counters.Counters, delayMs int) *grpc.Server {
 	srv := grpc.NewServer()
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, delayMs))
+	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, delayMs))
 	reflection.Register(srv)
 	return srv
 }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"testing"
 
+	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
@@ -133,6 +134,71 @@ func TestGRPC_MultipleRequests_Accumulate(t *testing.T) {
 		t.Errorf("requests_received: want 3, got %d", snap.RequestsReceived)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Metric handler
+// ---------------------------------------------------------------------------
+
+func newMetricTestServer(t *testing.T) (metricpb.MetricsServiceClient, *counters.Counters) {
+	t.Helper()
+	c := counters.New()
+	lis := bufconn.Listen(bufSize)
+	srv := grpc.NewServer()
+	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, 0))
+	t.Cleanup(func() { srv.Stop() })
+	go srv.Serve(lis) //nolint:errcheck
+
+	conn, err := grpc.NewClient("passthrough://bufnet",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	return metricpb.NewMetricsServiceClient(conn), c
+}
+
+func TestGRPC_MetricExport_CountsRequestNotSpans(t *testing.T) {
+	client, c := newMetricTestServer(t)
+
+	_, err := client.Export(context.Background(), &metricpb.ExportMetricsServiceRequest{})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	snap := c.Snapshot()
+	if snap.GRPCRequestsReceived != 1 {
+		t.Errorf("grpc_requests_received: want 1, got %d", snap.GRPCRequestsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+}
+
+func TestGRPC_MetricExport_AccumulatesRequests(t *testing.T) {
+	client, c := newMetricTestServer(t)
+
+	for range 3 {
+		_, err := client.Export(context.Background(), &metricpb.ExportMetricsServiceRequest{})
+		if err != nil {
+			t.Fatalf("Export: %v", err)
+		}
+	}
+
+	snap := c.Snapshot()
+	if snap.GRPCRequestsReceived != 3 {
+		t.Errorf("grpc_requests_received: want 3, got %d", snap.GRPCRequestsReceived)
+	}
+	if snap.RequestsReceived != 3 {
+		t.Errorf("requests_received: want 3, got %d", snap.RequestsReceived)
+	}
+}
+
+// ---------------------------------------------------------------------------
 
 func TestGRPC_ReturnsEmptyResponse(t *testing.T) {
 	client, _ := newTestServer(t)

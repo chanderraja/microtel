@@ -13,7 +13,7 @@ from .profile import parse_yaml, _coerce
 
 @dataclasses.dataclass(frozen=True)
 class SutPorts:
-    control: int = 9090
+    control: int = 19090
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,8 +65,8 @@ def load(registry_path: Path) -> List[Sut]:
             raise ValueError(f"SUT {name!r}: unknown protocol {protocol!r}")
 
         raw_ports = entry.get("ports", {})
-        ports = SutPorts(control=int(raw_ports.get("control", 9090))
-                         if isinstance(raw_ports, dict) else 9090)
+        ports = SutPorts(control=int(raw_ports.get("control", 19090))
+                         if isinstance(raw_ports, dict) else 19090)
 
         raw_env = entry.get("env", {})
         env = {k: str(v) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {}

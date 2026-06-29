@@ -13,7 +13,7 @@
 namespace
 {
 
-constexpr int kDefaultControlPort = 9090;
+constexpr int kDefaultControlPort = 19090;
 
 std::string EnvOr(const char* name, const char* fallback)
 {

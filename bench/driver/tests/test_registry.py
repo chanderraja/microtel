@@ -48,4 +48,4 @@ def test_get_missing_returns_none():
 def test_control_port():
     suts = load(REGISTRY)
     for s in suts:
-        assert s.ports.control == 9090
+        assert s.ports.control == 19090

@@ -40,7 +40,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const controlPort = 9090
+const controlPort = 19090
 
 // ---------------------------------------------------------------------------
 // 64-bucket power-of-2 histogram (matches C++ Histogram layout)

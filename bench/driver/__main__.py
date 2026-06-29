@@ -267,13 +267,27 @@ def _run_sut(
         # profile_env is the base; sut.env overrides (sweep values live in sut.env).
         env = {**profile_env, **sut.env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
-        c.start(
-            image=image,
-            ports={sut.ports.control: sut.ports.control},
-            env=env,
-            network=_NET_NAME,
-            cap_add=cap_add,
-        )
+        try:
+            c.start(
+                image=image,
+                ports={sut.ports.control: sut.ports.control},
+                env=env,
+                network=_NET_NAME,
+                cap_add=cap_add,
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").lower()
+            if "address already in use" in stderr or "already in use" in stderr:
+                raise RuntimeError(
+                    f"SUT container {sut.name!r} failed to start — "
+                    f"port {sut.ports.control} is already in use. "
+                    f"Check with: ss -tlnp | grep {sut.ports.control}"
+                ) from exc
+            raise RuntimeError(
+                f"SUT container {sut.name!r} failed to start "
+                f"(exit {exc.returncode}): "
+                f"{exc.stderr.strip() if exc.stderr else '(no stderr)'}"
+            ) from exc
         _log(f"  waiting for {sut.name} control port ...")
         wait_tcp("127.0.0.1", sut.ports.control, timeout=30.0)
 

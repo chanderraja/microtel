@@ -93,7 +93,7 @@ suts:
       control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
-    b0: false
+    b0: true
 
   - name: rust-otel
     description: "opentelemetry-rust v0.27 — OTLP/HTTP exporter"

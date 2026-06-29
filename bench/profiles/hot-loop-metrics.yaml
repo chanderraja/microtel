@@ -24,6 +24,7 @@ sink:
 suts:
   - microtel
   - microtel-grpc
+  - go-otel
 
 env:
   EMIT_WORKLOAD: hot_loop_metrics  # switches emit-app to EmitRecord() mode

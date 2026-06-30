@@ -343,8 +343,13 @@ def _run_sut(
                     else None
                 )
                 spans_emitted_n = result["spans_emitted"]
-                delivery_rate_pct = round(
-                    sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2
+                # Delivery is only meaningful for trace profiles: sink.spans_received
+                # counts OTLP trace spans. Metric exports land at /v1/metrics and are
+                # not decoded, so spans_received stays 0 for signal=metrics profiles.
+                delivery_rate_pct = (
+                    round(sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2)
+                    if profile.signal == "traces"
+                    else None
                 )
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
@@ -584,10 +589,12 @@ def main(argv=None) -> int:
     for sr in doc["suts"]:
         summary = sr.get("summary", {})
         p50 = summary.get("latency_p50_ns", {})
+        delivery = summary.get("delivery_rate_pct")
+        delivery_str = f"{delivery:.2f}%" if delivery is not None else "N/A"
         _log(
             f"{sr['name']}: p50={p50.get('median', 0):.0f}ns  "
             f"drop_rate={summary.get('drop_rate_pct', 0)}%  "
-            f"delivery={summary.get('delivery_rate_pct', 100.0):.2f}%  "
+            f"delivery={delivery_str}  "
             f"samples={summary.get('reps', 0)}"
         )
 

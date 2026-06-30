@@ -11,6 +11,7 @@
 # pair on the calling thread is what we measure.
 
 profile: hot-loop-metrics
+signal: metrics
 description: "Uncapped metric record emission — measures instrument hot-path throughput and latency"
 
 workload:

@@ -17,6 +17,11 @@
 namespace microtel::sdk
 {
 
+/// OTel-specified default max scale for base-2 exponential histograms.
+inline constexpr std::int32_t kDefaultExpHistogramMaxScale = 20;
+/// OTel-specified default per-side bucket count cap for exponential histograms.
+inline constexpr std::int32_t kDefaultExpHistogramMaxBuckets = 160;
+
 /// OTel-specified default explicit-bucket boundaries (15 boundaries → 16 buckets).
 inline constexpr std::array<double, 15> kDefaultHistogramBoundaries = {0.0,
                                                                        5.0,
@@ -121,6 +126,34 @@ public:
                                   std::move(unit),
                                   std::vector<double>(kDefaultHistogramBoundaries.begin(),
                                                       kDefaultHistogramBoundaries.end()));
+    }
+
+    /// @brief Create a base-2 exponential Histogram with explicit scale/bucket limits.
+    template <typename T>
+    ExponentialHistogram<T> CreateExponentialHistogram(std::string name,
+                                                       std::string description,
+                                                       std::string unit,
+                                                       std::int32_t max_scale,
+                                                       std::int32_t max_buckets)
+    {
+        auto stream = std::make_unique<MetricStreamExpHistogram<T>>(
+            std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+        ExponentialHistogramStorage<T>& storage = stream->Storage();
+        m_producer->AddStream(m_scope, std::move(stream));
+        return ExponentialHistogram<T>{&storage};
+    }
+
+    /// @brief Create an exponential Histogram with OTel defaults (scale 20, 160 buckets/side).
+    template <typename T>
+    ExponentialHistogram<T> CreateExponentialHistogram(std::string name,
+                                                       std::string description,
+                                                       std::string unit)
+    {
+        return CreateExponentialHistogram<T>(std::move(name),
+                                             std::move(description),
+                                             std::move(unit),
+                                             kDefaultExpHistogramMaxScale,
+                                             kDefaultExpHistogramMaxBuckets);
     }
 
     // ── Observable instruments ────────────────────────────────────────────

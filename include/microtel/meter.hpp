@@ -15,6 +15,11 @@
 namespace microtel
 {
 
+/// OTel-specified default max scale for base-2 exponential histograms (scale 20).
+inline constexpr std::int32_t kDefaultExpHistogramMaxScale = 20;
+/// OTel-specified default per-side bucket count cap for exponential histograms.
+inline constexpr std::int32_t kDefaultExpHistogramMaxBuckets = 160;
+
 /// OTel-specified default explicit-bucket boundaries (15 boundaries → 16 buckets).
 inline constexpr std::array<double, 15> kDefaultHistogramBoundaries = {0.0,
                                                                        5.0,
@@ -113,6 +118,29 @@ public:
     Histogram& operator=(Histogram&&) = delete;
 
     /// @brief Record an observation into the histogram.
+    virtual void Record(T value, AttributeSpan attrs) noexcept = 0;
+};
+
+/// @brief Abstract base-2 exponential Histogram instrument.
+///
+/// Obtained via `Meter::CreateExponentialHistogram<T>()`. Hot-path `Record()`
+/// is `noexcept`. The storage automatically downscales when a bucket array
+/// would exceed @p max_buckets (set at creation time).
+///
+/// @tparam T Value type: `std::int64_t` or `double`.
+template <typename T>
+class ExponentialHistogram
+{
+public:
+    ExponentialHistogram() noexcept = default;
+    virtual ~ExponentialHistogram() noexcept = default;
+
+    ExponentialHistogram(const ExponentialHistogram&) = delete;
+    ExponentialHistogram& operator=(const ExponentialHistogram&) = delete;
+    ExponentialHistogram(ExponentialHistogram&&) = delete;
+    ExponentialHistogram& operator=(ExponentialHistogram&&) = delete;
+
+    /// @brief Record an observation into the exponential histogram.
     virtual void Record(T value, AttributeSpan attrs) noexcept = 0;
 };
 
@@ -264,6 +292,30 @@ public:
                                                       kDefaultHistogramBoundaries.end()));
     }
 
+    /// @brief Create a base-2 exponential Histogram with explicit scale/bucket limits.
+    ///
+    /// @param max_scale   Starting scale (≤ 20). Storage downscales automatically
+    ///                    when a bucket array would exceed @p max_buckets.
+    /// @param max_buckets Per-side bucket count cap (downscale trigger).
+    template <typename T>
+    std::shared_ptr<ExponentialHistogram<T>> CreateExponentialHistogram(std::string name,
+                                                                        std::string description,
+                                                                        std::string unit,
+                                                                        std::int32_t max_scale,
+                                                                        std::int32_t max_buckets);
+
+    /// @brief Create an exponential Histogram with OTel defaults (scale 20, 160 buckets/side).
+    template <typename T>
+    std::shared_ptr<ExponentialHistogram<T>> CreateExponentialHistogram(
+        std::string name, std::string description = {}, std::string unit = {})
+    {
+        return CreateExponentialHistogram<T>(std::move(name),
+                                             std::move(description),
+                                             std::move(unit),
+                                             kDefaultExpHistogramMaxScale,
+                                             kDefaultExpHistogramMaxBuckets);
+    }
+
     // ── Asynchronous (observable) instruments ──────────────────────────────
 
     /// @brief Create an observable monotonic Sum instrument.
@@ -317,6 +369,19 @@ private:
         std::string description,
         std::string unit,
         std::vector<double> boundaries) = 0;
+
+    virtual std::shared_ptr<ExponentialHistogram<std::int64_t>> DoCreateExponentialHistogramI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        std::int32_t max_scale,
+        std::int32_t max_buckets) = 0;
+    virtual std::shared_ptr<ExponentialHistogram<double>> DoCreateExponentialHistogramDouble(
+        std::string name,
+        std::string description,
+        std::string unit,
+        std::int32_t max_scale,
+        std::int32_t max_buckets) = 0;
 
     virtual ObservableCounter<std::int64_t> DoCreateObservableCounterI64(
         std::string name,
@@ -490,6 +555,32 @@ inline ObservableGauge<double> Meter::CreateObservableGauge<double>(
 {
     return DoCreateObservableGaugeDouble(
         std::move(name), std::move(description), std::move(unit), std::move(callback));
+}
+
+// ── Explicit specializations — ExponentialHistogram (5-arg) ───────────────────
+
+template <>
+inline std::shared_ptr<ExponentialHistogram<std::int64_t>>
+Meter::CreateExponentialHistogram<std::int64_t>(std::string name,
+                                                std::string description,
+                                                std::string unit,
+                                                std::int32_t max_scale,
+                                                std::int32_t max_buckets)
+{
+    return DoCreateExponentialHistogramI64(
+        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+}
+
+template <>
+inline std::shared_ptr<ExponentialHistogram<double>> Meter::CreateExponentialHistogram<double>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    std::int32_t max_scale,
+    std::int32_t max_buckets)
+{
+    return DoCreateExponentialHistogramDouble(
+        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
 }
 
 }  // namespace microtel

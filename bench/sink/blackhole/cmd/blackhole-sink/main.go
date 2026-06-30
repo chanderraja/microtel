@@ -3,7 +3,7 @@
 
 // blackhole-sink is a zero-logic OTLP receiver for benchmarking microtel.
 // It accepts OTLP/gRPC on :4317 and OTLP/HTTP on :4318, counts spans and
-// bytes with atomic counters, and exposes a control API on :8080.
+// bytes with atomic counters, and exposes a control API on :19080.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"syscall"
 
+	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -31,7 +32,7 @@ import (
 const (
 	grpcAddr    = ":4317"
 	httpAddr    = ":4318"
-	controlAddr = ":8080"
+	controlAddr = ":19080"
 )
 
 func main() {
@@ -96,6 +97,7 @@ func main() {
 func buildGRPC(c *counters.Counters, delayMs int) *grpc.Server {
 	srv := grpc.NewServer()
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, delayMs))
+	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, delayMs))
 	reflection.Register(srv)
 	return srv
 }

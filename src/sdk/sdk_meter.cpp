@@ -88,6 +88,24 @@ private:
     HistogramStorage<T>* m_storage;
 };
 
+template <typename T>
+class SdkExponentialHistogram final : public microtel::ExponentialHistogram<T>
+{
+public:
+    explicit SdkExponentialHistogram(ExponentialHistogramStorage<T>* storage) noexcept
+        : m_storage(storage)
+    {
+    }
+
+    void Record(T value, microtel::AttributeSpan attrs) noexcept override
+    {
+        m_storage->Record(value, attrs);
+    }
+
+private:
+    ExponentialHistogramStorage<T>* m_storage;
+};
+
 // ── Public-to-internal ObservableResult bridge ────────────────────────────────
 // Adapts microtel::ObservableResult<T> (public abstract) to sdk::ObservableResult<T>
 // (internal concrete). The adapter is stack-allocated inside the bridge lambda that
@@ -205,6 +223,34 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
     HistogramStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkHistogram<double>>(&storage);
+}
+
+std::shared_ptr<microtel::ExponentialHistogram<std::int64_t>>
+SdkMeter::DoCreateExponentialHistogramI64(std::string name,
+                                          std::string description,
+                                          std::string unit,
+                                          std::int32_t max_scale,
+                                          std::int32_t max_buckets)
+{
+    auto stream = std::make_unique<MetricStreamExpHistogram<std::int64_t>>(
+        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+    ExponentialHistogramStorage<std::int64_t>& storage = stream->Storage();
+    m_producer->AddStream(m_scope, std::move(stream));
+    return std::make_shared<SdkExponentialHistogram<std::int64_t>>(&storage);
+}
+
+std::shared_ptr<microtel::ExponentialHistogram<double>>
+SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
+                                             std::string description,
+                                             std::string unit,
+                                             std::int32_t max_scale,
+                                             std::int32_t max_buckets)
+{
+    auto stream = std::make_unique<MetricStreamExpHistogram<double>>(
+        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+    ExponentialHistogramStorage<double>& storage = stream->Storage();
+    m_producer->AddStream(m_scope, std::move(stream));
+    return std::make_shared<SdkExponentialHistogram<double>>(&storage);
 }
 
 microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64(

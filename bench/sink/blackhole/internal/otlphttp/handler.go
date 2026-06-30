@@ -21,8 +21,8 @@ import (
 func NewHandler(c *counters.Counters, delayMs int) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", &traceHandler{c: c, delayMs: delayMs})
-	mux.HandleFunc("/v1/metrics", stubOK)
-	mux.HandleFunc("/v1/logs", stubOK)
+	mux.HandleFunc("/v1/metrics", makeStubHandler(c))
+	mux.HandleFunc("/v1/logs", makeStubHandler(c))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		c.RecordError("unknown path: " + r.URL.Path)
 		http.NotFound(w, r)
@@ -30,15 +30,20 @@ func NewHandler(c *counters.Counters, delayMs int) http.Handler {
 	return mux
 }
 
-// stubOK accepts any POST and returns 200 with an empty protobuf body.
-// Used for metrics and logs in B0 (traces-only milestone).
-func stubOK(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+// makeStubHandler returns a handler that accepts any POST, counts it in the
+// shared Counters (http_requests_received), and returns 200 with no body.
+// Used for metrics and logs — content is accepted but not decoded in B0.
+func makeStubHandler(c *counters.Counters) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.WriteHeader(http.StatusOK)
+		c.RecordHTTPExport(0, uint64(len(body)), 0)
 	}
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.WriteHeader(http.StatusOK)
 }
 
 type traceHandler struct {

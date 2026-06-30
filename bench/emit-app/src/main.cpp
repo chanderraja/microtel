@@ -13,7 +13,7 @@
 namespace
 {
 
-constexpr int kDefaultControlPort = 9090;
+constexpr int kDefaultControlPort = 19090;
 
 std::string EnvOr(const char* name, const char* fallback)
 {
@@ -39,9 +39,15 @@ int main()
     const int attr_value_bytes    = std::stoi(EnvOr("EMIT_ATTRIBUTE_VALUE_BYTES", "24"));
     const std::string workload_env = EnvOr("EMIT_WORKLOAD", "hot_loop");
 
-    const bench::WorkloadMode mode = (workload_env == "realistic_request")
-        ? bench::WorkloadMode::RealisticRequest
-        : bench::WorkloadMode::HotLoop;
+    bench::WorkloadMode mode = bench::WorkloadMode::HotLoop;
+    if (workload_env == "realistic_request")
+    {
+        mode = bench::WorkloadMode::RealisticRequest;
+    }
+    else if (workload_env == "hot_loop_metrics")
+    {
+        mode = bench::WorkloadMode::HotLoopMetrics;
+    }
 
     const bool compression_gzip = EnvOr("EMIT_COMPRESSION_GZIP", "0") == "1";
 
@@ -52,6 +58,7 @@ int main()
         .compression_gzip      = compression_gzip,
         .attributes_per_span   = attrs_per_span,
         .attribute_value_bytes = attr_value_bytes,
+        .metric_interval_ms    = (mode == bench::WorkloadMode::HotLoopMetrics) ? 100 : 0,
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};

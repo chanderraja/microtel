@@ -11,5 +11,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
 # Runtime stage — distroless for minimal attack surface
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /out/blackhole-sink /blackhole-sink
-EXPOSE 4317 4318 8080
+EXPOSE 4317 4318 19080
 ENTRYPOINT ["/blackhole-sink"]

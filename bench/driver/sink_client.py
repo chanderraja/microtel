@@ -12,7 +12,7 @@ from typing import Any, Optional
 class SinkClient:
     """Client for the blackhole-sink /stats and /reset endpoints."""
 
-    def __init__(self, host: str, port: int = 8080):
+    def __init__(self, host: str, port: int = 19080):
         self._base = f"http://{host}:{port}"
 
     def stats(self) -> dict[str, Any]:

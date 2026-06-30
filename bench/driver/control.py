@@ -10,7 +10,7 @@ from typing import Any
 
 
 class ControlClient:
-    """Client for the emit-app TCP ndjson control socket on port 9090."""
+    """Client for the emit-app TCP ndjson control socket on port 19090."""
 
     def __init__(self, host: str, port: int):
         self._host = host

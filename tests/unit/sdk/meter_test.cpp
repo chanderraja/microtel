@@ -52,6 +52,85 @@ mt::KeyValue Kv(std::string key, mt::AttributeValue value)
 
 }  // namespace
 
+// ── ExponentialHistogram ───────────────────────────────────────────────────────
+
+TEST(MeterTest, ExpHistogramRecordsMeasurement)
+{
+    auto producer = MakeProducer();
+    mts::Meter meter{MakeScope(), producer};
+    auto h = meter.CreateExponentialHistogram<double>("rpc.duration", "", "ms");
+
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    h.Record(4.0, mt::AttributeSpan{attrs});
+
+    const auto handles = producer->Collect();
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    ASSERT_EQ(ehd.points.size(), 1U);
+    EXPECT_EQ(ehd.points[0].count, 1U);
+    EXPECT_DOUBLE_EQ(ehd.points[0].sum, 4.0);
+}
+
+TEST(MeterTest, ExpHistogramDefaultScaleIs20)
+{
+    auto producer = MakeProducer();
+    mts::Meter meter{MakeScope(), producer};
+    auto h = meter.CreateExponentialHistogram<double>("x", "", "");
+
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    h.Record(1.0, mt::AttributeSpan{attrs});
+
+    const auto handles = producer->Collect();
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    ASSERT_EQ(ehd.points.size(), 1U);
+    EXPECT_EQ(ehd.points[0].scale, mts::kDefaultExpHistogramMaxScale);
+}
+
+TEST(MeterTest, ExpHistogramCustomScaleAndBuckets)
+{
+    auto producer = MakeProducer();
+    mts::Meter meter{MakeScope(), producer};
+    // scale=4 and max_buckets=8 are deliberately small.
+    auto h = meter.CreateExponentialHistogram<double>("x", "", "", 4, 8);
+
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    h.Record(1.0, mt::AttributeSpan{attrs});
+    h.Record(2.0, mt::AttributeSpan{attrs});
+
+    const auto handles = producer->Collect();
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    ASSERT_EQ(ehd.points.size(), 1U);
+    EXPECT_EQ(ehd.points[0].count, 2U);
+    EXPECT_LE(ehd.points[0].positive.bucket_counts.size(), static_cast<std::size_t>(8));
+}
+
+TEST(MeterTest, ExpHistogramI64RecordsMeasurement)
+{
+    auto producer = MakeProducer();
+    mts::Meter meter{MakeScope(), producer};
+    auto h = meter.CreateExponentialHistogram<std::int64_t>("req.size", "", "by");
+
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    h.Record(1024, mt::AttributeSpan{attrs});
+
+    const auto handles = producer->Collect();
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    ASSERT_EQ(ehd.points.size(), 1U);
+    EXPECT_EQ(ehd.points[0].count, 1U);
+    EXPECT_DOUBLE_EQ(ehd.points[0].sum, 1024.0);
+}
+
+TEST(MeterTest, ExpHistogramMetadataPropagates)
+{
+    auto producer = MakeProducer();
+    mts::Meter meter{MakeScope(), producer};
+    (void)meter.CreateExponentialHistogram<double>("exp.lat", "Exp latency", "ms");
+
+    const auto handles = producer->Collect();
+    EXPECT_EQ(handles[0].Metrics()[0].name, "exp.lat");
+    EXPECT_EQ(handles[0].Metrics()[0].description, "Exp latency");
+    EXPECT_EQ(handles[0].Metrics()[0].unit, "ms");
+}
+
 // ── Counter ───────────────────────────────────────────────────────────────────
 
 TEST(MeterTest, CounterAddAccumulatesValue)

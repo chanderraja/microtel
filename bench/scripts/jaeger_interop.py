@@ -39,7 +39,7 @@ _SUTS = [
         "image": "bench-sut-microtel",
         "protocol": "http",
         "endpoint": "http://jaeger:4318",
-        "control_port": 9090,
+        "control_port": 19090,
     },
     {
         "name": "microtel-grpc",
@@ -47,7 +47,7 @@ _SUTS = [
         "image": "bench-sut-microtel-grpc",
         "protocol": "grpc",
         "endpoint": "http://jaeger:4317",
-        "control_port": 9090,
+        "control_port": 19090,
     },
 ]
 

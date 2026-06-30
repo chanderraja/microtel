@@ -22,7 +22,7 @@ suts:
     image_name: bench-sut-microtel
     protocol: http
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink-host:4318
     b0: true
@@ -33,7 +33,7 @@ suts:
     image_name: bench-sut-microtel-grpc
     protocol: grpc
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4317
     b0: true
@@ -44,7 +44,7 @@ suts:
     image_name: bench-sut-microtel
     protocol: http
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""
       EMIT_COMPRESSION_GZIP: "1"
@@ -56,7 +56,7 @@ suts:
     image_name: bench-sut-microtel-grpc
     protocol: grpc
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""
       EMIT_COMPRESSION_GZIP: "1"
@@ -68,7 +68,7 @@ suts:
     image_name: bench-sut-otelcpp-grpc
     protocol: grpc
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to grpc://sink-host:4317
     b0: true
@@ -79,7 +79,7 @@ suts:
     image_name: bench-sut-otelcpp-http
     protocol: http
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
     b0: true
@@ -90,10 +90,10 @@ suts:
     image_name: bench-sut-go-otel
     protocol: http
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
-    b0: false
+    b0: true
 
   - name: rust-otel
     description: "opentelemetry-rust v0.27 — OTLP/HTTP exporter"
@@ -101,7 +101,7 @@ suts:
     image_name: bench-sut-rust-otel
     protocol: http
     ports:
-      control: 9090
+      control: 19090
     env:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4318
     b0: false

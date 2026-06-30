@@ -1,7 +1,7 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// TCP control socket (port 9090).
+// TCP control socket (port 19090).
 // The Python driver connects, writes JSON commands, reads JSON responses.
 // Protocol: newline-delimited JSON (ndjson) — one JSON object per line.
 
@@ -21,6 +21,7 @@ enum class WorkloadMode : std::uint8_t
 {
     HotLoop,          ///< EmitSpan() called as fast as possible (or rate-limited)
     RealisticRequest, ///< EmitRequest() — one parent span + two child spans per iteration
+    HotLoopMetrics,   ///< EmitRecord() — one Counter::Add() + one Histogram::Record() per iteration
 };
 
 struct RunResult
@@ -38,7 +39,7 @@ struct RunResult
     std::array<uint64_t, 64> latency_histogram{};
 };
 
-/// Listen on TCP port 9090, accept one connection, then loop:
+/// Listen on TCP port 19090, accept one connection, then loop:
 ///   - read a JSON command line from the driver
 ///   - dispatch to the appropriate handler
 ///   - write a JSON response line back

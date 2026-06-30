@@ -298,19 +298,16 @@ public:
     ///                    when a bucket array would exceed @p max_buckets.
     /// @param max_buckets Per-side bucket count cap (downscale trigger).
     template <typename T>
-    std::shared_ptr<ExponentialHistogram<T>> CreateExponentialHistogram(
-        std::string name,
-        std::string description,
-        std::string unit,
-        std::int32_t max_scale,
-        std::int32_t max_buckets);
+    std::shared_ptr<ExponentialHistogram<T>> CreateExponentialHistogram(std::string name,
+                                                                        std::string description,
+                                                                        std::string unit,
+                                                                        std::int32_t max_scale,
+                                                                        std::int32_t max_buckets);
 
     /// @brief Create an exponential Histogram with OTel defaults (scale 20, 160 buckets/side).
     template <typename T>
     std::shared_ptr<ExponentialHistogram<T>> CreateExponentialHistogram(
-        std::string name,
-        std::string description = {},
-        std::string unit = {})
+        std::string name, std::string description = {}, std::string unit = {})
     {
         return CreateExponentialHistogram<T>(std::move(name),
                                              std::move(description),
@@ -575,12 +572,12 @@ Meter::CreateExponentialHistogram<std::int64_t>(std::string name,
 }
 
 template <>
-inline std::shared_ptr<ExponentialHistogram<double>>
-Meter::CreateExponentialHistogram<double>(std::string name,
-                                          std::string description,
-                                          std::string unit,
-                                          std::int32_t max_scale,
-                                          std::int32_t max_buckets)
+inline std::shared_ptr<ExponentialHistogram<double>> Meter::CreateExponentialHistogram<double>(
+    std::string name,
+    std::string description,
+    std::string unit,
+    std::int32_t max_scale,
+    std::int32_t max_buckets)
 {
     return DoCreateExponentialHistogramDouble(
         std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);

@@ -64,8 +64,7 @@ TEST(MeterTest, ExpHistogramRecordsMeasurement)
     h.Record(4.0, mt::AttributeSpan{attrs});
 
     const auto handles = producer->Collect();
-    const auto& ehd =
-        std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
     ASSERT_EQ(ehd.points.size(), 1U);
     EXPECT_EQ(ehd.points[0].count, 1U);
     EXPECT_DOUBLE_EQ(ehd.points[0].sum, 4.0);
@@ -81,8 +80,7 @@ TEST(MeterTest, ExpHistogramDefaultScaleIs20)
     h.Record(1.0, mt::AttributeSpan{attrs});
 
     const auto handles = producer->Collect();
-    const auto& ehd =
-        std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
     ASSERT_EQ(ehd.points.size(), 1U);
     EXPECT_EQ(ehd.points[0].scale, mts::kDefaultExpHistogramMaxScale);
 }
@@ -99,12 +97,10 @@ TEST(MeterTest, ExpHistogramCustomScaleAndBuckets)
     h.Record(2.0, mt::AttributeSpan{attrs});
 
     const auto handles = producer->Collect();
-    const auto& ehd =
-        std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
     ASSERT_EQ(ehd.points.size(), 1U);
     EXPECT_EQ(ehd.points[0].count, 2U);
-    EXPECT_LE(ehd.points[0].positive.bucket_counts.size(),
-              static_cast<std::size_t>(8));
+    EXPECT_LE(ehd.points[0].positive.bucket_counts.size(), static_cast<std::size_t>(8));
 }
 
 TEST(MeterTest, ExpHistogramI64RecordsMeasurement)
@@ -117,8 +113,7 @@ TEST(MeterTest, ExpHistogramI64RecordsMeasurement)
     h.Record(1024, mt::AttributeSpan{attrs});
 
     const auto handles = producer->Collect();
-    const auto& ehd =
-        std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
+    const auto& ehd = std::get<mti::ExponentialHistogramData>(handles[0].Metrics()[0].data);
     ASSERT_EQ(ehd.points.size(), 1U);
     EXPECT_EQ(ehd.points[0].count, 1U);
     EXPECT_DOUBLE_EQ(ehd.points[0].sum, 1024.0);

@@ -74,12 +74,12 @@ private:
         std::string unit,
         std::vector<double> boundaries) override;
 
-    std::shared_ptr<microtel::ExponentialHistogram<std::int64_t>>
-    DoCreateExponentialHistogramI64(std::string name,
-                                    std::string description,
-                                    std::string unit,
-                                    std::int32_t max_scale,
-                                    std::int32_t max_buckets) override;
+    std::shared_ptr<microtel::ExponentialHistogram<std::int64_t>> DoCreateExponentialHistogramI64(
+        std::string name,
+        std::string description,
+        std::string unit,
+        std::int32_t max_scale,
+        std::int32_t max_buckets) override;
     std::shared_ptr<microtel::ExponentialHistogram<double>> DoCreateExponentialHistogramDouble(
         std::string name,
         std::string description,

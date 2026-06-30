@@ -246,6 +246,7 @@ def _run_sut(
     profile_env: dict,
     threads: int,
     rate_hz: int,
+    signal: str,
     verbose: bool,
     flamegraph_dir: Optional[Path] = None,
     out_dir: Optional[Path] = None,
@@ -348,7 +349,7 @@ def _run_sut(
                 # not decoded, so spans_received stays 0 for signal=metrics profiles.
                 delivery_rate_pct = (
                     round(sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2)
-                    if profile.signal == "traces"
+                    if signal == "traces"
                     else None
                 )
                 samples.append({
@@ -418,6 +419,7 @@ def _collect_sut_results(
                 profile_env=profile.env,
                 threads=sut.threads_override if sut.threads_override is not None else profile.threads,
                 rate_hz=profile.target_rate_hz,
+                signal=profile.signal,
                 verbose=verbose,
                 flamegraph_dir=flamegraph_dir,
                 out_dir=out_dir,

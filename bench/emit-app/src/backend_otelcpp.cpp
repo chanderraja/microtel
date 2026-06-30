@@ -3,16 +3,37 @@
 
 #include "backend.hpp"
 
+// Trace exporter headers (protocol-guarded)
+#if defined(BENCH_BACKEND_OTELCPP_GRPC)
 #include <opentelemetry/exporters/otlp/otlp_grpc_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_grpc_exporter_options.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_metric_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_metric_exporter_options.h>
+#elif defined(BENCH_BACKEND_OTELCPP_HTTP)
 #include <opentelemetry/exporters/otlp/otlp_http_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_http_exporter_options.h>
+#include <opentelemetry/exporters/otlp/otlp_http_metric_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_http_metric_exporter_options.h>
+#else
+static_assert(false, "BENCH_BACKEND_OTELCPP_GRPC or BENCH_BACKEND_OTELCPP_HTTP required");
+#endif
+
+// Trace SDK
 #include <opentelemetry/sdk/trace/batch_span_processor_factory.h>
 #include <opentelemetry/sdk/trace/batch_span_processor_options.h>
 #include <opentelemetry/sdk/trace/tracer_provider.h>
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/tracer.h>
+
+// Metrics SDK
+#include <opentelemetry/context/context.h>
+#include <opentelemetry/metrics/meter.h>
+#include <opentelemetry/metrics/sync_instruments.h>
+#include <opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_factory.h>
+#include <opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_options.h>
+#include <opentelemetry/sdk/metrics/meter_provider.h>
+#include <opentelemetry/sdk/metrics/meter_provider_factory.h>
 
 #include <atomic>
 #include <chrono>
@@ -28,9 +49,11 @@ namespace bench
 namespace
 {
 
-namespace otlp = opentelemetry::exporter::otlp;
-namespace sdktrace = opentelemetry::sdk::trace;
+namespace otlp      = opentelemetry::exporter::otlp;
+namespace sdktrace  = opentelemetry::sdk::trace;
+namespace sdkmetrics = opentelemetry::sdk::metrics;
 namespace trace_api = opentelemetry::trace;
+namespace metrics_api = opentelemetry::metrics;
 
 class OtelCppBackend final : public IBackend
 {
@@ -46,41 +69,11 @@ public:
 
     void Init(const BackendOptions& opts) override
     {
-        std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> exporter;
-
-#if defined(BENCH_BACKEND_OTELCPP_GRPC)
-        otlp::OtlpGrpcExporterOptions grpc_opts;
-        grpc_opts.endpoint = opts.endpoint;
-        grpc_opts.use_ssl_credentials = false;
-        exporter = otlp::OtlpGrpcExporterFactory::Create(grpc_opts);
-#elif defined(BENCH_BACKEND_OTELCPP_HTTP)
-        otlp::OtlpHttpExporterOptions http_opts;
-        http_opts.url = opts.endpoint + "/v1/traces";
-        exporter = otlp::OtlpHttpExporterFactory::Create(http_opts);
-#else
-        static_assert(false, "BENCH_BACKEND_OTELCPP_GRPC or BENCH_BACKEND_OTELCPP_HTTP required");
-#endif
-
-        if (!exporter)
+        InitTrace(opts);
+        if (opts.metric_interval_ms > 0)
         {
-            throw std::runtime_error("opentelemetry-cpp exporter creation failed");
+            InitMetrics(opts);
         }
-
-        sdktrace::BatchSpanProcessorOptions proc_opts;
-        auto processor = sdktrace::BatchSpanProcessorFactory::Create(std::move(exporter),
-                                                                     proc_opts);
-
-        m_provider = std::make_shared<sdktrace::TracerProvider>(std::move(processor));
-        m_tracer = m_provider->GetTracer(opts.service_name, opts.service_version);
-
-        m_attrs_per_span = opts.attributes_per_span;
-        m_attr_keys.resize(opts.attributes_per_span);
-        for (int i = 0; i < opts.attributes_per_span; ++i)
-        {
-            m_attr_keys[i] = "bench.attr." + std::to_string(i);
-        }
-        m_attr_value = std::string(
-            static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
     }
 
     void EmitSpan() override
@@ -110,11 +103,22 @@ public:
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
+    void EmitRecord() override
+    {
+        m_counter->Add(1);
+        m_histogram->Record(1.0, opentelemetry::context::Context{});
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
     [[nodiscard]] uint64_t ForceFlush() override
     {
         using Clock = std::chrono::steady_clock;
         const auto t0 = Clock::now();
-        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        m_trace_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        if (m_metric_provider)
+        {
+            m_metric_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        }
         const auto t1 = Clock::now();
         return static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
@@ -122,8 +126,13 @@ public:
 
     void Shutdown() override
     {
-        m_provider->ForceFlush(std::chrono::microseconds(30'000'000));
-        m_provider->Shutdown();
+        m_trace_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        m_trace_provider->Shutdown();
+        if (m_metric_provider)
+        {
+            m_metric_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+            m_metric_provider->Shutdown();
+        }
     }
 
     [[nodiscard]] BackendStats Stats() const override
@@ -138,12 +147,89 @@ public:
     }
 
 private:
-    std::shared_ptr<sdktrace::TracerProvider>                       m_provider;
+    void InitTrace(const BackendOptions& opts)
+    {
+        std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> exporter;
+
+#if defined(BENCH_BACKEND_OTELCPP_GRPC)
+        otlp::OtlpGrpcExporterOptions grpc_opts;
+        grpc_opts.endpoint           = opts.endpoint;
+        grpc_opts.use_ssl_credentials = false;
+        exporter = otlp::OtlpGrpcExporterFactory::Create(grpc_opts);
+#elif defined(BENCH_BACKEND_OTELCPP_HTTP)
+        otlp::OtlpHttpExporterOptions http_opts;
+        http_opts.url = opts.endpoint + "/v1/traces";
+        exporter      = otlp::OtlpHttpExporterFactory::Create(http_opts);
+#endif
+
+        if (!exporter)
+        {
+            throw std::runtime_error("opentelemetry-cpp trace exporter creation failed");
+        }
+
+        sdktrace::BatchSpanProcessorOptions proc_opts;
+        auto processor = sdktrace::BatchSpanProcessorFactory::Create(std::move(exporter),
+                                                                     proc_opts);
+        m_trace_provider = std::make_shared<sdktrace::TracerProvider>(std::move(processor));
+        m_tracer         = m_trace_provider->GetTracer(opts.service_name, opts.service_version);
+
+        m_attrs_per_span = opts.attributes_per_span;
+        m_attr_keys.resize(static_cast<std::size_t>(opts.attributes_per_span));
+        for (int i = 0; i < opts.attributes_per_span; ++i)
+        {
+            m_attr_keys[static_cast<std::size_t>(i)] = "bench.attr." + std::to_string(i);
+        }
+        m_attr_value = std::string(static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
+    }
+
+    void InitMetrics(const BackendOptions& opts)
+    {
+        std::unique_ptr<opentelemetry::sdk::metrics::PushMetricExporter> exporter;
+
+#if defined(BENCH_BACKEND_OTELCPP_GRPC)
+        otlp::OtlpGrpcMetricExporterOptions metric_opts;
+        metric_opts.endpoint           = opts.endpoint;
+        metric_opts.use_ssl_credentials = false;
+        exporter = otlp::OtlpGrpcMetricExporterFactory::Create(metric_opts);
+#elif defined(BENCH_BACKEND_OTELCPP_HTTP)
+        otlp::OtlpHttpMetricExporterOptions metric_opts;
+        metric_opts.url = opts.endpoint + "/v1/metrics";
+        exporter        = otlp::OtlpHttpMetricExporterFactory::Create(metric_opts);
+#endif
+
+        if (!exporter)
+        {
+            throw std::runtime_error("opentelemetry-cpp metric exporter creation failed");
+        }
+
+        sdkmetrics::PeriodicExportingMetricReaderOptions reader_opts;
+        reader_opts.export_interval_millis =
+            std::chrono::milliseconds(opts.metric_interval_ms);
+        reader_opts.export_timeout_millis =
+            std::chrono::milliseconds(opts.metric_interval_ms * 5);
+        auto reader = sdkmetrics::PeriodicExportingMetricReaderFactory::Create(
+            std::move(exporter), reader_opts);
+
+        m_metric_provider = std::make_shared<sdkmetrics::MeterProvider>();
+        m_metric_provider->AddMetricReader(std::move(reader));
+
+        auto meter    = m_metric_provider->GetMeter("bench", "0.0.0");
+        m_counter     = meter->CreateUInt64Counter("bench.counter", "Bench counter", "1");
+        m_histogram   = meter->CreateDoubleHistogram("bench.histogram", "Bench histogram", "ms");
+    }
+
+    // Trace members
+    std::shared_ptr<sdktrace::TracerProvider>                       m_trace_provider;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> m_tracer;
     std::atomic<uint64_t>                                           m_emit_count{0};
     int                                                             m_attrs_per_span{0};
     std::vector<std::string>                                        m_attr_keys;
     std::string                                                     m_attr_value;
+
+    // Metric members (null when metric_interval_ms == 0)
+    std::shared_ptr<sdkmetrics::MeterProvider>                              m_metric_provider;
+    opentelemetry::nostd::shared_ptr<metrics_api::Counter<uint64_t>>       m_counter;
+    opentelemetry::nostd::shared_ptr<metrics_api::Histogram<double>>       m_histogram;
 };
 
 }  // namespace

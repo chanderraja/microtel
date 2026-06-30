@@ -33,7 +33,6 @@ static_assert(false, "BENCH_BACKEND_OTELCPP_GRPC or BENCH_BACKEND_OTELCPP_HTTP r
 #include <opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_factory.h>
 #include <opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_options.h>
 #include <opentelemetry/sdk/metrics/meter_provider.h>
-#include <opentelemetry/sdk/metrics/meter_provider_factory.h>
 
 #include <atomic>
 #include <chrono>
@@ -105,6 +104,10 @@ public:
 
     void EmitRecord() override
     {
+        if (!m_metric_provider)
+        {
+            return;
+        }
         m_counter->Add(1);
         m_histogram->Record(1.0, opentelemetry::context::Context{});
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
@@ -205,8 +208,9 @@ private:
         sdkmetrics::PeriodicExportingMetricReaderOptions reader_opts;
         reader_opts.export_interval_millis =
             std::chrono::milliseconds(opts.metric_interval_ms);
+        // timeout must be strictly less than interval (OTel spec); use half the interval
         reader_opts.export_timeout_millis =
-            std::chrono::milliseconds(opts.metric_interval_ms * 5);
+            std::chrono::milliseconds(opts.metric_interval_ms / 2);
         auto reader = sdkmetrics::PeriodicExportingMetricReaderFactory::Create(
             std::move(exporter), reader_opts);
 

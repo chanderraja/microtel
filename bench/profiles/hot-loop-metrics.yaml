@@ -6,7 +6,6 @@
 # (set automatically when EMIT_WORKLOAD=hot_loop_metrics) to bound in-memory
 # state without affecting the hot-path measurement.
 #
-# otelcpp SUTs are excluded: the emit-app metrics path is microtel-only.
 # Wire throughput is not the primary concern here — latency of the Add/Record
 # pair on the calling thread is what we measure.
 
@@ -24,6 +23,8 @@ sink:
 suts:
   - microtel
   - microtel-grpc
+  - otelcpp-grpc
+  - otelcpp-http
   - go-otel
 
 env:

@@ -125,9 +125,16 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 
 HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 {
-    HealthSnapshot health;
+    HealthSnapshot health = m_diagnostics.Snapshot();
+    // Connection state is read live from the transport; the sink's
+    // SetConnectionState channel is wired up in increment 26.
     health.connection_state = m_transport->GetState();
     return health;
+}
+
+internal::IDiagnosticsSink& SdkProvider::DiagnosticsSink() noexcept
+{
+    return m_diagnostics;
 }
 
 std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,

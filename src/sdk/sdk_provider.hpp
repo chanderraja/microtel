@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/internal/auth_provider.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/exporter.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
@@ -14,6 +15,8 @@
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
+
+#include "sdk/diagnostics_counters.hpp"
 
 #include <chrono>
 #include <memory>
@@ -103,8 +106,20 @@ public:
         std::string_view version = {},
         std::string_view schema_url = {}) override;
 
+    /// @brief Borrow the provider-owned diagnostics sink.
+    ///
+    /// Non-owning reference, valid for the provider's lifetime. The seam
+    /// through which pipeline components record drops (wired in increment 26)
+    /// and tests assert on health counters.
+    [[nodiscard]] internal::IDiagnosticsSink& DiagnosticsSink() noexcept;
+
 private:
-    // Declared first → destroyed last. Encoder is stateless; no teardown order concern.
+    // Declared before every other member → destroyed last, so the sink stays
+    // alive past any late RecordDrop from the metric machinery (or any other
+    // pipeline component) during reverse-order teardown — same reasoning as
+    // the m_metric_codec ordering note below.
+    DiagnosticsCounters m_diagnostics;
+    // Encoder is stateless; no teardown order concern.
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
     std::unique_ptr<internal::IAuthProvider> m_auth;
     // Transport owns the I/O thread; must outlive all codecs and exporters.

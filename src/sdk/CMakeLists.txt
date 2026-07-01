@@ -6,6 +6,7 @@
 # See src/sdk/README.md.
 
 add_library(microtel_sdk STATIC
+    diagnostics_counters.cpp
     sampler_factories.cpp
     metric_attribute_set.cpp
     metric_sum_storage.cpp

@@ -53,19 +53,25 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
     endif()
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
-    find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_grpc_exporter)
+    find_package(opentelemetry-cpp REQUIRED COMPONENTS
+        trace metrics otlp_grpc_exporter otlp_grpc_metrics_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
-        opentelemetry-cpp::otlp_grpc_exporter)
+        opentelemetry-cpp::metrics
+        opentelemetry-cpp::otlp_grpc_exporter
+        opentelemetry-cpp::otlp_grpc_metrics_exporter)
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
     find_package(CURL REQUIRED)
-    find_package(opentelemetry-cpp REQUIRED COMPONENTS trace otlp_http_exporter)
+    find_package(opentelemetry-cpp REQUIRED COMPONENTS
+        trace metrics otlp_http_exporter otlp_http_metric_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
-        opentelemetry-cpp::otlp_http_exporter)
+        opentelemetry-cpp::metrics
+        opentelemetry-cpp::otlp_http_exporter
+        opentelemetry-cpp::otlp_http_metric_exporter)
 
 else()
     message(FATAL_ERROR "Unknown BENCH_BACKEND: ${BENCH_BACKEND}. "

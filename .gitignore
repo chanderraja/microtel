@@ -77,6 +77,7 @@ _handoff/
 graphify-out/
 bench/results/
 bench/sink/blackhole/blackhole-sink
+bench/sut/go-otel/go-otel
 *.pyc
 __pycache__/
 

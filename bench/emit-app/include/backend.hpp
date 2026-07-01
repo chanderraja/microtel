@@ -13,7 +13,8 @@ namespace bench
 {
 
 /// Per-reason drop counters.  Four primary DropReason buckets are named;
-/// the remaining 16 fold into `other`.  `total` is the sum of all 20.
+/// the remaining reasons fold into `other`.  `total` is the sum over all
+/// `kDropReasonCount` reasons.
 /// otelcpp backends return zeros for all fields (no stable API equivalent).
 struct DroppedCounts
 {

@@ -61,11 +61,20 @@ enum class DropReason : std::uint8_t
     ConnectFailure = 17,
     ForceFlushTimeout = 18,
     ShutdownTimeout = 19,
+    /// Attribute set exceeded the per-instrument cardinality limit; the
+    /// measurement is folded into the `otel.metric.overflow` series, not lost
+    /// (ICP 0008, `docs/metrics-design.md` §2).
+    CardinalityOverflow = 20,
+    /// Async instrument callback exceeded the per-collection deadline; its
+    /// measurements were dropped for that cycle (ICP 0008).
+    MetricCallbackTimeout = 21,
+    /// NaN / ±Inf measurement dropped, as the OTel spec requires (ICP 0008).
+    NonFiniteValue = 22,
 };
 
 /// @brief The number of `DropReason` enumerators. Used to size the counter
 /// array in `HealthSnapshot`.
-inline constexpr std::size_t kDropReasonCount = 20;
+inline constexpr std::size_t kDropReasonCount = 23;
 
 /// @brief Snapshot of exporter health, returned by `Provider::GetExporterHealth`.
 ///

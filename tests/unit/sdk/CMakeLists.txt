@@ -183,3 +183,11 @@ target_include_directories(sdk_provider_test
 
 target_compile_options(sdk_provider_test PRIVATE
     -Wno-missing-field-initializers)
+
+# M12 — ICP 0008 metric drop reasons + diagnostics name mapping.
+microtel_add_test(
+    NAME    drop_reason_test
+    SOURCES drop_reason_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(drop_reason_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

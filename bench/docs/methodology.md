@@ -5,8 +5,9 @@
 ### microtel SUT
 
 Drop counters are read from `Provider::GetExporterHealth()` which returns a
-`HealthSnapshot` containing one counter per `DropReason` enumerator (20 total
-in v1).  `spans_dropped_total` in the result JSON is the sum of all 20 counters.
+`HealthSnapshot` containing one counter per `DropReason` enumerator
+(`kDropReasonCount` total).  `spans_dropped_total` in the result JSON is the
+sum over all of those counters.
 
 ### otelcpp-grpc and otelcpp-http SUTs
 

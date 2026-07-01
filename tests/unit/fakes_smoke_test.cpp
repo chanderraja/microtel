@@ -51,9 +51,20 @@ TEST(FakeDiagnosticsSink, RecordsAndSnapshots)
     sink.SetQueueDepth(17);
     sink.SetConnectionState(mt::ConnectionState::Connected);
 
+    // ICP 0008 metric reasons occupy the appended indices 20-22.
+    sink.RecordDrop(mt::DropReason::CardinalityOverflow, 5);
+    sink.RecordDrop(mt::DropReason::MetricCallbackTimeout, 7);
+    sink.RecordDrop(mt::DropReason::NonFiniteValue, 11);
+
     auto snap = sink.Snapshot();
     EXPECT_EQ(snap.drop_counters[static_cast<std::size_t>(mt::DropReason::QueueFull)],
               std::uint64_t{3});
+    EXPECT_EQ(snap.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)],
+              std::uint64_t{5});
+    EXPECT_EQ(snap.drop_counters[static_cast<std::size_t>(mt::DropReason::MetricCallbackTimeout)],
+              std::uint64_t{7});
+    EXPECT_EQ(snap.drop_counters[static_cast<std::size_t>(mt::DropReason::NonFiniteValue)],
+              std::uint64_t{11});
     EXPECT_EQ(snap.batches_sent, std::uint64_t{1});
     EXPECT_EQ(snap.batches_failed, std::uint64_t{0});
     EXPECT_EQ(snap.queue_depth_now, std::uint64_t{17});

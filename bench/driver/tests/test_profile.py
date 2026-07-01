@@ -20,8 +20,14 @@ def test_load_hot_loop_traces():
     assert p.threads == 1        # default when not specified
     assert p.target_rate_hz == 0  # default: unlimited
     assert p.sink_mode == "blackhole"
+    assert p.signal == "traces"  # default
     assert "microtel" in p.suts
     assert "otelcpp-grpc" in p.suts
+
+
+def test_load_hot_loop_metrics_signal():
+    p = load(PROFILES_DIR, "hot-loop-metrics")
+    assert p.signal == "metrics"
 
 
 def test_load_missing_raises():
@@ -45,4 +51,21 @@ def test_load_invalid_sink_mode(tmp_path):
         "  - spans_emitted\n"
     )
     with pytest.raises(ValueError, match="sink.mode"):
+        load(tmp_path, "bad")
+
+
+def test_load_invalid_signal(tmp_path):
+    import pytest
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        "profile: bad\n"
+        "signal: logs\n"
+        "workload:\n"
+        "  spans_per_sample: 100\n"
+        "suts:\n"
+        "  - microtel\n"
+        "metrics:\n"
+        "  - spans_emitted\n"
+    )
+    with pytest.raises(ValueError, match="signal"):
         load(tmp_path, "bad")

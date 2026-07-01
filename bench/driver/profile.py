@@ -13,6 +13,7 @@ from typing import Dict, List
 class Profile:
     name: str
     description: str
+    signal: str          # "traces" | "metrics" — governs delivery-rate semantics
     spans_per_sample: int
     samples: int
     warmup_spans: int
@@ -25,6 +26,7 @@ class Profile:
 
 
 _SINK_MODES = {"blackhole", "collector"}
+_SIGNALS = {"traces", "metrics"}
 
 
 def load(profiles_dir: Path, name: str) -> Profile:
@@ -43,6 +45,10 @@ def load(profiles_dir: Path, name: str) -> Profile:
     if sink_mode not in _SINK_MODES:
         raise ValueError(f"profile {name!r}: unknown sink.mode {sink_mode!r}")
 
+    signal = str(data.get("signal", "traces"))
+    if signal not in _SIGNALS:
+        raise ValueError(f"profile {name!r}: unknown signal {signal!r}")
+
     raw_suts = data.get("suts") or []
     raw_metrics = data.get("metrics") or []
     raw_env = data.get("env") or {}
@@ -50,6 +56,7 @@ def load(profiles_dir: Path, name: str) -> Profile:
     return Profile(
         name=str(data.get("profile", name)),
         description=str(data.get("description", "")),
+        signal=signal,
         spans_per_sample=int(workload.get("spans_per_sample", 10_000)),
         samples=int(workload.get("samples", 10)),
         warmup_spans=int(workload.get("warmup_spans", 1_000)),

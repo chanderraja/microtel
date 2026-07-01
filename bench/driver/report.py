@@ -132,7 +132,11 @@ def _drop_rate(samples: list[dict]) -> float:
     return round(total_dropped / total_emitted * 100, 4)
 
 
-def _delivery_rate_from_sink(samples: list[dict]) -> float:
+def _delivery_rate_from_sink(samples: list[dict]):
+    # If all per-sample delivery values are None the profile is non-trace (e.g. metrics)
+    # and delivery is undefined — return None so callers can print N/A.
+    if all(s.get("delivery_rate_pct") is None for s in samples):
+        return None
     total_emitted = sum(s["spans_emitted"] for s in samples)
     total_received = sum(s["sink"]["spans_received"] for s in samples)
     if total_emitted == 0:
@@ -232,8 +236,8 @@ def _render_md(doc: dict) -> str:
         # Delivery rate row — computed from sink vs emitted, works even when SUT drop counters are unavailable.
         dr_cells = []
         for s in suts:
-            dr = s.get("summary", {}).get("delivery_rate_pct", 100.0)
-            dr_cells.append(f"{dr:.2f}%")
+            dr = s.get("summary", {}).get("delivery_rate_pct")
+            dr_cells.append(f"{dr:.2f}%" if dr is not None else "N/A")
         lines.append(f"| Delivery rate (sink/emitted) | " + " | ".join(dr_cells) + " |")
         _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
 

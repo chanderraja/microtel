@@ -1,6 +1,6 @@
 # ICP 0008 — Metric drop reasons in `DropReason` / `HealthSnapshot`
 
-**Status:** Draft
+**Status:** Accepted
 **Author:** Chander Raja
 **Affected interfaces / docs:** `include/microtel/provider.hpp`
 (`DropReason`, `kDropReasonCount`, `HealthSnapshot::drop_counters`);

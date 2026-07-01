@@ -89,6 +89,9 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | `connect_failure` | transport | TCP / TLS / ALPN handshake failed during initial connect or reconnect |
 | `force_flush_timeout` | exporter | `ForceFlush` deadline elapsed with records still queued |
 | `shutdown_timeout` | exporter / transport | `Shutdown` deadline elapsed with in-flight work |
+| `cardinality_overflow` | SDK, metric aggregation store | attribute set exceeded the per-instrument cardinality limit; the measurement is folded into the `otel.metric.overflow` series, not lost (ICP 0008, `metrics-design.md` §2) |
+| `metric_callback_timeout` | SDK, metric collection | async instrument callback exceeded the per-collection deadline; its measurements were dropped for that cycle (ICP 0008, `metrics-design.md` §4) |
+| `non_finite_value` | SDK, instrument record path | NaN / ±Inf measurement dropped, as the OTel spec requires (ICP 0008) |
 
 **Counters are `std::atomic<uint64_t>`** (LOCKED). The increment path is lock-free and fits the leaf-lock rule in `threading-model.md` §4.
 

@@ -18,9 +18,12 @@
 #include "microtel/internal/metric_batch.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -39,6 +42,11 @@ namespace
 mt::KeyValue Kv(std::string key, mt::AttributeValue value)
 {
     return mt::KeyValue{.key = std::move(key), .value = std::move(value)};
+}
+
+std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
 template <typename T>
@@ -223,6 +231,131 @@ TEST(GaugeStorageTest, CardinalityOverflowRoutesToOverflowSeries)
     const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
     ASSERT_NE(ov_it, data.points.end());
     EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 9);  // last write wins
+}
+
+// ── Overflow drop accounting (increment 26) ─────────────────────────────────
+
+TEST(GaugeStorageTest, OverflowIncrementsCardinalityDropCounterPerMeasurement)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/2, nullptr, &sink};
+    for (int i = 0; i < 5; ++i)  // 2 real series + 3 folded measurements
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Record(i, mt::AttributeSpan{attrs});
+    }
+
+    EXPECT_EQ(CardinalityDrops(sink), 3U);
+}
+
+TEST(GaugeStorageTest, ExistingSeriesUpdatesAfterOverflowDoNotCount)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/2, nullptr, &sink};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(3, mt::AttributeSpan{c});  // folds → 1 drop
+
+    storage.Record(4, mt::AttributeSpan{a});  // pre-existing series — no drop
+    storage.Record(5, mt::AttributeSpan{b});  // pre-existing series — no drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(GaugeStorageTest, NullSinkIsSafe)
+{
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/1};  // no sink
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});  // folds — must not crash
+
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 2U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 1);
+}
+
+// ── Spec-lock characterisation: cardinality-overflow semantics ─────────────
+// These lock the overflow contract in place ahead of drop accounting
+// (increment 26); they assert current behaviour and act as a regression net.
+// (No delta-reclaim test: a gauge has no temporality — Collect never clears
+// the live points, so cardinality slots are never reclaimed.)
+
+TEST(GaugeStorageTest, NoOverflowAtExactlyLimitDistinctSets)
+{
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/3};
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Record(i, mt::AttributeSpan{attrs});
+    }
+
+    const mti::GaugeData data = storage.Collect();
+    EXPECT_EQ(data.points.size(), 3U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 0);
+}
+
+TEST(GaugeStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow)
+{
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(5, mt::AttributeSpan{c});  // folds into the overflow series
+
+    for (int round = 0; round < 2; ++round)
+    {
+        const mti::GaugeData data = storage.Collect();
+        ASSERT_EQ(data.points.size(), 3U);
+        std::vector<std::int64_t> real_values;
+        for (const auto& pt : data.points)
+        {
+            if (!IsOverflowPoint(pt))
+            {
+                real_values.push_back(std::get<std::int64_t>(pt.value));
+            }
+        }
+        std::ranges::sort(real_values);
+        EXPECT_EQ(real_values, (std::vector<std::int64_t>{1, 2}));
+    }
+}
+
+TEST(GaugeStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
+{
+    // A gauge is last-write-wins, so "reflected" means: each series holds the
+    // latest measurement routed to it — pre-overflow series keep their own
+    // values and the overflow series holds the latest folded measurement.
+    mts::GaugeStorage<std::int64_t> storage{/*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    const std::vector<mt::KeyValue> d{Kv("k", std::string{"d"})};
+    storage.Record(1, mt::AttributeSpan{a});
+    storage.Record(2, mt::AttributeSpan{b});
+    storage.Record(3, mt::AttributeSpan{c});  // folds into the overflow series
+    storage.Record(4, mt::AttributeSpan{d});  // folds too → last write wins
+
+    const mti::GaugeData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);
+    std::vector<std::int64_t> real_values;
+    for (const auto& pt : data.points)
+    {
+        if (!IsOverflowPoint(pt))
+        {
+            real_values.push_back(std::get<std::int64_t>(pt.value));
+        }
+    }
+    std::ranges::sort(real_values);
+    EXPECT_EQ(real_values, (std::vector<std::int64_t>{1, 2}));
+
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 4);
 }
 
 TEST(GaugeStorageTest, NonFiniteValueIsDropped)

@@ -18,13 +18,17 @@
 #include "microtel/internal/metric_batch.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,6 +43,11 @@ namespace
 mt::KeyValue Kv(std::string key, mt::AttributeValue value)
 {
     return mt::KeyValue{.key = std::move(key), .value = std::move(value)};
+}
+
+std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
 std::uint64_t Sum(const std::vector<std::uint64_t>& counts)
@@ -248,6 +257,171 @@ TEST(ExpHistogramStorageTest, CardinalityOverflowRoutesToOverflowSeries)
     const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
     ASSERT_NE(ov_it, data.points.end());
     EXPECT_EQ(ov_it->count, 2U);  // 2 overflowed recordings
+}
+
+// ── Overflow drop accounting (increment 26) ─────────────────────────────────
+
+TEST(ExpHistogramStorageTest, OverflowIncrementsCardinalityDropCounterPerMeasurement)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::ExponentialHistogramStorage<std::int64_t> storage{
+        0, 160, /*max_cardinality=*/2, nullptr, &sink};
+    for (int i = 0; i < 5; ++i)  // 2 real series + 3 folded measurements
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Record(3, mt::AttributeSpan{attrs});
+    }
+
+    EXPECT_EQ(CardinalityDrops(sink), 3U);
+}
+
+TEST(ExpHistogramStorageTest, ExistingSeriesUpdatesAfterOverflowDoNotCount)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::ExponentialHistogramStorage<std::int64_t> storage{
+        0, 160, /*max_cardinality=*/2, nullptr, &sink};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(3, mt::AttributeSpan{a});
+    storage.Record(5, mt::AttributeSpan{b});
+    storage.Record(7, mt::AttributeSpan{c});  // folds → 1 drop
+
+    storage.Record(4, mt::AttributeSpan{a});  // pre-existing series — no drop
+    storage.Record(6, mt::AttributeSpan{b});  // pre-existing series — no drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(ExpHistogramStorageTest, NullSinkIsSafe)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0,
+                                                           160,
+                                                           /*max_cardinality=*/1};  // no sink
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    storage.Record(3, mt::AttributeSpan{a});
+    storage.Record(5, mt::AttributeSpan{b});  // folds — must not crash
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 2U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 1);
+}
+
+// ── Spec-lock characterisation: cardinality-overflow semantics ─────────────
+// These lock the overflow contract in place ahead of drop accounting
+// (increment 26); they assert current behaviour and act as a regression net.
+
+TEST(ExpHistogramStorageTest, NoOverflowAtExactlyLimitDistinctSets)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/3};
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Record(3, mt::AttributeSpan{attrs});
+    }
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    EXPECT_EQ(data.points.size(), 3U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 0);
+}
+
+TEST(ExpHistogramStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(3, mt::AttributeSpan{a});
+    storage.Record(5, mt::AttributeSpan{b});
+    storage.Record(7, mt::AttributeSpan{c});  // folds into the overflow series
+
+    for (int round = 0; round < 2; ++round)
+    {
+        const mti::ExponentialHistogramData data = storage.Collect();
+        ASSERT_EQ(data.points.size(), 3U);
+        std::vector<double> real_sums;
+        for (const auto& pt : data.points)
+        {
+            if (!IsOverflowPoint(pt))
+            {
+                EXPECT_EQ(pt.count, 1U);
+                real_sums.push_back(pt.sum);
+            }
+        }
+        std::ranges::sort(real_sums);
+        EXPECT_EQ(real_sums, (std::vector<double>{3.0, 5.0}));
+    }
+}
+
+TEST(ExpHistogramStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/2};
+    std::uint64_t recorded_count = 0;
+    double recorded_sum = 0.0;
+    for (int i = 0; i < 5; ++i)
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Record(i + 1, mt::AttributeSpan{attrs});
+        ++recorded_count;
+        recorded_sum += i + 1;
+    }
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);  // two real series + overflow
+    std::uint64_t exported_count = 0;
+    double exported_sum = 0.0;
+    for (const auto& pt : data.points)
+    {
+        exported_count += pt.count;
+        exported_sum += pt.sum;
+    }
+    EXPECT_EQ(exported_count, recorded_count);
+    EXPECT_DOUBLE_EQ(exported_sum, recorded_sum);
+}
+
+TEST(ExpHistogramStorageTest, DeltaCollectReclaimsCardinalitySlots)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(3, mt::AttributeSpan{a});
+    storage.Record(5, mt::AttributeSpan{b});
+    storage.Record(7, mt::AttributeSpan{c});                    // folds into the overflow series
+    (void)storage.Collect(mti::AggregationTemporality::Delta);  // clears live state
+
+    const std::vector<mt::KeyValue> d{Kv("k", std::string{"d"})};
+    storage.Record(9, mt::AttributeSpan{d});
+
+    const mti::ExponentialHistogramData data = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_FALSE(IsOverflowPoint(data.points[0]));  // d got a real series again
+}
+
+TEST(ExpHistogramStorageTest, OverflowSeriesMergesBucketStateAcrossFoldedMeasurements)
+{
+    mts::ExponentialHistogramStorage<std::int64_t> storage{0, 160, /*max_cardinality=*/1};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Record(3, mt::AttributeSpan{a});   // real series
+    storage.Record(3, mt::AttributeSpan{b});   // folds → scale-0 index 1
+    storage.Record(20, mt::AttributeSpan{c});  // folds → scale-0 index 4
+
+    const mti::ExponentialHistogramData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 2U);
+    const auto ov_it = std::ranges::find_if(data.points, IsOverflowPoint);
+    ASSERT_NE(ov_it, data.points.end());
+    // Merged bucket state — not last-write-wins.
+    EXPECT_EQ(ov_it->count, 2U);
+    EXPECT_DOUBLE_EQ(ov_it->sum, 23.0);
+    EXPECT_EQ(ov_it->min, std::optional<double>{3.0});
+    EXPECT_EQ(ov_it->max, std::optional<double>{20.0});
+    EXPECT_EQ(Sum(ov_it->positive.bucket_counts), 2U);
+    EXPECT_EQ(
+        std::ranges::count_if(ov_it->positive.bucket_counts, [](std::uint64_t n) { return n > 0; }),
+        2);  // two distinct buckets survived the fold
 }
 
 TEST(ExpHistogramStorageTest, NonFiniteValueIsDropped)

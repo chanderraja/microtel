@@ -19,9 +19,12 @@
 #include "microtel/internal/metric_batch.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -40,6 +43,11 @@ namespace
 mt::KeyValue Kv(std::string key, mt::AttributeValue value)
 {
     return mt::KeyValue{.key = std::move(key), .value = std::move(value)};
+}
+
+std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
 // Find the point whose first attribute key/value matches, returning its value
@@ -289,6 +297,136 @@ TEST(SumStorageTest, CardinalityOverflowRoutesToOverflowSeries)
     EXPECT_EQ(std::get<std::int64_t>(ov_it->value), 7);  // 3 + 4
 }
 
+// ── Overflow drop accounting (increment 26) ─────────────────────────────────
+
+TEST(SumStorageTest, OverflowIncrementsCardinalityDropCounterPerMeasurement)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2, nullptr, &sink};
+    for (int i = 0; i < 5; ++i)  // 2 real series + 3 folded measurements
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Add(1, mt::AttributeSpan{attrs});
+    }
+
+    EXPECT_EQ(CardinalityDrops(sink), 3U);
+}
+
+TEST(SumStorageTest, ExistingSeriesUpdatesAfterOverflowDoNotCount)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2, nullptr, &sink};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});
+    storage.Add(3, mt::AttributeSpan{c});  // folds → 1 drop
+
+    storage.Add(4, mt::AttributeSpan{a});  // pre-existing series — no drop
+    storage.Add(5, mt::AttributeSpan{b});  // pre-existing series — no drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(SumStorageTest, NullSinkIsSafe)
+{
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/1};  // no sink
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});  // folds — must not crash
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 2U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 1);
+}
+
+// ── Spec-lock characterisation: cardinality-overflow semantics ─────────────
+// These lock the overflow contract in place ahead of drop accounting
+// (increment 26); they assert current behaviour and act as a regression net.
+
+TEST(SumStorageTest, NoOverflowAtExactlyLimitDistinctSets)
+{
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/3};
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Add(1, mt::AttributeSpan{attrs});
+    }
+
+    const mti::SumData data = storage.Collect();
+    EXPECT_EQ(data.points.size(), 3U);
+    EXPECT_EQ(std::ranges::count_if(data.points, IsOverflowPoint), 0);
+}
+
+TEST(SumStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow)
+{
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});
+    storage.Add(5, mt::AttributeSpan{c});  // folds into the overflow series
+
+    for (int round = 0; round < 2; ++round)
+    {
+        const mti::SumData data = storage.Collect();
+        ASSERT_EQ(data.points.size(), 3U);
+        std::vector<std::int64_t> real_values;
+        for (const auto& pt : data.points)
+        {
+            if (!IsOverflowPoint(pt))
+            {
+                real_values.push_back(std::get<std::int64_t>(pt.value));
+            }
+        }
+        std::ranges::sort(real_values);
+        EXPECT_EQ(real_values, (std::vector<std::int64_t>{1, 2}));
+    }
+}
+
+TEST(SumStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
+{
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2};
+    std::int64_t recorded_total = 0;
+    for (int i = 0; i < 5; ++i)
+    {
+        const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
+        storage.Add(i + 1, mt::AttributeSpan{attrs});
+        recorded_total += i + 1;
+    }
+
+    const mti::SumData data = storage.Collect();
+    ASSERT_EQ(data.points.size(), 3U);  // two real series + overflow
+    std::int64_t exported_total = 0;
+    for (const auto& pt : data.points)
+    {
+        exported_total += std::get<std::int64_t>(pt.value);
+    }
+    EXPECT_EQ(exported_total, recorded_total);
+}
+
+TEST(SumStorageTest, DeltaCollectReclaimsCardinalitySlots)
+{
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/2};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+    const std::vector<mt::KeyValue> c{Kv("k", std::string{"c"})};
+    storage.Add(1, mt::AttributeSpan{a});
+    storage.Add(2, mt::AttributeSpan{b});
+    storage.Add(3, mt::AttributeSpan{c});                       // folds into the overflow series
+    (void)storage.Collect(mti::AggregationTemporality::Delta);  // clears live state
+
+    const std::vector<mt::KeyValue> d{Kv("k", std::string{"d"})};
+    storage.Add(4, mt::AttributeSpan{d});
+
+    const mti::SumData data = storage.Collect(mti::AggregationTemporality::Delta);
+    ASSERT_EQ(data.points.size(), 1U);
+    EXPECT_FALSE(IsOverflowPoint(data.points[0]));  // d got a real series again
+}
+
 TEST(SumStorageTest, NonFiniteValueIsDropped)
 {
     mts::SumStorage<double> storage{true};
@@ -322,4 +460,41 @@ TEST(SumStorageTest, ConcurrentAddsConserveTotal)
     const mti::SumData data = storage.Collect();
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_EQ(PointValue<std::int64_t>(data, 0), static_cast<std::int64_t>(kThreads) * kPerThread);
+}
+
+// TSAN: concurrent overflow drops reach the diagnostics sink without a data race.
+// RecordDrop is called under m_mu so the non-atomic FakeDiagnosticsSink counter
+// is sequentially consistent. TSAN verifies no race on either the map or the sink.
+TEST(SumStorageTest, ConcurrentOverflowDropAccountingIsRaceFree)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    // max_cardinality=1: only one real series slot; all others fold.
+    mts::SumStorage<std::int64_t> storage{true, /*max_cardinality=*/1, nullptr, &sink};
+
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 200;
+    std::vector<std::thread> workers;
+    workers.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t)
+    {
+        workers.emplace_back(
+            [&storage, t]()
+            {
+                for (int i = 0; i < kPerThread; ++i)
+                {
+                    const std::string key_str = std::to_string(t * kPerThread + i);
+                    const std::vector<mt::KeyValue> attrs{Kv("k", key_str)};
+                    storage.Add(1, mt::AttributeSpan{attrs});
+                }
+            });
+    }
+    for (auto& worker : workers)
+    {
+        worker.join();
+    }
+
+    // First distinct key claims the real slot; every other distinct new key folds.
+    // Total drops == total distinct keys - 1 == (kThreads * kPerThread) - 1.
+    constexpr std::uint64_t kTotalAdds = static_cast<std::uint64_t>(kThreads) * kPerThread;
+    EXPECT_EQ(CardinalityDrops(sink), kTotalAdds - 1U);
 }

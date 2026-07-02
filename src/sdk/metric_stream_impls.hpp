@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "microtel/internal/diagnostics_sink.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
@@ -12,6 +14,7 @@
 #include "sdk/metric_stream.hpp"
 #include "sdk/metric_sum_storage.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -19,6 +22,24 @@
 
 namespace microtel::sdk
 {
+
+/// @brief Optional storage configuration shared by every MetricStream ctor.
+///
+/// Folds the storage-tuning parameters (cardinality cap, exemplar span source,
+/// diagnostics sink) into one aggregate so the stream ctors stay within the
+/// 7-parameter limit once the diagnostics sink is threaded through (M12
+/// increment 26). All members default to the "no extra behaviour" value, so a
+/// default-constructed `StorageOptions{}` reproduces the previous defaults.
+struct StorageOptions
+{
+    /// @brief Maximum distinct attribute sets before overflow folding.
+    std::size_t max_cardinality = kDefaultMaxCardinality;
+    /// @brief Non-owning; null disables exemplar capture.
+    const internal::ICurrentSpanSource* span_source = nullptr;
+    /// @brief Non-owning; null disables overflow drop accounting. Lifetime:
+    ///        the owning provider outlives the stream.
+    internal::IDiagnosticsSink* diag = nullptr;
+};
 
 /// @brief IMetricStream for a Sum instrument (Counter / UpDownCounter).
 ///
@@ -35,12 +56,11 @@ public:
                     std::string description,
                     std::string unit,
                     bool monotonic,
-                    std::size_t max_cardinality = kDefaultMaxCardinality,
-                    const internal::ICurrentSpanSource* span_source = nullptr)
+                    StorageOptions options = {})
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
-          m_storage(monotonic, max_cardinality, span_source)
+          m_storage(monotonic, options.max_cardinality, options.span_source, options.diag)
     {
     }
 
@@ -87,12 +107,11 @@ public:
     MetricStreamGauge(std::string name,
                       std::string description,
                       std::string unit,
-                      std::size_t max_cardinality = kDefaultMaxCardinality,
-                      const internal::ICurrentSpanSource* span_source = nullptr)
+                      StorageOptions options = {})
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
-          m_storage(max_cardinality, span_source)
+          m_storage(options.max_cardinality, options.span_source, options.diag)
     {
     }
 
@@ -137,12 +156,12 @@ public:
                           std::string description,
                           std::string unit,
                           std::vector<double> boundaries,
-                          std::size_t max_cardinality = kDefaultMaxCardinality,
-                          const internal::ICurrentSpanSource* span_source = nullptr)
+                          StorageOptions options = {})
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
-          m_storage(std::move(boundaries), max_cardinality, span_source)
+          m_storage(
+              std::move(boundaries), options.max_cardinality, options.span_source, options.diag)
     {
     }
 
@@ -189,12 +208,12 @@ public:
                              std::string unit,
                              std::int32_t max_scale,
                              std::int32_t max_buckets,
-                             std::size_t max_cardinality = kDefaultMaxCardinality,
-                             const internal::ICurrentSpanSource* span_source = nullptr)
+                             StorageOptions options = {})
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
-          m_storage(max_scale, max_buckets, max_cardinality, span_source)
+          m_storage(
+              max_scale, max_buckets, options.max_cardinality, options.span_source, options.diag)
     {
     }
 

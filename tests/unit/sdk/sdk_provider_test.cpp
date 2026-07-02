@@ -6,6 +6,7 @@
 #include "sdk/sdk_provider.hpp"
 
 #include "microtel/internal/sampler.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
@@ -17,6 +18,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace mt = microtel;
@@ -95,6 +98,31 @@ TEST(SdkProviderTest, ForceFlush_ProcessorTimedOut_ExporterNotFlushed)
     EXPECT_EQ(status, mt::Status::TimedOut);
     EXPECT_EQ(proc->force_flush_call_count, 1);
     EXPECT_EQ(exp->force_flush_call_count, 0);
+}
+
+// ---------------------------------------------------------------------------
+// GetExporterHealth — diagnostics counters
+// ---------------------------------------------------------------------------
+
+// Drops recorded on the provider-owned diagnostics sink surface in the
+// health snapshot; connection state is still read live from the transport.
+TEST(SdkProviderTest, GetExporterHealthReflectsRecordedDrops)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    constexpr std::uint64_t kOverflowDrops = 4;
+    provider->DiagnosticsSink().RecordDrop(mt::DropReason::QueueFull);
+    provider->DiagnosticsSink().RecordDrop(mt::DropReason::CardinalityOverflow, kOverflowDrops);
+
+    const mt::HealthSnapshot health = provider->GetExporterHealth();
+
+    EXPECT_EQ(health.drop_counters[static_cast<std::size_t>(mt::DropReason::QueueFull)], 1U);
+    EXPECT_EQ(health.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)],
+              kOverflowDrops);
+    EXPECT_EQ(health.connection_state, mt::ConnectionState::Connected);
 }
 
 // If the exporter times out the caller receives TimedOut.

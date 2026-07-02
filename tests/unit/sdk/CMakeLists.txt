@@ -191,3 +191,11 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(drop_reason_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M12 — DiagnosticsCounters: production IDiagnosticsSink (atomic counters).
+microtel_add_test(
+    NAME    diagnostics_counters_test
+    SOURCES diagnostics_counters_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(diagnostics_counters_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

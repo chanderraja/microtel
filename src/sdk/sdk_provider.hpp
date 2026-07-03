@@ -17,8 +17,10 @@
 #include "microtel/sdk_builder.hpp"
 
 #include "sdk/diagnostics_counters.hpp"
+#include "sdk/metric_attribute_set.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -61,6 +63,8 @@ struct SdkProviderArgs
     std::chrono::milliseconds metric_interval{30'000};
     /// @brief Aggregation temporality preference for the metrics reader.
     microtel::TemporalityPreference metric_temporality{microtel::TemporalityPreference::Cumulative};
+    /// @brief Per-instrument cardinality cap forwarded to every SdkMeter.
+    std::size_t metric_max_cardinality{kDefaultMaxCardinality};
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -133,6 +137,7 @@ private:
     std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
     std::chrono::milliseconds m_metric_interval;
     microtel::TemporalityPreference m_metric_temporality;
+    std::size_t m_metric_max_cardinality;
     // BSP thread — destroyed before trace exporter.
     std::unique_ptr<internal::ISpanProcessor> m_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).

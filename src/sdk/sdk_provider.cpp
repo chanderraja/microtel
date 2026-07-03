@@ -55,6 +55,7 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_metric_exporter(std::move(args.metric_exporter)),
       m_metric_interval(args.metric_interval),
       m_metric_temporality(args.metric_temporality),
+      m_metric_max_cardinality(args.metric_max_cardinality),
       m_processor(std::move(args.processor)),
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
@@ -165,7 +166,9 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
         entry = std::make_shared<SdkMeter>(
             internal::InstrumentationScope{.name = std::string{name},
                                            .version = std::string{version}},
-            m_metric_producer);
+            m_metric_producer,
+            m_metric_max_cardinality,
+            &m_diagnostics);
     }
     return entry;
 }

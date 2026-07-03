@@ -125,7 +125,7 @@ void AddUniqueKeys(mts::SumStorage<std::int64_t>& storage, int thread_id, int pe
 {
     for (int i = 0; i < per_thread; ++i)
     {
-        const std::string key_str = std::to_string(thread_id * per_thread + i);
+        const std::string key_str = std::to_string((thread_id * per_thread) + i);
         const std::vector<mt::KeyValue> attrs{Kv("k", key_str)};
         storage.Add(1, mt::AttributeSpan{attrs});
     }

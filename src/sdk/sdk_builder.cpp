@@ -26,6 +26,7 @@
 #include "exporter/otlp_exporter.hpp"
 #include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
+#include "sdk/metric_attribute_set.hpp"
 #include "sdk/sdk_provider.hpp"
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
@@ -34,6 +35,8 @@
 #include "wire/http/http_wire_codec.hpp"
 
 #include <chrono>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -69,6 +72,7 @@ struct SdkBuilder::Impl
     std::chrono::milliseconds auth_cache_ttl{std::chrono::seconds(60)};
     std::optional<std::chrono::milliseconds> metric_interval;
     std::optional<TemporalityPreference> metric_temporality;
+    std::optional<MetricLimitOptions> metric_limits;
 
     bool consumed = false;
 
@@ -195,12 +199,47 @@ SdkBuilder& SdkBuilder::WithMetricTemporality(TemporalityPreference pref)
     return *this;
 }
 
+SdkBuilder& SdkBuilder::WithMetricLimits(MetricLimitOptions opts)
+{
+    m_impl->metric_limits = opts;
+    return *this;
+}
+
 // ---------------------------------------------------------------------------
 // Build helpers
 // ---------------------------------------------------------------------------
 
 namespace
 {
+
+/// @brief Parse `MICROTEL_METRIC_CARDINALITY_LIMIT` from the environment.
+///
+/// Returns the parsed value if the variable is set and contains a positive
+/// decimal integer; returns `std::nullopt` for an unset, empty, zero, or
+/// malformed value.
+[[nodiscard]] std::optional<std::size_t> ParseEnvCardinality() noexcept
+{
+    const char* const raw = std::getenv("MICROTEL_METRIC_CARDINALITY_LIMIT");
+    if (raw == nullptr)
+    {
+        return std::nullopt;
+    }
+    try
+    {
+        const std::string str{raw};
+        std::size_t pos{};
+        const auto val = std::stoull(str, &pos);
+        if (pos != str.size() || val == 0)
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::size_t>(val);
+    }
+    catch (const std::exception&)
+    {
+        return std::nullopt;
+    }
+}
 
 [[nodiscard]] std::shared_ptr<const Resource> BuildResource(const config::Config& cfg)
 {
@@ -304,6 +343,26 @@ constexpr std::string_view kGrpcMetricsPath =
                                                      .extra_headers = std::move(extra_headers),
                                                  },
                                                  auth);
+}
+
+/// @brief Resolve the effective per-instrument cardinality cap.
+///
+/// Precedence (lowest to highest): SDK default → env var
+/// `MICROTEL_METRIC_CARDINALITY_LIMIT` → `WithMetricLimits()`.
+[[nodiscard]] std::size_t ResolveMaxCardinality(
+    const std::optional<MetricLimitOptions>& explicit_limits) noexcept
+{
+    std::size_t cap = sdk::kDefaultMaxCardinality;
+    const auto env_card = ParseEnvCardinality();
+    if (env_card.has_value())
+    {
+        cap = *env_card;
+    }
+    if (explicit_limits.has_value())
+    {
+        cap = explicit_limits->max_cardinality;
+    }
+    return cap;
 }
 
 struct ExporterPack
@@ -490,7 +549,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto processor = std::make_unique<sdk::BatchSpanProcessor>(
         exporters.exporter.get(), resource, std::move(scope), cfg.batch);
 
-    // --- Step 11: provider --------------------------------------------------
+    // --- Step 11: resolve cardinality cap then build provider ----------------
+    const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
     return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
         .encoder = std::move(encoder),
         .auth = std::move(auth),
@@ -506,6 +566,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .metric_exporter = std::move(exporters.metric_exporter),
         .metric_interval = cfg.metric_interval,
         .metric_temporality = cfg.metric_temporality,
+        .metric_max_cardinality = max_cardinality,
     });
 }
 

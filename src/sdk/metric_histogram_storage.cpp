@@ -43,11 +43,16 @@ void HistogramStorage<T>::Record(T value, AttributeSpan attrs)
     auto it = m_points.find(key);
     if (it == m_points.end())
     {
-        if (m_points.size() >= m_max_cardinality)
+        const bool needs_drop = (m_points.size() >= m_max_cardinality);
+        if (needs_drop)
         {
             key = OverflowAttributeSet();
         }
         it = m_points.try_emplace(std::move(key)).first;
+        if (needs_drop && m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::CardinalityOverflow);
+        }
     }
     Point& point = it->second;
     if (point.bucket_counts.empty())  // newly inserted entry (normal or first overflow use)

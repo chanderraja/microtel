@@ -17,8 +17,11 @@
 #include "microtel/attribute.hpp"
 #include "microtel/internal/metric_batch.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
+
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <variant>
@@ -34,6 +37,11 @@ namespace
 mt::KeyValue Kv(std::string key, mt::AttributeValue value)
 {
     return mt::KeyValue{.key = std::move(key), .value = std::move(value)};
+}
+
+std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
 }  // namespace
@@ -201,4 +209,73 @@ TEST(MetricStreamExpHistogramTest, StorageAccessorEnablesHotPathRecord)
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_EQ(data.points[0].count, 2U);
     EXPECT_DOUBLE_EQ(data.points[0].sum, 12.0);
+}
+
+// ── StorageOptions wiring (increment 26) ──────────────────────────────────
+// Each stream ctor forwards StorageOptions to its storage; a cardinality
+// fold recorded through the storage must reach the configured sink.
+
+TEST(MetricStreamSumTest, StorageOptionsForwardDiagnosticsSinkToStorage)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::MetricStreamSum<std::int64_t> stream{
+        "m", "", "", /*monotonic=*/true, mts::StorageOptions{.max_cardinality = 1, .diag = &sink}};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+
+    stream.Storage().Add(1, mt::AttributeSpan{a});
+    stream.Storage().Add(1, mt::AttributeSpan{b});  // folds → 1 drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(MetricStreamGaugeTest, StorageOptionsForwardDiagnosticsSinkToStorage)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::MetricStreamGauge<std::int64_t> stream{
+        "m", "", "", mts::StorageOptions{.max_cardinality = 1, .diag = &sink}};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+
+    stream.Storage().Record(1, mt::AttributeSpan{a});
+    stream.Storage().Record(2, mt::AttributeSpan{b});  // folds → 1 drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(MetricStreamHistogramTest, StorageOptionsForwardDiagnosticsSinkToStorage)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::MetricStreamHistogram<std::int64_t> stream{
+        "m",
+        "",
+        "",
+        std::vector<double>{10},
+        mts::StorageOptions{.max_cardinality = 1, .diag = &sink}};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+
+    stream.Storage().Record(1, mt::AttributeSpan{a});
+    stream.Storage().Record(2, mt::AttributeSpan{b});  // folds → 1 drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
+}
+
+TEST(MetricStreamExpHistogramTest, StorageOptionsForwardDiagnosticsSinkToStorage)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::MetricStreamExpHistogram<std::int64_t> stream{
+        "m",
+        "",
+        "",
+        /*max_scale=*/0,
+        /*max_buckets=*/160,
+        mts::StorageOptions{.max_cardinality = 1, .diag = &sink}};
+    const std::vector<mt::KeyValue> a{Kv("k", std::string{"a"})};
+    const std::vector<mt::KeyValue> b{Kv("k", std::string{"b"})};
+
+    stream.Storage().Record(3, mt::AttributeSpan{a});
+    stream.Storage().Record(5, mt::AttributeSpan{b});  // folds → 1 drop
+
+    EXPECT_EQ(CardinalityDrops(sink), 1U);
 }

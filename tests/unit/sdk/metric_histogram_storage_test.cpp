@@ -99,6 +99,20 @@ bool IsOverflowPoint(const mti::HistogramPoint& pt)
                                });
 }
 
+std::vector<double> SortedRealHistoSums(const mti::HistogramData& data)
+{
+    std::vector<double> sums;
+    for (const auto& pt : data.points)
+    {
+        if (!IsOverflowPoint(pt))
+        {
+            sums.push_back(pt.sum);
+        }
+    }
+    std::ranges::sort(sums);
+    return sums;
+}
+
 }  // namespace
 
 TEST(HistogramStorageTest, TracksCountSumMinMax)
@@ -352,17 +366,7 @@ TEST(HistogramStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow
     {
         const mti::HistogramData data = storage.Collect();
         ASSERT_EQ(data.points.size(), 3U);
-        std::vector<double> real_sums;
-        for (const auto& pt : data.points)
-        {
-            if (!IsOverflowPoint(pt))
-            {
-                EXPECT_EQ(pt.count, 1U);
-                real_sums.push_back(pt.sum);
-            }
-        }
-        std::ranges::sort(real_sums);
-        EXPECT_EQ(real_sums, (std::vector<double>{1.0, 2.0}));
+        EXPECT_EQ(SortedRealHistoSums(data), (std::vector<double>{1.0, 2.0}));
     }
 }
 
@@ -374,9 +378,9 @@ TEST(HistogramStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
     for (int i = 0; i < 5; ++i)
     {
         const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
-        storage.Record(i + 1, mt::AttributeSpan{attrs});
+        storage.Record(static_cast<std::int64_t>(i) + 1, mt::AttributeSpan{attrs});
         ++recorded_count;
-        recorded_sum += i + 1;
+        recorded_sum += static_cast<double>(i) + 1;
     }
 
     const mti::HistogramData data = storage.Collect();

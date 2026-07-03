@@ -107,6 +107,30 @@ bool IsOverflowPoint(const mti::NumberPoint& pt)
                                });
 }
 
+std::vector<std::int64_t> SortedRealSumValues(const mti::SumData& data)
+{
+    std::vector<std::int64_t> vals;
+    for (const auto& pt : data.points)
+    {
+        if (!IsOverflowPoint(pt))
+        {
+            vals.push_back(std::get<std::int64_t>(pt.value));
+        }
+    }
+    std::ranges::sort(vals);
+    return vals;
+}
+
+void AddUniqueKeys(mts::SumStorage<std::int64_t>& storage, int thread_id, int per_thread)
+{
+    for (int i = 0; i < per_thread; ++i)
+    {
+        const std::string key_str = std::to_string(thread_id * per_thread + i);
+        const std::vector<mt::KeyValue> attrs{Kv("k", key_str)};
+        storage.Add(1, mt::AttributeSpan{attrs});
+    }
+}
+
 }  // namespace
 
 TEST(SumStorageTest, AddAccumulatesSameAttributeSet)
@@ -374,16 +398,7 @@ TEST(SumStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow)
     {
         const mti::SumData data = storage.Collect();
         ASSERT_EQ(data.points.size(), 3U);
-        std::vector<std::int64_t> real_values;
-        for (const auto& pt : data.points)
-        {
-            if (!IsOverflowPoint(pt))
-            {
-                real_values.push_back(std::get<std::int64_t>(pt.value));
-            }
-        }
-        std::ranges::sort(real_values);
-        EXPECT_EQ(real_values, (std::vector<std::int64_t>{1, 2}));
+        EXPECT_EQ(SortedRealSumValues(data), (std::vector<std::int64_t>{1, 2}));
     }
 }
 
@@ -394,8 +409,8 @@ TEST(SumStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
     for (int i = 0; i < 5; ++i)
     {
         const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
-        storage.Add(i + 1, mt::AttributeSpan{attrs});
-        recorded_total += i + 1;
+        storage.Add(static_cast<std::int64_t>(i) + 1, mt::AttributeSpan{attrs});
+        recorded_total += static_cast<std::int64_t>(i) + 1;
     }
 
     const mti::SumData data = storage.Collect();
@@ -477,16 +492,7 @@ TEST(SumStorageTest, ConcurrentOverflowDropAccountingIsRaceFree)
     workers.reserve(kThreads);
     for (int t = 0; t < kThreads; ++t)
     {
-        workers.emplace_back(
-            [&storage, t]()
-            {
-                for (int i = 0; i < kPerThread; ++i)
-                {
-                    const std::string key_str = std::to_string(t * kPerThread + i);
-                    const std::vector<mt::KeyValue> attrs{Kv("k", key_str)};
-                    storage.Add(1, mt::AttributeSpan{attrs});
-                }
-            });
+        workers.emplace_back(AddUniqueKeys, std::ref(storage), t, kPerThread);
     }
     for (auto& worker : workers)
     {

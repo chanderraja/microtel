@@ -107,6 +107,20 @@ bool IsOverflowPoint(const mti::NumberPoint& pt)
                                });
 }
 
+std::vector<std::int64_t> SortedRealGaugeValues(const mti::GaugeData& data)
+{
+    std::vector<std::int64_t> vals;
+    for (const auto& pt : data.points)
+    {
+        if (!IsOverflowPoint(pt))
+        {
+            vals.push_back(std::get<std::int64_t>(pt.value));
+        }
+    }
+    std::ranges::sort(vals);
+    return vals;
+}
+
 }  // namespace
 
 TEST(GaugeStorageTest, RecordIsLastWriteWins)
@@ -312,16 +326,7 @@ TEST(GaugeStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverflow)
     {
         const mti::GaugeData data = storage.Collect();
         ASSERT_EQ(data.points.size(), 3U);
-        std::vector<std::int64_t> real_values;
-        for (const auto& pt : data.points)
-        {
-            if (!IsOverflowPoint(pt))
-            {
-                real_values.push_back(std::get<std::int64_t>(pt.value));
-            }
-        }
-        std::ranges::sort(real_values);
-        EXPECT_EQ(real_values, (std::vector<std::int64_t>{1, 2}));
+        EXPECT_EQ(SortedRealGaugeValues(data), (std::vector<std::int64_t>{1, 2}));
     }
 }
 

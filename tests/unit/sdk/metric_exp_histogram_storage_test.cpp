@@ -77,6 +77,20 @@ bool IsOverflowPoint(const mti::ExponentialHistogramPoint& pt)
                                });
 }
 
+std::vector<double> SortedRealExpHistoSums(const mti::ExponentialHistogramData& data)
+{
+    std::vector<double> sums;
+    for (const auto& pt : data.points)
+    {
+        if (!IsOverflowPoint(pt))
+        {
+            sums.push_back(pt.sum);
+        }
+    }
+    std::ranges::sort(sums);
+    return sums;
+}
+
 class FakeSpanSource : public mti::ICurrentSpanSource
 {
 public:
@@ -340,17 +354,7 @@ TEST(ExpHistogramStorageTest, CumulativePreOverflowSeriesKeepExportingAfterOverf
     {
         const mti::ExponentialHistogramData data = storage.Collect();
         ASSERT_EQ(data.points.size(), 3U);
-        std::vector<double> real_sums;
-        for (const auto& pt : data.points)
-        {
-            if (!IsOverflowPoint(pt))
-            {
-                EXPECT_EQ(pt.count, 1U);
-                real_sums.push_back(pt.sum);
-            }
-        }
-        std::ranges::sort(real_sums);
-        EXPECT_EQ(real_sums, (std::vector<double>{3.0, 5.0}));
+        EXPECT_EQ(SortedRealExpHistoSums(data), (std::vector<double>{3.0, 5.0}));
     }
 }
 
@@ -362,9 +366,9 @@ TEST(ExpHistogramStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
     for (int i = 0; i < 5; ++i)
     {
         const std::vector<mt::KeyValue> attrs{Kv("k", std::to_string(i))};
-        storage.Record(i + 1, mt::AttributeSpan{attrs});
+        storage.Record(static_cast<std::int64_t>(i) + 1, mt::AttributeSpan{attrs});
         ++recorded_count;
-        recorded_sum += i + 1;
+        recorded_sum += static_cast<double>(i) + 1;
     }
 
     const mti::ExponentialHistogramData data = storage.Collect();

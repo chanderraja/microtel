@@ -69,9 +69,9 @@ std::unique_ptr<mts::SdkProvider> MakeProvider(mtm::MockSpanProcessor** out_proc
 // Both processor and exporter ForceFlush must be called on the happy path.
 TEST(SdkProviderTest, ForceFlush_CallsBothProcessorAndExporter)
 {
-    mtm::MockSpanProcessor* proc = nullptr;
-    mtm::MockExporter* exp = nullptr;
-    mtm::MockTransport* transport = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     const auto status = provider->ForceFlush(kTimeout);
@@ -87,8 +87,8 @@ TEST(SdkProviderTest, ForceFlush_CallsBothProcessorAndExporter)
 TEST(SdkProviderTest, ForceFlush_ProcessorTimedOut_ExporterNotFlushed)
 {
     mtm::MockSpanProcessor* proc = nullptr;
-    mtm::MockExporter* exp = nullptr;
-    mtm::MockTransport* transport = nullptr;
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     proc->force_flush_result = mt::Status::TimedOut;
@@ -108,9 +108,9 @@ TEST(SdkProviderTest, ForceFlush_ProcessorTimedOut_ExporterNotFlushed)
 // health snapshot; connection state is still read live from the transport.
 TEST(SdkProviderTest, GetExporterHealthReflectsRecordedDrops)
 {
-    mtm::MockSpanProcessor* proc = nullptr;
-    mtm::MockExporter* exp = nullptr;
-    mtm::MockTransport* transport = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     constexpr std::uint64_t kOverflowDrops = 4;
@@ -128,9 +128,9 @@ TEST(SdkProviderTest, GetExporterHealthReflectsRecordedDrops)
 // If the exporter times out the caller receives TimedOut.
 TEST(SdkProviderTest, ForceFlush_ExporterTimedOut_ReturnTimedOut)
 {
-    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockSpanProcessor* proc = nullptr;  // NOLINT(misc-const-correctness)
     mtm::MockExporter* exp = nullptr;
-    mtm::MockTransport* transport = nullptr;
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
     auto provider = MakeProvider(&proc, &exp, &transport);
 
     exp->force_flush_result = mt::Status::TimedOut;

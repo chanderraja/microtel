@@ -13,6 +13,7 @@
 #include "microtel/sampler.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -91,6 +92,18 @@ struct SpanLimitOptions
     std::uint32_t link_attribute_count_limit = 128;
 };
 
+/// @brief Per-instrument cardinality cap for the metrics pipeline.
+///
+/// When the number of distinct attribute-set combinations for one instrument
+/// exceeds `max_cardinality`, further new attribute sets fold into the overflow
+/// series (`otel.metric.overflow=true`).  The OTel-spec default is 2000.
+///
+/// Overridden at runtime by `MICROTEL_METRIC_CARDINALITY_LIMIT` (decimal integer).
+struct MetricLimitOptions
+{
+    std::size_t max_cardinality = 2000;
+};
+
 /// @brief Memory-budget configuration (per `microtel-spec.md` §5.5).
 struct MemoryLimitOptions
 {
@@ -160,6 +173,11 @@ public:
     /// Overrides `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`.
     /// OTel default: `Cumulative`.
     SdkBuilder& WithMetricTemporality(TemporalityPreference pref);
+
+    /// @brief Set the per-instrument cardinality cap.
+    ///
+    /// Overrides `MICROTEL_METRIC_CARDINALITY_LIMIT`.
+    SdkBuilder& WithMetricLimits(MetricLimitOptions opts);
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

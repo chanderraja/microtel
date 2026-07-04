@@ -137,8 +137,13 @@ private:
 // ── SdkMeter ──────────────────────────────────────────────────────────────────
 
 SdkMeter::SdkMeter(internal::InstrumentationScope scope,
-                   std::shared_ptr<MetricProducer> producer) noexcept
-    : m_scope(std::move(scope)), m_producer(std::move(producer))
+                   std::shared_ptr<MetricProducer> producer,
+                   std::size_t max_cardinality,
+                   internal::IDiagnosticsSink* diag) noexcept
+    : m_scope(std::move(scope)),
+      m_producer(std::move(producer)),
+      m_max_cardinality(max_cardinality),
+      m_diag(diag)
 {
 }
 
@@ -146,7 +151,11 @@ std::shared_ptr<microtel::Counter<std::int64_t>> SdkMeter::DoCreateCounterI64(
     std::string name, std::string description, std::string unit)
 {
     auto stream = std::make_unique<MetricStreamSum<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit), /*monotonic=*/true);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        /*monotonic=*/true,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     SumStorage<std::int64_t>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkCounter<std::int64_t>>(&storage);
@@ -157,7 +166,11 @@ std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::
                                                                            std::string unit)
 {
     auto stream = std::make_unique<MetricStreamSum<double>>(
-        std::move(name), std::move(description), std::move(unit), /*monotonic=*/true);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        /*monotonic=*/true,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     SumStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkCounter<double>>(&storage);
@@ -167,7 +180,11 @@ std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownC
     std::string name, std::string description, std::string unit)
 {
     auto stream = std::make_unique<MetricStreamSum<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit), /*monotonic=*/false);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        /*monotonic=*/false,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     SumStorage<std::int64_t>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkUpDownCounter<std::int64_t>>(&storage);
@@ -177,7 +194,11 @@ std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounter
     std::string name, std::string description, std::string unit)
 {
     auto stream = std::make_unique<MetricStreamSum<double>>(
-        std::move(name), std::move(description), std::move(unit), /*monotonic=*/false);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        /*monotonic=*/false,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     SumStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkUpDownCounter<double>>(&storage);
@@ -188,7 +209,10 @@ std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::s
                                                                           std::string unit)
 {
     auto stream = std::make_unique<MetricStreamGauge<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit));
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     GaugeStorage<std::int64_t>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkGauge<std::int64_t>>(&storage);
@@ -199,7 +223,10 @@ std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::stri
                                                                        std::string unit)
 {
     auto stream = std::make_unique<MetricStreamGauge<double>>(
-        std::move(name), std::move(description), std::move(unit));
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     GaugeStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkGauge<double>>(&storage);
@@ -209,7 +236,11 @@ std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI6
     std::string name, std::string description, std::string unit, std::vector<double> boundaries)
 {
     auto stream = std::make_unique<MetricStreamHistogram<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit), std::move(boundaries));
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        std::move(boundaries),
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     HistogramStorage<std::int64_t>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkHistogram<std::int64_t>>(&storage);
@@ -219,7 +250,11 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
     std::string name, std::string description, std::string unit, std::vector<double> boundaries)
 {
     auto stream = std::make_unique<MetricStreamHistogram<double>>(
-        std::move(name), std::move(description), std::move(unit), std::move(boundaries));
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        std::move(boundaries),
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     HistogramStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkHistogram<double>>(&storage);
@@ -233,7 +268,12 @@ SdkMeter::DoCreateExponentialHistogramI64(std::string name,
                                           std::int32_t max_buckets)
 {
     auto stream = std::make_unique<MetricStreamExpHistogram<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        max_scale,
+        max_buckets,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     ExponentialHistogramStorage<std::int64_t>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkExponentialHistogram<std::int64_t>>(&storage);
@@ -247,7 +287,12 @@ SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
                                              std::int32_t max_buckets)
 {
     auto stream = std::make_unique<MetricStreamExpHistogram<double>>(
-        std::move(name), std::move(description), std::move(unit), max_scale, max_buckets);
+        std::move(name),
+        std::move(description),
+        std::move(unit),
+        max_scale,
+        max_buckets,
+        StorageOptions{.max_cardinality = m_max_cardinality, .diag = m_diag});
     ExponentialHistogramStorage<double>& storage = stream->Storage();
     m_producer->AddStream(m_scope, std::move(stream));
     return std::make_shared<SdkExponentialHistogram<double>>(&storage);

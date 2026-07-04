@@ -4,8 +4,12 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/meter.hpp"
 
+#include "sdk/metric_attribute_set.hpp"
+
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -34,8 +38,16 @@ class SdkMeter final : public microtel::Meter
 {
 public:
     /// @brief Construct a meter bound to @p scope and @p producer.
+    ///
+    /// @param max_cardinality Per-instrument cardinality cap; defaults to
+    ///        `kDefaultMaxCardinality` (2000).
+    /// @param diag Non-owning pointer to the provider's diagnostics sink;
+    ///        null disables overflow drop accounting. Lifetime: the owning
+    ///        provider outlives every SdkMeter it creates.
     explicit SdkMeter(internal::InstrumentationScope scope,
-                      std::shared_ptr<MetricProducer> producer) noexcept;
+                      std::shared_ptr<MetricProducer> producer,
+                      std::size_t max_cardinality = kDefaultMaxCardinality,
+                      internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     SdkMeter(const SdkMeter&) = delete;
     SdkMeter& operator=(const SdkMeter&) = delete;
@@ -122,6 +134,8 @@ private:
 
     internal::InstrumentationScope m_scope;
     std::shared_ptr<MetricProducer> m_producer;
+    std::size_t m_max_cardinality;
+    internal::IDiagnosticsSink* m_diag;
 };
 
 }  // namespace microtel::sdk

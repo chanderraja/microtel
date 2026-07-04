@@ -650,7 +650,7 @@ struct RetrySearchSignal
     framed[3] = std::byte{static_cast<std::uint8_t>((n >> kByteShift8) & kByteMask)};
     framed[4] = std::byte{static_cast<std::uint8_t>(n & kByteMask)};
     const auto bytes = payload.Bytes();
-    std::copy(bytes.begin(), bytes.end(), framed.begin() + kGrpcFrameHeaderSize);
+    std::ranges::copy(bytes, framed.begin() + kGrpcFrameHeaderSize);
     return framed;
 }
 

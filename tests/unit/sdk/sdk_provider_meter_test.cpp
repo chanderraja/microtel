@@ -11,9 +11,12 @@
 //  - Empty version is a distinct scope from a non-empty version.
 //  - Meters obtained from the same provider share a MetricProducer
 //    (instruments from different scopes both appear in Collect()).
+//  - metric_max_cardinality is forwarded to every instrument stream.
 
+#include "microtel/attribute.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/meter.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
@@ -26,6 +29,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace mt = microtel;
@@ -56,6 +61,27 @@ std::unique_ptr<mts::SdkProvider> MakeProvider()
         .sampler = mt::MakeAlwaysOnSampler(),
         .span_limits = {},
         .connect_opts = {},
+    });
+}
+
+std::unique_ptr<mts::SdkProvider> MakeProviderWithCardinality(std::size_t max_cardinality)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_max_cardinality = max_cardinality,
     });
 }
 
@@ -201,4 +227,45 @@ TEST(SdkProviderMeterTest, Shutdown_WithMetricExporter_ShutsDownExporter)
     EXPECT_EQ(provider->Shutdown(500ms), mt::Status::Completed);
     // Metric reader Shutdown delegates to the exporter.
     EXPECT_GE(metric_exp_ptr->shutdown_call_count.load(), 1);
+}
+
+// ── Cardinality cap — M12 increment 27 ───────────────────────────────────────
+
+TEST(SdkProviderMeterTest, CardinalityCapIsEnforcedPerInstrument)
+{
+    // Build a provider with a cardinality cap of 2. Adding 3 distinct attribute
+    // sets must fold the 3rd into the overflow series and record a diagnostic drop.
+    auto provider = MakeProviderWithCardinality(2);
+    auto meter = provider->GetMeter("test.lib");
+    const auto counter = meter->CreateCounter<std::int64_t>("requests", "desc", "1");
+
+    const mt::KeyValue a1{.key = "k", .value = std::int64_t{1}};
+    const mt::KeyValue a2{.key = "k", .value = std::int64_t{2}};
+    const mt::KeyValue a3{.key = "k", .value = std::int64_t{3}};
+    counter->Add(1, {&a1, 1});
+    counter->Add(1, {&a2, 1});  // fills cardinality cap
+    counter->Add(1, {&a3, 1});  // must overflow
+
+    const auto health = provider->DiagnosticsSink().Snapshot();
+    constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
+    EXPECT_EQ(health.drop_counters[kIdx], 1U);
+}
+
+TEST(SdkProviderMeterTest, CardinalityCapDefaultIs2000)
+{
+    // With no explicit cardinality cap the default is kDefaultMaxCardinality=2000.
+    // Adding 2001 distinct attribute sets triggers exactly one overflow drop.
+    auto provider = MakeProvider();
+    auto meter = provider->GetMeter("test.lib");
+    const auto counter = meter->CreateCounter<std::int64_t>("hits", "desc", "1");
+
+    for (std::size_t i = 0; i <= 2000; ++i)
+    {
+        const mt::KeyValue kv{.key = "i", .value = static_cast<std::int64_t>(i)};
+        counter->Add(1, {&kv, 1});
+    }
+
+    const auto health = provider->DiagnosticsSink().Snapshot();
+    constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
+    EXPECT_EQ(health.drop_counters[kIdx], 1U);
 }

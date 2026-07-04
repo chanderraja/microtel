@@ -5,7 +5,9 @@
 
 #include "microtel/sdk_builder.hpp"
 
+#include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
+#include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
@@ -13,6 +15,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
 
 // ---------------------------------------------------------------------------
@@ -170,4 +175,92 @@ TEST(SdkBuilderTest, WithMetricTemporality_LowMemory_BuildSucceeds)
                       .WithMetricTemporality(microtel::TemporalityPreference::LowMemory)
                       .Build();
     ASSERT_TRUE(result.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// WithMetricLimits (M12 increment 27)
+// ---------------------------------------------------------------------------
+
+TEST(SdkBuilderTest, WithMetricLimits_BuildSucceeds)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithMetricLimits(microtel::MetricLimitOptions{.max_cardinality = 5})
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+}
+
+TEST(SdkBuilderTest, EnvVarOverridesDefaultCardinality)
+{
+    // RAII guard: ensure the env var is removed even if the test fails early.
+    struct EnvGuard
+    {
+        EnvGuard() = default;
+        EnvGuard(const EnvGuard&) = delete;
+        EnvGuard& operator=(const EnvGuard&) = delete;
+        EnvGuard(EnvGuard&&) = delete;
+        EnvGuard& operator=(EnvGuard&&) = delete;
+        ~EnvGuard() noexcept
+        {
+            (void)unsetenv("MICROTEL_METRIC_CARDINALITY_LIMIT");
+        }
+    } const guard;
+
+    (void)setenv("MICROTEL_METRIC_CARDINALITY_LIMIT", "3", 1);
+
+    auto result = microtel::SdkBuilder().WithEndpoint("https://localhost:4318").Build();
+    ASSERT_TRUE(result.has_value());
+
+    auto meter = (*result)->GetMeter("test.lib");
+    const auto counter = meter->CreateCounter<std::int64_t>("c", "", "");
+
+    // 4 distinct attribute sets with cap=3: the 4th must overflow.
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        const microtel::KeyValue kv{.key = "i", .value = static_cast<std::int64_t>(i)};
+        counter->Add(1, {&kv, 1});
+    }
+
+    constexpr auto kIdx = static_cast<std::size_t>(microtel::DropReason::CardinalityOverflow);
+    const auto health = (*result)->GetExporterHealth();
+    EXPECT_EQ(health.drop_counters[kIdx], 1U);
+}
+
+TEST(SdkBuilderTest, WithMetricLimitsOverridesEnvVar)
+{
+    // WithMetricLimits has higher precedence than the env var.
+    struct EnvGuard
+    {
+        EnvGuard() = default;
+        EnvGuard(const EnvGuard&) = delete;
+        EnvGuard& operator=(const EnvGuard&) = delete;
+        EnvGuard(EnvGuard&&) = delete;
+        EnvGuard& operator=(EnvGuard&&) = delete;
+        ~EnvGuard() noexcept
+        {
+            (void)unsetenv("MICROTEL_METRIC_CARDINALITY_LIMIT");
+        }
+    } const guard;
+
+    (void)setenv("MICROTEL_METRIC_CARDINALITY_LIMIT", "100", 1);
+
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithMetricLimits(microtel::MetricLimitOptions{.max_cardinality = 3})
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+
+    auto meter = (*result)->GetMeter("test.lib");
+    const auto counter = meter->CreateCounter<std::int64_t>("c", "", "");
+
+    // cap is 3 (from WithMetricLimits, not 100 from env); 4th set overflows.
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        const microtel::KeyValue kv{.key = "i", .value = static_cast<std::int64_t>(i)};
+        counter->Add(1, {&kv, 1});
+    }
+
+    constexpr auto kIdx = static_cast<std::size_t>(microtel::DropReason::CardinalityOverflow);
+    const auto health = (*result)->GetExporterHealth();
+    EXPECT_EQ(health.drop_counters[kIdx], 1U);
 }

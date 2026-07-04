@@ -314,7 +314,9 @@ microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64
                                                                             std::move(description),
                                                                             std::move(unit),
                                                                             /*monotonic=*/true,
-                                                                            std::move(bridge));
+                                                                            std::move(bridge),
+                                                                            m_max_cardinality,
+                                                                            m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }
@@ -335,7 +337,9 @@ microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
                                                                       std::move(description),
                                                                       std::move(unit),
                                                                       /*monotonic=*/true,
-                                                                      std::move(bridge));
+                                                                      std::move(bridge),
+                                                                      m_max_cardinality,
+                                                                      m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }
@@ -356,7 +360,9 @@ microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDo
                                                                             std::move(description),
                                                                             std::move(unit),
                                                                             /*monotonic=*/false,
-                                                                            std::move(bridge));
+                                                                            std::move(bridge),
+                                                                            m_max_cardinality,
+                                                                            m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }
@@ -377,7 +383,9 @@ microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCoun
                                                                       std::move(description),
                                                                       std::move(unit),
                                                                       /*monotonic=*/false,
-                                                                      std::move(bridge));
+                                                                      std::move(bridge),
+                                                                      m_max_cardinality,
+                                                                      m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }
@@ -394,8 +402,13 @@ microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
             SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
             pub_cb(adapter);
         }};
-    auto stream = std::make_unique<MetricStreamObservableGauge<std::int64_t>>(
-        std::move(name), std::move(description), std::move(unit), std::move(bridge));
+    auto stream =
+        std::make_unique<MetricStreamObservableGauge<std::int64_t>>(std::move(name),
+                                                                    std::move(description),
+                                                                    std::move(unit),
+                                                                    std::move(bridge),
+                                                                    m_max_cardinality,
+                                                                    m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }
@@ -412,8 +425,12 @@ microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
             SdkObservableResultAdapter<double> adapter{sdk_result};
             pub_cb(adapter);
         }};
-    auto stream = std::make_unique<MetricStreamObservableGauge<double>>(
-        std::move(name), std::move(description), std::move(unit), std::move(bridge));
+    auto stream = std::make_unique<MetricStreamObservableGauge<double>>(std::move(name),
+                                                                        std::move(description),
+                                                                        std::move(unit),
+                                                                        std::move(bridge),
+                                                                        m_max_cardinality,
+                                                                        m_diag);
     m_producer->AddStream(m_scope, std::move(stream));
     return {};
 }

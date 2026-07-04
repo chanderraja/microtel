@@ -269,3 +269,66 @@ TEST(SdkProviderMeterTest, CardinalityCapDefaultIs2000)
     constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
     EXPECT_EQ(health.drop_counters[kIdx], 1U);
 }
+
+// ── Cardinality cap — observable instruments (increment 28) ──────────────────
+
+namespace
+{
+
+/// @brief Provider with a cardinality cap AND a metric exporter so that
+/// `ForceFlush()` triggers `DoCollectExport()` → observable callbacks.
+std::unique_ptr<mts::SdkProvider> MakeProviderWithCardinalityAndExporter(
+    std::size_t max_cardinality)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+    auto metric_exp = std::make_unique<mtm::MockMetricExporter>();
+
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_exporter = std::move(metric_exp),
+        .metric_interval = std::chrono::hours{24},  // never auto-fire during test
+        .metric_max_cardinality = max_cardinality,
+    });
+}
+
+}  // namespace
+
+TEST(SdkProviderMeterTest, ObservableCardinalityCapEnforcedPerInstrument)
+{
+    // Build a provider with cardinality cap of 2 and a metric exporter so
+    // ForceFlush() triggers a collection cycle that invokes the callback.
+    auto provider = MakeProviderWithCardinalityAndExporter(2);
+    auto meter = provider->GetMeter("test.lib");
+
+    (void)meter->CreateObservableCounter<std::int64_t>(
+        "obs.req",
+        "desc",
+        "1",
+        [](mt::ObservableResult<std::int64_t>& result)
+        {
+            const mt::KeyValue a1{.key = "k", .value = std::int64_t{1}};
+            const mt::KeyValue a2{.key = "k", .value = std::int64_t{2}};
+            const mt::KeyValue a3{.key = "k", .value = std::int64_t{3}};
+            result.Observe(1, {&a1, 1});
+            result.Observe(2, {&a2, 1});  // fills cap
+            result.Observe(3, {&a3, 1});  // must fold to overflow
+        });
+
+    // ForceFlush → DoCollectExport → callback invoked → overflow drop recorded.
+    (void)provider->ForceFlush(500ms);
+
+    const auto health = provider->DiagnosticsSink().Snapshot();
+    constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
+    EXPECT_EQ(health.drop_counters[kIdx], 1U);
+}

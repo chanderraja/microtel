@@ -4,11 +4,14 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/provider.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/metric_stream.hpp"
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -29,7 +32,18 @@ template <typename T>
 class ObservableResult
 {
 public:
-    ObservableResult() noexcept = default;
+    /// @brief Construct with an optional cardinality cap and diagnostics sink.
+    ///
+    /// @param max_cardinality  Maximum distinct attribute sets before overflow
+    ///                         folding kicks in. Defaults to `kDefaultMaxCardinality`.
+    /// @param diag             Non-owning pointer to a diagnostics sink; null
+    ///                         disables drop accounting. Lifetime: must outlive
+    ///                         this object (the stream that owns it).
+    explicit ObservableResult(std::size_t max_cardinality = kDefaultMaxCardinality,
+                              internal::IDiagnosticsSink* diag = nullptr) noexcept
+        : m_max_cardinality(max_cardinality), m_diag(diag)
+    {
+    }
 
     ObservableResult(const ObservableResult&) = delete;
     ObservableResult& operator=(const ObservableResult&) = delete;
@@ -38,10 +52,26 @@ public:
     ~ObservableResult() noexcept = default;
 
     /// @brief Record one observation for @p attrs.
+    ///
     /// Last call wins for a given attribute set within one callback cycle.
+    /// When the map already holds `max_cardinality` distinct entries and a new
+    /// attribute set arrives, the observation is folded into the canonical
+    /// overflow series (`OverflowAttributeSet()`) and
+    /// `RecordDrop(CardinalityOverflow)` is called on the diagnostics sink.
     void Observe(T value, AttributeSpan attrs)
     {
-        m_map[AttributeSet{attrs}] = value;
+        AttributeSet key{attrs};
+        const bool is_new = !m_map.contains(key);
+        const bool needs_fold = is_new && m_map.size() >= m_max_cardinality;
+        if (needs_fold)
+        {
+            key = OverflowAttributeSet();
+            if (m_diag != nullptr)
+            {
+                m_diag->RecordDrop(microtel::DropReason::CardinalityOverflow);
+            }
+        }
+        m_map[std::move(key)] = value;
     }
 
     /// @brief Discard all accumulated observations.
@@ -57,6 +87,8 @@ public:
     }
 
 private:
+    std::size_t m_max_cardinality;
+    internal::IDiagnosticsSink* m_diag;
     std::unordered_map<AttributeSet, T, AttributeSetHash> m_map;
 };
 
@@ -104,12 +136,15 @@ public:
                               std::string description,
                               std::string unit,
                               bool monotonic,
-                              ObservableCallback<T> callback)
+                              ObservableCallback<T> callback,
+                              std::size_t max_cardinality = kDefaultMaxCardinality,
+                              internal::IDiagnosticsSink* diag = nullptr)
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
           m_monotonic(monotonic),
-          m_callback(std::move(callback))
+          m_callback(std::move(callback)),
+          m_result(max_cardinality, diag)
     {
     }
 
@@ -166,11 +201,14 @@ public:
     MetricStreamObservableGauge(std::string name,
                                 std::string description,
                                 std::string unit,
-                                ObservableCallback<T> callback)
+                                ObservableCallback<T> callback,
+                                std::size_t max_cardinality = kDefaultMaxCardinality,
+                                internal::IDiagnosticsSink* diag = nullptr)
         : m_name(std::move(name)),
           m_description(std::move(description)),
           m_unit(std::move(unit)),
-          m_callback(std::move(callback))
+          m_callback(std::move(callback)),
+          m_result(max_cardinality, diag)
     {
     }
 

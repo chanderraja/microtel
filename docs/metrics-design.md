@@ -1,8 +1,7 @@
 # microtel Metrics Design
 
-**Status:** Draft — M11, **proposed decisions pending reviewer sign-off.** No
-implementation until the sign-off checklist below is fully checked (per
-`microtel-roadmap.md` §1.2 and `microtel-spec.md` §M11). Implementation is M12.
+**Status:** Accepted — M11 signed off 2026-07-09. M12 implementation complete
+(PRs #75–#80).
 
 This document settles the semantic decisions that v1.0 deliberately deferred so
 that the metrics signal (v1.2) can be implemented against a locked design, the
@@ -43,17 +42,17 @@ Explicitly **out of scope** for v1.2 (anti-goals):
 Each item has a proposed **Decision** below. Reviewer approves by checking every
 box (and editing any decision they want changed first).
 
-- [ ] §1 Aggregation temporality — **default cumulative**, per-metric override
-- [ ] §2 Cardinality limits — default 2000, OTel overflow attribute, new `DropReason` (**ICP**)
-- [ ] §3 Histogram buckets — **explicit + exponential**, configurable
-- [ ] §4 Async-instrument callback semantics
-- [ ] §5 MetricReader / MetricExporter interaction
-- [ ] §6 Views — selector surface, transforms, conflict rules
-- [ ] §7 Exemplars — **in for v1.2**, reservoir + span-context linkage
-- [ ] §8 Instrument API surface (`Provider::GetMeter` + the seven instruments)
-- [ ] §9 Memory & threading model
-- [ ] §10 Wire mapping (OTLP metrics protobuf; encoder/transport reuse)
-- [ ] §11 Configuration & compatibility
+- [x] §1 Aggregation temporality — **default cumulative**, per-metric override
+- [x] §2 Cardinality limits — default 2000, OTel overflow attribute, new `DropReason` (**ICP**)
+- [x] §3 Histogram buckets — **explicit + exponential**, configurable
+- [x] §4 Async-instrument callback semantics
+- [x] §5 MetricReader / MetricExporter interaction
+- [x] §6 Views — selector surface, transforms, conflict rules
+- [x] §7 Exemplars — **in for v1.2**, reservoir + span-context linkage
+- [x] §8 Instrument API surface (`Provider::GetMeter` + the seven instruments)
+- [x] §9 Memory & threading model
+- [x] §10 Wire mapping (OTLP metrics protobuf; encoder/transport reuse)
+- [x] §11 Configuration & compatibility
 
 ---
 

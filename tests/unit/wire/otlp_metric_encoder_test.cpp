@@ -350,6 +350,56 @@ TEST(OtlpMetricEncoderTest, MultipleMetrics_AllPresent)
     upb_Arena_Free(parsed.arena);
 }
 
+// ── Cardinality overflow attribute encodes as bool_value=true ────────────────
+
+TEST(OtlpMetricEncoderTest, OverflowAttribute_EncodesAsBoolValue)
+{
+    const mti::NumberPoint pt{
+        .attributes = {mt::KeyValue{.key = "otel.metric.overflow", .value = true}},
+        .time = NsEpoch(1000),
+        .value = std::int64_t{1},
+    };
+    const mti::MetricRecord rec{
+        .name = "requests.total",
+        .data = mti::SumData{.is_monotonic = true, .points = {pt}},
+    };
+    mtw::OtlpEncoder enc;
+    const mti::EncodedPayload payload = enc.Encode(MakeBatch({rec}));
+    ASSERT_GT(payload.Size(), 0u);
+
+    const ParsedMetrics parsed = ParseFirst(payload);
+    ASSERT_NE(parsed.sm, nullptr);
+
+    std::size_t n = 0;
+    const opentelemetry_proto_metrics_v1_Metric* const* metrics =
+        opentelemetry_proto_metrics_v1_ScopeMetrics_metrics(parsed.sm, &n);
+    ASSERT_EQ(n, 1u);
+    ASSERT_TRUE(opentelemetry_proto_metrics_v1_Metric_has_sum(metrics[0]));
+
+    const opentelemetry_proto_metrics_v1_Sum* sum =
+        opentelemetry_proto_metrics_v1_Metric_sum(metrics[0]);
+    std::size_t dp_count = 0;
+    const opentelemetry_proto_metrics_v1_NumberDataPoint* const* dps =
+        opentelemetry_proto_metrics_v1_Sum_data_points(sum, &dp_count);
+    ASSERT_EQ(dp_count, 1u);
+
+    std::size_t attr_count = 0;
+    const opentelemetry_proto_common_v1_KeyValue* const* attrs =
+        opentelemetry_proto_metrics_v1_NumberDataPoint_attributes(dps[0], &attr_count);
+    ASSERT_EQ(attr_count, 1u);
+
+    const upb_StringView key_sv = opentelemetry_proto_common_v1_KeyValue_key(attrs[0]);
+    EXPECT_EQ(std::string(key_sv.data, key_sv.size), "otel.metric.overflow");
+
+    const opentelemetry_proto_common_v1_AnyValue* av =
+        opentelemetry_proto_common_v1_KeyValue_value(attrs[0]);
+    ASSERT_NE(av, nullptr);
+    ASSERT_TRUE(opentelemetry_proto_common_v1_AnyValue_has_bool_value(av));
+    EXPECT_TRUE(opentelemetry_proto_common_v1_AnyValue_bool_value(av));
+
+    upb_Arena_Free(parsed.arena);
+}
+
 // ── Sum (Delta temporality) round-trip ───────────────────────────────────────
 
 TEST(OtlpMetricEncoderTest, SumDeltaTemporality_RoundTrip)

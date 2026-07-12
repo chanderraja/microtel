@@ -78,7 +78,7 @@ RUN apt-get update \
         libnghttp2-14 \
         libssl3 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
-        apt-get install -y --no-install-recommends linux-perf; \
+        apt-get install -y --no-install-recommends linux-tools-generic; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 

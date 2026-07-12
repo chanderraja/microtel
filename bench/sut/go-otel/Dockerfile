@@ -58,7 +58,7 @@ ARG INSTALL_PERF=false
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && if [ "$INSTALL_PERF" = "true" ]; then \
-        apt-get install -y --no-install-recommends linux-perf; \
+        apt-get install -y --no-install-recommends linux-tools-generic; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 

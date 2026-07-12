@@ -1,74 +1,74 @@
 # microtel
 
-> A lightweight OpenTelemetry-compatible trace runtime and OTLP exporter built on nghttp2.
+> A lightweight OpenTelemetry-compatible trace and metrics runtime built on nghttp2.
 
-[![status](https://img.shields.io/badge/status-pre--1.0--draft-orange)](microtel-spec.md)
 [![license](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-![build](https://img.shields.io/badge/build-not%20yet-lightgrey)
-![tests](https://img.shields.io/badge/tests-not%20yet-lightgrey)
-
-> ⚠️ **Pre-1.0 development.** This project is currently in the architecture and design phase (milestone M0). The v1 specification is locked; implementation has not yet begun. **No working binaries or wheels exist yet.** See the [roadmap](microtel-roadmap.md) for the path to v1.0.
->
-> 🚫 **Not accepting external implementation PRs until v1.0 ships.** The internal architecture is still being established and accepting outside contributions now would slow the design phase. **Issues, spec feedback, and architecture discussion are welcome and valuable** — see [CONTRIBUTING.md](CONTRIBUTING.md) for what's actionable. This restriction lifts when v1.0 ships.
+[![CI](https://github.com/chanderraja/microtel/actions/workflows/ci.yml/badge.svg)](https://github.com/chanderraja/microtel/actions)
 
 ---
 
 ## What is microtel?
 
-microtel is a small, focused **trace runtime and OTLP exporter** for C++ applications that need to participate in OpenTelemetry without paying the cost of the full `opentelemetry-cpp` dependency closure.
+microtel is a small, focused **OTel SDK and OTLP exporter** for C++ applications that need to participate in OpenTelemetry without paying the cost of the full `opentelemetry-cpp` dependency closure.
 
-It speaks both **OTLP/HTTP-protobuf** and **OTLP/gRPC** on the wire — but doesn't link the gRPC library. The gRPC path is implemented as a small unary-RPC protocol layer over the same HTTP/2 transport (`nghttp2`) used for OTLP/HTTP, so the runtime closure is the same regardless of which protocol you pick.
+It speaks both **OTLP/HTTP-protobuf** and **OTLP/gRPC** on the wire — without linking the gRPC library. The gRPC path is a thin unary-RPC protocol layer over the same `nghttp2` transport used for OTLP/HTTP, so the binary cost is the same regardless of which protocol you pick.
 
-**Target dependency closure for the v1 core:**
+**Runtime dependency closure:**
 
-- nghttp2
-- OpenSSL
-- upb (vendored, pinned)
-- zlib
-- spdlog (optional, header-only)
+| Dependency | Purpose |
+|---|---|
+| nghttp2 | HTTP/2 transport (both OTLP protocols) |
+| OpenSSL | TLS, mTLS |
+| upb (vendored) | OTLP protobuf encoding |
+| zlib | gzip compression |
+| spdlog (optional) | internal log sink |
 
-**Not in the closure:** gRPC, abseil, c-ares, re2, protobuf-cpp runtime, Bazel.
+Not in the closure: gRPC, abseil, c-ares, re2, protobuf-cpp runtime, Bazel.
 
 ## Why it exists
 
-`opentelemetry-cpp` paired with the OTLP/gRPC exporter pulls in multi-MB of transitive dependencies (gRPC, abseil, c-ares, re2, protobuf, OpenSSL, zlib) and adds significant build time. For embedded, edge, air-gapped, and CNF deployments, that closure can be a hard adoption blocker.
+`opentelemetry-cpp` with the OTLP/gRPC exporter pulls in multi-MB of transitive dependencies and adds significant build time. For edge, embedded, air-gapped, and CNF deployments, that closure is often a hard adoption blocker.
 
-The architectural insight: gRPC at the wire level is a thin protocol on top of HTTP/2 — a 5-byte length-prefix per message, a handful of specific headers, and an HTTP/2 trailer carrying `grpc-status`. The complexity that makes the gRPC *library* heavy lives almost entirely in features OTLP doesn't use. Implementing only the gRPC wire protocol on top of `nghttp2` keeps wire compatibility while shedding the entire gRPC library closure.
+gRPC at the wire level is a thin protocol on top of HTTP/2 — a 5-byte length-prefix, a handful of specific headers, and an HTTP/2 trailer carrying `grpc-status`. The complexity of the gRPC *library* lives almost entirely in features OTLP doesn't use. Implementing only the wire protocol on top of `nghttp2` keeps wire compatibility while shedding the entire gRPC library closure.
 
-microtel implements the parts of OTLP that real applications actually use, with a much smaller closure and lower runtime overhead, while staying wire-compatible with conformant OTLP receivers.
+## Status
 
-## v1 scope (planned)
+**v1.2 in progress — Traces complete, Metrics SDK substantially implemented.**
 
-**v1 ships with:**
+| Signal | Status |
+|---|---|
+| Traces | Complete — Tracer, Span, W3C propagation, batch processor, OTLP/HTTP + OTLP/gRPC |
+| Metrics | In progress (v1.2) — all 7 instruments, OTLP encoder, periodic reader, cardinality limits, temporality |
+| Logs | Planned v1.3 |
 
-- Trace SDK (`Tracer`, `Span`, W3C Context propagation, basic samplers, batch processor)
-- OTLP/HTTP-protobuf exporter
-- OTLP/gRPC exporter (nghttp2-native, no gRPC library)
-- Production correctness — partial-success parsing, retry/backoff, GOAWAY/RST_STREAM handling, deterministic shutdown, fork-safety
-- Static config + OTel env-var fallback
-- TLS, mTLS, proxy, basic auth (static + callback)
-- Python bindings (traces only)
-- Experimental compatibility shims for `opentelemetry-cpp` and `opentelemetry-python`
+Metrics remaining for v1.2: Views, Exemplars, `mt::Timer` sugar. See [microtel-roadmap.md](microtel-roadmap.md).
 
-**v1 does NOT include:**
+## Benchmarks
 
-- Metrics — coming in v1.2 after a dedicated design phase
-- Logs — coming in v1.3
-- Control plane / hot reload — v1.1
-- Sugar APIs — v1.1
-- Auto-instrumentation — v1.4
-- Windows support — out of scope for now
+Hot-loop traces, 10 000 spans/sample × 10 samples, blackhole sink (no network), Podman containers, AMD Ryzen 5 5600G. CPU governor was `powersave`; results with `performance` governor will be lower-variance.
 
-See [microtel-roadmap.md](microtel-roadmap.md) for the full multi-year picture from v1.0 through v3.0 (full SDK conformance) and the v2.0 leaf/concentrator architecture for embedded fleets.
+| Metric | **microtel** (HTTP) | **microtel** (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
+|---|---|---|---|---|
+| StartSpan p50 | **192 ns** | **192 ns** | 768 ns | 768 ns |
+| StartSpan p95 | **384 ns** | **384 ns** | 3 072 ns | 3 072 ns |
+| Spans / sec | **1 494 603** | 1 245 356 | 706 764 | 822 506 |
+| Flush p50 | 3.7 ms | 4.9 ms | 2.1 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 93.4% | 97.1% |
+| Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
+| Binary size | **11.3 MB** | **11.3 MB** | 38.5 MB | 16.8 MB |
 
-## API preview
+microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 7% under load), and the binary is **3.4× smaller** than otelcpp-gRPC.
 
-API surface from the v1 spec; not yet runnable.
+Full results with interactive plots: [`bench/results/plots.html`](bench/results/plots.html). Methodology: [`docs/bench-spec.md`](docs/bench-spec.md).
+
+## API
+
+### Traces
 
 ```cpp
 #include <microtel/tracer.hpp>
 
-auto provider = microtel::SdkBuilder()
+auto provider = microtel::SdkBuilder{}
     .WithResource({{"service.name", "my-service"}, {"service.version", "1.2.3"}})
     .WithEndpoint("https://collector.internal:4317")
     .WithProtocol(microtel::Protocol::Grpc)
@@ -79,39 +79,72 @@ auto tracer = provider->GetTracer("my.component");
     auto span = tracer->StartSpan("handle_request");
     span->SetAttribute("http.route", "/users/:id");
     // ... work ...
-}  // RAII close
+}  // RAII close — span exported on scope exit
 
 provider->ForceFlush(std::chrono::seconds(5));
 provider->Shutdown(std::chrono::seconds(5));
 ```
 
-## Documentation
+### Metrics
 
-- **[microtel-spec.md](microtel-spec.md)** — the v1 specification. Source of truth.
-- **[microtel-roadmap.md](microtel-roadmap.md)** — multi-year roadmap from v1.0 to v3.0.
-- **[CLAUDE.md](CLAUDE.md)** — durable rules for AI coding agents (and humans) working on this project.
-- **[docs/](docs/)** — architecture, threading model, memory model, error model, interfaces, coding standards, sequence diagrams.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — contribution process.
-- **[SECURITY.md](SECURITY.md)** — vulnerability disclosure policy.
+```cpp
+#include <microtel/meter.hpp>
+
+auto provider = microtel::SdkBuilder{}
+    .WithResource({{"service.name", "my-service"}})
+    .WithEndpoint("https://collector.internal:4317")
+    .WithPeriodicMetricReader(std::chrono::seconds(60))
+    .WithMetricLimits({.max_cardinality = 2000})
+    .Build();
+
+auto meter = provider->GetMeter("my.component");
+auto requests = meter->CreateCounter<std::int64_t>("requests.total");
+auto latency  = meter->CreateHistogram<double>("request.duration", "", "ms");
+
+// hot path — noexcept, no allocation in steady state
+requests->Add(1, {{"http.method", "GET"}, {"http.status_code", 200}});
+latency->Record(4.2, {{"http.route", "/users/:id"}});
+```
 
 ## Build
 
-Build instructions will be locked in by milestone M2. Until then, this section is a placeholder.
+```bash
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=ON
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
+```
+
+**Sanitizer builds:**
 
 ```bash
-cmake --preset Release
-cmake --build build/Release
-ctest --test-dir build/Release
+cmake -S . -B build-asan -DMICROTEL_SANITIZER=asan -DMICROTEL_BUILD_TESTS=ON
+cmake --build build-asan -j$(nproc)
+ctest --test-dir build-asan
 ```
+
+Replace `asan` with `tsan` or `ubsan` as needed.
+
+**Benchmarks** (requires Podman):
+
+```bash
+cd bench && ./bench.sh                        # hot-loop-traces profile
+./bench.sh --profile hot-loop-metrics        # metrics hot path
+./bench.sh --flamegraph                      # + per-SUT SVG flame graphs
+```
+
+## Documentation
+
+- **[microtel-spec.md](microtel-spec.md)** — v1 specification. Source of truth.
+- **[microtel-roadmap.md](microtel-roadmap.md)** — roadmap v1.0 → v3.0.
+- **[docs/metrics-design.md](docs/metrics-design.md)** — metrics design decisions (M11, signed off).
+- **[docs/interfaces.md](docs/interfaces.md)** — locked internal interface contracts.
+- **[docs/](docs/)** — architecture, threading model, memory model, error model, coding standards, sequence diagrams.
+- **[CLAUDE.md](CLAUDE.md)** — rules for AI coding agents (and humans) working on this project.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — contribution process.
+- **[SECURITY.md](SECURITY.md)** — vulnerability disclosure policy.
 
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The choice of Apache 2.0 over MIT is deliberate — it aligns with the OpenTelemetry ecosystem, provides explicit patent grant and retaliation clauses for protocol-implementing code, and reduces friction for enterprise legal review.
-
-## Status
-
-Current phase: **M0 — Architecture & Design**.
-
-Track progress in [microtel-spec.md §13](microtel-spec.md#13-roadmap) and the [project roadmap](microtel-roadmap.md). Issues and pull requests are welcome, but the project structure is still being established — see [CONTRIBUTING.md](CONTRIBUTING.md) for what's actionable now.
+Apache 2.0 aligns with the OpenTelemetry ecosystem, provides an explicit patent grant and retaliation clauses for protocol-implementing code, and reduces friction for enterprise legal review.

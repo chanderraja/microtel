@@ -78,7 +78,9 @@ RUN apt-get update \
         libnghttp2-14 \
         libssl3 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
-        apt-get install -y --no-install-recommends linux-tools-generic; \
+        apt-get install -y --no-install-recommends linux-tools-generic \
+        && PERF_BIN=$(find /usr/lib/linux-tools -name perf | head -1) \
+        && ln -sf "$PERF_BIN" /usr/local/bin/perf; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 

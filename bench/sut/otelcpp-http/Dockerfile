@@ -98,6 +98,8 @@ RUN cmake -S /src/emit-app -B /build/emit-app \
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 
+ARG INSTALL_PERF=false
+
 COPY --from=emit-build /opt/otelcpp/lib/libopentelemetry_proto.so /usr/local/lib/
 
 RUN apt-get update \
@@ -105,6 +107,11 @@ RUN apt-get update \
         libssl3 \
         libcurl4 \
         libprotobuf32t64 \
+    && if [ "$INSTALL_PERF" = "true" ]; then \
+        apt-get install -y --no-install-recommends linux-tools-generic \
+        && PERF_BIN=$(find /usr/lib/linux-tools -name perf | head -1) \
+        && ln -sf "$PERF_BIN" /usr/local/bin/perf; \
+    fi \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=emit-build /build/emit-app/emit_app /emit_app

@@ -61,7 +61,9 @@ ARG INSTALL_PERF=false
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libssl3 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
-        apt-get install -y --no-install-recommends linux-perf; \
+        apt-get install -y --no-install-recommends linux-tools-generic \
+        && PERF_BIN=$(find /usr/lib/linux-tools -name perf | head -1) \
+        && ln -sf "$PERF_BIN" /usr/local/bin/perf; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 

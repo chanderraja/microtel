@@ -23,7 +23,7 @@
 
 ARG OTELCPP_VERSION=v1.19.0
 
-# Flamegraph variant (B3): pass --build-arg INSTALL_PERF=true to add linux-perf
+# Flamegraph variant (B3): pass --build-arg INSTALL_PERF=true to add linux-tools-generic (perf)
 # to the runtime image and tag as bench-sut-otelcpp-grpc:perf.
 # Run with --cap-add=PERFMON (Linux >=5.8).  Normal images never install perf.
 ARG INSTALL_PERF=false
@@ -130,7 +130,9 @@ RUN apt-get update \
         libre2-10 \
         libabsl20220623t64 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
-        apt-get install -y --no-install-recommends linux-perf; \
+        apt-get install -y --no-install-recommends linux-tools-generic \
+        && PERF_BIN=$(find /usr/lib/linux-tools -name perf | head -1) \
+        && ln -sf "$PERF_BIN" /usr/local/bin/perf; \
     fi \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*

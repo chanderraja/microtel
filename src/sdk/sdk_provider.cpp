@@ -60,7 +60,8 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
       m_span_limits(args.span_limits),
-      m_connect_opts(std::move(args.connect_opts))
+      m_connect_opts(std::move(args.connect_opts)),
+      m_view_registry(std::make_shared<ViewRegistry>(std::move(args.view_registry)))
 {
 }
 
@@ -168,7 +169,8 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                            .version = std::string{version}},
             m_metric_producer,
             m_metric_max_cardinality,
-            &m_diagnostics);
+            &m_diagnostics,
+            m_view_registry);
     }
     return entry;
 }

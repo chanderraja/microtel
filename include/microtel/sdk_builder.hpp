@@ -11,6 +11,7 @@
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
+#include "microtel/view.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -178,6 +179,13 @@ public:
     ///
     /// Overrides `MICROTEL_METRIC_CARDINALITY_LIMIT`.
     SdkBuilder& WithMetricLimits(MetricLimitOptions opts);
+
+    /// @brief Register one metric view.
+    ///
+    /// Views are evaluated in registration order. When no view matches an
+    /// instrument, a default stream is created with the original instrument
+    /// name. Multiple matching views create one stream each (fan-out).
+    SdkBuilder& WithView(ViewConfig view);
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

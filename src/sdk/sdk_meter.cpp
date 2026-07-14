@@ -15,6 +15,7 @@
 #include "sdk/metric_sum_storage.hpp"
 #include "sdk/view_registry.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,148 +28,247 @@ namespace microtel::sdk
 namespace
 {
 
-// ── View name resolution ──────────────────────────────────────────────────────
-// Returns the list of stream names to register for an instrument, applying
-// view rename and drop rules. Each entry in the returned vector → one stream.
-// An empty result means all matching views have drop=true; the caller creates
-// no stream (instrument is a no-op). A single entry with the original name
-// means either no registry, no matching view, or a match with no rename.
+// ── Attribute allowlist types and helpers ─────────────────────────────────────
 
-std::vector<std::string> ResolveStreamNames(const std::string& instrument_name,
-                                            const ViewRegistry* registry,
-                                            const InstrumentDescriptor& desc)
+using Allowlist = std::vector<std::string>;
+
+// Filters attrs to only keys present in the (sorted) allowlist, writing
+// results into buf. buf is cleared before use; capacity is preserved across
+// calls to amortise allocation in the multi-slot fan-out case.
+void FilterAttrs(microtel::AttributeSpan attrs,
+                 const Allowlist& allowlist,
+                 std::vector<microtel::KeyValue>& buf) noexcept
+{
+    buf.clear();
+    for (const auto& kv : attrs)
+    {
+        if (std::ranges::binary_search(allowlist, kv.key))
+        {
+            buf.push_back(kv);
+        }
+    }
+}
+
+// ── Stream specification ──────────────────────────────────────────────────────
+// Carries the resolved stream name and optional sorted allowlist for one view
+// match. The allowlist is pre-sorted so FilterAttrs can use binary_search.
+
+struct StreamSpec
+{
+    std::string name;
+    std::optional<Allowlist> allowlist;  // sorted; nullopt = no filtering
+};
+
+// ── Storage slot ──────────────────────────────────────────────────────────────
+// Pairs a non-owning storage pointer with the allowlist for its stream.
+// An empty allowlist vector (not nullopt) means all keys are stripped;
+// nullopt means no filtering is applied.
+
+template <typename StorageT>
+struct StorageSlot
+{
+    StorageT* storage = nullptr;
+    std::optional<Allowlist> allowlist;
+};
+
+// ── View stream resolution ────────────────────────────────────────────────────
+// Returns one StreamSpec per non-dropped view that matches desc, in
+// registration order. An empty result means all views have drop=true;
+// the caller creates no stream (instrument is a no-op). A single entry
+// with the original name and nullopt allowlist is the default (no registry,
+// no match, or a match with no rename / no allowlist).
+
+std::vector<StreamSpec> ResolveStreamSpecs(const std::string& instrument_name,
+                                           const ViewRegistry* registry,
+                                           const InstrumentDescriptor& desc)
 {
     if (registry == nullptr)
     {
-        return {instrument_name};
+        return {{.name = instrument_name, .allowlist = std::nullopt}};
     }
 
     const auto matches = registry->Match(desc);
     if (matches.empty())
     {
-        return {instrument_name};
+        return {{.name = instrument_name, .allowlist = std::nullopt}};
     }
 
-    std::vector<std::string> names;
+    std::vector<StreamSpec> specs;
     for (const auto* const view : matches)
     {
-        if (!view->transform.drop)
+        if (view->transform.drop)
         {
-            names.push_back(view->transform.name.value_or(instrument_name));
+            continue;
         }
+        auto al = view->transform.attribute_allowlist;
+        if (al.has_value())
+        {
+            std::ranges::sort(*al);
+        }
+        specs.push_back({
+            .name = view->transform.name.value_or(instrument_name),
+            .allowlist = std::move(al),
+        });
     }
-    return names;
+    return specs;
 }
 
 // ── Concrete instrument adapters ──────────────────────────────────────────────
-// Each adapter holds non-owning pointers to storages owned by MetricProducer.
-// Multiple storages support fan-out (one per matching view). An empty storage
-// list makes the instrument a no-op (all views dropped).
-// Hot-path methods are noexcept: storage errors call std::terminate per policy.
+// Each adapter holds one StorageSlot per matching view. An empty slot list
+// makes the instrument a no-op (all views dropped). When a slot has an
+// allowlist, attrs are filtered before forwarding to storage; otherwise the
+// original span is used directly (zero-copy hot path).
+// Hot-path methods are noexcept: OOM in FilterAttrs → std::terminate per policy.
 
 template <typename T>
 class SdkCounter final : public microtel::Counter<T>
 {
 public:
-    explicit SdkCounter(std::vector<SumStorage<T>*> storages) noexcept
-        : m_storages(std::move(storages))
+    explicit SdkCounter(std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+        : m_slots(std::move(slots))
     {
     }
 
     void Add(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        for (auto* const storage : m_storages)
+        std::vector<microtel::KeyValue> filter_buf;
+        for (const auto& slot : m_slots)
         {
-            storage->Add(value, attrs);
+            if (slot.allowlist.has_value())
+            {
+                FilterAttrs(attrs, *slot.allowlist, filter_buf);
+                slot.storage->Add(value, microtel::AttributeSpan{filter_buf});
+            }
+            else
+            {
+                slot.storage->Add(value, attrs);
+            }
         }
     }
 
 private:
-    std::vector<SumStorage<T>*> m_storages;
+    std::vector<StorageSlot<SumStorage<T>>> m_slots;
 };
 
 template <typename T>
 class SdkUpDownCounter final : public microtel::UpDownCounter<T>
 {
 public:
-    explicit SdkUpDownCounter(std::vector<SumStorage<T>*> storages) noexcept
-        : m_storages(std::move(storages))
+    explicit SdkUpDownCounter(std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+        : m_slots(std::move(slots))
     {
     }
 
     void Add(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        for (auto* const storage : m_storages)
+        std::vector<microtel::KeyValue> filter_buf;
+        for (const auto& slot : m_slots)
         {
-            storage->Add(value, attrs);
+            if (slot.allowlist.has_value())
+            {
+                FilterAttrs(attrs, *slot.allowlist, filter_buf);
+                slot.storage->Add(value, microtel::AttributeSpan{filter_buf});
+            }
+            else
+            {
+                slot.storage->Add(value, attrs);
+            }
         }
     }
 
 private:
-    std::vector<SumStorage<T>*> m_storages;
+    std::vector<StorageSlot<SumStorage<T>>> m_slots;
 };
 
 template <typename T>
 class SdkGauge final : public microtel::Gauge<T>
 {
 public:
-    explicit SdkGauge(std::vector<GaugeStorage<T>*> storages) noexcept
-        : m_storages(std::move(storages))
+    explicit SdkGauge(std::vector<StorageSlot<GaugeStorage<T>>> slots) noexcept
+        : m_slots(std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        for (auto* const storage : m_storages)
+        std::vector<microtel::KeyValue> filter_buf;
+        for (const auto& slot : m_slots)
         {
-            storage->Record(value, attrs);
+            if (slot.allowlist.has_value())
+            {
+                FilterAttrs(attrs, *slot.allowlist, filter_buf);
+                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
+            }
+            else
+            {
+                slot.storage->Record(value, attrs);
+            }
         }
     }
 
 private:
-    std::vector<GaugeStorage<T>*> m_storages;
+    std::vector<StorageSlot<GaugeStorage<T>>> m_slots;
 };
 
 template <typename T>
 class SdkHistogram final : public microtel::Histogram<T>
 {
 public:
-    explicit SdkHistogram(std::vector<HistogramStorage<T>*> storages) noexcept
-        : m_storages(std::move(storages))
+    explicit SdkHistogram(std::vector<StorageSlot<HistogramStorage<T>>> slots) noexcept
+        : m_slots(std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        for (auto* const storage : m_storages)
+        std::vector<microtel::KeyValue> filter_buf;
+        for (const auto& slot : m_slots)
         {
-            storage->Record(value, attrs);
+            if (slot.allowlist.has_value())
+            {
+                FilterAttrs(attrs, *slot.allowlist, filter_buf);
+                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
+            }
+            else
+            {
+                slot.storage->Record(value, attrs);
+            }
         }
     }
 
 private:
-    std::vector<HistogramStorage<T>*> m_storages;
+    std::vector<StorageSlot<HistogramStorage<T>>> m_slots;
 };
 
 template <typename T>
 class SdkExponentialHistogram final : public microtel::ExponentialHistogram<T>
 {
 public:
-    explicit SdkExponentialHistogram(std::vector<ExponentialHistogramStorage<T>*> storages) noexcept
-        : m_storages(std::move(storages))
+    explicit SdkExponentialHistogram(
+        std::vector<StorageSlot<ExponentialHistogramStorage<T>>> slots) noexcept
+        : m_slots(std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        for (auto* const storage : m_storages)
+        std::vector<microtel::KeyValue> filter_buf;
+        for (const auto& slot : m_slots)
         {
-            storage->Record(value, attrs);
+            if (slot.allowlist.has_value())
+            {
+                FilterAttrs(attrs, *slot.allowlist, filter_buf);
+                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
+            }
+            else
+            {
+                slot.storage->Record(value, attrs);
+            }
         }
     }
 
 private:
-    std::vector<ExponentialHistogramStorage<T>*> m_storages;
+    std::vector<StorageSlot<ExponentialHistogramStorage<T>>> m_slots;
 };
 
 // ── Public-to-internal ObservableResult bridge ────────────────────────────────
@@ -219,18 +319,18 @@ std::shared_ptr<microtel::Counter<std::int64_t>> SdkMeter::DoCreateCounterI64(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<SumStorage<std::int64_t>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<SumStorage<std::int64_t>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamSum<std::int64_t>>(
-            stream_name, description, unit, /*monotonic=*/true, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, /*monotonic=*/true, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkCounter<std::int64_t>>(std::move(storages));
+    return std::make_shared<SdkCounter<std::int64_t>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::string name,
@@ -239,18 +339,18 @@ std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<SumStorage<double>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<SumStorage<double>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamSum<double>>(
-            stream_name, description, unit, /*monotonic=*/true, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, /*monotonic=*/true, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkCounter<double>>(std::move(storages));
+    return std::make_shared<SdkCounter<double>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownCounterI64(
@@ -258,18 +358,18 @@ std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownC
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<SumStorage<std::int64_t>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<SumStorage<std::int64_t>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamSum<std::int64_t>>(
-            stream_name, description, unit, /*monotonic=*/false, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, /*monotonic=*/false, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkUpDownCounter<std::int64_t>>(std::move(storages));
+    return std::make_shared<SdkUpDownCounter<std::int64_t>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounterDouble(
@@ -277,18 +377,18 @@ std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounter
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<SumStorage<double>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<SumStorage<double>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamSum<double>>(
-            stream_name, description, unit, /*monotonic=*/false, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, /*monotonic=*/false, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkUpDownCounter<double>>(std::move(storages));
+    return std::make_shared<SdkUpDownCounter<double>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::string name,
@@ -297,18 +397,18 @@ std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::s
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<GaugeStorage<std::int64_t>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<GaugeStorage<std::int64_t>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream =
-            std::make_unique<MetricStreamGauge<std::int64_t>>(stream_name, description, unit, opts);
-        storages.push_back(&stream->Storage());
+            std::make_unique<MetricStreamGauge<std::int64_t>>(spec.name, description, unit, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkGauge<std::int64_t>>(std::move(storages));
+    return std::make_shared<SdkGauge<std::int64_t>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::string name,
@@ -317,18 +417,18 @@ std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::stri
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<GaugeStorage<double>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<GaugeStorage<double>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream =
-            std::make_unique<MetricStreamGauge<double>>(stream_name, description, unit, opts);
-        storages.push_back(&stream->Storage());
+            std::make_unique<MetricStreamGauge<double>>(spec.name, description, unit, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkGauge<double>>(std::move(storages));
+    return std::make_shared<SdkGauge<double>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI64(
@@ -336,18 +436,18 @@ std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI6
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<HistogramStorage<std::int64_t>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<HistogramStorage<std::int64_t>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamHistogram<std::int64_t>>(
-            stream_name, description, unit, boundaries, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, boundaries, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkHistogram<std::int64_t>>(std::move(storages));
+    return std::make_shared<SdkHistogram<std::int64_t>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
@@ -355,18 +455,18 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<HistogramStorage<double>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<HistogramStorage<double>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamHistogram<double>>(
-            stream_name, description, unit, boundaries, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, boundaries, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkHistogram<double>>(std::move(storages));
+    return std::make_shared<SdkHistogram<double>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::ExponentialHistogram<std::int64_t>>
@@ -378,18 +478,18 @@ SdkMeter::DoCreateExponentialHistogramI64(std::string name,
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<ExponentialHistogramStorage<std::int64_t>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<ExponentialHistogramStorage<std::int64_t>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamExpHistogram<std::int64_t>>(
-            stream_name, description, unit, max_scale, max_buckets, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, max_scale, max_buckets, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkExponentialHistogram<std::int64_t>>(std::move(storages));
+    return std::make_shared<SdkExponentialHistogram<std::int64_t>>(std::move(slots));
 }
 
 std::shared_ptr<microtel::ExponentialHistogram<double>>
@@ -401,18 +501,18 @@ SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
-    std::vector<ExponentialHistogramStorage<double>*> storages;
-    storages.reserve(names.size());
-    for (const auto& stream_name : names)
+    std::vector<StorageSlot<ExponentialHistogramStorage<double>>> slots;
+    slots.reserve(specs.size());
+    for (const auto& spec : specs)
     {
         auto stream = std::make_unique<MetricStreamExpHistogram<double>>(
-            stream_name, description, unit, max_scale, max_buckets, opts);
-        storages.push_back(&stream->Storage());
+            spec.name, description, unit, max_scale, max_buckets, opts);
+        slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkExponentialHistogram<double>>(std::move(storages));
+    return std::make_shared<SdkExponentialHistogram<double>>(std::move(slots));
 }
 
 microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64(
@@ -423,8 +523,8 @@ microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
             [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
@@ -434,7 +534,7 @@ microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64
             }};
         m_producer->AddStream(
             m_scope,
-            std::make_unique<MetricStreamObservableSum<std::int64_t>>(stream_name,
+            std::make_unique<MetricStreamObservableSum<std::int64_t>>(spec.name,
                                                                       description,
                                                                       unit,
                                                                       /*monotonic=*/true,
@@ -453,8 +553,8 @@ microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
             [pub_cb = callback](ObservableResult<double>& sdk_result)
@@ -464,7 +564,7 @@ microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
             }};
         m_producer->AddStream(
             m_scope,
-            std::make_unique<MetricStreamObservableSum<double>>(stream_name,
+            std::make_unique<MetricStreamObservableSum<double>>(spec.name,
                                                                 description,
                                                                 unit,
                                                                 /*monotonic=*/true,
@@ -483,8 +583,8 @@ microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDo
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableUpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
             [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
@@ -494,7 +594,7 @@ microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDo
             }};
         m_producer->AddStream(
             m_scope,
-            std::make_unique<MetricStreamObservableSum<std::int64_t>>(stream_name,
+            std::make_unique<MetricStreamObservableSum<std::int64_t>>(spec.name,
                                                                       description,
                                                                       unit,
                                                                       /*monotonic=*/false,
@@ -513,8 +613,8 @@ microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCoun
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableUpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
             [pub_cb = callback](ObservableResult<double>& sdk_result)
@@ -524,7 +624,7 @@ microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCoun
             }};
         m_producer->AddStream(
             m_scope,
-            std::make_unique<MetricStreamObservableSum<double>>(stream_name,
+            std::make_unique<MetricStreamObservableSum<double>>(spec.name,
                                                                 description,
                                                                 unit,
                                                                 /*monotonic=*/false,
@@ -543,8 +643,8 @@ microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableGauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
             [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
@@ -555,7 +655,7 @@ microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
         m_producer->AddStream(
             m_scope,
             std::make_unique<MetricStreamObservableGauge<std::int64_t>>(
-                stream_name, description, unit, std::move(bridge), m_max_cardinality, m_diag));
+                spec.name, description, unit, std::move(bridge), m_max_cardinality, m_diag));
     }
     return {};
 }
@@ -568,8 +668,8 @@ microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableGauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
-    for (const auto& stream_name : names)
+    const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
+    for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
             [pub_cb = callback](ObservableResult<double>& sdk_result)
@@ -580,7 +680,7 @@ microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
         m_producer->AddStream(
             m_scope,
             std::make_unique<MetricStreamObservableGauge<double>>(
-                stream_name, description, unit, std::move(bridge), m_max_cardinality, m_diag));
+                spec.name, description, unit, std::move(bridge), m_max_cardinality, m_diag));
     }
     return {};
 }

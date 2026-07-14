@@ -199,3 +199,15 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(diagnostics_counters_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# M13 — ViewRegistry: selector matching for Views (M13 increment 1).
+microtel_add_test(
+    NAME    view_registry_test
+    SOURCES view_registry_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(view_registry_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# Partial designated initializers are intentional: tests verify that nullopt
+# fields in InstrumentSelector and ViewTransform match any value.
+target_compile_options(view_registry_test PRIVATE
+    -Wno-missing-field-initializers)

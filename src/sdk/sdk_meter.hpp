@@ -49,7 +49,7 @@ public:
                       std::shared_ptr<MetricProducer> producer,
                       std::size_t max_cardinality = kDefaultMaxCardinality,
                       internal::IDiagnosticsSink* diag = nullptr,
-                      const ViewRegistry* registry = nullptr) noexcept;
+                      std::shared_ptr<const ViewRegistry> registry = nullptr) noexcept;
 
     SdkMeter(const SdkMeter&) = delete;
     SdkMeter& operator=(const SdkMeter&) = delete;
@@ -138,7 +138,7 @@ private:
     std::shared_ptr<MetricProducer> m_producer;
     std::size_t m_max_cardinality;
     internal::IDiagnosticsSink* m_diag;
-    const ViewRegistry* m_registry;
+    std::shared_ptr<const ViewRegistry> m_registry;
 };
 
 }  // namespace microtel::sdk

@@ -53,11 +53,17 @@ mt::KeyValue Kv(std::string key, std::int64_t val)
 }
 
 // Creates a meter with the given registry pointer (null = no view registry).
+// Registry is held as shared_ptr so the meter's m_registry keeps it alive even
+// if the caller drops its own reference — exactly the scenario meter_api_test
+// exercises with MakeProvider()->GetMeter(...).
 std::shared_ptr<mts::SdkMeter> MakeMeter(std::shared_ptr<mts::MetricProducer> producer,
-                                         const mts::ViewRegistry* registry)
+                                         std::shared_ptr<const mts::ViewRegistry> registry)
 {
-    return std::make_shared<mts::SdkMeter>(
-        MakeScope(), std::move(producer), mts::kDefaultMaxCardinality, nullptr, registry);
+    return std::make_shared<mts::SdkMeter>(MakeScope(),
+                                           std::move(producer),
+                                           mts::kDefaultMaxCardinality,
+                                           nullptr,
+                                           std::move(registry));
 }
 
 }  // namespace
@@ -83,9 +89,9 @@ TEST(ViewWiringTest, NullRegistry_DefaultStream)
 
 TEST(ViewWiringTest, EmptyRegistry_DefaultStream)
 {
-    mts::ViewRegistry reg;  // no views added
+    const auto reg = std::make_shared<mts::ViewRegistry>();  // no views added
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("requests", "", "");
@@ -101,10 +107,10 @@ TEST(ViewWiringTest, EmptyRegistry_DefaultStream)
 
 TEST(ViewWiringTest, DropView_InstrumentIsNoop)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.drop = true}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.drop = true}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("requests", "", "");
@@ -115,11 +121,11 @@ TEST(ViewWiringTest, DropView_InstrumentIsNoop)
 
 TEST(ViewWiringTest, AllViewsDrop_AllInstrumentsAreNoop)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.drop = true}});
-    reg.Add(mt::ViewConfig{.transform = {.drop = true}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.drop = true}});
+    reg->Add(mt::ViewConfig{.transform = {.drop = true}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto c = meter->CreateCounter<std::int64_t>("x", "", "");
@@ -132,10 +138,10 @@ TEST(ViewWiringTest, AllViewsDrop_AllInstrumentsAreNoop)
 
 TEST(ViewWiringTest, RenameView_StreamHasNewName)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.name = "http.server.requests"}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.name = "http.server.requests"}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("requests", "", "");
@@ -155,11 +161,11 @@ TEST(ViewWiringTest, RenameView_StreamHasNewName)
 
 TEST(ViewWiringTest, FanOut_TwoNonDropViews_TwoStreams)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.name = "alpha"}});
-    reg.Add(mt::ViewConfig{.transform = {.name = "beta"}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.name = "alpha"}});
+    reg->Add(mt::ViewConfig{.transform = {.name = "beta"}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("x", "", "");
@@ -184,11 +190,11 @@ TEST(ViewWiringTest, FanOut_TwoNonDropViews_TwoStreams)
 
 TEST(ViewWiringTest, MixedDropAndRename_OnlyKeptStream)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.drop = true}});
-    reg.Add(mt::ViewConfig{.transform = {.name = "kept"}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.drop = true}});
+    reg->Add(mt::ViewConfig{.transform = {.name = "kept"}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("x", "", "");
@@ -204,13 +210,13 @@ TEST(ViewWiringTest, MixedDropAndRename_OnlyKeptStream)
 
 TEST(ViewWiringTest, KindFilter_NoMatch_DefaultStream)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{
         .selector = {.kind = mt::InstrumentKind::Histogram},
         .transform = {.name = "should_not_apply"},
     });
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto counter = meter->CreateCounter<std::int64_t>("requests", "", "");
@@ -226,10 +232,10 @@ TEST(ViewWiringTest, KindFilter_NoMatch_DefaultStream)
 
 TEST(ViewWiringTest, Gauge_ViewRename)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.name = "cpu.utilization.renamed"}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.name = "cpu.utilization.renamed"}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto gauge = meter->CreateGauge<double>("cpu.utilization", "", "");
@@ -243,10 +249,10 @@ TEST(ViewWiringTest, Gauge_ViewRename)
 
 TEST(ViewWiringTest, Histogram_ViewDrop)
 {
-    mts::ViewRegistry reg;
-    reg.Add(mt::ViewConfig{.transform = {.drop = true}});
+    auto reg = std::make_shared<mts::ViewRegistry>();
+    reg->Add(mt::ViewConfig{.transform = {.drop = true}});
     auto producer = MakeProducer();
-    auto meter = MakeMeter(producer, &reg);
+    auto meter = MakeMeter(producer, reg);
     const std::vector<mt::KeyValue> attrs{Kv("k", 1)};
 
     auto hist = meter->CreateHistogram<double>("latency", "", "");

@@ -205,12 +205,12 @@ SdkMeter::SdkMeter(internal::InstrumentationScope scope,
                    std::shared_ptr<MetricProducer> producer,
                    std::size_t max_cardinality,
                    internal::IDiagnosticsSink* diag,
-                   const ViewRegistry* registry) noexcept
+                   std::shared_ptr<const ViewRegistry> registry) noexcept
     : m_scope(std::move(scope)),
       m_producer(std::move(producer)),
       m_max_cardinality(max_cardinality),
       m_diag(diag),
-      m_registry(registry)
+      m_registry(std::move(registry))
 {
 }
 
@@ -219,7 +219,7 @@ std::shared_ptr<microtel::Counter<std::int64_t>> SdkMeter::DoCreateCounterI64(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<SumStorage<std::int64_t>*> storages;
     storages.reserve(names.size());
@@ -239,7 +239,7 @@ std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<SumStorage<double>*> storages;
     storages.reserve(names.size());
@@ -258,7 +258,7 @@ std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownC
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<SumStorage<std::int64_t>*> storages;
     storages.reserve(names.size());
@@ -277,7 +277,7 @@ std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounter
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<SumStorage<double>*> storages;
     storages.reserve(names.size());
@@ -297,7 +297,7 @@ std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::s
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<GaugeStorage<std::int64_t>*> storages;
     storages.reserve(names.size());
@@ -317,7 +317,7 @@ std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::stri
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<GaugeStorage<double>*> storages;
     storages.reserve(names.size());
@@ -336,7 +336,7 @@ std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI6
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<HistogramStorage<std::int64_t>*> storages;
     storages.reserve(names.size());
@@ -355,7 +355,7 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<HistogramStorage<double>*> storages;
     storages.reserve(names.size());
@@ -378,7 +378,7 @@ SdkMeter::DoCreateExponentialHistogramI64(std::string name,
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<ExponentialHistogramStorage<std::int64_t>*> storages;
     storages.reserve(names.size());
@@ -401,7 +401,7 @@ SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
     std::vector<ExponentialHistogramStorage<double>*> storages;
     storages.reserve(names.size());
@@ -423,7 +423,7 @@ microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<std::int64_t> bridge{
@@ -453,7 +453,7 @@ microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<double> bridge{
@@ -483,7 +483,7 @@ microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDo
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableUpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<std::int64_t> bridge{
@@ -513,7 +513,7 @@ microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCoun
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableUpDownCounter, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<double> bridge{
@@ -543,7 +543,7 @@ microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableGauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<std::int64_t> bridge{
@@ -568,7 +568,7 @@ microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
 {
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ObservableGauge, .meter_name = m_scope.name};
-    const auto names = ResolveStreamNames(name, m_registry, desc);
+    const auto names = ResolveStreamNames(name, m_registry.get(), desc);
     for (const auto& stream_name : names)
     {
         ObservableCallback<double> bridge{

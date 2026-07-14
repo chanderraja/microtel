@@ -151,7 +151,7 @@ private:
     SpanLimitOptions m_span_limits;
     internal::ConnectOptions m_connect_opts;
 
-    ViewRegistry m_view_registry;
+    std::shared_ptr<ViewRegistry> m_view_registry;
 
     // Metrics pipeline: lazily initialised on first GetMeter() call.
     std::mutex m_meter_mu;

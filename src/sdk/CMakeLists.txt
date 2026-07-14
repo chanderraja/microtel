@@ -23,7 +23,8 @@ add_library(microtel_sdk STATIC
     sdk_tracer.cpp
     batch_span_processor.cpp
     sdk_provider.cpp
-    sdk_builder.cpp)
+    sdk_builder.cpp
+    view_registry.cpp)
 
 target_link_libraries(microtel_sdk
     PUBLIC  microtel_headers

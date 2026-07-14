@@ -196,7 +196,7 @@ TEST(ViewRegistryTest, NoMatch_ReturnsEmpty)
 
 TEST(ViewRegistryTest, EmptyRegistry_ReturnsEmpty)
 {
-    sdk::ViewRegistry reg;
+    const sdk::ViewRegistry reg;
     EXPECT_TRUE(reg.Match(MakeDesc("anything")).empty());
     EXPECT_TRUE(reg.Empty());
 }

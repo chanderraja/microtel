@@ -28,6 +28,7 @@
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/sdk_provider.hpp"
+#include "sdk/view_registry.hpp"
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
 #include "wire/encoder/otlp_encoder.hpp"
@@ -73,6 +74,7 @@ struct SdkBuilder::Impl
     std::optional<std::chrono::milliseconds> metric_interval;
     std::optional<TemporalityPreference> metric_temporality;
     std::optional<MetricLimitOptions> metric_limits;
+    std::vector<ViewConfig> views;
 
     bool consumed = false;
 
@@ -202,6 +204,12 @@ SdkBuilder& SdkBuilder::WithMetricTemporality(TemporalityPreference pref)
 SdkBuilder& SdkBuilder::WithMetricLimits(MetricLimitOptions opts)
 {
     m_impl->metric_limits = opts;
+    return *this;
+}
+
+SdkBuilder& SdkBuilder::WithView(ViewConfig view)
+{
+    m_impl->views.push_back(std::move(view));
     return *this;
 }
 
@@ -343,6 +351,16 @@ constexpr std::string_view kGrpcMetricsPath =
                                                      .extra_headers = std::move(extra_headers),
                                                  },
                                                  auth);
+}
+
+[[nodiscard]] sdk::ViewRegistry BuildViewRegistry(std::vector<ViewConfig>& views)
+{
+    sdk::ViewRegistry reg;
+    for (auto& v : views)
+    {
+        reg.Add(std::move(v));
+    }
+    return reg;
 }
 
 /// @brief Resolve the effective per-instrument cardinality cap.
@@ -549,7 +567,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto processor = std::make_unique<sdk::BatchSpanProcessor>(
         exporters.exporter.get(), resource, std::move(scope), cfg.batch);
 
-    // --- Step 11: resolve cardinality cap then build provider ----------------
+    // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
     return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
         .encoder = std::move(encoder),
@@ -567,6 +585,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .metric_interval = cfg.metric_interval,
         .metric_temporality = cfg.metric_temporality,
         .metric_max_cardinality = max_cardinality,
+        .view_registry = BuildViewRegistry(m_impl->views),
     });
 }
 

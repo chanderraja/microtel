@@ -18,6 +18,7 @@
 
 #include "sdk/diagnostics_counters.hpp"
 #include "sdk/metric_attribute_set.hpp"
+#include "sdk/view_registry.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -65,6 +66,8 @@ struct SdkProviderArgs
     microtel::TemporalityPreference metric_temporality{microtel::TemporalityPreference::Cumulative};
     /// @brief Per-instrument cardinality cap forwarded to every SdkMeter.
     std::size_t metric_max_cardinality{kDefaultMaxCardinality};
+    /// @brief View configurations registered via `SdkBuilder::WithView()`.
+    ViewRegistry view_registry;
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -147,6 +150,8 @@ private:
     SamplerHandle m_sampler;
     SpanLimitOptions m_span_limits;
     internal::ConnectOptions m_connect_opts;
+
+    ViewRegistry m_view_registry;
 
     // Metrics pipeline: lazily initialised on first GetMeter() call.
     std::mutex m_meter_mu;

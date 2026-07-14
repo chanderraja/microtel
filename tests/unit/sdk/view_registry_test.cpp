@@ -126,37 +126,34 @@ TEST(ViewRegistryTest, AllFieldsSet_AllMustMatch)
 {
     sdk::ViewRegistry reg;
     reg.Add(mt::ViewConfig{
-        .selector = {
-            .name = "http.*",
-            .kind = mt::InstrumentKind::Histogram,
-            .meter_name = "web.server",
-        },
+        .selector =
+            {
+                .name = "http.*",
+                .kind = mt::InstrumentKind::Histogram,
+                .meter_name = "web.server",
+            },
     });
 
-    EXPECT_EQ(
-        reg.Match({.name = "http.duration",
-                   .kind = mt::InstrumentKind::Histogram,
-                   .meter_name = "web.server"})
-            .size(),
-        1u);
-    EXPECT_EQ(
-        reg.Match({.name = "grpc.duration",
-                   .kind = mt::InstrumentKind::Histogram,
-                   .meter_name = "web.server"})
-            .size(),
-        0u);
-    EXPECT_EQ(
-        reg.Match({.name = "http.duration",
-                   .kind = mt::InstrumentKind::Counter,
-                   .meter_name = "web.server"})
-            .size(),
-        0u);
-    EXPECT_EQ(
-        reg.Match({.name = "http.duration",
-                   .kind = mt::InstrumentKind::Histogram,
-                   .meter_name = "other"})
-            .size(),
-        0u);
+    EXPECT_EQ(reg.Match({.name = "http.duration",
+                         .kind = mt::InstrumentKind::Histogram,
+                         .meter_name = "web.server"})
+                  .size(),
+              1u);
+    EXPECT_EQ(reg.Match({.name = "grpc.duration",
+                         .kind = mt::InstrumentKind::Histogram,
+                         .meter_name = "web.server"})
+                  .size(),
+              0u);
+    EXPECT_EQ(reg.Match({.name = "http.duration",
+                         .kind = mt::InstrumentKind::Counter,
+                         .meter_name = "web.server"})
+                  .size(),
+              0u);
+    EXPECT_EQ(reg.Match({.name = "http.duration",
+                         .kind = mt::InstrumentKind::Histogram,
+                         .meter_name = "other"})
+                  .size(),
+              0u);
 }
 
 // ── Multiple views ────────────────────────────────────────────────────────────
@@ -168,8 +165,7 @@ TEST(ViewRegistryTest, MultipleViews_AllMatchingReturned)
     reg.Add(mt::ViewConfig{.selector = {.name = "grpc.*"}});
     reg.Add(mt::ViewConfig{.selector = {.kind = mt::InstrumentKind::Counter}});
 
-    const auto matches =
-        reg.Match(MakeDesc("http.requests", mt::InstrumentKind::Counter));
+    const auto matches = reg.Match(MakeDesc("http.requests", mt::InstrumentKind::Counter));
     EXPECT_EQ(matches.size(), 2u);  // "http.*" and kind=Counter; "grpc.*" does not match
 }
 

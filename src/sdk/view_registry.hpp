@@ -43,7 +43,10 @@ public:
     [[nodiscard]] std::vector<const ViewConfig*> Match(const InstrumentDescriptor& desc) const;
 
     /// @brief True when no views have been registered.
-    [[nodiscard]] bool Empty() const noexcept { return m_views.empty(); }
+    [[nodiscard]] bool Empty() const noexcept
+    {
+        return m_views.empty();
+    }
 
 private:
     [[nodiscard]] static bool MatchesName(const std::optional<std::string>& pattern,

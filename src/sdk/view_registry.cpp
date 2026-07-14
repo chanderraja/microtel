@@ -15,7 +15,7 @@ void ViewRegistry::Add(ViewConfig view)
 }
 
 bool ViewRegistry::MatchesName(const std::optional<std::string>& pattern,
-                                std::string_view name) noexcept
+                               std::string_view name) noexcept
 {
     if (!pattern.has_value())
     {

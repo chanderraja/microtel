@@ -70,10 +70,10 @@ enum class SeverityNumber : std::uint8_t
 struct LogRecord
 {
     /// When the event occurred (0 = unknown / not provided).
-    std::chrono::system_clock::time_point time{};
+    std::chrono::system_clock::time_point time;
 
     /// When the SDK observed the record. SDK sets this at Emit() if unset.
-    std::chrono::system_clock::time_point observed_time{};
+    std::chrono::system_clock::time_point observed_time;
 
     /// Normalized severity. Defaults to `SeverityNumber::Unspecified`.
     SeverityNumber severity_number = SeverityNumber::Unspecified;

@@ -169,8 +169,8 @@ TEST(LoggerTest, NoOpEmitCompiles)
 
 TEST(LoggerTest, NoOpEmitIsNoexcept)
 {
-    NoOpLogger logger;
-    mt::LogRecord rec;
+    NoOpLogger logger;  // NOLINT(misc-const-correctness)
+    mt::LogRecord rec;  // NOLINT(misc-const-correctness)
     EXPECT_TRUE(noexcept(logger.Emit(std::move(rec))));
 }
 
@@ -194,7 +194,7 @@ TEST(LogBatchHandleTest, ConstructWithRecords)
 
     auto resource = std::make_shared<mt::Resource>();
     const mti::InstrumentationScope scope = {.name = "test.lib", .version = "1.0"};
-    mti::LogBatchHandle batch{std::move(recs), std::move(resource), scope};
+    const mti::LogBatchHandle batch{std::move(recs), std::move(resource), scope};
 
     ASSERT_EQ(batch.Records().size(), 2u);
     EXPECT_EQ(batch.Scope().name, "test.lib");
@@ -204,7 +204,7 @@ TEST(LogBatchHandleTest, ConstructWithRecords)
 TEST(LogBatchHandleTest, ResourceRefIsAccessible)
 {
     auto resource = std::make_shared<mt::Resource>();
-    mti::LogBatchHandle batch{{}, resource, {}};
+    const mti::LogBatchHandle batch{{}, resource, {}};
     EXPECT_EQ(&batch.ResourceRef(), resource.get());
 }
 
@@ -215,9 +215,9 @@ TEST(LogBatchHandleTest, MoveConstruct)
     auto resource = std::make_shared<mt::Resource>();
 
     mti::LogBatchHandle a{std::move(recs), resource, {.name = "lib"}};
-    mti::LogBatchHandle b{std::move(a)};
+    const mti::LogBatchHandle b{std::move(a)};
 
     EXPECT_EQ(b.Records().size(), 1u);
     EXPECT_EQ(b.Scope().name, "lib");
-    EXPECT_TRUE(a.Records().empty());  // NOLINT(bugprone-use-after-move)
+    EXPECT_TRUE(a.Records().empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
 }

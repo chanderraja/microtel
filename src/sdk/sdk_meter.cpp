@@ -280,7 +280,11 @@ template <typename T>
 class SdkObservableResultAdapter final : public microtel::ObservableResult<T>
 {
 public:
-    explicit SdkObservableResultAdapter(ObservableResult<T>& target) noexcept : m_target(target) {}
+    SdkObservableResultAdapter(ObservableResult<T>& target,
+                               const std::optional<Allowlist>& allowlist) noexcept
+        : m_target(target), m_allowlist(&allowlist)
+    {
+    }
 
     SdkObservableResultAdapter(const SdkObservableResultAdapter&) = delete;
     SdkObservableResultAdapter& operator=(const SdkObservableResultAdapter&) = delete;
@@ -290,11 +294,21 @@ public:
 
     void Observe(T value, microtel::AttributeSpan attrs) override
     {
-        m_target.Observe(value, attrs);
+        if (m_allowlist->has_value())
+        {
+            FilterAttrs(attrs, **m_allowlist, m_filter_buf);
+            m_target.Observe(value, microtel::AttributeSpan{m_filter_buf});
+        }
+        else
+        {
+            m_target.Observe(value, attrs);
+        }
     }
 
 private:
     ObservableResult<T>& m_target;
+    const std::optional<Allowlist>* m_allowlist;
+    std::vector<microtel::KeyValue> m_filter_buf;
 };
 
 }  // namespace
@@ -527,9 +541,9 @@ microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64
     for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
-            [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<std::int64_t>& sdk_result)
             {
-                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(
@@ -557,9 +571,9 @@ microtel::ObservableCounter<double> SdkMeter::DoCreateObservableCounterDouble(
     for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
-            [pub_cb = callback](ObservableResult<double>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<double>& sdk_result)
             {
-                SdkObservableResultAdapter<double> adapter{sdk_result};
+                SdkObservableResultAdapter<double> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(
@@ -587,9 +601,9 @@ microtel::ObservableUpDownCounter<std::int64_t> SdkMeter::DoCreateObservableUpDo
     for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
-            [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<std::int64_t>& sdk_result)
             {
-                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(
@@ -617,9 +631,9 @@ microtel::ObservableUpDownCounter<double> SdkMeter::DoCreateObservableUpDownCoun
     for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
-            [pub_cb = callback](ObservableResult<double>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<double>& sdk_result)
             {
-                SdkObservableResultAdapter<double> adapter{sdk_result};
+                SdkObservableResultAdapter<double> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(
@@ -647,9 +661,9 @@ microtel::ObservableGauge<std::int64_t> SdkMeter::DoCreateObservableGaugeI64(
     for (const auto& spec : specs)
     {
         ObservableCallback<std::int64_t> bridge{
-            [pub_cb = callback](ObservableResult<std::int64_t>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<std::int64_t>& sdk_result)
             {
-                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result};
+                SdkObservableResultAdapter<std::int64_t> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(
@@ -672,9 +686,9 @@ microtel::ObservableGauge<double> SdkMeter::DoCreateObservableGaugeDouble(
     for (const auto& spec : specs)
     {
         ObservableCallback<double> bridge{
-            [pub_cb = callback](ObservableResult<double>& sdk_result)
+            [pub_cb = callback, al = spec.allowlist](ObservableResult<double>& sdk_result)
             {
-                SdkObservableResultAdapter<double> adapter{sdk_result};
+                SdkObservableResultAdapter<double> adapter{sdk_result, al};
                 pub_cb(adapter);
             }};
         m_producer->AddStream(

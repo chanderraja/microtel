@@ -210,6 +210,16 @@ target_include_directories(attribute_allowlist_test
 target_compile_options(attribute_allowlist_test PRIVATE
     -Wno-missing-field-initializers)
 
+# M13 — attribute_allowlist filtering for observable instruments (M13 increment 4).
+microtel_add_test(
+    NAME    observable_allowlist_test
+    SOURCES observable_allowlist_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(observable_allowlist_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(observable_allowlist_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M13 — ViewRegistry wiring into SdkMeter (M13 increment 2).
 microtel_add_test(
     NAME    view_wiring_test

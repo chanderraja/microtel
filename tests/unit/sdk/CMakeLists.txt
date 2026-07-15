@@ -200,6 +200,16 @@ microtel_add_test(
 target_include_directories(diagnostics_counters_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M13 — Per-view attribute_allowlist filtering (M13 increment 3).
+microtel_add_test(
+    NAME    attribute_allowlist_test
+    SOURCES attribute_allowlist_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(attribute_allowlist_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(attribute_allowlist_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M13 — ViewRegistry wiring into SdkMeter (M13 increment 2).
 microtel_add_test(
     NAME    view_wiring_test

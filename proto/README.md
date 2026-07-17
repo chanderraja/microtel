@@ -36,14 +36,15 @@ opentelemetry/proto/metrics/v1/metrics.proto
 opentelemetry/proto/collector/metrics/v1/metrics_service.proto
 ```
 
-> **Not yet wired into codegen.** `gen/` and `ci/scripts/regen-protos.sh` still
-> generate only the trace accessors, so `regen-check` stays green. The follow-up
-> M12 codegen PR adds these two files to the regen list and commits the
-> generated `*.upb.*` accessors (it needs the protoc v29.4 + upb-plugin
-> toolchain documented in `gen/README.md`).
+The **logs** files are vendored for the M14 logs implementation (v1.3):
 
-`logs/` and `profiles/` from upstream remain intentionally excluded; they land
-when those signals land in microtel (roadmap v1.3+).
+```
+opentelemetry/proto/logs/v1/logs.proto
+opentelemetry/proto/collector/logs/v1/logs_service.proto
+```
+
+`profiles/` from upstream remains intentionally excluded; it lands when that
+signal lands in microtel (roadmap v2.0+).
 
 ## Refreshing the pin
 

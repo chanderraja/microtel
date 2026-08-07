@@ -1,7 +1,10 @@
 # microtel Logs Design
 
-**Status:** Draft — pending reviewer sign-off (M14 / v1.3). Precedes the L4/L5
-implementation the way `docs/metrics-design.md` (M11) preceded M12.
+**Status:** Accepted — signed off 2026-08-07 (M14 / v1.3). Precedes the L4/L5
+implementation the way `docs/metrics-design.md` (M11) preceded M12. The four
+open items are resolved as proposed: share the transport, per-record attribute
+cap 128, `LogAttributeLimit` and `GetLogger` land behind ICPs (0011 with L4.1,
+and the L5 ICP respectively).
 
 This document settles the pipeline and semantic decisions for the OTel logs
 signal so that L4 (SDK log pipeline) and L5 (`Provider::GetLogger` wiring) can be
@@ -46,16 +49,16 @@ Explicitly **out of scope** (anti-goals):
 Each item has a proposed **Decision** below. Reviewer approves by checking every
 box (and editing any decision they want changed first).
 
-- [ ] §1 Pipeline shape — mirror traces; share the transport, separate codec + exporter
-- [ ] §2 Log record processor — `Batch` (prod) + `Simple` (tests); inherit BSP defaults
-- [ ] §3 Log exporter — `OtlpLogExporter` reusing L3 encoder + shared transport
-- [ ] §4 Trace correlation — fill from `ICurrentSpanSource` when `trace_id` invalid; on by default
-- [ ] §5 Attribute limits & drop accounting — new `LogAttributeLimit` **DropReason (ICP)**
-- [ ] §6 Batching, memory & threading model
-- [ ] §7 Wire mapping (OTLP logs; encoder/transport reuse)
-- [ ] §8 Provider / Builder API surface (`GetLogger`)
-- [ ] §9 Configuration & compatibility
-- [ ] §10 spdlog bridge adapter
+- [x] §1 Pipeline shape — mirror traces; share the transport, separate codec + exporter
+- [x] §2 Log record processor — `Batch` (prod) + `Simple` (tests); inherit BSP defaults
+- [x] §3 Log exporter — `OtlpLogExporter` reusing L3 encoder + shared transport
+- [x] §4 Trace correlation — fill from `ICurrentSpanSource` when `trace_id` invalid; on by default
+- [x] §5 Attribute limits & drop accounting — new `LogAttributeLimit` **DropReason (ICP)**
+- [x] §6 Batching, memory & threading model
+- [x] §7 Wire mapping (OTLP logs; encoder/transport reuse)
+- [x] §8 Provider / Builder API surface (`GetLogger`)
+- [x] §9 Configuration & compatibility
+- [x] §10 spdlog bridge adapter
 
 ---
 

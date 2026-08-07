@@ -643,9 +643,12 @@ This section covers v1.0 in detail. The path from v1.0 through full OpenTelemetr
 | **M10 – v1.0 traces release** | Apache 2.0 OSS release, PyPI publish, `docs/migration-from-otel-cpp.md` finalized, experimental compat shims released as separate packages, conf-talk submission. | — | M9 | — |
 | **M11 – Metrics design doc** | `docs/metrics-design.md`: aggregation temporality (delta vs cumulative), cardinality limits, histogram bucket configuration, async-instrument callbacks, reader/exporter interaction, views, exemplars roadmap. **Reviewer sign-off.** No implementation in this milestone. | 2 wk | M10 | — |
 | **M12 – Metrics implementation** | Instruments, aggregations, MetricReader, async observables, Resource detectors expanded. | 6–8 wk | M11 | — |
-| **M13 – Logs** | OTel logs API, OTLP/logs export, bridge to spdlog as adapter. | 3 wk | M12 | — |
-| **M14 – Control plane + hot reload** | Unix-socket server, JSON wire, `microtelctl` Go binary, REPL, hot-reloadable settings, multi-profile. | 4 wk | M10 | M12, M13 |
-| **M15 – Sugar layer** | `microtel::sugar` C++ helpers and Python decorator/context-manager equivalents. | 3 wk | M10 | — |
+| **M13 – Views & attribute filtering** | OTel Views: per-instrument stream selection via `ViewRegistry` selector matching, and per-view `attribute_allowlist` filtering for synchronous and observable instruments. | 2 wk | M12 | — |
+| **M14 – Logs** | OTel logs API, OTLP/logs export, bridge to spdlog as adapter. | 3 wk | M12 | — |
+| **M15 – Control plane + hot reload** | Unix-socket server, JSON wire, `microtelctl` Go binary, REPL, hot-reloadable settings, multi-profile. | 4 wk | M10 | M12, M13, M14 |
+| **M16 – Sugar layer** | `microtel::sugar` C++ helpers and Python decorator/context-manager equivalents. | 3 wk | M10 | — |
+
+> **Numbering note.** M13 (Views & attribute filtering) was split out from M12 during implementation and tracked under its own milestone number; Logs, control plane, and sugar renumbered to M14/M15/M16 to keep the spec aligned with the as-built commit labels. See [ICP 0010](docs/icps/0010-milestone-renumber-views.md).
 
 ### 13.1 Parallel work tracks after M2
 

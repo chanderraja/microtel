@@ -3,20 +3,23 @@
 
 #pragma once
 
+#include "microtel/internal/log_encoder.hpp"
 #include "microtel/internal/metric_encoder.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
 
 namespace microtel::wire
 {
 
-/// @brief Concrete OTLP protobuf encoder — implements both the trace and
-/// metrics encoder interfaces.
+/// @brief Concrete OTLP protobuf encoder — implements trace, metrics, and
+/// logs encoder interfaces.
 ///
 /// The only compilation unit that includes upb headers is `otlp_encoder.cpp`.
 /// No upb type appears here or in any header it includes.
 ///
 /// @threadsafety Not thread-safe (single-caller — exporter / metric-reader worker).
-class OtlpEncoder final : public internal::IOtlpEncoder, public internal::IMetricEncoder
+class OtlpEncoder final : public internal::IOtlpEncoder,
+                          public internal::IMetricEncoder,
+                          public internal::ILogEncoder
 {
 public:
     OtlpEncoder() noexcept = default;
@@ -38,6 +41,12 @@ public:
     /// Returns an empty payload if `batch` contains no metrics.
     [[nodiscard]] internal::EncodedPayload Encode(
         const internal::MetricBatchHandle& batch) override;
+
+    /// @brief Encode all log records in `batch` into an OTLP `ExportLogsServiceRequest`.
+    ///
+    /// One upb arena per call; arena freed before returning. Stateless across calls.
+    /// Returns an empty payload if `batch` contains no records.
+    [[nodiscard]] internal::EncodedPayload Encode(const internal::LogBatchHandle& batch) override;
 };
 
 }  // namespace microtel::wire

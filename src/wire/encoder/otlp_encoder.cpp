@@ -10,9 +10,11 @@
 // Suppress the pedantic warning for this include block only.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+#include "opentelemetry/proto/collector/logs/v1/logs_service.upb.h"
 #include "opentelemetry/proto/collector/metrics/v1/metrics_service.upb.h"
 #include "opentelemetry/proto/collector/trace/v1/trace_service.upb.h"
 #include "opentelemetry/proto/common/v1/common.upb.h"
+#include "opentelemetry/proto/logs/v1/logs.upb.h"
 #include "opentelemetry/proto/metrics/v1/metrics.upb.h"
 #include "opentelemetry/proto/resource/v1/resource.upb.h"
 #include "opentelemetry/proto/trace/v1/trace.upb.h"
@@ -23,7 +25,9 @@
 #include "microtel/attribute.hpp"
 #include "microtel/internal/batch.hpp"
 #include "microtel/internal/encoded_payload.hpp"
+#include "microtel/internal/log_batch.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/log_record.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/trace.hpp"
 
@@ -669,6 +673,149 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::MetricBatchHandle& 
     const char* buf =
         opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_serialize(
             req, arena, &len);
+
+    internal::EncodedPayload payload;
+    if (buf != nullptr && len > 0)
+    {
+        auto bytes = std::make_unique<std::byte[]>(len);
+        std::memcpy(bytes.get(), buf, len);
+        payload = internal::EncodedPayload{std::move(bytes), len};
+    }
+
+    upb_Arena_Free(arena);
+    return payload;
+}
+
+// ---------------------------------------------------------------------------
+// OtlpEncoder::Encode (logs)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Logs type aliases — shorten upb generated names inside this TU only.
+using UpbResLog = opentelemetry_proto_logs_v1_ResourceLogs;
+using UpbScoLog = opentelemetry_proto_logs_v1_ScopeLogs;
+using UpbLogRec = opentelemetry_proto_logs_v1_LogRecord;
+using UpbLogReq = opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest;
+
+void EncodeLogResource(const microtel::Resource& res, UpbResLog* rl, upb_Arena* arena)
+{
+    UpbResource* ures = opentelemetry_proto_logs_v1_ResourceLogs_mutable_resource(rl, arena);
+    if (ures == nullptr)
+    {
+        return;
+    }
+    EncodeAttributes(res.Attributes(),
+                     arena,
+                     [ures](upb_Arena* a)
+                     { return opentelemetry_proto_resource_v1_Resource_add_attributes(ures, a); });
+}
+
+void EncodeLogScope(const internal::InstrumentationScope& scope, UpbScoLog* sl, upb_Arena* arena)
+{
+    UpbScope* usc = opentelemetry_proto_logs_v1_ScopeLogs_mutable_scope(sl, arena);
+    if (usc == nullptr)
+    {
+        return;
+    }
+    opentelemetry_proto_common_v1_InstrumentationScope_set_name(usc, Sv(scope.name));
+    opentelemetry_proto_common_v1_InstrumentationScope_set_version(usc, Sv(scope.version));
+}
+
+void EncodeLogRecord(const microtel::LogRecord& rec, UpbScoLog* sl, upb_Arena* arena)
+{
+    UpbLogRec* lr = opentelemetry_proto_logs_v1_ScopeLogs_add_log_records(sl, arena);
+    if (lr == nullptr)
+    {
+        return;
+    }
+
+    // time / observed_time — zero-valued time_point encodes as 0 nanoseconds,
+    // which the OTLP spec treats as "not set".
+    opentelemetry_proto_logs_v1_LogRecord_set_time_unix_nano(lr, ToNanos(rec.time));
+    opentelemetry_proto_logs_v1_LogRecord_set_observed_time_unix_nano(lr,
+                                                                      ToNanos(rec.observed_time));
+
+    // severity
+    opentelemetry_proto_logs_v1_LogRecord_set_severity_number(
+        lr, static_cast<int32_t>(rec.severity_number));
+    if (!rec.severity_text.empty())
+    {
+        opentelemetry_proto_logs_v1_LogRecord_set_severity_text(lr, Sv(rec.severity_text));
+    }
+
+    // body — skip if the variant holds the default bool{false} sentinel,
+    // which means "body not provided". Every other alternative (including
+    // bool{true}) is a meaningful body value and is encoded.
+    if (!std::holds_alternative<bool>(rec.body) || std::get<bool>(rec.body))
+    {
+        UpbAnyValue* av = opentelemetry_proto_logs_v1_LogRecord_mutable_body(lr, arena);
+        if (av != nullptr)
+        {
+            EncodeAttrValue(av, rec.body, arena);
+        }
+    }
+
+    // attributes
+    EncodeAttributes(rec.attributes,
+                     arena,
+                     [lr](upb_Arena* a)
+                     { return opentelemetry_proto_logs_v1_LogRecord_add_attributes(lr, a); });
+
+    if (rec.dropped_attributes_count > 0)
+    {
+        opentelemetry_proto_logs_v1_LogRecord_set_dropped_attributes_count(
+            lr, rec.dropped_attributes_count);
+    }
+
+    // trace correlation — only write if trace_id is valid; flags always written
+    // alongside a valid trace_id
+    if (rec.trace_id.IsValid())
+    {
+        opentelemetry_proto_logs_v1_LogRecord_set_trace_id(
+            lr, SvBytes(rec.trace_id.AsBytes().data(), rec.trace_id.AsBytes().size()));
+        opentelemetry_proto_logs_v1_LogRecord_set_span_id(
+            lr, SvBytes(rec.span_id.AsBytes().data(), rec.span_id.AsBytes().size()));
+        opentelemetry_proto_logs_v1_LogRecord_set_flags(
+            lr, static_cast<uint32_t>(rec.trace_flags.AsByte()));
+    }
+
+    if (!rec.event_name.empty())
+    {
+        opentelemetry_proto_logs_v1_LogRecord_set_event_name(lr, Sv(rec.event_name));
+    }
+}
+
+}  // namespace
+
+internal::EncodedPayload OtlpEncoder::Encode(const internal::LogBatchHandle& batch)
+{
+    if (batch.Records().empty())
+    {
+        return {};
+    }
+
+    upb_Arena* arena = upb_Arena_New();
+
+    UpbLogReq* req = opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_new(arena);
+    UpbResLog* rl =
+        opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_add_resource_logs(req,
+                                                                                         arena);
+
+    EncodeLogResource(batch.ResourceRef(), rl, arena);
+
+    UpbScoLog* sl = opentelemetry_proto_logs_v1_ResourceLogs_add_scope_logs(rl, arena);
+    EncodeLogScope(batch.Scope(), sl, arena);
+
+    for (const auto& rec : batch.Records())
+    {
+        EncodeLogRecord(rec, sl, arena);
+    }
+
+    std::size_t len = 0;
+    const char* buf =
+        opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_serialize(req, arena, &len);
 
     internal::EncodedPayload payload;
     if (buf != nullptr && len > 0)

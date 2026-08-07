@@ -200,6 +200,16 @@ microtel_add_test(
 target_include_directories(diagnostics_counters_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# M14 — OTel Logs API surface (M14 increment 2).
+microtel_add_test(
+    NAME    log_api_test
+    SOURCES log_api_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(log_api_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(log_api_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M13 — Per-view attribute_allowlist filtering (M13 increment 3).
 microtel_add_test(
     NAME    attribute_allowlist_test

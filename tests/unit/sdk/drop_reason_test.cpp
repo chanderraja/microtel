@@ -25,7 +25,13 @@ TEST(DropReason, MetricEnumeratorsHaveIcp0008Values)
     EXPECT_EQ(static_cast<std::uint8_t>(mt::DropReason::CardinalityOverflow), 20U);
     EXPECT_EQ(static_cast<std::uint8_t>(mt::DropReason::MetricCallbackTimeout), 21U);
     EXPECT_EQ(static_cast<std::uint8_t>(mt::DropReason::NonFiniteValue), 22U);
-    EXPECT_EQ(mt::kDropReasonCount, std::size_t{23});
+    EXPECT_EQ(mt::kDropReasonCount, std::size_t{24});
+}
+
+TEST(DropReason, LogAttributeLimitHasIcp0011Value)
+{
+    EXPECT_EQ(static_cast<std::uint8_t>(mt::DropReason::LogAttributeLimit), 23U);
+    EXPECT_EQ(mt::sdk::DropReasonName(mt::DropReason::LogAttributeLimit), "log_attribute_limit");
 }
 
 TEST(DropReason, EveryReasonHasAName)

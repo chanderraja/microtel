@@ -92,6 +92,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | `cardinality_overflow` | SDK, metric aggregation store | attribute set exceeded the per-instrument cardinality limit; the measurement is folded into the `otel.metric.overflow` series, not lost (ICP 0008, `metrics-design.md` §2) |
 | `metric_callback_timeout` | SDK, metric collection | async instrument callback exceeded the per-collection deadline; its measurements were dropped for that cycle (ICP 0008, `metrics-design.md` §4) |
 | `non_finite_value` | SDK, instrument record path | NaN / ±Inf measurement dropped, as the OTel spec requires (ICP 0008) |
+| `log_attribute_limit` | SDK, `SdkLogger::Emit` | a `LogRecord`'s attribute set exceeded the per-record attribute limit; surplus attributes dropped and `dropped_attributes_count` incremented (ICP 0011, `logs-design.md` §5) |
 
 **Counters are `std::atomic<uint64_t>`** (LOCKED). The increment path is lock-free and fits the leaf-lock rule in `threading-model.md` §4.
 

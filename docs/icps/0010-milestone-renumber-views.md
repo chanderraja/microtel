@@ -1,6 +1,6 @@
 # ICP 0010: Reconcile spec §13 milestone table with as-built commit numbering (insert M13 = Views)
 
-**Status:** Draft
+**Status:** Accepted
 **Affected interfaces / docs:** `microtel-spec.md` §13 (Roadmap milestone table only). No interface headers, no `docs/interfaces.md`.
 **Affected tracks:** none — documentation reconciliation.
 

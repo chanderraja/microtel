@@ -37,3 +37,17 @@ target_include_directories(otlp_metric_exporter_test
 
 target_compile_options(otlp_metric_exporter_test PRIVATE
     -Wno-missing-field-initializers)
+
+# M14 L4.3 — OtlpLogExporter: encode via ILogEncoder + send via IWireCodec.
+microtel_add_test(
+    NAME    otlp_log_exporter_test
+    SOURCES otlp_log_exporter_test.cpp
+    LIBS    microtel_exporter)
+
+target_include_directories(otlp_log_exporter_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(otlp_log_exporter_test PRIVATE
+    -Wno-missing-field-initializers)

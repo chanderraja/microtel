@@ -6,6 +6,7 @@
 add_library(microtel_exporter STATIC
     otlp_exporter.cpp
     otlp_metric_exporter.cpp
+    otlp_log_exporter.cpp
     retry_policy.cpp)
 
 target_link_libraries(microtel_exporter

@@ -1,6 +1,6 @@
 # ICP 0012: Add `Provider::GetLogger` (M14 L5)
 
-**Status:** Draft
+**Status:** Accepted — signed off 2026-08-07
 **Affected interfaces / docs:** `include/microtel/provider.hpp` (new pure-virtual `GetLogger`), `include/microtel/logger.hpp` (unchanged; realised by an SDK no-op logger), `include/microtel/sdk_builder.hpp` (log-exporter configuration), `src/sdk/sdk_provider.*` (implementation), `docs/logs-design.md` §8.
 **Affected tracks:** A (SDK). No transport / encoder / wire changes.
 

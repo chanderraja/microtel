@@ -240,6 +240,26 @@ target_include_directories(sdk_logger_test
 target_compile_options(sdk_logger_test PRIVATE
     -Wno-missing-field-initializers)
 
+# M14 L4.2 — SimpleLogRecordProcessor: synchronous passthrough.
+microtel_add_test(
+    NAME    simple_log_record_processor_test
+    SOURCES simple_log_record_processor_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(simple_log_record_processor_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(simple_log_record_processor_test PRIVATE
+    -Wno-missing-field-initializers)
+
+# M14 L4.2 — BatchLogRecordProcessor: queue + worker + batch, scope grouping.
+microtel_add_test(
+    NAME    batch_log_record_processor_test
+    SOURCES batch_log_record_processor_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(batch_log_record_processor_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(batch_log_record_processor_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M13 — ViewRegistry wiring into SdkMeter (M13 increment 2).
 microtel_add_test(
     NAME    view_wiring_test

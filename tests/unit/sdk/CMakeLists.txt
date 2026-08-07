@@ -230,6 +230,16 @@ target_include_directories(observable_allowlist_test
 target_compile_options(observable_allowlist_test PRIVATE
     -Wno-missing-field-initializers)
 
+# M14 L4.1 — SdkLogger: Emit routing, observed-time, correlation, attribute limit.
+microtel_add_test(
+    NAME    sdk_logger_test
+    SOURCES sdk_logger_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sdk_logger_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(sdk_logger_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # M13 — ViewRegistry wiring into SdkMeter (M13 increment 2).
 microtel_add_test(
     NAME    view_wiring_test

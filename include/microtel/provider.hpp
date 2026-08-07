@@ -70,11 +70,15 @@ enum class DropReason : std::uint8_t
     MetricCallbackTimeout = 21,
     /// NaN / ±Inf measurement dropped, as the OTel spec requires (ICP 0008).
     NonFiniteValue = 22,
+    /// A `LogRecord`'s attribute set exceeded the per-record attribute limit;
+    /// the surplus attributes were dropped and `dropped_attributes_count` was
+    /// incremented on the record (ICP 0011, `docs/logs-design.md` §5).
+    LogAttributeLimit = 23,
 };
 
 /// @brief The number of `DropReason` enumerators. Used to size the counter
 /// array in `HealthSnapshot`.
-inline constexpr std::size_t kDropReasonCount = 23;
+inline constexpr std::size_t kDropReasonCount = 24;
 
 /// @brief Snapshot of exporter health, returned by `Provider::GetExporterHealth`.
 ///

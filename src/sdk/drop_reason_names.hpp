@@ -65,6 +65,8 @@ namespace microtel::sdk
             return "metric_callback_timeout";
         case DropReason::NonFiniteValue:
             return "non_finite_value";
+        case DropReason::LogAttributeLimit:
+            return "log_attribute_limit";
     }
     return "unknown";
 }

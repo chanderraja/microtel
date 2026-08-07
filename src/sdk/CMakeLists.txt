@@ -21,6 +21,7 @@ add_library(microtel_sdk STATIC
     noop_span.cpp
     sdk_span.cpp
     sdk_tracer.cpp
+    sdk_logger.cpp
     batch_span_processor.cpp
     sdk_provider.cpp
     sdk_builder.cpp

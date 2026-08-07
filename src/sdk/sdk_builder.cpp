@@ -24,6 +24,7 @@
 #include "common/config/env_resolver.hpp"
 #include "common/config/toml_loader.hpp"
 #include "exporter/otlp_exporter.hpp"
+#include "exporter/otlp_log_exporter.hpp"
 #include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/metric_attribute_set.hpp"
@@ -322,6 +323,9 @@ namespace
 constexpr std::string_view kHttpMetricsPath = "/v1/metrics";
 constexpr std::string_view kGrpcMetricsPath =
     "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
+constexpr std::string_view kHttpLogsPath = "/v1/logs";
+constexpr std::string_view kGrpcLogsPath =
+    "/opentelemetry.proto.collector.logs.v1.LogsService/Export";
 
 [[nodiscard]] std::unique_ptr<internal::IWireCodec> BuildWireCodec(
     internal::ITransport* transport,
@@ -387,8 +391,10 @@ struct ExporterPack
 {
     std::unique_ptr<internal::IWireCodec> codec;
     std::unique_ptr<internal::IWireCodec> metric_codec;
+    std::unique_ptr<internal::IWireCodec> log_codec;
     std::unique_ptr<internal::IExporter> exporter;
     std::unique_ptr<internal::IMetricExporter> metric_exporter;
+    std::unique_ptr<internal::ILogExporter> log_exporter;
 };
 
 [[nodiscard]] ExporterPack BuildExporters(wire::OtlpEncoder* encoder,
@@ -401,6 +407,9 @@ struct ExporterPack
         cfg.protocol == Protocol::Grpc ? kGrpcMetricsPath : kHttpMetricsPath;
     auto metric_codec =
         BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, metric_path);
+    const std::string_view log_path =
+        cfg.protocol == Protocol::Grpc ? kGrpcLogsPath : kHttpLogsPath;
+    auto log_codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, log_path);
 
     const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg);
@@ -408,12 +417,18 @@ struct ExporterPack
         encoder,
         metric_codec.get(),
         exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export});
+    auto log_exp = std::make_unique<exporter::OtlpLogExporter>(
+        encoder,
+        log_codec.get(),
+        exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export});
 
     return ExporterPack{
         .codec = std::move(codec),
         .metric_codec = std::move(metric_codec),
+        .log_codec = std::move(log_codec),
         .exporter = std::move(trace_exp),
         .metric_exporter = std::move(metric_exp),
+        .log_exporter = std::move(log_exp),
     };
 }
 
@@ -586,6 +601,9 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .metric_temporality = cfg.metric_temporality,
         .metric_max_cardinality = max_cardinality,
         .view_registry = BuildViewRegistry(m_impl->views),
+        .log_codec = std::move(exporters.log_codec),
+        .log_exporter = std::move(exporters.log_exporter),
+        .log_batch_opts = cfg.batch,
     });
 }
 

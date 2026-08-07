@@ -9,8 +9,11 @@
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
+#include "sdk/batch_log_record_processor.hpp"
 #include "sdk/metric_producer.hpp"
+#include "sdk/noop_logger.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
+#include "sdk/sdk_logger.hpp"
 #include "sdk/sdk_meter.hpp"
 #include "sdk/sdk_tracer.hpp"
 
@@ -51,17 +54,21 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_transport(std::move(args.transport)),
       m_codec(std::move(args.codec)),
       m_metric_codec(std::move(args.metric_codec)),
+      m_log_codec(std::move(args.log_codec)),
       m_exporter(std::move(args.exporter)),
       m_metric_exporter(std::move(args.metric_exporter)),
+      m_log_exporter(std::move(args.log_exporter)),
       m_metric_interval(args.metric_interval),
       m_metric_temporality(args.metric_temporality),
       m_metric_max_cardinality(args.metric_max_cardinality),
+      m_log_batch_opts(args.log_batch_opts),
       m_processor(std::move(args.processor)),
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
       m_span_limits(args.span_limits),
       m_connect_opts(std::move(args.connect_opts)),
-      m_view_registry(std::make_shared<ViewRegistry>(std::move(args.view_registry)))
+      m_view_registry(std::make_shared<ViewRegistry>(std::move(args.view_registry))),
+      m_noop_logger(std::make_shared<NoopLogger>())
 {
 }
 
@@ -103,7 +110,24 @@ Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
     // Metric reader ForceFlush: collect a snapshot then flush the exporter.
     if (m_metric_reader != nullptr)
     {
-        return m_metric_reader->ForceFlush(timeout);
+        const Status ms = m_metric_reader->ForceFlush(timeout);
+        if (ms != Status::Completed)
+        {
+            return ms;
+        }
+    }
+    // Log pipeline: drain the processor queue into the exporter, then flush it.
+    if (m_log_processor != nullptr)
+    {
+        const Status ls = m_log_processor->ForceFlush(timeout);
+        if (ls != Status::Completed)
+        {
+            return ls;
+        }
+    }
+    if (m_log_exporter != nullptr)
+    {
+        return m_log_exporter->ForceFlush(timeout);
     }
     return Status::Completed;
 }
@@ -119,6 +143,16 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     else if (m_metric_exporter != nullptr)
     {
         (void)m_metric_exporter->Shutdown(timeout);
+    }
+    // Log pipeline: stop the processor (halts emits to the exporter), then the
+    // exporter, before the shared transport is closed.
+    if (m_log_processor != nullptr)
+    {
+        (void)m_log_processor->Shutdown(timeout);
+    }
+    if (m_log_exporter != nullptr)
+    {
+        (void)m_log_exporter->Shutdown(timeout);
     }
     (void)m_exporter->Shutdown(timeout);
     (void)m_transport->Close(timeout);
@@ -171,6 +205,38 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
             m_metric_max_cardinality,
             &m_diagnostics,
             m_view_registry);
+    }
+    return entry;
+}
+
+std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
+                                                         std::string_view version)
+{
+    if (m_log_exporter == nullptr)
+    {
+        return m_noop_logger;
+    }
+    const std::scoped_lock lk{m_logger_mu};
+    if (!m_log_processor)
+    {
+        m_log_processor = std::make_unique<BatchLogRecordProcessor>(
+            m_log_exporter.get(), m_resource, m_log_batch_opts);
+    }
+    std::string key;
+    key.reserve(name.size() + 1 + version.size());
+    key.append(name);
+    key += '\0';
+    key.append(version);
+    auto& entry = m_loggers[key];
+    if (!entry)
+    {
+        entry = std::make_shared<SdkLogger>(
+            m_log_processor.get(),
+            internal::InstrumentationScope{.name = std::string{name},
+                                           .version = std::string{version}},
+            nullptr,  // ICurrentSpanSource — trace-correlation seam, wired later
+            &m_diagnostics,
+            LogLimitOptions{});
     }
     return entry;
 }

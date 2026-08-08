@@ -144,6 +144,9 @@ add_subdirectory(src/sdk)
 add_subdirectory(src/wire)
 add_subdirectory(src/transport)
 add_subdirectory(src/exporter)
+if(MICROTEL_USE_SPDLOG)
+    add_subdirectory(src/adapters/spdlog)
+endif()
 add_subdirectory(tools)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz

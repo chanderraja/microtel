@@ -1,16 +1,16 @@
-# Graph Report - microtel  (2026-08-07)
+# Graph Report - microtel  (2026-08-08)
 
 ## Corpus Check
-- 496 files · ~307,146 words
+- 524 files · ~315,994 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4375 nodes · 7334 edges · 463 communities (367 shown, 96 thin omitted)
+- 4504 nodes · 7464 edges · 498 communities (387 shown, 111 thin omitted)
 - Extraction: 74% EXTRACTED · 26% INFERRED · 0% AMBIGUOUS · INFERRED: 1936 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `20c1a023`
+- Built from commit: `29b42798`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -150,13 +150,13 @@
 - [[_COMMUNITY_upb Mini Table Sub|upb Mini Table Sub]]
 - [[_COMMUNITY_upb Mini Table Impl|upb Mini Table Impl]]
 - [[_COMMUNITY_upb Byte Size Utilities|upb Byte Size Utilities]]
+- [[_COMMUNITY_upb Wire Types|upb Wire Types]]
 - [[_COMMUNITY_upb Wire Internal Constants|upb Wire Internal Constants]]
 - [[_COMMUNITY_upb Fast Decoder Header|upb Fast Decoder Header]]
 - [[_COMMUNITY_UTF-8 Range Header|UTF-8 Range Header]]
 - [[_COMMUNITY_Trace Service upb Source|Trace Service upb Source]]
 - [[_COMMUNITY_Trace Service MiniTable Source|Trace Service MiniTable Source]]
 - [[_COMMUNITY_Trace Service MiniTable Header|Trace Service MiniTable Header]]
-- [[_COMMUNITY_Common Proto upb Source|Common Proto upb Source]]
 - [[_COMMUNITY_Common Proto MiniTable Source|Common Proto MiniTable Source]]
 - [[_COMMUNITY_Common Proto MiniTable Header|Common Proto MiniTable Header]]
 - [[_COMMUNITY_Resource Proto upb Source|Resource Proto upb Source]]
@@ -179,6 +179,8 @@
 - [[_COMMUNITY_Community 162|Community 162]]
 - [[_COMMUNITY_Community 163|Community 163]]
 - [[_COMMUNITY_Community 164|Community 164]]
+- [[_COMMUNITY_Community 165|Community 165]]
+- [[_COMMUNITY_Community 166|Community 166]]
 - [[_COMMUNITY_Community 167|Community 167]]
 - [[_COMMUNITY_Community 168|Community 168]]
 - [[_COMMUNITY_Community 169|Community 169]]
@@ -190,8 +192,6 @@
 - [[_COMMUNITY_Community 175|Community 175]]
 - [[_COMMUNITY_Community 176|Community 176]]
 - [[_COMMUNITY_Community 177|Community 177]]
-- [[_COMMUNITY_Community 178|Community 178]]
-- [[_COMMUNITY_Community 179|Community 179]]
 - [[_COMMUNITY_Community 180|Community 180]]
 - [[_COMMUNITY_Community 181|Community 181]]
 - [[_COMMUNITY_Community 182|Community 182]]
@@ -200,6 +200,7 @@
 - [[_COMMUNITY_Community 185|Community 185]]
 - [[_COMMUNITY_Community 186|Community 186]]
 - [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Community 188|Community 188]]
 - [[_COMMUNITY_Community 189|Community 189]]
 - [[_COMMUNITY_Community 190|Community 190]]
 - [[_COMMUNITY_Community 191|Community 191]]
@@ -216,7 +217,6 @@
 - [[_COMMUNITY_Community 202|Community 202]]
 - [[_COMMUNITY_Community 203|Community 203]]
 - [[_COMMUNITY_Community 204|Community 204]]
-- [[_COMMUNITY_Community 205|Community 205]]
 - [[_COMMUNITY_Community 206|Community 206]]
 - [[_COMMUNITY_Community 207|Community 207]]
 - [[_COMMUNITY_Community 208|Community 208]]
@@ -232,6 +232,7 @@
 - [[_COMMUNITY_Community 218|Community 218]]
 - [[_COMMUNITY_Community 219|Community 219]]
 - [[_COMMUNITY_Community 220|Community 220]]
+- [[_COMMUNITY_Community 221|Community 221]]
 - [[_COMMUNITY_Community 222|Community 222]]
 - [[_COMMUNITY_Community 223|Community 223]]
 - [[_COMMUNITY_Community 224|Community 224]]
@@ -252,7 +253,6 @@
 - [[_COMMUNITY_Community 239|Community 239]]
 - [[_COMMUNITY_Community 240|Community 240]]
 - [[_COMMUNITY_Community 241|Community 241]]
-- [[_COMMUNITY_Community 242|Community 242]]
 - [[_COMMUNITY_Community 243|Community 243]]
 - [[_COMMUNITY_Community 244|Community 244]]
 - [[_COMMUNITY_Community 245|Community 245]]
@@ -270,6 +270,8 @@
 - [[_COMMUNITY_Community 257|Community 257]]
 - [[_COMMUNITY_Community 258|Community 258]]
 - [[_COMMUNITY_Community 259|Community 259]]
+- [[_COMMUNITY_Community 260|Community 260]]
+- [[_COMMUNITY_Community 261|Community 261]]
 - [[_COMMUNITY_Community 262|Community 262]]
 - [[_COMMUNITY_Community 263|Community 263]]
 - [[_COMMUNITY_Community 264|Community 264]]
@@ -292,13 +294,18 @@
 - [[_COMMUNITY_Community 281|Community 281]]
 - [[_COMMUNITY_Community 282|Community 282]]
 - [[_COMMUNITY_Community 283|Community 283]]
-- [[_COMMUNITY_Community 284|Community 284]]
-- [[_COMMUNITY_Community 285|Community 285]]
 - [[_COMMUNITY_Community 286|Community 286]]
 - [[_COMMUNITY_Community 287|Community 287]]
 - [[_COMMUNITY_Community 288|Community 288]]
 - [[_COMMUNITY_Community 289|Community 289]]
 - [[_COMMUNITY_Community 290|Community 290]]
+- [[_COMMUNITY_Community 291|Community 291]]
+- [[_COMMUNITY_Community 292|Community 292]]
+- [[_COMMUNITY_Community 293|Community 293]]
+- [[_COMMUNITY_Community 294|Community 294]]
+- [[_COMMUNITY_Community 295|Community 295]]
+- [[_COMMUNITY_Community 296|Community 296]]
+- [[_COMMUNITY_Community 297|Community 297]]
 - [[_COMMUNITY_Community 298|Community 298]]
 - [[_COMMUNITY_Community 299|Community 299]]
 - [[_COMMUNITY_Community 300|Community 300]]
@@ -308,9 +315,19 @@
 - [[_COMMUNITY_Community 304|Community 304]]
 - [[_COMMUNITY_Community 305|Community 305]]
 - [[_COMMUNITY_Community 306|Community 306]]
+- [[_COMMUNITY_Community 307|Community 307]]
+- [[_COMMUNITY_Community 308|Community 308]]
+- [[_COMMUNITY_Community 309|Community 309]]
+- [[_COMMUNITY_Community 310|Community 310]]
+- [[_COMMUNITY_Community 311|Community 311]]
+- [[_COMMUNITY_Community 312|Community 312]]
+- [[_COMMUNITY_Community 313|Community 313]]
+- [[_COMMUNITY_Community 314|Community 314]]
+- [[_COMMUNITY_Community 315|Community 315]]
+- [[_COMMUNITY_Community 316|Community 316]]
+- [[_COMMUNITY_Community 317|Community 317]]
+- [[_COMMUNITY_Community 318|Community 318]]
 - [[_COMMUNITY_Community 319|Community 319]]
-- [[_COMMUNITY_Community 320|Community 320]]
-- [[_COMMUNITY_Community 321|Community 321]]
 - [[_COMMUNITY_Community 322|Community 322]]
 - [[_COMMUNITY_Community 323|Community 323]]
 - [[_COMMUNITY_Community 324|Community 324]]
@@ -320,10 +337,28 @@
 - [[_COMMUNITY_Community 328|Community 328]]
 - [[_COMMUNITY_Community 329|Community 329]]
 - [[_COMMUNITY_Community 330|Community 330]]
-- [[_COMMUNITY_Community 331|Community 331]]
-- [[_COMMUNITY_Community 332|Community 332]]
-- [[_COMMUNITY_Community 333|Community 333]]
-- [[_COMMUNITY_Community 334|Community 334]]
+- [[_COMMUNITY_Community 348|Community 348]]
+- [[_COMMUNITY_Community 349|Community 349]]
+- [[_COMMUNITY_Community 350|Community 350]]
+- [[_COMMUNITY_Community 351|Community 351]]
+- [[_COMMUNITY_Community 352|Community 352]]
+- [[_COMMUNITY_Community 353|Community 353]]
+- [[_COMMUNITY_Community 354|Community 354]]
+- [[_COMMUNITY_Community 355|Community 355]]
+- [[_COMMUNITY_Community 356|Community 356]]
+- [[_COMMUNITY_Community 357|Community 357]]
+- [[_COMMUNITY_Community 358|Community 358]]
+- [[_COMMUNITY_Community 359|Community 359]]
+- [[_COMMUNITY_Community 360|Community 360]]
+- [[_COMMUNITY_Community 361|Community 361]]
+- [[_COMMUNITY_Community 362|Community 362]]
+- [[_COMMUNITY_Community 363|Community 363]]
+- [[_COMMUNITY_Community 364|Community 364]]
+- [[_COMMUNITY_Community 365|Community 365]]
+- [[_COMMUNITY_Community 366|Community 366]]
+- [[_COMMUNITY_Community 367|Community 367]]
+- [[_COMMUNITY_Community 368|Community 368]]
+- [[_COMMUNITY_Community 369|Community 369]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `upb_Message_ClearBaseField()` - 169 edges
@@ -349,59 +384,59 @@
 - `opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_rejected_data_points()` --calls--> `_upb_Message_GetNonExtensionField()`  [INFERRED]
   gen/opentelemetry/proto/collector/metrics/v1/metrics_service.upb.h → third_party/upb/upb/message/internal/accessors.h
 
-## Communities (463 total, 96 thin omitted)
+## Communities (498 total, 111 thin omitted)
 
 ### Community 0 - "upb Fast Decoder"
 Cohesion: 0.03
 Nodes (93): upb_Message_ClearBaseField(), opentelemetry_proto_metrics_v1_Exemplar_clear_as_double(), opentelemetry_proto_metrics_v1_Exemplar_clear_as_int(), opentelemetry_proto_metrics_v1_Exemplar_clear_filtered_attributes(), opentelemetry_proto_metrics_v1_Exemplar_clear_span_id(), opentelemetry_proto_metrics_v1_Exemplar_clear_time_unix_nano(), opentelemetry_proto_metrics_v1_Exemplar_clear_trace_id(), opentelemetry_proto_metrics_v1_ExponentialHistogram_clear_aggregation_temporality() (+85 more)
 
 ### Community 1 - "Project Architecture & Concepts"
-Cohesion: 0.03
-Nodes (86): EncodeLink(), EncodeSpan(), EncodeStatus(), MapKind(), MapStatusCode(), SvBytes(), opentelemetry_proto_trace_v1_ResourceSpans_clear_resource(), opentelemetry_proto_trace_v1_ResourceSpans_clear_schema_url() (+78 more)
+Cohesion: 0.02
+Nodes (88): upb_Message_HasBaseField(), opentelemetry_proto_common_v1_AnyValue_array_value(), opentelemetry_proto_common_v1_AnyValue_clear_array_value(), opentelemetry_proto_common_v1_AnyValue_clear_bool_value(), opentelemetry_proto_common_v1_AnyValue_clear_bytes_value(), opentelemetry_proto_common_v1_AnyValue_clear_double_value(), opentelemetry_proto_common_v1_AnyValue_clear_int_value(), opentelemetry_proto_common_v1_AnyValue_clear_kvlist_value() (+80 more)
 
 ### Community 2 - "OTLP Encoder"
 Cohesion: 0.03
-Nodes (85): upb_Message_HasBaseField(), opentelemetry_proto_common_v1_AnyValue_clear_array_value(), opentelemetry_proto_common_v1_AnyValue_clear_bool_value(), opentelemetry_proto_common_v1_AnyValue_clear_bytes_value(), opentelemetry_proto_common_v1_AnyValue_clear_double_value(), opentelemetry_proto_common_v1_AnyValue_clear_int_value(), opentelemetry_proto_common_v1_AnyValue_clear_kvlist_value(), opentelemetry_proto_common_v1_AnyValue_clear_string_value() (+77 more)
+Nodes (90): EncodeGauge(), EncodeHistogram(), EncodeHistogramPoint(), EncodeMetricRecord(), EncodeNumberPoint(), EncodeSum(), MapTemporality(), upb_Message_SetBaseField() (+82 more)
 
 ### Community 3 - "upb Status & Arena API"
-Cohesion: 0.04
-Nodes (89): upb_StringView_FromString(), _upb_Message_GetNonExtensionField(), opentelemetry_proto_common_v1_AnyValue_array_value(), opentelemetry_proto_common_v1_AnyValue_bool_value(), opentelemetry_proto_common_v1_AnyValue_bytes_value(), opentelemetry_proto_common_v1_AnyValue_double_value(), opentelemetry_proto_common_v1_AnyValue_int_value(), opentelemetry_proto_common_v1_AnyValue_string_value() (+81 more)
+Cohesion: 0.05
+Nodes (73): upb_FieldType_CType(), upb_FieldType_IsPackable(), upb_Status_SetErrorFormat(), upb_Status_SetErrorMessage(), upb_Status_VAppendErrorFormat(), upb_Status_VSetErrorFormat(), upb_Arena_Malloc(), upb_Arena_Realloc() (+65 more)
 
 ### Community 4 - "SDK Samplers"
-Cohesion: 0.06
-Nodes (70): upb_FieldType_CType(), upb_FieldType_IsPackable(), upb_Status_SetErrorFormat(), upb_Status_SetErrorMessage(), upb_Status_VAppendErrorFormat(), upb_Status_VSetErrorFormat(), _upb_Base92_DecodeVarint(), _upb_FromBase92() (+62 more)
+Cohesion: 0.03
+Nodes (65): opentelemetry_proto_trace_v1_ResourceSpans_clear_resource(), opentelemetry_proto_trace_v1_ResourceSpans_clear_schema_url(), opentelemetry_proto_trace_v1_ResourceSpans_clear_scope_spans(), opentelemetry_proto_trace_v1_ResourceSpans_mutable_resource(), opentelemetry_proto_trace_v1_ResourceSpans_new(), opentelemetry_proto_trace_v1_ResourceSpans_parse(), opentelemetry_proto_trace_v1_ResourceSpans_parse_ex(), opentelemetry_proto_trace_v1_ResourceSpans_resource() (+57 more)
 
 ### Community 5 - "Common Proto Accessors"
-Cohesion: 0.03
-Nodes (80): EncodeGauge(), EncodeHistogram(), EncodeHistogramPoint(), EncodeMetricRecord(), EncodeNumberPoint(), EncodeSum(), MapTemporality(), upb_Message_SetBaseField() (+72 more)
+Cohesion: 0.04
+Nodes (62): EncodeLogRecord(), opentelemetry_proto_logs_v1_LogRecord_add_attributes(), _opentelemetry_proto_logs_v1_LogRecord_attributes_mutable_upb_array(), opentelemetry_proto_logs_v1_LogRecord_body(), opentelemetry_proto_logs_v1_LogRecord_clear_attributes(), opentelemetry_proto_logs_v1_LogRecord_clear_body(), opentelemetry_proto_logs_v1_LogRecord_clear_dropped_attributes_count(), opentelemetry_proto_logs_v1_LogRecord_clear_event_name() (+54 more)
 
 ### Community 6 - "Trace Proto Accessors"
 Cohesion: 0.04
-Nodes (61): EncodeLogRecord(), opentelemetry_proto_logs_v1_LogRecord_add_attributes(), _opentelemetry_proto_logs_v1_LogRecord_attributes_mutable_upb_array(), _opentelemetry_proto_logs_v1_LogRecord_attributes_upb_array(), opentelemetry_proto_logs_v1_LogRecord_body(), opentelemetry_proto_logs_v1_LogRecord_clear_attributes(), opentelemetry_proto_logs_v1_LogRecord_clear_body(), opentelemetry_proto_logs_v1_LogRecord_clear_dropped_attributes_count() (+53 more)
+Nodes (70): upb_StringView_FromString(), _upb_Message_GetNonExtensionField(), opentelemetry_proto_common_v1_AnyValue_bytes_value(), opentelemetry_proto_common_v1_AnyValue_int_value(), opentelemetry_proto_common_v1_AnyValue_string_value(), opentelemetry_proto_common_v1_AnyValue_string_value_strindex(), opentelemetry_proto_common_v1_EntityRef_schema_url(), opentelemetry_proto_common_v1_EntityRef_type() (+62 more)
 
 ### Community 7 - "upb Message Field Accessors"
 Cohesion: 0.04
-Nodes (67): upb_Message_GetArray(), upb_Array_DataPtr(), opentelemetry_proto_common_v1_ArrayValue_values(), _opentelemetry_proto_common_v1_ArrayValue_values_upb_array(), opentelemetry_proto_common_v1_EntityRef_description_keys(), _opentelemetry_proto_common_v1_EntityRef_description_keys_upb_array(), opentelemetry_proto_common_v1_EntityRef_id_keys(), _opentelemetry_proto_common_v1_EntityRef_id_keys_upb_array() (+59 more)
+Nodes (68): upb_Message_GetArray(), upb_Array_DataPtr(), opentelemetry_proto_common_v1_ArrayValue_values(), _opentelemetry_proto_common_v1_ArrayValue_values_upb_array(), opentelemetry_proto_common_v1_EntityRef_description_keys(), _opentelemetry_proto_common_v1_EntityRef_description_keys_upb_array(), opentelemetry_proto_common_v1_EntityRef_id_keys(), _opentelemetry_proto_common_v1_EntityRef_id_keys_upb_array() (+60 more)
 
 ### Community 8 - "upb Message Allocation"
 Cohesion: 0.04
-Nodes (64): Encode(), upb_Message_GetOrCreateMutableArray(), _upb_Message_New(), _opentelemetry_proto_common_v1_ArrayValue_values_mutable_upb_array(), opentelemetry_proto_common_v1_EntityRef_add_description_keys(), opentelemetry_proto_common_v1_EntityRef_add_id_keys(), _opentelemetry_proto_common_v1_EntityRef_description_keys_mutable_upb_array(), _opentelemetry_proto_common_v1_EntityRef_id_keys_mutable_upb_array() (+56 more)
+Nodes (63): upb_Message_GetOrCreateMutableArray(), _upb_Message_New(), _opentelemetry_proto_common_v1_ArrayValue_values_mutable_upb_array(), opentelemetry_proto_common_v1_EntityRef_add_description_keys(), opentelemetry_proto_common_v1_EntityRef_add_id_keys(), _opentelemetry_proto_common_v1_EntityRef_description_keys_mutable_upb_array(), _opentelemetry_proto_common_v1_EntityRef_id_keys_mutable_upb_array(), opentelemetry_proto_common_v1_InstrumentationScope_add_attributes() (+55 more)
 
 ### Community 9 - "upb Array & Resource Proto"
+Cohesion: 0.07
+Nodes (60): upb_Message_GetMutableArray(), upb_Array_IsFrozen(), upb_Array_MutableDataPtr(), upb_Array_Reserve(), upb_Array_Size(), UPB_PRIVATE(), upb_Array_Append(), upb_Array_Delete() (+52 more)
+
+### Community 10 - "upb Memory Allocator"
+Cohesion: 0.05
+Nodes (53): opentelemetry_proto_metrics_v1_Exemplar_new(), opentelemetry_proto_metrics_v1_Exemplar_parse(), opentelemetry_proto_metrics_v1_Exemplar_parse_ex(), opentelemetry_proto_metrics_v1_ExponentialHistogram_new(), opentelemetry_proto_metrics_v1_ExponentialHistogram_parse(), opentelemetry_proto_metrics_v1_ExponentialHistogram_parse_ex(), opentelemetry_proto_metrics_v1_ExponentialHistogramDataPoint_Buckets_new(), opentelemetry_proto_metrics_v1_ExponentialHistogramDataPoint_Buckets_parse() (+45 more)
+
+### Community 11 - "upb Internal Utilities"
 Cohesion: 0.09
 Nodes (45): AppendAuthHeader(), B64CharValue(), Base64UrlDecode(), BuildHeaders(), ClassifyGrpcCode(), ClassifyMissingGrpcStatus(), ClassifyResourceExhausted(), ClassifyResponse() (+37 more)
 
-### Community 10 - "upb Memory Allocator"
-Cohesion: 0.08
-Nodes (49): _assemble_html(), _binary_size(), _build_cdf_points(), _has_byte_data(), _latency_bar(), _latency_cdf(), Return True if any SUT has wire_bytes_per_span summary data., Return a CDF figure, or None if no sample has latency_histogram data. (+41 more)
-
-### Community 11 - "upb Internal Utilities"
-Cohesion: 0.14
-Nodes (49): upb_Message_ClearExtension(), upb_Message_GetBool(), upb_Message_GetDouble(), _upb_Message_GetExtensionField(), upb_Message_GetField(), upb_Message_GetFloat(), upb_Message_GetInt32(), upb_Message_GetInt64() (+41 more)
-
 ### Community 12 - "upb Hash Table Core"
-Cohesion: 0.05
-Nodes (50): opentelemetry_proto_metrics_v1_Exemplar_new(), opentelemetry_proto_metrics_v1_Exemplar_parse(), opentelemetry_proto_metrics_v1_Exemplar_parse_ex(), opentelemetry_proto_metrics_v1_ExponentialHistogram_new(), opentelemetry_proto_metrics_v1_ExponentialHistogram_parse(), opentelemetry_proto_metrics_v1_ExponentialHistogram_parse_ex(), opentelemetry_proto_metrics_v1_ExponentialHistogramDataPoint_Buckets_new(), opentelemetry_proto_metrics_v1_ExponentialHistogramDataPoint_Buckets_parse() (+42 more)
+Cohesion: 0.14
+Nodes (50): upb_Message_Clear(), upb_Message_ClearExtension(), upb_Message_GetBool(), upb_Message_GetDouble(), _upb_Message_GetExtensionField(), upb_Message_GetField(), upb_Message_GetFloat(), upb_Message_GetInt32() (+42 more)
 
 ### Community 13 - "upb StringView & AnyValue"
 Cohesion: 0.04
@@ -416,807 +451,887 @@ Cohesion: 0.1
 Nodes (38): upb_free(), upb_gfree(), upb_gmalloc(), upb_grealloc(), upb_malloc(), upb_realloc(), _upb_Arena_AddBlock(), _upb_Arena_AllocBlock() (+30 more)
 
 ### Community 16 - "upb Message Clear & Compare"
-Cohesion: 0.09
-Nodes (45): upb_Message_GetMutableArray(), upb_Array_MutableDataPtr(), opentelemetry_proto_common_v1_ArrayValue_mutable_values(), opentelemetry_proto_common_v1_EntityRef_mutable_description_keys(), opentelemetry_proto_common_v1_EntityRef_mutable_id_keys(), opentelemetry_proto_common_v1_InstrumentationScope_mutable_attributes(), opentelemetry_proto_common_v1_KeyValueList_mutable_values(), opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_mutable_resource_logs() (+37 more)
+Cohesion: 0.12
+Nodes (36): upb_BigEndian32(), upb_BigEndian64(), upb_IsLittleEndian(), upb_MiniTableField_IsPacked(), _upb_mapsorter_destroy(), _upb_mapsorter_init(), _upb_mapsorter_popmap(), _upb_sortedmap_nextext() (+28 more)
 
 ### Community 17 - "upb Mini Table Encoder"
-Cohesion: 0.14
-Nodes (40): upb_MiniTableEnum_CheckValue(), upb_Decoder_AddKnownMessageSetItem(), upb_Decoder_AddMessageSetItem(), upb_Decoder_AddUnknownMessageSetItem(), _upb_Decoder_AddUnknownVarints(), _upb_Decoder_CheckEnum(), _upb_Decoder_CheckRequired(), _upb_Decoder_CreateArray() (+32 more)
-
-### Community 18 - "upb Field & Extension Lookup"
-Cohesion: 0.13
-Nodes (38): upb_BigEndian32(), upb_BigEndian64(), upb_IsLittleEndian(), upb_MiniTableField_Number(), _upb_mapsorter_destroy(), _upb_mapsorter_init(), _upb_mapsorter_popmap(), _upb_sortedmap_nextext() (+30 more)
-
-### Community 19 - "OTLP Collector Service"
-Cohesion: 0.07
-Nodes (35): _coerce(), load(), _parse_mapping(), _parse_sequence(), _parse_value(), parse_yaml(), Profile, Remove trailing # comment, respecting quoted strings. (+27 more)
-
-### Community 20 - "Design Decisions & ICPs"
 Cohesion: 0.05
 Nodes (39): 10. What this document does not cover, 1.1 Goals, 1.2 Explicit non-goals, 1. Goals and non-goals, 2.1 Request HEADERS frame, 2.2 Request DATA frames — gRPC framing, 2.3 Response DATA frames — parsing, 2.4 Trailer HEADERS frame — status (+31 more)
 
-### Community 21 - "upb String Table"
+### Community 18 - "upb Field & Extension Lookup"
 Cohesion: 0.05
 Nodes (39): upb_Message_ResizeArrayUninitialized(), opentelemetry_proto_common_v1_ArrayValue_resize_values(), opentelemetry_proto_common_v1_EntityRef_resize_description_keys(), opentelemetry_proto_common_v1_EntityRef_resize_id_keys(), opentelemetry_proto_common_v1_InstrumentationScope_resize_attributes(), opentelemetry_proto_common_v1_KeyValueList_resize_values(), opentelemetry_proto_logs_v1_LogRecord_resize_attributes(), opentelemetry_proto_logs_v1_LogsData_resize_resource_logs() (+31 more)
 
-### Community 22 - "upb Map Sorting"
+### Community 19 - "OTLP Collector Service"
 Cohesion: 0.09
 Nodes (31): Close(), Connect(), DrainCancelQueue(), DrainPendingRequests(), FulfillStream(), Http2Handshake(), Http2Transport(), IoThreadLoop() (+23 more)
 
-### Community 23 - "CI Header Check & Wire Codec"
+### Community 20 - "Design Decisions & ICPs"
 Cohesion: 0.1
 Nodes (25): ControlClient, Client for the emit-app TCP ndjson control socket on port 19090., Send a run command and return the parsed RunResult., Send a flush command and return {"flush_ns": N}., Send quit and wait for acknowledgement., _build_sut_image(), _create_network(), _detect_engine() (+17 more)
 
-### Community 24 - "Test Fakes & Diagnostics"
+### Community 21 - "upb String Table"
 Cohesion: 0.05
 Nodes (37): 10. Tier-promotion gates, 11. Decision log, 12. Open roadmap questions, 13. References, 1. How to read this document, 2. Versioning and maintenance policy, 3. Compatibility tier progression, 4. Release themes (+29 more)
 
-### Community 25 - "upb Extension & String Table"
-Cohesion: 0.1
-Nodes (34): build_image(), create_network(), detect_engine(), _image_id(), Poll host:port until a TCP connection succeeds or timeout expires., Poll an HTTP endpoint until it returns 200 or timeout expires., Return 'podman' or 'docker' based on preference and availability., Build a container image; return the image ID (sha256:...). (+26 more)
-
-### Community 26 - "Proto Array Resize"
+### Community 22 - "upb Map Sorting"
 Cohesion: 0.14
-Nodes (33): begin(), check(), findentry_mutable(), init(), inthash(), intkey(), inttable_val(), inttable_val_const() (+25 more)
+Nodes (35): Encode(), EncodeAnyValueBool(), EncodeAnyValueDouble(), EncodeAnyValueInt(), EncodeAnyValueStr(), EncodeArrayBool(), EncodeArrayDouble(), EncodeArrayInt() (+27 more)
 
-### Community 27 - "Epoll Reactor"
-Cohesion: 0.12
-Nodes (34): EncodeAnyValueBool(), EncodeAnyValueDouble(), EncodeAnyValueInt(), EncodeAnyValueStr(), EncodeArrayBool(), EncodeArrayDouble(), EncodeArrayInt(), EncodeArrayStr() (+26 more)
+### Community 23 - "CI Header Check & Wire Codec"
+Cohesion: 0.15
+Nodes (32): begin(), check(), findentry_mutable(), init(), inthash(), intkey(), inttable_val(), inttable_val_const() (+24 more)
 
-### Community 28 - "HTTP/2 Transport Design"
-Cohesion: 0.08
-Nodes (27): check_prerequisites(), find_flamegraph_dir(), FlameGraphRecorder, _generate_svg(), perf_image_name(), Launch perf record inside the container targeting PID 1 (the SUT)., Send SIGINT to perf so it flushes perf.data and exits cleanly.          Returns, Stop recording and generate an SVG flamegraph.          Returns the path to the (+19 more)
-
-### Community 29 - "Proto Mutable Array Access"
-Cohesion: 0.09
-Nodes (28): decode_newmsg_ceil(), fastdecode_checktag(), fastdecode_commitarr(), fastdecode_dispatch(), fastdecode_fieldmem(), fastdecode_flippacked(), fastdecode_getfield(), fastdecode_isdonefallback() (+20 more)
-
-### Community 30 - "SDK Builder & Log Sink"
+### Community 24 - "Test Fakes & Diagnostics"
 Cohesion: 0.06
 Nodes (33): 10. What this document does not cover, 1. Purpose and authority, 2. Ownership taxonomy, 3.1 upb arena scope (LOCKED), 3.2 `EncodedPayload` shape (LOCKED), 3.3 Lifetime of `EncodedPayload`, 3.4 What is not in this header, 3. The encoder boundary — upb arena and `EncodedPayload` (+25 more)
 
-### Community 31 - "upb String Table Iteration"
+### Community 25 - "upb Extension & String Table"
 Cohesion: 0.06
 Nodes (32): 10. Roadmap, 11. Anti-Goals (Things The Harness Will *Not* Do), 12. Open Questions, 13. References, 1. Purpose, 2. Design Principles, 3.1 The SUT (system-under-test), 3.2 The sink (+24 more)
 
+### Community 26 - "Proto Array Resize"
+Cohesion: 0.14
+Nodes (26): UPB_PRIVATE(), upb_Message_IsFrozen(), UPB_PRIVATE(), upb_Message_SetMapEntry(), upb_Message_ShallowClone(), upb_Message_ShallowCopy(), upb_Message_DeleteUnknown(), _upb_Message_DiscardUnknown_shallow() (+18 more)
+
+### Community 27 - "Epoll Reactor"
+Cohesion: 0.16
+Nodes (30): upb_Decoder_AddKnownMessageSetItem(), upb_Decoder_AddMessageSetItem(), upb_Decoder_AddUnknownMessageSetItem(), _upb_Decoder_AddUnknownVarints(), _upb_Decoder_CheckRequired(), _upb_Decoder_CreateArray(), _upb_Decoder_CreateMap(), upb_Decoder_Decode() (+22 more)
+
+### Community 28 - "HTTP/2 Transport Design"
+Cohesion: 0.08
+Nodes (26): opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_clear_error_message(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_clear_rejected_log_records(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_error_message(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_new(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_parse(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_parse_ex(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_rejected_log_records(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_set_error_message() (+18 more)
+
+### Community 29 - "Proto Mutable Array Access"
+Cohesion: 0.08
+Nodes (25): opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_clear_error_message(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_clear_rejected_spans(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_error_message(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_new(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_parse(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_parse_ex(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_rejected_spans(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_set_error_message() (+17 more)
+
+### Community 30 - "SDK Builder & Log Sink"
+Cohesion: 0.08
+Nodes (25): opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_clear_error_message(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_clear_rejected_data_points(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_error_message(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_new(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_parse(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_parse_ex(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_rejected_data_points(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_set_error_message() (+17 more)
+
+### Community 31 - "upb String Table Iteration"
+Cohesion: 0.11
+Nodes (29): _assemble_html(), _binary_size(), _flush_latency(), _has_byte_data(), _latency_bar(), Return True if any SUT has wire_bytes_per_span summary data., Return a spans/sec bar chart, or None when data is unavailable., Return a throughput bar chart (Mbps), or None when data is unavailable. (+21 more)
+
 ### Community 32 - "upb MiniTable Field Metadata"
-Cohesion: 0.12
-Nodes (26): upb_strtable_done(), upb_strtable_iter_isequal(), upb_strtable_iter_value(), upb_strtable_remove2(), upb_strtable_setentryvalue(), str_tabent(), upb_strtable_remove(), _upb_Map_Clear() (+18 more)
-
-### Community 33 - "Test Taxonomy & Interfaces"
-Cohesion: 0.13
-Nodes (23): UPB_PRIVATE(), upb_Message_LogNewMessage(), upb_MiniTable_FieldCount(), upb_MiniTable_FieldIsLinked(), upb_MiniTable_FullName(), upb_MiniTable_GetFieldByIndex(), upb_MiniTable_GetSubEnumTable(), upb_MiniTable_GetSubMessageTable() (+15 more)
-
-### Community 34 - "upb MiniTable Message Metadata"
-Cohesion: 0.09
-Nodes (24): opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_clear_error_message(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_clear_rejected_log_records(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_error_message(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_new(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_parse(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_parse_ex(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_rejected_log_records(), opentelemetry_proto_collector_logs_v1_ExportLogsPartialSuccess_set_error_message() (+16 more)
-
-### Community 35 - "Vendored Proto Files"
-Cohesion: 0.09
-Nodes (24): opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_clear_error_message(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_clear_rejected_data_points(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_error_message(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_new(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_parse(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_parse_ex(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_rejected_data_points(), opentelemetry_proto_collector_metrics_v1_ExportMetricsPartialSuccess_set_error_message() (+16 more)
-
-### Community 36 - "gRPC Wire Protocol"
-Cohesion: 0.09
-Nodes (24): opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_clear_error_message(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_clear_rejected_spans(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_error_message(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_new(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_parse(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_parse_ex(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_rejected_spans(), opentelemetry_proto_collector_trace_v1_ExportTracePartialSuccess_set_error_message() (+16 more)
-
-### Community 37 - "upb Hash Values"
 Cohesion: 0.1
 Nodes (21): _parse_counter(), Sum all samples of a Prometheus counter across all label sets., Client for the blackhole-sink /stats and /reset endpoints., GET /stats — returns snapshot with mode='blackhole'., POST /reset — zero all counters., GET /health — returns True if sink responds 200., SinkClient, _FakeHTTPServer (+13 more)
 
-### Community 38 - "SDK Interface Mocks"
-Cohesion: 0.16
-Nodes (24): upb_Message_SetMessage(), UPB_PRIVATE(), upb_Message_IsFrozen(), UPB_PRIVATE(), upb_Message_DeleteUnknown(), _upb_Message_DiscardUnknown_shallow(), upb_Message_GetUnknown(), upb_Message_New() (+16 more)
+### Community 33 - "Test Taxonomy & Interfaces"
+Cohesion: 0.15
+Nodes (24): upb_StringView_FromDataAndSize(), upb_MiniTableExtension_GetSubMessage(), upb_MiniTableField_Number(), upb_MiniTable_FieldCount(), upb_MiniTable_GetFieldByIndex(), upb_MiniTable_MapKey(), upb_MiniTable_MapValue(), upb_Array_DeepClone() (+16 more)
 
-### Community 39 - "upb Message Equality"
-Cohesion: 0.12
-Nodes (23): UPB_PRIVATE(), upb_UnknownField_Compare(), upb_UnknownField_DoCompare(), upb_UnknownFields_Build(), upb_UnknownFields_DoBuild(), upb_UnknownFields_Grow(), upb_UnknownFields_IsEqual(), upb_UnknownFields_Merge() (+15 more)
-
-### Community 40 - "UTF-8 Validation"
+### Community 34 - "upb MiniTable Message Metadata"
 Cohesion: 0.1
 Nodes (17): AlwaysOffSampler, AlwaysOnSampler, Get(), MakeAlwaysOnSampler(), ParentBasedSampler, TraceIdRatioSampler, Build(), BuildConnectOptions() (+9 more)
 
-### Community 41 - "Simple Span Processor"
+### Community 35 - "Vendored Proto Files"
 Cohesion: 0.07
 Nodes (27): 10. Thread-safety category for every public type, 11. What this document does not cover, 1. Purpose and authority, 2.1 Caller thread (any application thread), 2.2 Exporter worker thread (one per `Provider`), 2.3 I/O thread (one per process), 2. The three threads, 3.1 Caller → exporter worker — the span queue (+19 more)
 
-### Community 42 - "Trace IDs & Flags"
+### Community 36 - "gRPC Wire Protocol"
 Cohesion: 0.07
 Nodes (27): 10. What this document does not cover, 1. Purpose and authority, 2.1 Initialisation regime — `microtel::Expected<T, E>` (LOCKED), 2.2 Hot-path regime — `noexcept` and drop-and-count (LOCKED), 2.3 Lifecycle regime — structured `Status` (LOCKED), 2. The three error regimes, 3. Drop-counter enum (LOCKED), 4.1 `microtel::Error` — runtime error description (+19 more)
 
-### Community 43 - "HTTP Wire Codec Design"
+### Community 37 - "upb Hash Values"
+Cohesion: 0.13
+Nodes (24): upb_strtable_clear(), upb_strtable_init(), upb_strtable_remove2(), upb_strtable_setentryvalue(), _upb_Map_Clear(), _upb_Map_CTypeSize(), _upb_Map_Delete(), _upb_map_fromvalue() (+16 more)
+
+### Community 38 - "SDK Interface Mocks"
 Cohesion: 0.13
 Nodes (21): droppedCounts, histogram, bucketFor(), emitRecord(), emitRequest(), emitSpan(), envOr(), handleRun() (+13 more)
 
-### Community 44 - "upb Hash Table Internals"
+### Community 39 - "upb Message Equality"
 Cohesion: 0.07
 Nodes (26): Adding new system dependencies to CI, Authoritative documents, Build & test, clang-tidy, code:bash (cmake --preset Release), code:bash (CLANG_FORMAT=clang-format ci/scripts/format-check.sh), code:bash (cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMIC), Current phase: check before you act (+18 more)
 
-### Community 45 - "upb OneOf & MiniTable Compat"
-Cohesion: 0.16
-Nodes (23): fastdecode_delimited(), fastdecode_longsize(), _upb_Decoder_IsDone(), _upb_Decoder_DecodeEnumPacked(), _upb_Decoder_DecodeFixedPacked(), _upb_Decoder_DecodeVarintPacked(), _upb_Decoder_Reserve(), upb_EpsCopyInputStream_AliasingAvailable() (+15 more)
-
-### Community 46 - "Config & Auth Providers"
+### Community 40 - "UTF-8 Validation"
 Cohesion: 0.08
 Nodes (25): 1. Precedence, 2.1 Code, 2.2 Environment variables, 2.3 `microtel.toml`, 2.4 Built-in defaults, 2. Sources, 3.10 Sampling, 3.11 Logging (+17 more)
 
-### Community 47 - "upb MiniTable File API"
+### Community 41 - "Simple Span Processor"
 Cohesion: 0.09
 Nodes (24): opentelemetry_proto_metrics_v1_Gauge_data_points(), opentelemetry_proto_metrics_v1_Histogram_aggregation_temporality(), opentelemetry_proto_metrics_v1_Histogram_data_points(), opentelemetry_proto_metrics_v1_HistogramDataPoint_bucket_counts(), opentelemetry_proto_metrics_v1_HistogramDataPoint_count(), opentelemetry_proto_metrics_v1_HistogramDataPoint_explicit_bounds(), opentelemetry_proto_metrics_v1_HistogramDataPoint_max(), opentelemetry_proto_metrics_v1_HistogramDataPoint_min() (+16 more)
 
-### Community 48 - "Exporter Interface & Tests"
+### Community 42 - "Trace IDs & Flags"
+Cohesion: 0.1
+Nodes (24): opentelemetry_proto_common_v1_AnyValue_bool_value(), opentelemetry_proto_common_v1_AnyValue_double_value(), opentelemetry_proto_trace_v1_Span_attributes(), opentelemetry_proto_trace_v1_Span_end_time_unix_nano(), opentelemetry_proto_trace_v1_Span_Event_attributes(), opentelemetry_proto_trace_v1_Span_Event_name(), opentelemetry_proto_trace_v1_Span_Event_time_unix_nano(), opentelemetry_proto_trace_v1_Span_events() (+16 more)
+
+### Community 43 - "HTTP Wire Codec Design"
+Cohesion: 0.13
+Nodes (24): _coerce(), load(), _parse_mapping(), _parse_sequence(), _parse_value(), parse_yaml(), Profile, Remove trailing # comment, respecting quoted strings. (+16 more)
+
+### Community 44 - "upb Hash Table Internals"
 Cohesion: 0.15
 Nodes (15): control_loop(), DroppedCounts, emit_request(), emit_span(), env_or(), EnvOr(), handle_run(), Histogram (+7 more)
 
-### Community 49 - "OTLP Encoder Tests"
+### Community 45 - "upb OneOf & MiniTable Compat"
+Cohesion: 0.13
+Nodes (19): fastdecode_checktag(), fastdecode_commitarr(), fastdecode_dispatch(), fastdecode_fieldmem(), fastdecode_flippacked(), fastdecode_getfield(), fastdecode_isdonefallback(), fastdecode_longstring_noutf8() (+11 more)
+
+### Community 46 - "Config & Auth Providers"
 Cohesion: 0.17
 Nodes (21): check(), _check_drop_rate(), _check_latency(), format_report(), Compare current results against a baseline document.      For each SUT present i, Return a human-readable regression report string., _make_doc(), _make_sut() (+13 more)
 
-### Community 50 - "API Design Decisions"
+### Community 47 - "upb MiniTable File API"
 Cohesion: 0.09
 Nodes (10): Counter, ExponentialHistogram, Gauge, Histogram, Meter, ObservableCounter, ObservableGauge, ObservableResult (+2 more)
 
-### Community 51 - "Epoll Reactor Tests"
-Cohesion: 0.16
-Nodes (17): upb_StringView_FromDataAndSize(), upb_Message_Clear(), upb_MiniTableExtension_GetSubMessage(), upb_Array_DeepClone(), upb_Clone_ExtensionValue(), upb_Clone_MessageValue(), upb_Clone_StringView(), upb_Map_DeepClone() (+9 more)
+### Community 48 - "Exporter Interface & Tests"
+Cohesion: 0.15
+Nodes (22): _build_cdf_points(), _latency_cdf(), Return a CDF figure, or None if no sample has latency_histogram data., Convert power-of-2 bucket counts to (x_ns, cumulative_pct) series.      Bucket i, Return a wire-bytes bar chart, or None when byte data is unavailable., _wire_bytes(), _hist(), _make_sample() (+14 more)
 
-### Community 52 - "Clock Interfaces"
+### Community 49 - "OTLP Encoder Tests"
+Cohesion: 0.12
+Nodes (19): check_prerequisites(), find_flamegraph_dir(), perf_image_name(), Return the first directory that contains both FlameGraph Perl scripts., Return a list of unmet prerequisite descriptions; empty means all good., Return the :perf tag for a given base image name.      Examples::          perf_, _FakeEngine, Substitute for docker/podman: returns canned perf script output. (+11 more)
+
+### Community 50 - "API Design Decisions"
 Cohesion: 0.1
 Nodes (20): code:block1 (src_changed = git diff --name-only origin/main HEAD -- 'src/), code:markdown (![build](https://github.com/<org>/microtel/actions/workflows), code:bash (# install pre-commit hooks), `.github/workflows/build-and-test.yml`, `.github/workflows/coverage.yml`, `.github/workflows/fuzz-smoke.yml` and `fuzz-soak.yml`, `.github/workflows/license-scan.yml`, `.github/workflows/proto-regen-check.yml` (+12 more)
 
-### Community 53 - "Span Processor Interface"
+### Community 51 - "Epoll Reactor Tests"
+Cohesion: 0.1
+Nodes (20): §10 spdlog bridge adapter (L6), §1 Pipeline shape, §2 Log record processor, §3 Log exporter, §4 Trace correlation, §5 Attribute limits & drop accounting, §6 Batching, memory & threading model, §7 Wire mapping (+12 more)
+
+### Community 52 - "Clock Interfaces"
 Cohesion: 0.11
 Nodes (17): opentelemetry_proto_resource_v1_Resource_add_entity_refs(), opentelemetry_proto_resource_v1_Resource_attributes(), _opentelemetry_proto_resource_v1_Resource_attributes_mutable_upb_array(), _opentelemetry_proto_resource_v1_Resource_attributes_upb_array(), opentelemetry_proto_resource_v1_Resource_clear_attributes(), opentelemetry_proto_resource_v1_Resource_clear_dropped_attributes_count(), opentelemetry_proto_resource_v1_Resource_clear_entity_refs(), opentelemetry_proto_resource_v1_Resource_dropped_attributes_count() (+9 more)
 
+### Community 53 - "Span Processor Interface"
+Cohesion: 0.18
+Nodes (17): fastdecode_delimited(), fastdecode_longsize(), _upb_Decoder_ReadString(), upb_EpsCopyInputStream_AliasingAvailable(), upb_EpsCopyInputStream_CheckDataSizeAvailable(), upb_EpsCopyInputStream_CheckSize(), _upb_EpsCopyInputStream_CheckSizeAvailable(), upb_EpsCopyInputStream_CheckSubMessageSizeAvailable() (+9 more)
+
 ### Community 54 - "Transport Interface"
-Cohesion: 0.1
-Nodes (19): 1. Purpose and audience, 2. Layered structure, 3.1 API — `src/api/`, public headers in `include/microtel/`, 3.2 SDK — `src/sdk/`, 3.3 Exporter — `src/exporter/`, 3.4 OTLP Encoder — `src/wire/encoder/`, 3.5 Wire codecs — `src/wire/http/`, `src/wire/grpc/`, 3.6 Transport — `src/transport/` (+11 more)
+Cohesion: 0.14
+Nodes (18): build_image(), create_network(), detect_engine(), _image_id(), Poll host:port until a TCP connection succeeds or timeout expires., Poll an HTTP endpoint until it returns 200 or timeout expires., Return 'podman' or 'docker' based on preference and availability., Build a container image; return the image ID (sha256:...). (+10 more)
 
 ### Community 55 - "Batch & Span Events"
-Cohesion: 0.12
-Nodes (9): CollectorSinkClient, Scrape Prometheus metrics endpoint and parse accepted/refused totals., Prometheus-scrape client for the otel-collector sink.      Uses a two-scrape bra, Record the current Prometheus counter values as the baseline., Scrape Prometheus and return delta since last reset().          Returns a dict w, GET /health — returns True if the collector health endpoint responds 200., BucketFor(), Max() (+1 more)
+Cohesion: 0.1
+Nodes (19): 1. Purpose and audience, 2. Layered structure, 3.1 API — `src/api/`, public headers in `include/microtel/`, 3.2 SDK — `src/sdk/`, 3.3 Exporter — `src/exporter/`, 3.4 OTLP Encoder — `src/wire/encoder/`, 3.5 Wire codecs — `src/wire/http/`, `src/wire/grpc/`, 3.6 Transport — `src/transport/` (+11 more)
 
 ### Community 56 - "Parent-Based Sampler Tests"
 Cohesion: 0.12
 Nodes (18): API, API preview, Benchmarks, Build, code:cpp (#include <microtel/tracer.hpp>), code:cpp (#include <microtel/meter.hpp>), code:bash (cmake -S . -B build -DMICROTEL_BUILD_TESTS=ON), code:bash (cmake -S . -B build-asan -DMICROTEL_SANITIZER=asan -DMICROTE) (+10 more)
 
 ### Community 57 - "Public Sampler API"
-Cohesion: 0.18
-Nodes (15): strcopy(), strhash(), strkey2(), _upb_Hash_NoSeed(), upb_strtable_insert(), upb_strtable_lookup2(), upb_strtable_lookup(), upb_MiniTableExtension_Number() (+7 more)
-
-### Community 58 - "Internal Sampler Interface"
-Cohesion: 0.14
-Nodes (15): upb_Message_ClearOneof(), upb_Message_SetClosedEnum(), upb_Message_WhichOneof(), upb_Message_WhichOneofFieldNumber(), upb_MiniTableField_IsClosedEnum(), upb_MiniTableField_IsInOneof(), upb_MiniTableField_IsMap(), upb_MiniTableField_IsPacked() (+7 more)
-
-### Community 59 - "upb Decode Depth Limit"
-Cohesion: 0.16
-Nodes (11): ClockNow(), DrainQueue(), DrawJitter01(), FanOutAndProcess(), OtlpExporter(), RunRetryLoop(), Shutdown(), WorkerLoop() (+3 more)
-
-### Community 60 - "upb Encode Depth Limit"
 Cohesion: 0.15
 Nodes (11): HasEvent(), IReactor, Create(), DispatchOneEvent(), EpollReactor, FromEpollEvents(), Modify(), OsError() (+3 more)
 
-### Community 61 - "Trace Ratio Sampler Tests"
+### Community 58 - "Internal Sampler Interface"
+Cohesion: 0.16
+Nodes (11): ClockNow(), DrainQueue(), DrawJitter01(), FanOutAndProcess(), OtlpExporter(), RunRetryLoop(), Shutdown(), WorkerLoop() (+3 more)
+
+### Community 59 - "upb Decode Depth Limit"
 Cohesion: 0.19
 Nodes (16): capture(), _cpu_governor(), _cpu_model(), _engine_version(), EnvFingerprint, _hyperthreading(), _physical_cores(), Return a list of warning strings for env-guard violations. (+8 more)
 
-### Community 62 - "Mock Span Processor"
+### Community 60 - "upb Encode Depth Limit"
 Cohesion: 0.11
 Nodes (17): 1. Top-level layout, 2. State by milestone, 3. Ownership: which file goes WHERE, 4. What's committed vs generated, 5. Per-directory READMEs, 6. Maintenance, code:block1 (microtel/), code:block2 (microtel/) (+9 more)
 
+### Community 61 - "Trace Ratio Sampler Tests"
+Cohesion: 0.19
+Nodes (14): strcopy(), strkey2(), _upb_Hash(), _upb_Hash_NoSeed(), upb_strtable_insert(), upb_strtable_lookup2(), upb_strtable_resize(), upb_MiniTableExtension_Number() (+6 more)
+
+### Community 62 - "Mock Span Processor"
+Cohesion: 0.24
+Nodes (16): _binary_bytes(), _build_images(), _build_sink_image(), _collect_sut_results(), _log(), main(), _otlp_endpoint(), _parse_args() (+8 more)
+
 ### Community 63 - "Fake Span Processor"
-Cohesion: 0.32
-Nodes (15): upb_Array_IsFrozen(), upb_Array_Reserve(), upb_Array_Size(), UPB_PRIVATE(), upb_Array_Append(), upb_Array_Delete(), upb_Array_Freeze(), upb_Array_Get() (+7 more)
-
-### Community 64 - "W3C Propagator"
-Cohesion: 0.2
-Nodes (16): _flush_latency(), Return a flush-latency bar chart, or None when flush data is unavailable., build_results(), _delivery_rate_from_sink(), _drop_rate(), _drop_sum(), _pct(), Return the p-th percentile (0..1) of a sorted or unsorted list. (+8 more)
-
-### Community 65 - "Provider Public API"
 Cohesion: 0.12
 Nodes (16): §10 Wire mapping, §11 Configuration & compatibility, §1 Aggregation temporality, §2 Cardinality limits, §3 Histogram bucket configuration, §4 Async-instrument callback semantics, §5 MetricReader / MetricExporter interaction, §6 Views (+8 more)
 
-### Community 66 - "Error Types"
+### Community 64 - "W3C Propagator"
 Cohesion: 0.12
 Nodes (16): Affected files, code:block1 (error: 'expected' in namespace 'std' does not name a templat), code:cpp (#if __cplusplus >= 202302L), Compile-time vs runtime closure, Created, Decision, ICP 0002: Vendor `tl::expected` as `microtel::Expected`, Migration (+8 more)
 
-### Community 67 - "Public Span API"
+### Community 65 - "Provider Public API"
 Cohesion: 0.12
 Nodes (16): 1. `microtel-spec.md` §13 M7 row, 2. `microtel-roadmap.md`, 3. `docs/bench-spec.md`, 4. Root `CMakeLists.txt`, 5. `.github/workflows/benchmark.yml` (new file), Alternative A: Keep separate repo (spec as written), Alternative B: In-repo, always built (`MICROTEL_BUILD_BENCH` always ON), code:cmake (option(MICROTEL_BUILD_BENCH "Build the benchmark harness (re) (+8 more)
 
-### Community 68 - "Tracer Public API"
+### Community 66 - "Error Types"
 Cohesion: 0.12
 Nodes (16): Annotations, code:block1 (Caller A         Caller B          Span Queue (capacity 8192), code:block2 (Caller A         Span Queue (depth = 8192)        Diagnostic), code:block3 (Caller A          Worker (drains opportunistically)         ), code:block4 (Caller          Span Queue                    Diagnostics), code:block5 (Caller             Span object                        Diagno), code:cpp (auto health = provider->GetExporterHealth();), Edge cases captured by tests (+8 more)
 
+### Community 67 - "Public Span API"
+Cohesion: 0.12
+Nodes (8): CreateUpDownCounter<double>(), DoCreateUpDownCounterDouble(), SdkCounter, SdkExponentialHistogram, SdkGauge, SdkHistogram, SdkObservableResultAdapter, SdkUpDownCounter
+
+### Community 68 - "Tracer Public API"
+Cohesion: 0.16
+Nodes (13): streql(), strhash(), upb_tabstr(), upb_tabstrview(), upb_value_double(), upb_value_float(), upb_value_setdouble(), upb_value_setfloat() (+5 more)
+
 ### Community 69 - "Resource Public API"
-Cohesion: 0.17
-Nodes (13): streql(), upb_strtable_iter_key(), upb_tabstr(), upb_tabstrview(), upb_value_double(), upb_value_float(), upb_value_setdouble(), upb_value_setfloat() (+5 more)
+Cohesion: 0.22
+Nodes (15): UPB_PRIVATE(), upb_UnknownField_Compare(), upb_UnknownField_DoCompare(), upb_UnknownFields_Build(), upb_UnknownFields_DoBuild(), upb_UnknownFields_Grow(), upb_UnknownFields_IsEqual(), upb_UnknownFields_Merge() (+7 more)
 
 ### Community 70 - "Diagnostics Sink Interface"
-Cohesion: 0.12
-Nodes (8): CreateObservableUpDownCounter<double>(), DoCreateObservableUpDownCounterDouble(), SdkCounter, SdkExponentialHistogram, SdkGauge, SdkHistogram, SdkObservableResultAdapter, SdkUpDownCounter
+Cohesion: 0.23
+Nodes (15): _upb_Decoder_IsDone(), upb_MiniTableEnum_CheckValue(), _upb_Decoder_CheckEnum(), _upb_Decoder_DecodeEnumArray(), _upb_Decoder_DecodeEnumPacked(), _upb_Decoder_DecodeFixedPacked(), _upb_Decoder_DecodeToArray(), _upb_Decoder_DecodeVarintPacked() (+7 more)
 
 ### Community 71 - "Exporter Interface"
 Cohesion: 0.12
-Nodes (15): 11. Project Structure, 15.1 OTel API/SDK compatibility (Tier 3), 15.2 Collector / backend interop, 15. Compatibility & Interop Matrix, 16. Risks, 17. Open Questions, 19. Governance, 1. Summary (+7 more)
+Nodes (15): 11. Project Structure, 16. Risks, 17. Open Questions, 19. Governance, 1. Summary, 20. References, 2.1 Goals, 2.2 Compatibility tiers (+7 more)
 
 ### Community 72 - "Auth Provider Interface"
 Cohesion: 0.12
 Nodes (15): Branch Protection and Repository Settings, code:block1 ([ ] Make repo public), Layer 1: Documentation signals (already in place), Layer 2: Branch protection on `main`, Layer 3: Repository settings, Layer 4: CODEOWNERS as the routing layer, Layer 5: GitHub Actions permissions, Layer 6: Issue & PR templates (+7 more)
 
 ### Community 73 - "Resource Detector Interface"
+Cohesion: 0.15
+Nodes (7): GetMeter(), MetricProducer, PeriodicExportingMetricReader, SdkMeter, SdkProvider, Shutdown(), ToAggregationTemporality()
+
+### Community 74 - "Encoded Payload Type"
 Cohesion: 0.21
 Nodes (11): handleHealth(), handleReset(), handleStats(), NewHandler(), ConfigError, Error, countSpans(), makeStubHandler() (+3 more)
 
-### Community 74 - "Encoded Payload Type"
+### Community 75 - "upb Extension Internals"
 Cohesion: 0.28
 Nodes (14): buildTraceRequest(), newTestHandler(), TestHTTP_EmptyBody_ZeroSpans(), TestHTTP_InvalidProto_Returns400(), TestHTTP_LogsStub_Returns200(), TestHTTP_LogsStub_Returns200AndCounts(), TestHTTP_MetricsStub_Returns200(), TestHTTP_MetricsStub_Returns200AndCounts() (+6 more)
 
-### Community 75 - "upb Extension Internals"
+### Community 76 - "upb Atomic Port"
+Cohesion: 0.24
+Nodes (14): build_results(), _delivery_rate_from_sink(), _drop_rate(), _drop_sum(), _pct(), Return the p-th percentile (0..1) of a sorted or unsorted list., Assemble the full results.json document from collected data., _render_md() (+6 more)
+
+### Community 77 - "OtlpEncoder Class"
 Cohesion: 0.13
 Nodes (14): Before you start, Code of conduct, code:bash (python3 -m venv ~/.venv), Commit messages, Contributing to microtel, Interface changes, License and DCO, Local knowledge graph (+6 more)
 
-### Community 76 - "upb Atomic Port"
+### Community 78 - "UniqueFd RAII"
 Cohesion: 0.13
 Nodes (14): Annotations, Annotations, Annotations across all shapes, code:block1 (I/O Thread        nghttp2                        Peer), code:block2 (I/O Thread       nghttp2                  Peer), code:block3 (I/O Thread       nghttp2                  Peer), code:block4 (I/O Thread        nghttp2                       Peer), Edge cases captured by tests (+6 more)
 
-### Community 77 - "OtlpEncoder Class"
-Cohesion: 0.23
-Nodes (13): _upb_Map_Size(), _upb_mapsorter_cmpbool(), _upb_mapsorter_cmpext(), _upb_mapsorter_cmpi32(), _upb_mapsorter_cmpi64(), _upb_mapsorter_cmpstr(), _upb_mapsorter_cmpu32(), _upb_mapsorter_cmpu64() (+5 more)
+### Community 79 - "upb Memory Alloc Impl"
+Cohesion: 0.24
+Nodes (10): upb_MiniTableField_HasPresence(), upb_MiniTableField_IsArray(), upb_MiniTableField_IsClosedEnum(), upb_MiniTableField_IsInOneof(), upb_MiniTableField_IsMap(), upb_MiniTableField_IsSubMessage(), upb_MiniTableField_Type(), UPB_PRIVATE() (+2 more)
 
-### Community 78 - "UniqueFd RAII"
+### Community 80 - "upb Message Value Type"
+Cohesion: 0.18
+Nodes (12): upb_strtable_done(), upb_strtable_iter_isequal(), upb_strtable_iter_key(), upb_strtable_iter_value(), upb_strtable_next(), str_tabent(), upb_strtable_lookup(), upb_strtable_remove() (+4 more)
+
+### Community 81 - "upb Size Log2 Table"
 Cohesion: 0.19
 Nodes (8): BatchSpanProcessor(), Context, ExportBatch(), JoinWithTimeout(), Shutdown(), Span, WaitAndCollect(), WorkerLoop()
 
-### Community 79 - "upb Memory Alloc Impl"
+### Community 82 - "upb vsnprintf Port"
 Cohesion: 0.31
 Nodes (12): AsSize(), ExponentialHistogramStorage<double>, ExponentialHistogramStorage<std::int64_t>, FloorDivPow2(), InsertValue(), LastIndex(), MapIndex(), MergedSpan() (+4 more)
 
-### Community 80 - "upb Message Value Type"
-Cohesion: 0.16
-Nodes (7): GetMeter(), MetricProducer, PeriodicExportingMetricReader, SdkMeter, SdkProvider, Shutdown(), ToAggregationTemporality()
-
-### Community 81 - "upb Size Log2 Table"
+### Community 83 - "AlwaysOn Sampler Tests"
 Cohesion: 0.34
 Nodes (13): CheckUnknown(), FindUnknownKey(), LoadToml(), ParseConfigSection(), ParseExporterHeaders(), ParseExporterSection(), ParseResourceSection(), ParseSdkSection() (+5 more)
 
-### Community 82 - "upb vsnprintf Port"
+### Community 84 - "AlwaysOff Sampler Tests"
 Cohesion: 0.14
 Nodes (14): 12.1 Precedence, 12.2 Endpoint conventions, 12.3 TLS, 12.4 Proxy, 12.5 Auth, 12.6 Secret redaction, 12.7 Resource attributes, 12.8 What's not in v1 (+6 more)
 
-### Community 83 - "AlwaysOn Sampler Tests"
+### Community 85 - "Mock Exporter"
+Cohesion: 0.15
+Nodes (13): CreateGauge<double>(), CreateGauge<std::int64_t>(), CreateObservableGauge<double>(), CreateObservableGauge<std::int64_t>(), CreateObservableUpDownCounter<std::int64_t>(), CreateUpDownCounter<std::int64_t>(), DoCreateGaugeDouble(), DoCreateGaugeI64() (+5 more)
+
+### Community 86 - "Mock Sampler"
+Cohesion: 0.27
+Nodes (10): upb_Message_SetClosedEnum(), upb_Message_LogNewMessage(), upb_MiniTable_FieldIsLinked(), upb_MiniTable_FullName(), upb_MiniTable_GetSubEnumTable(), upb_MiniTable_GetSubMessageTable(), upb_MiniTable_MapEntrySubMessage(), upb_MiniTable_SetFullName() (+2 more)
+
+### Community 87 - "Mock Transport"
+Cohesion: 0.28
+Nodes (10): upb_StringView_IsEqual(), _upb_Array_IsEqual(), _upb_Map_IsEqual(), _upb_Message_BaseFieldsAreEqual(), _upb_Message_ExtensionsAreEqual(), upb_Message_IsEmpty(), upb_Message_IsEqual(), upb_MessageValue_IsEqual() (+2 more)
+
+### Community 88 - "Fake Clock"
+Cohesion: 0.26
+Nodes (12): _upb_Map_Size(), _upb_mapsorter_cmpbool(), _upb_mapsorter_cmpext(), _upb_mapsorter_cmpi32(), _upb_mapsorter_cmpi64(), _upb_mapsorter_cmpstr(), _upb_mapsorter_cmpu32(), _upb_mapsorter_cmpu64() (+4 more)
+
+### Community 89 - "Fake Steady Clock"
 Cohesion: 0.19
 Nodes (7): MakeNoopHandle(), NoopSpan, GenerateSpanId(), GenerateTraceId(), SdkTracer(), StartAsCurrentSpan(), StartSpan()
 
-### Community 84 - "AlwaysOff Sampler Tests"
+### Community 90 - "Fake Diagnostics Sink"
 Cohesion: 0.23
 Nodes (7): AttributeSet, HashArray(), HashCombine(), HashOf(), HashPair(), HashPairs(), HashValue()
 
-### Community 85 - "Mock Exporter"
-Cohesion: 0.15
-Nodes (13): CreateCounter<std::int64_t>(), CreateGauge<double>(), CreateHistogram<double>(), CreateObservableCounter<std::int64_t>(), CreateObservableGauge<double>(), CreateUpDownCounter<double>(), DoCreateCounterI64(), DoCreateGaugeDouble() (+5 more)
-
-### Community 86 - "Mock Sampler"
+### Community 91 - "Fake Auth Provider"
 Cohesion: 0.21
-Nodes (8): buildControl(), buildGRPC(), buildHTTP(), main(), countSpans(), NewMetricHandler(), MetricHandler, TraceHandler
+Nodes (8): FlameGraphRecorder, _generate_svg(), Launch perf record inside the container targeting PID 1 (the SUT)., Send SIGINT to perf so it flushes perf.data and exits cleanly.          Returns, Stop recording and generate an SVG flamegraph.          Returns the path to the, Run perf script inside container, fold stacks, render SVG on host., Manages one perf record session inside a running SUT container.      The SUT pro, _warn()
 
-### Community 87 - "Mock Transport"
+### Community 92 - "Fake Resource Detector"
+Cohesion: 0.18
+Nodes (7): CollectorSinkClient, Scrape Prometheus metrics endpoint and parse accepted/refused totals., Prometheus-scrape client for the otel-collector sink.      Uses a two-scrape bra, Record the current Prometheus counter values as the baseline., Scrape Prometheus and return delta since last reset().          Returns a dict w, GET /health — returns True if the collector health endpoint responds 200., Max()
+
+### Community 93 - "Fake Exporter"
 Cohesion: 0.15
 Nodes (12): 10. Starting a session — checklist, 11. CODEOWNERS, 1. Purpose, 2. The six tracks, 3. Track A — Trace SDK, 4. Track B — OTLP/HTTP wire codec, 5. Track C — OTLP/gRPC wire codec, 6. Track D — Transport (foundational) (+4 more)
 
-### Community 88 - "Fake Clock"
+### Community 94 - "Fake Reactor"
 Cohesion: 0.15
 Nodes (12): Annotations, code:block1 (Caller        m_state       Exporter Worker        I/O Threa), code:block2 (Caller       m_state    Exporter Worker        I/O Thread), code:block3 (Caller       m_state), Edge cases captured by tests, Happy path — completes within timeout, Participants, Records arriving during shutdown (+4 more)
 
-### Community 89 - "Fake Steady Clock"
+### Community 95 - "Fake Transport"
 Cohesion: 0.15
 Nodes (12): Annotations on counter semantics, Annotations — why partial-success is **never retried**, code:block1 (Exporter Worker     Wire Codec        I/O Thread           P), code:block2 (Wire Codec (gRPC)), Edge cases captured by tests, Happy path — partial-success on OTLP/HTTP, Participants, Sequence: Partial Success Handling (+4 more)
 
-### Community 90 - "Fake Diagnostics Sink"
-Cohesion: 0.32
-Nodes (9): upb_StringView_IsEqual(), _upb_Array_IsEqual(), _upb_Map_IsEqual(), _upb_Message_BaseFieldsAreEqual(), _upb_Message_ExtensionsAreEqual(), upb_Message_IsEmpty(), upb_Message_IsEqual(), upb_MessageValue_IsEqual() (+1 more)
+### Community 96 - "Version Header"
+Cohesion: 0.21
+Nodes (11): upb_Message_ClearOneof(), upb_Message_WhichOneof(), upb_Message_WhichOneofFieldNumber(), upb_deep_check(), upb_MiniTable_Compatible(), upb_MiniTable_Equals(), upb_MiniTable_FindFieldByNumber(), opentelemetry_proto_common_v1_AnyValue_value_case() (+3 more)
 
-### Community 92 - "Fake Resource Detector"
-Cohesion: 0.32
-Nodes (11): Base64UrlEncode(), EncodeVarint(), FindHeader(), GrpcFrame(), GrpcStatusResponse(), GrpcSuccessResponse(), MakeConfig(), MakePayload() (+3 more)
+### Community 97 - "Status Header"
+Cohesion: 0.23
+Nodes (7): upb_WireReader_GetFieldNumber(), upb_WireReader_GetWireType(), UPB_PRIVATE(), upb_WireReader_ReadSize(), upb_WireReader_ReadVarint(), _upb_WireReader_SkipValue(), upb_WireReader_SkipVarint()
 
-### Community 93 - "Fake Exporter"
+### Community 99 - "Log Sink Header"
+Cohesion: 0.33
+Nodes (11): NewMetricHandler(), buildTraceRequest(), newMetricTestServer(), newTestServer(), TestGRPC_BytesRecorded(), TestGRPC_EmptyRequest_ZeroSpans(), TestGRPC_MetricExport_AccumulatesRequests(), TestGRPC_MetricExport_CountsRequestNotSpans() (+3 more)
+
+### Community 100 - "Attribute Header"
 Cohesion: 0.47
 Nodes (11): GetEnv(), OverlayEnv(), OverlayHeaders(), OverlayMetricInterval(), OverlayMetricTemporality(), OverlayProtocol(), OverlayResourceAttrs(), OverlayTimeout() (+3 more)
 
-### Community 94 - "Fake Reactor"
+### Community 101 - "Expected Type Header"
+Cohesion: 0.32
+Nodes (11): Base64UrlEncode(), EncodeVarint(), FindHeader(), GrpcFrame(), GrpcStatusResponse(), GrpcSuccessResponse(), MakeConfig(), MakePayload() (+3 more)
+
+### Community 102 - "Wire Result Type"
 Cohesion: 0.27
 Nodes (9): CreateListenSocket(), ExtractStringField(), ExtractUint64Field(), HandleRunCommand(), ProcessConnectionData(), RunControlLoop(), RunWorkload(), SerializeRunResult() (+1 more)
 
-### Community 95 - "Fake Transport"
+### Community 103 - "upb Generated Code Support"
 Cohesion: 0.17
 Nodes (12): 3.1 `EncodedPayload` — encoder output, 3.2 `WireResult` — wire codec output, 3.3 `BatchHandle` — exporter input, 3.4 `SamplingResult`, 3.5 `HealthSnapshot`, 3.6 Time and clock, 3. Cross-cutting value types, code:block1 (class EncodedPayload {) (+4 more)
 
-### Community 96 - "Version Header"
+### Community 104 - "upb Status Header"
 Cohesion: 0.17
 Nodes (11): 3.1 `SslCtx` ownership — per-`Transport`, 3.2 Unsampled-`Span` shape — `unique_ptr<Span>` to no-op singleton, 3.3 MPSC queue shape — stays deferred, code:cpp (namespace microtel), code:cpp (auto span = tracer->StartSpan("name");), Decisions, ICP 0003: M0 deferred decisions — `SslCtx` ownership, unsampled-`Span` shape, MPSC queue scope, Migration (+3 more)
 
-### Community 97 - "Status Header"
+### Community 105 - "upb Upcast Header"
 Cohesion: 0.17
 Nodes (11): Annotations, code:block1 (Exporter Worker      Wire Codec       I/O Thread        Peer), code:block2 (Exporter Worker      Wire Codec       I/O Thread       Peer), code:block3 (Exporter Worker (loop iteration N where retry_after > remain), Edge cases captured by tests, Happy path — retryable failure recovers on second attempt, Participants, Sequence: Retry After Failure (+3 more)
 
-### Community 98 - "Protocol Header"
+### Community 106 - "upb Int Table Header"
 Cohesion: 0.17
 Nodes (11): blackhole-sink, code:block1 (GET  /health   → 200 "ok"), code:bash (docker build -t blackhole-sink .), code:bash (go run ./cmd/blackhole-sink), code:bash (grpcurl -plaintext localhost:4317 list), Control API, gRPC reflection, Ports (+3 more)
 
-### Community 99 - "Log Sink Header"
-Cohesion: 0.22
-Nodes (10): upb_MiniTableField_IsArray(), upb_MiniTable_GetOneof(), upb_MiniTable_NextOneofField(), _upb_Decoder_CheckUnlinked(), _upb_Decoder_DecodeWireValue(), _upb_Decoder_GetDelimitedOp(), _upb_Decoder_GetVarintOp(), _upb_Decoder_MaybeVerifyUtf8() (+2 more)
-
-### Community 101 - "Expected Type Header"
+### Community 108 - "upb Array Header"
 Cohesion: 0.18
 Nodes (5): Counter, ExponentialHistogram, Gauge, Histogram, UpDownCounter
 
-### Community 102 - "Wire Result Type"
+### Community 109 - "upb Compat Header"
+Cohesion: 0.25
+Nodes (6): BatchLogRecordProcessor, ExportBatch(), JoinWithTimeout(), Shutdown(), WaitAndCollect(), WorkerLoop()
+
+### Community 110 - "upb Copy Header"
 Cohesion: 0.31
 Nodes (8): AddUniqueKeys(), CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealSumValues(), TEST()
 
-### Community 103 - "upb Generated Code Support"
-Cohesion: 0.38
-Nodes (10): buildTraceRequest(), newMetricTestServer(), newTestServer(), TestGRPC_BytesRecorded(), TestGRPC_EmptyRequest_ZeroSpans(), TestGRPC_MetricExport_AccumulatesRequests(), TestGRPC_MetricExport_CountsRequestNotSpans(), TestGRPC_MultipleRequests_Accumulate() (+2 more)
-
-### Community 104 - "upb Status Header"
+### Community 111 - "upb Merge Header"
 Cohesion: 0.18
 Nodes (10): Annotations, code:block1 (Exporter Worker     Wire Codec     I/O Thread     nghttp2   ), code:block2 (Exporter Worker     Wire Codec     I/O Thread       nghttp2 ), Edge cases captured by tests, Happy path — GOAWAY received between requests, Participants, Sequence: GOAWAY Handling, Variant — GOAWAY during shutdown (+2 more)
 
-### Community 105 - "upb Upcast Header"
+### Community 112 - "upb Message Header"
 Cohesion: 0.18
 Nodes (10): Annotations, code:block1 (PARENT), Edge cases captured by tests, Happy path, Participants, Sequence: Fork Survival, Variant — daemonisation (double fork), Variant — `vfork()` or `posix_spawn()` (+2 more)
 
-### Community 106 - "upb Int Table Header"
+### Community 113 - "upb Promote Header"
 Cohesion: 0.18
 Nodes (10): bench/driver — Python benchmark orchestrator, code:bash (# From the repo root via the shell wrapper:), code:block2 (--profile NAME    Workload profile (default: hot-loop-traces), code:bash (cd bench), Dependencies, Invocation, Module layout, Options (+2 more)
 
-### Community 107 - "upb Accessors Header"
+### Community 114 - "upb Tagged Ptr Header"
+Cohesion: 0.27
+Nodes (9): fastdecode_verifyutf8(), decode_totable(), decode_totablep(), _upb_Decoder_BufferFlipCallback(), _upb_Decoder_VerifyUtf8Inline(), _upb_FastDecoder_TagDispatch(), _upb_Decoder_TryFastDispatch(), _upb_Decoder_VerifyUtf8() (+1 more)
+
+### Community 115 - "upb Unknown Compare Header"
 Cohesion: 0.42
 Nodes (9): utf8_range_AsciiIsAscii(), utf8_range_CodepointSkipBackwards(), utf8_range_IsTrailByteOk(), utf8_range_IsValid(), utf8_range_SkipAscii(), utf8_range_UnalignedLoad64(), utf8_range_Validate(), utf8_range_ValidateUTF8Naive() (+1 more)
 
-### Community 108 - "upb Array Header"
+### Community 116 - "upb Extension Header"
 Cohesion: 0.2
 Nodes (3): Context, SimpleSpanProcessor, Span
 
-### Community 109 - "upb Compat Header"
+### Community 117 - "upb Iterator Header"
 Cohesion: 0.2
 Nodes (6): MetricStreamObservableGauge, MetricStreamObservableSum, ObservableCounter, ObservableGauge, ObservableResult, ObservableUpDownCounter
 
-### Community 110 - "upb Copy Header"
+### Community 118 - "upb Map Entry Header"
 Cohesion: 0.27
 Nodes (5): DrainQueue(), OtlpMetricExporter, ProcessBatches(), Shutdown(), WorkerLoop()
 
-### Community 111 - "upb Merge Header"
+### Community 119 - "upb Mini Descriptor Enum"
+Cohesion: 0.27
+Nodes (5): DrainQueue(), OtlpLogExporter, ProcessBatches(), Shutdown(), WorkerLoop()
+
+### Community 120 - "upb Mini Descriptor Link"
 Cohesion: 0.33
 Nodes (7): CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealGaugeValues(), TEST()
 
-### Community 112 - "upb Message Header"
+### Community 121 - "upb Base92 Encoder Impl"
 Cohesion: 0.38
 Nodes (9): newHandler(), TestHealth_OK(), TestHealth_WrongMethod(), TestReset_ReturnsEmptyJSON(), TestReset_WrongMethod(), TestReset_ZeroesCounters(), TestStats_LastErrorIncluded(), TestStats_ReturnsValidJSON() (+1 more)
 
-### Community 113 - "upb Promote Header"
+### Community 122 - "upb Mini Descriptor Encode"
 Cohesion: 0.2
 Nodes (10): 5.1 Threading model, 5.2 Connection management, 5.3 Shutdown and fork, 5.4 Backpressure and drop accounting, 5.5 Memory budgets, 5.6 Span limits, 5. Architecture, code:block1 (┌───────────────────────────────────────────────────────────) (+2 more)
 
-### Community 114 - "upb Tagged Ptr Header"
+### Community 123 - "upb Mini Descriptor Modifiers"
 Cohesion: 0.2
 Nodes (10): 4.5 `ISampler`, Allocation behavior, code:block10 (class ISampler {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
-### Community 115 - "upb Unknown Compare Header"
-Cohesion: 0.2
-Nodes (10): 4.8 `IReactor`, Allocation behavior, code:block13 (class IReactor {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 116 - "upb Extension Header"
-Cohesion: 0.2
-Nodes (10): 4.9 `IAuthProvider`, Allocation behavior, code:block14 (class IAuthProvider {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 117 - "upb Iterator Header"
-Cohesion: 0.2
-Nodes (10): 4.1 `ITransport`, Allocation behavior, code:block6 (class ITransport {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 118 - "upb Map Entry Header"
-Cohesion: 0.2
-Nodes (10): 4.7 `IClock` and `ISteadyClock`, Allocation behavior, code:block12 (class IClock {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 119 - "upb Mini Descriptor Enum"
-Cohesion: 0.2
-Nodes (10): 4.4 `IExporter`, Allocation behavior, code:block9 (class IExporter {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 120 - "upb Mini Descriptor Link"
-Cohesion: 0.2
-Nodes (10): 4.11 `IDiagnosticsSink`, Allocation behavior, code:block16 (class IDiagnosticsSink {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 121 - "upb Base92 Encoder Impl"
-Cohesion: 0.2
-Nodes (10): 4.12 `ILogSink` (public), Allocation behavior, code:block17 (namespace microtel), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 122 - "upb Mini Descriptor Encode"
+### Community 124 - "upb Wire Constants"
 Cohesion: 0.2
 Nodes (10): 4.6 `ISpanProcessor`, Allocation behavior, code:block11 (class ISpanProcessor {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
-### Community 123 - "upb Mini Descriptor Modifiers"
-Cohesion: 0.2
-Nodes (10): 4.2 `IOtlpEncoder`, Allocation behavior, code:block7 (class IOtlpEncoder {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
-### Community 124 - "upb Wire Constants"
-Cohesion: 0.2
-Nodes (10): 4.3 `IWireCodec`, Allocation behavior, code:block8 (class IWireCodec {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
-
 ### Community 125 - "upb Mini Table Compat"
 Cohesion: 0.2
-Nodes (10): 4.10 `IResourceDetector`, Allocation behavior, code:block15 (class IResourceDetector {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
+Nodes (10): 4.1 `ITransport`, Allocation behavior, code:block6 (class ITransport {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 126 - "upb Mini Table Enum"
 Cohesion: 0.2
-Nodes (9): `CLAUDE.md`, Hard rules > Phase discipline > rule 1, `docs/repository-layout.md`, ICP 0001: M0 deliverables clarification, `microtel-spec.md` §14.1, Migration, Motivation, Proposed change, Rationale & alternatives (+1 more)
+Nodes (10): 4.7 `IClock` and `ISteadyClock`, Allocation behavior, code:block12 (class IClock {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 127 - "upb Mini Table Extension"
 Cohesion: 0.2
-Nodes (9): Benchmark methodology, blackhole, Bytes sent, collector (otel-collector-contrib), Drop counter reporting, Latency measurement, microtel SUT, otelcpp-grpc and otelcpp-http SUTs (+1 more)
+Nodes (10): 4.9 `IAuthProvider`, Allocation behavior, code:block14 (class IAuthProvider {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 128 - "upb Extension Registry"
-Cohesion: 0.22
-Nodes (4): SpanId, TraceFlags, TraceId, TraceState
+Cohesion: 0.2
+Nodes (10): 4.3 `IWireCodec`, Allocation behavior, code:block8 (class IWireCodec {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 129 - "upb Mini Table Field"
-Cohesion: 0.36
-Nodes (9): emptyent(), findentry(), getentry_mutable(), insert(), lookup(), rm(), upb_getentry(), upb_tabent_isempty() (+1 more)
+Cohesion: 0.2
+Nodes (10): 4.11 `IDiagnosticsSink`, Allocation behavior, code:block16 (class IDiagnosticsSink {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 130 - "upb Mini Table File"
-Cohesion: 0.33
-Nodes (8): upb_strtable_init(), upb_Arena_Malloc(), upb_Arena_Realloc(), upb_Arena_ShrinkLast(), UPB_PRIVATE(), _upb_Map_CTypeSize(), upb_Map_New(), upb_ExtensionRegistry_New()
+Cohesion: 0.2
+Nodes (10): 4.10 `IResourceDetector`, Allocation behavior, code:block15 (class IResourceDetector {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 131 - "upb Mini Table Message"
-Cohesion: 0.36
-Nodes (6): Collect(), DoCollectExport(), ForceFlush(), PeriodicExportingMetricReader, RunLoop(), Shutdown()
+Cohesion: 0.2
+Nodes (10): 4.8 `IReactor`, Allocation behavior, code:block13 (class IReactor {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 132 - "upb Mini Table Sub"
-Cohesion: 0.22
-Nodes (4): MetricStreamExpHistogram, MetricStreamGauge, MetricStreamHistogram, MetricStreamSum
+Cohesion: 0.2
+Nodes (10): 4.2 `IOtlpEncoder`, Allocation behavior, code:block7 (class IOtlpEncoder {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
 
 ### Community 133 - "upb Mini Table Impl"
-Cohesion: 0.39
-Nodes (7): CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealHistoSums(), TEST()
+Cohesion: 0.2
+Nodes (10): 4.4 `IExporter`, Allocation behavior, code:block9 (class IExporter {), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
+
+### Community 134 - "upb Byte Size Utilities"
+Cohesion: 0.2
+Nodes (10): 4.12 `ILogSink` (public), Allocation behavior, code:block17 (namespace microtel), Consumers, Contract, Error model, Lifetime, Mock and fake (+2 more)
+
+### Community 135 - "upb Wire Types"
+Cohesion: 0.2
+Nodes (9): `CLAUDE.md`, Hard rules > Phase discipline > rule 1, `docs/repository-layout.md`, ICP 0001: M0 deliverables clarification, `microtel-spec.md` §14.1, Migration, Motivation, Proposed change, Rationale & alternatives (+1 more)
 
 ### Community 136 - "upb Wire Internal Constants"
-Cohesion: 0.39
-Nodes (7): CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealExpHistoSums(), TEST()
+Cohesion: 0.2
+Nodes (9): Benchmark methodology, blackhole, Bytes sent, collector (otel-collector-contrib), Drop counter reporting, Latency measurement, microtel SUT, otelcpp-grpc and otelcpp-http SUTs (+1 more)
 
 ### Community 137 - "upb Fast Decoder Header"
 Cohesion: 0.22
-Nodes (8): Hall of fame, Hardening guidance, Out of scope, Reporting a vulnerability, Scope, Security Policy, Supported versions, What to expect
+Nodes (4): SpanId, TraceFlags, TraceId, TraceState
 
 ### Community 138 - "UTF-8 Range Header"
-Cohesion: 0.22
-Nodes (9): 9.1 Dependencies (runtime), 9.2 Build options, 9.3 Build system, 9.4 Internal logging, 9.5 Packaging, 9.6 Vendored dependency policy, 9. Build & Dependencies, code:cpp (microtel::SetLogSink([](microtel::LogLevel lvl, std::string_) (+1 more)
+Cohesion: 0.36
+Nodes (6): Collect(), DoCollectExport(), ForceFlush(), PeriodicExportingMetricReader, RunLoop(), Shutdown()
 
 ### Community 139 - "Trace Service upb Source"
 Cohesion: 0.22
-Nodes (8): 1.1 ICPs that shape these interfaces, 1. Purpose and authority, 2. How to read this document, 4. The interfaces, 5. Mock and fake conventions, 6. What this document does not cover, 7. Sign-off log, microtel Internal Interfaces
+Nodes (4): MetricStreamExpHistogram, MetricStreamGauge, MetricStreamHistogram, MetricStreamSum
 
 ### Community 140 - "Trace Service MiniTable Source"
-Cohesion: 0.22
-Nodes (8): Decision, Dependency closure impact, ICP 0004: Vendor toml++ for microtel.toml parsing (M6-A), Rationale, Sign-off, Summary, Unknown-key strictness, Update procedure
-
-### Community 141 - "Trace Service MiniTable Header"
-Cohesion: 0.22
-Nodes (8): Annotations, code:block1 (Caller          Exporter Worker    I/O Thread          DNS  ), code:block2 (I/O Thread           DNS               Peer), Edge cases captured by tests, Happy path, Participants, Sequence: Connection Establishment, Variant — connect failure
-
-### Community 142 - "Common Proto upb Source"
-Cohesion: 0.22
-Nodes (8): code:block1 (opentelemetry/proto/common/v1/common.proto), code:block2 (opentelemetry/proto/metrics/v1/metrics.proto), code:block3 (opentelemetry/proto/logs/v1/logs.proto), Pin, proto/ — Vendored OpenTelemetry protocol definitions, Refreshing the pin, What's vendored (and what's not), Why a directory and not a submodule
+Cohesion: 0.39
+Nodes (7): CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealHistoSums(), TEST()
 
 ### Community 143 - "Common Proto MiniTable Source"
-Cohesion: 0.46
-Nodes (7): ExtractScheme(), IsReadable(), ParseEndpointUrl(), ParsePort(), SplitAuthorityPath(), StripScheme(), Validate()
+Cohesion: 0.33
+Nodes (8): _derive_library(), get(), load(), Derive the library field from the SUT name in registry.yaml., Load all SUTs from registry.yaml., Return a SUT by name, or None., Sut, SutPorts
 
 ### Community 144 - "Common Proto MiniTable Header"
 Cohesion: 0.39
-Nodes (6): EnvGuard(), MinimalValidConfig(), SetEnv(), TEST(), UnsetEnv(), TEST()
+Nodes (7): CardinalityDrops(), FakeSpanSource, IsOverflowPoint(), Kv(), MakeSampledContext(), SortedRealExpHistoSums(), TEST()
 
 ### Community 145 - "Resource Proto upb Source"
+Cohesion: 0.22
+Nodes (8): Hall of fame, Hardening guidance, Out of scope, Reporting a vulnerability, Scope, Security Policy, Supported versions, What to expect
+
+### Community 146 - "Resource Proto MiniTable Source"
+Cohesion: 0.22
+Nodes (9): 9.1 Dependencies (runtime), 9.2 Build options, 9.3 Build system, 9.4 Internal logging, 9.5 Packaging, 9.6 Vendored dependency policy, 9. Build & Dependencies, code:cpp (microtel::SetLogSink([](microtel::LogLevel lvl, std::string_) (+1 more)
+
+### Community 147 - "Resource Proto MiniTable Header"
+Cohesion: 0.22
+Nodes (8): 1.1 ICPs that shape these interfaces, 1. Purpose and authority, 2. How to read this document, 4. The interfaces, 5. Mock and fake conventions, 6. What this document does not cover, 7. Sign-off log, microtel Internal Interfaces
+
+### Community 148 - "Trace Proto upb Source"
+Cohesion: 0.22
+Nodes (8): Decision, Dependency closure impact, ICP 0004: Vendor toml++ for microtel.toml parsing (M6-A), Rationale, Sign-off, Summary, Unknown-key strictness, Update procedure
+
+### Community 149 - "Trace Proto MiniTable Source"
+Cohesion: 0.22
+Nodes (8): Annotations, code:block1 (Caller          Exporter Worker    I/O Thread          DNS  ), code:block2 (I/O Thread           DNS               Peer), Edge cases captured by tests, Happy path, Participants, Sequence: Connection Establishment, Variant — connect failure
+
+### Community 150 - "Trace Proto MiniTable Header"
+Cohesion: 0.22
+Nodes (8): code:block1 (opentelemetry/proto/common/v1/common.proto), code:block2 (opentelemetry/proto/metrics/v1/metrics.proto), code:block3 (opentelemetry/proto/logs/v1/logs.proto), Pin, proto/ — Vendored OpenTelemetry protocol definitions, Refreshing the pin, What's vendored (and what's not), Why a directory and not a submodule
+
+### Community 151 - "Resource Attributes Concept"
+Cohesion: 0.5
+Nodes (8): _upb_Decoder_DecodeKnownField(), _upb_Decoder_DecodeKnownGroup(), _upb_Decoder_DecodeSubMessage(), _upb_Decoder_DecodeToMap(), _upb_Decoder_DecodeToSubMessage(), _upb_Decoder_NewSubMessage(), _upb_Decoder_ReuseSubMessage(), _upb_MiniTableSubs_MessageByField()
+
+### Community 152 - "Connection Flow Design"
+Cohesion: 0.46
+Nodes (7): ExtractScheme(), IsReadable(), ParseEndpointUrl(), ParsePort(), SplitAuthorityPath(), StripScheme(), Validate()
+
+### Community 153 - "Proto Directory Readme"
+Cohesion: 0.39
+Nodes (6): EnvGuard(), MinimalValidConfig(), SetEnv(), TEST(), UnsetEnv(), TEST()
+
+### Community 154 - "Generated Code Readme"
 Cohesion: 0.43
 Nodes (6): Attrs(), CardinalityDrops(), Kv(), MakeProducer(), MakeScope(), TEST()
 
-### Community 148 - "Trace Proto upb Source"
-Cohesion: 0.25
-Nodes (7): File naming, Interface Change Proposals (ICPs), Pre-M0-close ICPs, Process, Required sections, When an ICP is *not* required, When an ICP is required
-
-### Community 149 - "Trace Proto MiniTable Source"
-Cohesion: 0.25
-Nodes (7): code:cpp (enum class DropReason : std::uint8_t), ICP 0008 — Metric drop reasons in `DropReason` / `HealthSnapshot`, Migration, Motivation, Proposed change, Rationale & alternatives, Summary
-
-### Community 150 - "Trace Proto MiniTable Header"
-Cohesion: 0.25
-Nodes (7): ICP 0010: Reconcile spec §13 milestone table with as-built commit numbering (insert M13 = Views), Migration, Motivation, Proposed change, Rationale & alternatives, Secondary observation (not part of this renumber), Summary
-
-### Community 151 - "Resource Attributes Concept"
-Cohesion: 0.25
-Nodes (7): Closure impact, Files, Provenance, tl::expected (vendored), Update procedure, What is it, Why microtel vendors this
-
-### Community 152 - "Connection Flow Design"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/api/`, Style notes, Test entry points
-
-### Community 153 - "Proto Directory Readme"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/sdk/`, Style notes, Test entry points
-
-### Community 154 - "Generated Code Readme"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/exporter/`, Style notes, Test entry points
-
 ### Community 155 - "Response Fuzz Target"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/encoder/`, Style notes, Test entry points
-
-### Community 156 - "OTLP Response Fuzz"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/http/`, Style notes, Test entry points
-
-### Community 157 - "Community 157"
-Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/grpc/`, Style notes, Test entry points
+Cohesion: 0.43
+Nodes (7): AttrLimitDrops(), FakeSpanSource, Kv(), MakeSampledContext(), MakeScope(), NAttributes(), TEST()
 
 ### Community 158 - "Community 158"
 Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/transport/`, Style notes, Test entry points
+Nodes (3): filter_b0(), Return only B0-enabled SUTs., test_b0_filter()
 
 ### Community 159 - "Community 159"
 Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/`, Style notes, Test entry points
+Nodes (7): File naming, Interface Change Proposals (ICPs), Pre-M0-close ICPs, Process, Required sections, When an ICP is *not* required, When an ICP is required
 
 ### Community 160 - "Community 160"
 Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/config/`, Style notes, Test entry points
+Nodes (7): code:cpp (enum class DropReason : std::uint8_t), ICP 0008 — Metric drop reasons in `DropReason` / `HealthSnapshot`, Migration, Motivation, Proposed change, Rationale & alternatives, Summary
 
 ### Community 161 - "Community 161"
 Cohesion: 0.25
-Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/raii/`, Style notes, Test entry points
+Nodes (7): ICP 0010: Reconcile spec §13 milestone table with as-built commit numbering (insert M13 = Views), Migration, Motivation, Proposed change, Rationale & alternatives, Secondary observation (not part of this renumber), Summary
 
 ### Community 162 - "Community 162"
 Cohesion: 0.25
-Nodes (7): code:bash (# Requires: Docker (or Podman), Python 3.11+, cmake), Design notes, Layout, microtel bench/, Milestones, Quick start, Status
+Nodes (7): code:cpp (/// @brief Acquire (or create) the Logger for one instrument), ICP 0012: Add `Provider::GetLogger` (M14 L5), Migration, Motivation, Proposed change, Rationale & alternatives, Summary
 
 ### Community 163 - "Community 163"
 Cohesion: 0.25
-Nodes (7): `basic_trace/`, Building, code:bash (cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON), code:bash (# Start a collector on :4318 first, e.g.), `examples/`, Examples, Scope
+Nodes (7): Closure impact, Files, Provenance, tl::expected (vendored), Update procedure, What is it, Why microtel vendors this
 
 ### Community 164 - "Community 164"
-Cohesion: 0.29
-Nodes (6): upb_Message_GetInt64Hi(), upb_Message_GetInt64Lo(), upb_Message_GetUInt64Hi(), upb_Message_GetUInt64Lo(), upb_Message_SetInt64Split(), upb_Message_SetUInt64Split()
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/api/`, Style notes, Test entry points
+
+### Community 165 - "Community 165"
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/sdk/`, Style notes, Test entry points
+
+### Community 166 - "Community 166"
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/exporter/`, Style notes, Test entry points
+
+### Community 167 - "Community 167"
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/encoder/`, Style notes, Test entry points
 
 ### Community 168 - "Community 168"
-Cohesion: 0.33
-Nodes (4): FakeMetricExporter, FakeMetricProducer, MakeHandle(), TEST()
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/http/`, Style notes, Test entry points
 
 ### Community 169 - "Community 169"
-Cohesion: 0.52
-Nodes (6): CollectPoints(), Kv(), MakeMeter(), MakeProducer(), MakeScope(), TEST()
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/wire/grpc/`, Style notes, Test entry points
 
 ### Community 170 - "Community 170"
-Cohesion: 0.52
-Nodes (6): FindHeader(), MakeConfig(), MakePartialSuccessBody(), MakePayload(), OkResponse(), TEST()
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/transport/`, Style notes, Test entry points
+
+### Community 171 - "Community 171"
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/`, Style notes, Test entry points
 
 ### Community 172 - "Community 172"
-Cohesion: 0.38
-Nodes (6): MakeCtx(), MakeSpanId(), MakeTraceId(), NsEpoch(), OtlpEncoderTest, SvStr()
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/config/`, Style notes, Test entry points
 
 ### Community 173 - "Community 173"
-Cohesion: 0.29
-Nodes (7): 6.1 C++, 6.2 Python (optional in v1; trace-only binding), 6.3 Compatibility shims (experimental in v1), 6.4 Operational surface (v1), 6. API Surface (v1), code:cpp (#include <microtel/tracer.hpp>), code:python (from microtel import SdkBuilder)
+Cohesion: 0.25
+Nodes (7): Depends on, Implements, Owner, Purpose, `src/common/raii/`, Style notes, Test entry points
 
 ### Community 174 - "Community 174"
-Cohesion: 0.29
-Nodes (6): ICP 0006: Align bench-spec.md §5 drop-counter names with DropReason enum, Motivation, Proposed change, Rationale, Sign-off, Summary
+Cohesion: 0.25
+Nodes (7): code:bash (# Requires: Docker (or Podman), Python 3.11+, cmake), Design notes, Layout, microtel bench/, Milestones, Quick start, Status
 
 ### Community 175 - "Community 175"
-Cohesion: 0.29
-Nodes (5): Affected components, ICP 0007 — Add `SendAll` to `IWireCodec` for HTTP/2 fan-out, Interface change, Motivation, Retry interaction
+Cohesion: 0.25
+Nodes (7): `basic_trace/`, Building, code:bash (cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON), code:bash (# Start a collector on :4318 first, e.g.), `examples/`, Examples, Scope
 
 ### Community 176 - "Community 176"
 Cohesion: 0.29
-Nodes (6): ICP 0009 — `ITransport::Send` is safe for concurrent callers, Migration, Motivation, Proposed change, Rationale & alternatives, Summary
+Nodes (6): upb_Message_GetInt64Hi(), upb_Message_GetInt64Lo(), upb_Message_GetUInt64Hi(), upb_Message_GetUInt64Lo(), upb_Message_SetInt64Split(), upb_Message_SetUInt64Split()
 
 ### Community 177 - "Community 177"
+Cohesion: 0.43
+Nodes (7): emptyent(), findentry(), getentry_mutable(), insert(), lookup(), upb_getentry(), upb_tabent_isempty()
+
+### Community 180 - "Community 180"
+Cohesion: 0.38
+Nodes (4): Emit(), EnforceAttributeLimit(), FillTraceContext(), SdkLogger
+
+### Community 182 - "Community 182"
+Cohesion: 0.33
+Nodes (3): countSpans(), MetricHandler, TraceHandler
+
+### Community 184 - "Community 184"
+Cohesion: 0.33
+Nodes (4): FakeMetricExporter, FakeMetricProducer, MakeHandle(), TEST()
+
+### Community 185 - "Community 185"
+Cohesion: 0.52
+Nodes (6): CollectPoints(), Kv(), MakeMeter(), MakeProducer(), MakeScope(), TEST()
+
+### Community 186 - "Community 186"
+Cohesion: 0.57
+Nodes (6): Emit(), EmitN(), MakeBlp(), ManualDrainOpts(), TEST(), TotalRecords()
+
+### Community 187 - "Community 187"
+Cohesion: 0.52
+Nodes (6): FindHeader(), MakeConfig(), MakePartialSuccessBody(), MakePayload(), OkResponse(), TEST()
+
+### Community 189 - "Community 189"
+Cohesion: 0.29
+Nodes (7): 6.1 C++, 6.2 Python (optional in v1; trace-only binding), 6.3 Compatibility shims (experimental in v1), 6.4 Operational surface (v1), 6. API Surface (v1), code:cpp (#include <microtel/tracer.hpp>), code:python (from microtel import SdkBuilder)
+
+### Community 190 - "Community 190"
+Cohesion: 0.29
+Nodes (6): ICP 0006: Align bench-spec.md §5 drop-counter names with DropReason enum, Motivation, Proposed change, Rationale, Sign-off, Summary
+
+### Community 191 - "Community 191"
+Cohesion: 0.29
+Nodes (5): Affected components, ICP 0007 — Add `SendAll` to `IWireCodec` for HTTP/2 fan-out, Interface change, Motivation, Retry interaction
+
+### Community 192 - "Community 192"
+Cohesion: 0.29
+Nodes (6): ICP 0009 — `ITransport::Send` is safe for concurrent callers, Migration, Motivation, Proposed change, Rationale & alternatives, Summary
+
+### Community 193 - "Community 193"
+Cohesion: 0.29
+Nodes (6): ICP 0011: Add `LogAttributeLimit` to the `DropReason` enum, Migration, Motivation, Proposed change, Rationale & alternatives, Summary
+
+### Community 194 - "Community 194"
 Cohesion: 0.29
 Nodes (6): code:block1 (We're starting a new C++ open-source project called microtel), Starting prompt for Claude Code (first session, M0 kickoff), Suggested follow-up turns, The prompt, What this prompt does, When to switch out of M0
 
-### Community 178 - "Community 178"
+### Community 195 - "Community 195"
 Cohesion: 0.29
 Nodes (6): code:block1 (upb/base/         — fundamental types, status, string_view), No CMake yet, Pin, Refreshing the pin, third_party/upb — vendored upb runtime, What's vendored
 
-### Community 179 - "Community 179"
+### Community 196 - "Community 196"
 Cohesion: 0.29
 Nodes (6): CI gate, code:block1 (opentelemetry/proto/common/v1/), code:bash (ci/scripts/regen-protos.sh \), gen/ — Generated upb C accessors, Regenerating, What's here
 
-### Community 180 - "Community 180"
+### Community 197 - "Community 197"
 Cohesion: 0.29
 Nodes (6): Benchmark Baseline, code:bash (# 1. Trigger benchmark.yml on the reference runner.), code:bash (ci/scripts/baseline-update.sh <sha>), How to update the latency baseline, Thresholds, What is gated now
 
-### Community 181 - "Community 181"
-Cohesion: 0.33
-Nodes (6): UnalignedLoad32(), UnalignedLoad64(), _upb_Hash(), upb_umul128(), Wyhash(), WyhashMix()
-
-### Community 182 - "Community 182"
+### Community 198 - "Community 198"
 Cohesion: 0.53
 Nodes (5): upb_Message_GetMessage(), upb_Message_GetMutableMessage(), UPB_PRIVATE(), upb_TaggedMessagePtr_GetNonEmptyMessage(), upb_TaggedMessagePtr_IsEmpty()
 
-### Community 183 - "Community 183"
+### Community 199 - "Community 199"
 Cohesion: 0.47
 Nodes (4): FakeMetricStream, MakeResource(), MakeScope(), TEST()
 
-### Community 185 - "Community 185"
+### Community 201 - "Community 201"
 Cohesion: 0.6
 Nodes (5): Kv(), MakeMeter(), MakeProducer(), MakeScope(), TEST()
 
-### Community 186 - "Community 186"
+### Community 202 - "Community 202"
 Cohesion: 0.6
 Nodes (5): Kv(), MakeMeter(), MakeProducer(), MakeScope(), TEST()
 
-### Community 187 - "Community 187"
+### Community 203 - "Community 203"
 Cohesion: 0.53
 Nodes (5): Deadline(), EpollReactorTest, MakePipe(), MustRegister(), TEST_F()
 
-### Community 189 - "Community 189"
+### Community 206 - "Community 206"
 Cohesion: 0.33
 Nodes (6): 13.1 Parallel work tracks after M2, 13.2 Interface design review (M0 sign-off), 13.3 File ownership, 13.4 Python binding cadence, 13.5 v1.0 Release Gates, 13. Roadmap
 
-### Community 190 - "Community 190"
-Cohesion: 0.33
-Nodes (6): 14.1 Architecture-First Development, 14.2 Test-Driven Development, 14.3 RAII Discipline, 14.4 Static Analysis (SonarQube-Aligned), 14.5 Code Review, 14. Engineering Practices
-
-### Community 191 - "Community 191"
+### Community 207 - "Community 207"
 Cohesion: 0.33
 Nodes (6): 10.1 Hot-path metrics, 10.2 Exporter metrics, 10.3 Footprint metrics, 10.4 Cold-start metric, 10.5 Footprint targets (v1, stretch), 10. Performance Targets
 
-### Community 192 - "Community 192"
+### Community 208 - "Community 208"
+Cohesion: 0.33
+Nodes (6): 14.1 Architecture-First Development, 14.2 Test-Driven Development, 14.3 RAII Discipline, 14.4 Static Analysis (SonarQube-Aligned), 14.5 Code Review, 14. Engineering Practices
+
+### Community 209 - "Community 209"
 Cohesion: 0.33
 Nodes (5): Build, Conventions, Subdirectory map, Test data, `tests/`
 
-### Community 193 - "Community 193"
+### Community 210 - "Community 210"
 Cohesion: 0.33
 Nodes (5): Bar, code:block1 (tests/unit/), Layout, Naming, `tests/unit/`
 
-### Community 194 - "Community 194"
+### Community 211 - "Community 211"
 Cohesion: 0.33
 Nodes (5): Bar, Local collector, Suggested subdirectories, `tests/integration/`, What goes here vs. unit/
 
-### Community 195 - "Community 195"
+### Community 212 - "Community 212"
 Cohesion: 0.33
 Nodes (5): CI, Pinned versions, Suggested subdirectories, `tests/conformance/`, What this proves
 
-### Community 196 - "Community 196"
+### Community 213 - "Community 213"
 Cohesion: 0.33
 Nodes (5): CI, Invariants, Reproduction, Required harnesses (per spec §13.5 / §14.2 / §16), `tests/fuzz/`
 
-### Community 197 - "Community 197"
+### Community 214 - "Community 214"
 Cohesion: 0.33
 Nodes (5): Bar, Naming, Promotion path, `tests/fakes/`, What lives here
 
-### Community 198 - "Community 198"
+### Community 215 - "Community 215"
 Cohesion: 0.33
 Nodes (5): Benchmark Results, Environment, Profile, Results, Warnings
 
-### Community 200 - "Community 200"
-Cohesion: 0.4
-Nodes (3): Context, ISpanProcessor, Span
-
-### Community 202 - "Community 202"
-Cohesion: 0.4
-Nodes (3): BatchHandle, SpanEvent, SpanLink
-
-### Community 206 - "Community 206"
+### Community 216 - "Community 216"
 Cohesion: 0.4
 Nodes (3): MetricProducer, SdkMeter(), ViewRegistry
 
-### Community 208 - "Community 208"
-Cohesion: 0.5
-Nodes (3): LogSinkTest, SpawnLoggers(), TEST_F()
+### Community 217 - "Community 217"
+Cohesion: 0.4
+Nodes (3): Logger, Meter, Provider
 
-### Community 209 - "Community 209"
-Cohesion: 0.7
-Nodes (4): MakeCtxWithoutParent(), MakeCtxWithParent(), MakeParentContext(), TEST()
+### Community 219 - "Community 219"
+Cohesion: 0.4
+Nodes (3): Context, ISpanProcessor, Span
 
-### Community 210 - "Community 210"
-Cohesion: 0.7
-Nodes (4): Kv(), MakeProducer(), MakeScope(), TEST()
+### Community 221 - "Community 221"
+Cohesion: 0.4
+Nodes (3): BatchHandle, SpanEvent, SpanLink
 
-### Community 211 - "Community 211"
-Cohesion: 0.7
-Nodes (4): MakeProvider(), MakeProviderWithCardinality(), MakeProviderWithCardinalityAndExporter(), TEST()
-
-### Community 212 - "Community 212"
+### Community 222 - "Community 222"
 Cohesion: 0.4
 Nodes (4): opentelemetry_proto_logs_v1_ScopeLogs_log_records(), FirstRecord(), MakeBatch(), NsEpoch()
 
-### Community 213 - "Community 213"
+### Community 223 - "Community 223"
+Cohesion: 0.4
+Nodes (5): UnalignedLoad32(), UnalignedLoad64(), upb_umul128(), Wyhash(), WyhashMix()
+
+### Community 227 - "Community 227"
+Cohesion: 0.7
+Nodes (4): buildControl(), buildGRPC(), buildHTTP(), main()
+
+### Community 229 - "Community 229"
+Cohesion: 0.5
+Nodes (3): LogSinkTest, SpawnLoggers(), TEST_F()
+
+### Community 230 - "Community 230"
+Cohesion: 0.7
+Nodes (4): MakeCtxWithoutParent(), MakeCtxWithParent(), MakeParentContext(), TEST()
+
+### Community 231 - "Community 231"
+Cohesion: 0.7
+Nodes (4): Kv(), MakeProducer(), MakeScope(), TEST()
+
+### Community 232 - "Community 232"
+Cohesion: 0.7
+Nodes (4): MakeProvider(), MakeProviderWithCardinality(), MakeProviderWithCardinalityAndExporter(), TEST()
+
+### Community 233 - "Community 233"
 Cohesion: 0.4
 Nodes (5): 18.1 v1.1 — Operational and ergonomic expansion, 18.2 v1.2 — Metrics, 18.3 v1.3 — Logs, 18.4 v2.0 — Leaf / concentrator architecture, 18. Future Direction
 
-### Community 214 - "Community 214"
+### Community 234 - "Community 234"
 Cohesion: 0.4
 Nodes (4): Pin, Refreshing the pin, third_party/utf8_range — vendored UTF-8 validator, What's vendored
 
-### Community 215 - "Community 215"
+### Community 235 - "Community 235"
 Cohesion: 0.4
 Nodes (4): Bar, M1 ground-truth, Required corpus entries (per spec §13.5 / `docs/grpc-wire-protocol.md` §7.2), `tests/grpc-wire/`
 
-### Community 216 - "Community 216"
+### Community 236 - "Community 236"
 Cohesion: 0.4
 Nodes (4): Bar — the dumb-mock contract (LOCKED), Naming, `tests/mocks/`, What lives here
 
-### Community 220 - "Community 220"
+### Community 240 - "Community 240"
 Cohesion: 0.83
 Nodes (3): upb_Encode_LimitDepth(), upb_EncodeOptions_GetMaxDepth(), upb_EncodeOptions_MaxDepth()
 
-### Community 223 - "Community 223"
+### Community 241 - "Community 241"
+Cohesion: 0.67
+Nodes (3): upb_MiniTable_GetOneof(), upb_MiniTable_NextOneofField(), _upb_Decoder_CheckUnlinked()
+
+### Community 244 - "Community 244"
 Cohesion: 0.83
 Nodes (3): MakeCtx(), MakeTraceIdWithLowerBytes(), TEST()
 
-### Community 224 - "Community 224"
+### Community 245 - "Community 245"
 Cohesion: 0.67
 Nodes (3): MakeSpanRecord(), SimpleSpanProcessorTest, TEST_F()
 
-### Community 225 - "Community 225"
+### Community 246 - "Community 246"
 Cohesion: 1.0
 Nodes (3): MakeSpan(), MakeValidContext(), TEST()
 
-### Community 226 - "Community 226"
+### Community 247 - "Community 247"
 Cohesion: 0.83
 Nodes (3): MakeBsp(), MakeRecord(), TEST()
 
-### Community 228 - "Community 228"
+### Community 249 - "Community 249"
 Cohesion: 0.83
 Nodes (3): CardinalityDrops(), Kv(), TEST()
 
-### Community 229 - "Community 229"
+### Community 250 - "Community 250"
+Cohesion: 0.83
+Nodes (3): MakeProvider(), TEST(), TotalRecords()
+
+### Community 251 - "Community 251"
 Cohesion: 0.83
 Nodes (3): MakeSession(), TEST(), TestCtx()
 
-### Community 230 - "Community 230"
+### Community 252 - "Community 252"
 Cohesion: 0.83
 Nodes (3): MakeBatch(), TEST(), ZeroDelayRetry()
 
-### Community 232 - "Community 232"
+### Community 254 - "Community 254"
 Cohesion: 0.5
 Nodes (3): Context, MockSpanProcessor, Span
 
-### Community 233 - "Community 233"
+### Community 255 - "Community 255"
 Cohesion: 0.5
 Nodes (3): Context, FakeSpanProcessor, Span
 
-### Community 235 - "Community 235"
+### Community 257 - "Community 257"
 Cohesion: 0.83
 Nodes (3): EmitRequestTrace(), main(), StatusToString()
 
-### Community 236 - "Community 236"
+### Community 258 - "Community 258"
 Cohesion: 0.5
 Nodes (4): 7.1 OTLP/HTTP (protobuf), 7.2 OTLP/gRPC (over nghttp2, no gRPC library), 7.3 Shared, 7. Wire Protocols
 
-### Community 237 - "Community 237"
+### Community 259 - "Community 259"
 Cohesion: 0.5
 Nodes (3): Bar, Suggested subdirectories, `tests/wire/`
 
-### Community 290 - "Community 290"
+### Community 318 - "Community 318"
 Cohesion: 0.67
-Nodes (3): 2.1 Goals, 2.2 Compatibility tiers, 2. Goals & Compatibility
+Nodes (3): 15.1 OTel API/SDK compatibility (Tier 3), 15.2 Collector / backend interop, 15. Compatibility & Interop Matrix
 
 ## Knowledge Gaps
-- **928 isolated node(s):** `ISampler`, `ConfigError`, `Meter`, `Span`, `Context` (+923 more)
+- **962 isolated node(s):** `ISampler`, `ConfigError`, `Meter`, `Logger`, `Span` (+957 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **96 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **111 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `upb_Message_ClearBaseField()` connect `upb Fast Decoder` to `Project Architecture & Concepts`, `upb MiniTable Message Metadata`, `Vendored Proto Files`, `gRPC Wire Protocol`, `OTLP Encoder`, `SDK Interface Mocks`, `Trace Proto Accessors`, `upb Internal Utilities`, `upb Field & Extension Lookup`, `Span Processor Interface`, `Internal Sampler Interface`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `upb_Decode()` connect `upb Hash Table Core` to `Project Architecture & Concepts`, `upb MiniTable Message Metadata`, `Vendored Proto Files`, `gRPC Wire Protocol`, `OTLP Encoder`, `SDK Interface Mocks`, `upb Message Equality`, `Trace Proto Accessors`, `upb Array Operations`, `upb Mini Table Encoder`, `Span Processor Interface`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
-- **Why does `_upb_Message_New()` connect `upb Message Allocation` to `upb Fast Decoder`, `Test Taxonomy & Interfaces`, `upb Mini Table File`, `Vendored Proto Files`, `gRPC Wire Protocol`, `upb MiniTable Message Metadata`, `SDK Interface Mocks`, `OTLP Encoder`, `Project Architecture & Concepts`, `Common Proto Accessors`, `Trace Proto Accessors`, `upb Internal Utilities`, `upb Hash Table Core`, `upb Mini Table Encoder`, `Span Processor Interface`, `Epoll Reactor`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Why does `_upb_Message_New()` connect `upb Message Allocation` to `upb Fast Decoder`, `Project Architecture & Concepts`, `OTLP Encoder`, `upb Status & Arena API`, `SDK Samplers`, `Common Proto Accessors`, `upb Memory Allocator`, `upb Hash Table Core`, `Clock Interfaces`, `Mock Sampler`, `upb Map Sorting`, `Proto Array Resize`, `Epoll Reactor`, `HTTP/2 Transport Design`, `Proto Mutable Array Access`, `SDK Builder & Log Sink`?**
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Why does `upb_Arena_Malloc()` connect `upb Status & Arena API` to `Test Taxonomy & Interfaces`, `upb Hash Values`, `Resource Public API`, `upb Message Allocation`, `upb Array & Resource Proto`, `upb Array Operations`, `Span Processor Interface`, `Mock Sampler`, `CI Header Check & Wire Codec`, `Trace Ratio Sampler Tests`?**
+  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `upb_Decode()` connect `upb Memory Allocator` to `Project Architecture & Concepts`, `SDK Samplers`, `Resource Public API`, `Common Proto Accessors`, `upb Array Operations`, `Clock Interfaces`, `Resource Attributes Concept`, `Proto Array Resize`, `Epoll Reactor`, `HTTP/2 Transport Design`, `Proto Mutable Array Access`, `SDK Builder & Log Sink`?**
+  _High betweenness centrality (0.016) - this node is a cross-community bridge._
 - **Are the 166 inferred relationships involving `upb_Message_ClearBaseField()` (e.g. with `upb_Message_IsFrozen()` and `upb_MiniTableField_IsInOneof()`) actually correct?**
   _`upb_Message_ClearBaseField()` has 166 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 124 inferred relationships involving `upb_Message_SetBaseField()` (e.g. with `upb_Message_Map_DeepClone()` and `upb_Message_Array_DeepClone()`) actually correct?**

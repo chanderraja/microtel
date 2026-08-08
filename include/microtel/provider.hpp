@@ -19,6 +19,7 @@
 namespace microtel
 {
 class Meter;
+class Logger;
 }  // namespace microtel
 
 namespace microtel
@@ -177,6 +178,19 @@ public:
     [[nodiscard]] virtual std::shared_ptr<Meter> GetMeter(std::string_view name,
                                                           std::string_view version = {},
                                                           std::string_view schema_url = {}) = 0;
+
+    /// @brief Acquire (or create) a `Logger` for one instrumentation scope.
+    ///
+    /// Same `(name, version)` returns the cached instance. Returns a no-op
+    /// logger when no logs exporter is configured. See ICP 0012 and
+    /// `docs/logs-design.md` §8.
+    ///
+    /// @param name    instrumentation library name (e.g., `"my.component"`).
+    /// @param version optional library version string.
+    ///
+    /// @threadsafety Thread-safe.
+    [[nodiscard]] virtual std::shared_ptr<Logger> GetLogger(std::string_view name,
+                                                            std::string_view version = {}) = 0;
 };
 
 }  // namespace microtel

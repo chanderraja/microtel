@@ -6,6 +6,8 @@
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/exporter.hpp"
+#include "microtel/internal/log_exporter.hpp"
+#include "microtel/internal/log_record_processor.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
 #include "microtel/internal/processor.hpp"
@@ -68,6 +70,15 @@ struct SdkProviderArgs
     std::size_t metric_max_cardinality{kDefaultMaxCardinality};
     /// @brief View configurations registered via `SdkBuilder::WithView()`.
     ViewRegistry view_registry;
+    /// @brief Optional wire codec for the logs endpoint. Must outlive
+    /// `log_exporter`.
+    std::unique_ptr<internal::IWireCodec> log_codec;
+    /// @brief Optional logs export pipeline. When non-null, the first
+    /// `GetLogger()` builds a `BatchLogRecordProcessor` around it; when null,
+    /// `GetLogger()` returns a no-op logger.
+    std::unique_ptr<internal::ILogExporter> log_exporter;
+    /// @brief Batch options for the log record processor (default BSP knobs).
+    BatchOptions log_batch_opts;
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -113,6 +124,15 @@ public:
         std::string_view version = {},
         std::string_view schema_url = {}) override;
 
+    /// @brief Acquire (or create) the `Logger` for one instrumentation scope.
+    ///
+    /// Lazily builds the log pipeline (a `BatchLogRecordProcessor` around the
+    /// configured log exporter) on the first call, and caches an `SdkLogger`
+    /// per `(name, version)`. Returns a shared no-op logger when no log
+    /// exporter is configured.
+    [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(
+        std::string_view name, std::string_view version = {}) override;
+
     /// @brief Borrow the provider-owned diagnostics sink.
     ///
     /// Non-owning reference, valid for the provider's lifetime. The seam
@@ -134,17 +154,24 @@ private:
     std::unique_ptr<internal::IWireCodec> m_codec;
     // Metric codec must outlive m_metric_exporter (which holds a raw pointer to it).
     std::unique_ptr<internal::IWireCodec> m_metric_codec;
+    // Log codec must outlive m_log_exporter (which holds a raw pointer to it).
+    std::unique_ptr<internal::IWireCodec> m_log_codec;
     // Trace exporter thread; must outlive codec and transport.
     std::unique_ptr<internal::IExporter> m_exporter;
     // Metric exporter thread; must outlive m_metric_reader.
     std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
+    // Log exporter thread; must outlive m_log_processor.
+    std::unique_ptr<internal::ILogExporter> m_log_exporter;
     std::chrono::milliseconds m_metric_interval;
     microtel::TemporalityPreference m_metric_temporality;
     std::size_t m_metric_max_cardinality;
+    BatchOptions m_log_batch_opts;
     // BSP thread — destroyed before trace exporter.
     std::unique_ptr<internal::ISpanProcessor> m_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).
     std::unique_ptr<PeriodicExportingMetricReader> m_metric_reader;
+    // Log processor thread — lazily created; destroyed before m_log_exporter.
+    std::unique_ptr<internal::ILogRecordProcessor> m_log_processor;
 
     std::shared_ptr<const Resource> m_resource;
     SamplerHandle m_sampler;
@@ -157,6 +184,11 @@ private:
     std::mutex m_meter_mu;
     std::shared_ptr<MetricProducer> m_metric_producer;
     std::unordered_map<std::string, std::shared_ptr<SdkMeter>> m_meters;
+
+    // Logs pipeline: m_log_processor is lazily initialised on first GetLogger().
+    std::mutex m_logger_mu;
+    std::unordered_map<std::string, std::shared_ptr<microtel::Logger>> m_loggers;
+    std::shared_ptr<microtel::Logger> m_noop_logger;
 };
 
 }  // namespace microtel::sdk

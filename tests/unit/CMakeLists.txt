@@ -52,3 +52,8 @@ add_subdirectory(preflight)
 
 # M12 — public API contract tests (Meter, instruments via Provider interface).
 add_subdirectory(api)
+
+# M14 L6 — spdlog bridge adapter (only when spdlog is available).
+if(MICROTEL_USE_SPDLOG)
+    add_subdirectory(adapters)
+endif()

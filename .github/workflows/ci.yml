@@ -183,6 +183,28 @@ jobs:
             exit 1
           fi
 
+  symbol-scan:
+    runs-on: ubuntu-latest
+    name: symbol-scan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build \
+            libssl-dev libnghttp2-dev
+      # Tests off: the gate asserts the closure of what actually ships, so it
+      # must not see gtest/gmock or any other test-only input.
+      - name: Configure (shipped configuration)
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Assert dependency closure (no gRPC / abseil / protobuf-cpp)
+        run: ci/scripts/symbol-scan.sh build
+
   coverage:
     runs-on: ubuntu-latest
     name: coverage

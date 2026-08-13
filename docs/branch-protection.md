@@ -1,6 +1,6 @@
 # Branch Protection and Repository Settings
 
-This document records the GitHub-side configuration that enforces the contribution policy described in [CONTRIBUTING.md](../CONTRIBUTING.md).
+This document is both a **target** for the GitHub-side configuration that enforces the contribution policy described in [CONTRIBUTING.md](../CONTRIBUTING.md), and a **record** of what is configured today. Where the two differ, each table marks it. Verify the record against the live settings before relying on it — `gh api repos/chanderraja/microtel/branches/master/protection` is the source of truth.
 
 The intent is **layered signaling**, not hard blocking. PRs from outside contributors aren't disabled — that would be hostile to the OSS framing — but several layers prevent unwanted PRs from landing accidentally.
 
@@ -16,28 +16,62 @@ These three signals catch maybe 90% of well-meaning contributors. The remaining 
 
 ---
 
-## Layer 2: Branch protection on `main`
+## Layer 2: Branch protection on `master`
 
-Configure under **Settings → Branches → Branch protection rules → Add rule** for the `main` branch:
+The protected branch is **`master`** (the repository's default branch).
 
-| Setting | Value | Reason |
-|---|---|---|
-| Require a pull request before merging | ✅ | No direct pushes to `main` |
-| Require approvals | ✅ 1 approval | Maintainer must approve |
-| Dismiss stale approvals when new commits are pushed | ✅ | Force re-review on changes |
-| Require review from Code Owners | ✅ | CODEOWNERS routes review |
-| Require status checks to pass before merging | ✅ | CI gates from `ci-architecture.md` |
-| Require branches to be up to date before merging | ✅ | No stale PRs |
-| Required status checks | `build-and-test`, `static-analysis`, `sanitizers`, `coverage`, `test-presence`, `sonarqube` | Per `ci-architecture.md` |
-| Require conversation resolution before merging | ✅ | All review comments addressed |
-| Require signed commits | optional pre-1.0 | Tighten before public release |
-| Require linear history | ✅ | No merge commits in `main` |
-| Require deployments to succeed before merging | n/a | Not deploying to anywhere |
-| Lock branch | ❌ | Don't lock; we want maintainers to merge |
-| Do not allow bypassing the above settings | ✅ | Even admins use PRs |
-| Restrict who can push to matching branches | ✅ — only `@TBD-username` | Matches CODEOWNERS |
+Two columns below, deliberately: **Target** is the policy this document
+prescribes; **Today** is what is actually configured, read back from
+`GET /repos/:owner/:repo/branches/master/protection`. Where they differ, the
+target is aspirational and has not been applied. Do not read this table as a
+description of current enforcement — read the Today column for that.
 
-Result: nothing gets into `main` without the maintainer's approval. External PRs can be opened but not merged unilaterally.
+| Setting | Target | Today | Notes |
+|---|---|---|---|
+| Require a pull request before merging | ✅ | ❌ | See "What actually blocks a push" below |
+| Require approvals | ✅ 1 | ❌ 0 | Solo maintainer pre-1.0 |
+| Dismiss stale approvals when new commits are pushed | ✅ | ❌ | Moot while approvals are 0 |
+| Require review from Code Owners | ✅ | ❌ | CODEOWNERS still auto-requests review |
+| Require status checks to pass before merging | ✅ | ✅ | **The load-bearing gate** |
+| Require branches to be up to date before merging | ✅ | ❌ | `strict: false` |
+| Require conversation resolution before merging | ✅ | ❌ | |
+| Require signed commits | optional pre-1.0 | ❌ | Tighten before public release |
+| Require linear history | ✅ | ❌ | Conflicts with current practice — see note below |
+| Require deployments to succeed before merging | n/a | n/a | Not deploying anywhere |
+| Lock branch | ❌ | ❌ | Maintainers must be able to merge |
+| Do not allow bypassing the above settings | ✅ | ✅ | `enforce_admins: true` |
+| Restrict who can push to matching branches | ✅ | ❌ | |
+
+**Required status checks (9, enforced today).** Names must match the job `name:`
+in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) exactly — renaming a
+job silently un-requires it:
+
+`clang-format`, `clang-tidy`, `cxx20 / clang`, `cxx20 / gcc`, `asan`, `tsan`,
+`ubsan`, `coverage`, `symbol-scan`
+
+`regen-check` runs on every PR but is **not** required. It has no path filter, so
+requiring it is safe; doing so is an open decision.
+
+### What actually blocks a push
+
+"Require a pull request before merging" is off, so the thing preventing a direct
+`git push` to `master` is the combination of **required status checks** and
+**`enforce_admins: true`**: a pushed commit has no passing checks, so the push is
+rejected — for admins too. That is why milestone work goes through PRs in
+practice even though the PR requirement itself is not configured.
+
+The practical consequence: the required-checks list *is* the branch protection
+here. Adding or renaming a check changes what can land.
+
+### Open conflict: linear history vs. merge commits
+
+This table targets "Require linear history ✅", and Layer 3 targets "Allow merge
+commits ❌". Neither is configured, and current practice is the opposite —
+history is a series of `Merge pull request #NNN` commits, and
+[CLAUDE.md](../../CLAUDE.md) documents the merge-via-PR workflow. Either the
+target should change to match practice or practice should change to match the
+target; leaving both recorded as ✅ while doing neither is the drift this section
+exists to stop.
 
 ---
 
@@ -141,7 +175,7 @@ Blank issues are disabled. Anyone opening an issue picks a template, which force
 - **CI minutes don't get burned by spam PRs.** Fork workflow approval requirement.
 - **Secrets stay safe.** Forks don't get write tokens or secrets.
 - **You're auto-requested as reviewer for everything.** Via CODEOWNERS.
-- **Nothing merges without you.** Branch protection requires your approval.
+- **Nothing merges without green CI.** The 9 required status checks are enforced, admins included. (Approval-based gating is a *target*, not configured today — see Layer 2.)
 - **External contributors who really want to engage are funneled to Issues.** Via templates and config.yml.
 
 This is the right set of layers for a **public** pre-1.0 OSS project. If you keep the repo private until v1.0, none of this matters because no one but invited collaborators can see it anyway.
@@ -171,7 +205,7 @@ When you create the repo:
 [ ] Add LICENSE (Apache 2.0)
 [ ] Add NOTICE (placeholder)
 [ ] Push initial doc bundle (CLAUDE.md, spec, roadmap, etc.)
-[ ] Settings → Branches → Branch protection rule on `main` per Layer 2
+[ ] Settings → Branches → Branch protection rule on `master` per Layer 2
 [ ] Settings → Moderation → Code review limits → "explicitly granted access"
 [ ] Settings → Moderation → Interaction limits → "limit to collaborators"
 [ ] Settings → Actions → Workflow permissions per Layer 5

@@ -8,6 +8,35 @@ CI runs on **GitHub Actions** for the OSS path. A self-hosted Jenkins line may b
 
 ## Job overview
 
+### As built (check names as they appear in GitHub)
+
+These are the jobs that exist today. The **check name** column is what branch
+protection matches on — see [`branch-protection.md`](branch-protection.md) — and
+it is the job's `name:` field, which for matrix jobs is expanded per cell.
+
+| Workflow | Job | Check name(s) | Required? |
+|---|---|---|---|
+| `ci.yml` | `format-check` | `clang-format` | ✅ |
+| `ci.yml` | `tidy-check` | `clang-tidy` | ✅ |
+| `ci.yml` | `compile` | `cxx20 / gcc`, `cxx20 / clang`, `cxx23 / gcc`, `cxx23 / clang` | ✅ (cxx20 pair only) |
+| `ci.yml` | `sanitizers` | `asan`, `tsan`, `ubsan` | ✅ |
+| `ci.yml` | `coverage` | `coverage` | ✅ |
+| `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
+| `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
+| `sonarqube.yml` | — | `scan` | ❌ |
+| `fuzz.yml`, `soak.yml`, `interop.yml`, `benchmark.yml` | — | scheduled / on-demand | ❌ |
+
+Note that `cxx23 / gcc` and `cxx23 / clang` run on every PR but are **not**
+required, so a C++23-only regression can currently merge.
+
+### Design intent (not all implemented)
+
+The table below is the originally designed job set. Several rows —
+`build-and-test`, `static-analysis`, `test-presence`, `license-scan`, `release` —
+do **not** exist as jobs today; their function is either covered by the as-built
+jobs above under different names, or still outstanding. Treat this as the target,
+not as a description of the pipeline.
+
 | Job | When | Blocking? | Approx. duration |
 |---|---|---|---|
 | `build-and-test` | every PR, every push to main | yes | 8–12 min |
@@ -15,8 +44,6 @@ CI runs on **GitHub Actions** for the OSS path. A self-hosted Jenkins line may b
 | `sanitizers` | every PR, every push to main | yes | 15–20 min |
 | `coverage` | every PR | yes (diff coverage gate) | 10–15 min |
 | `test-presence` | every PR | yes | < 30 sec |
-| `proto-regen-check` | every PR touching `third_party/upb/` or `proto/` | yes | 2 min |
-| `symbol-scan` | every PR | yes | 3–5 min |
 | `license-scan` | every PR, weekly cron | yes (PR), reports (cron) | 3 min |
 | `fuzz-smoke` | every PR (60 sec budget per target) | yes | 5 min |
 | `fuzz-soak` | nightly cron | reports only | 8 hours |
@@ -110,18 +137,20 @@ if src_changed and not tests_changed:
 
 **Pass condition:** test-presence rule satisfied or documented exception applied.
 
-### `.github/workflows/proto-regen-check.yml`
+### `regen-check` (job in `.github/workflows/ci.yml`)
 
-Verifies that running `make regen-protos` produces a zero-diff result against the committed generated code under `gen/`. Prevents drift between `proto/`, the pinned upb commit, and the committed generated outputs.
+Verifies that regenerating the proto accessors produces a zero-diff result against the committed generated code under `gen/`. Prevents drift between `proto/`, the pinned upb version, and the committed generated outputs.
 
 **Steps:**
-1. Checkout with submodules.
-2. Run `make regen-protos`.
+1. Install pinned `protoc` v29.4 and build `protoc-gen-upb` / `protoc-gen-upb_minitable` from the matching protobuf tag.
+2. Run [`ci/scripts/regen-protos.sh`](../ci/scripts/regen-protos.sh) with those binaries.
 3. `git diff --exit-code gen/`. Fail if any diff.
 
 **Pass condition:** generated code matches the result of regenerating from pinned sources.
 
-**When it runs:** on PRs that touch `proto/`, `third_party/upb/`, `gen/`, or any `*.upb*` files. Skipped otherwise to save CI time.
+**When it runs:** every PR and every push to `master`. It carries **no path filter** — an earlier version of this document claimed it was skipped unless `proto/`, `third_party/upb/`, or `gen/` changed; that was never implemented.
+
+**Not currently a required status check.** Because it runs unconditionally, requiring it is safe (a path-filtered job could never be required — the check would never report and would block every PR that didn't trigger it). Whether to require it is an open decision; the argument for is that a stale `gen/` means the shipped encoder disagrees with the pinned `opentelemetry-proto`, which is a Tier 1 wire-compatibility break.
 
 ### `symbol-scan` (job in `.github/workflows/ci.yml`)
 

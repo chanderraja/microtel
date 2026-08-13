@@ -44,6 +44,13 @@ jobs:
             libssl-dev libnghttp2-dev
           sudo update-alternatives --install /usr/bin/clang-tidy \
             clang-tidy /usr/bin/clang-tidy-18 100
+      # Every optional tree is enabled here so its TUs land in
+      # compile_commands.json and are linted with real flags. tidy-check.sh
+      # skips (and reports) any TU absent from the build rather than linting it
+      # with clang-tidy's fallback flags, which cannot resolve include paths.
+      # Before this, the four tests/fuzz TUs were being linted with those
+      # fallback flags — they pass either way, but the findings were not
+      # trustworthy. FUZZ needs clang for -fsanitize=fuzzer, which this job uses.
       - name: Configure (compile_commands for clang-tidy)
         env:
           CC:  clang-18
@@ -54,7 +61,9 @@ jobs:
             -DCMAKE_CXX_STANDARD=20 \
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
-            -DMICROTEL_BUILD_TESTS=ON
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_FUZZ=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
       - name: Run tidy-check

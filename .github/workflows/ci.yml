@@ -205,6 +205,36 @@ jobs:
       - name: Assert dependency closure (no gRPC / abseil / protobuf-cpp)
         run: ci/scripts/symbol-scan.sh build
 
+  otelcpp-shim:
+    runs-on: ubuntu-latest
+    name: otelcpp-shim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build \
+            libssl-dev libnghttp2-dev
+      # Opt-in build (M17, ICP 0014). Fetches only opentelemetry-cpp's
+      # header-only API; its SDK and exporters are never configured.
+      - name: Configure with the shim enabled
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      # The shim must not change what microtel ships. Re-running the closure
+      # gate with the shim enabled proves it adds no shipped artifact and no
+      # forbidden symbol — the claim ICP 0014 §4 makes in prose.
+      - name: Assert the shim does not alter the dependency closure
+        run: ci/scripts/symbol-scan.sh build
+
   coverage:
     runs-on: ubuntu-latest
     name: coverage

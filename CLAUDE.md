@@ -89,7 +89,9 @@ CI runs clang-tidy with a SonarQube-aligned ruleset; full list in `docs/coding-s
 ### Dependency discipline
 
 12. **The runtime dependency closure for v1 is fixed:** nghttp2, OpenSSL, upb (vendored), zlib, plus optional spdlog. **No new runtime dependencies without an ICP.** This is the project's whole reason to exist.
-13. **No gRPC library, no abseil, no protobuf-cpp runtime.** Ever. The wire encoder is upb. The HTTP/2 transport is nghttp2 directly.
+13. **No shipped microtel artifact links or contains symbols from gRPC, abseil, or the protobuf C++ runtime.** Enforced mechanically by [`ci/scripts/symbol-scan.sh`](ci/scripts/symbol-scan.sh) (CI job `symbol-scan`, a required status check), which scans every `libmicrotel_*.a` and the `microtel-preflight` binary and fails on any symbol — **defined or undefined** — whose demangled name begins with `absl::`, `absl_`, `grpc::`, `grpc_`, `GRPC_`, or `google::protobuf::`. Undefined references count: an archive carrying `U absl::…` makes abseil a link requirement for every consumer. Vendored upb and utf8_range are members of the closure — their `upb_*`, `utf8_range_*`, and upb-generated `google_protobuf_*` C accessors are explicitly **not** violations. The wire encoder is upb; the HTTP/2 transport is nghttp2 directly.
+
+    Optional **source-distributed** adapters may compile against third-party headers already present in the consumer's build, provided they add nothing to the consumer's link closure. See [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md).
 
 ### Public API contracts
 

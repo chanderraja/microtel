@@ -1,6 +1,6 @@
 # ICP 0013: Retire M8, re-add Python bindings as M18 covering all three signals
 
-**Status:** Draft
+**Status:** Accepted
 **Affected interfaces / docs:** `microtel-spec.md` §6.2, §13 milestone table (M8, M10, new M18), §13.4, §13.5; `microtel-roadmap.md` §4 (v1.0 theme). No interface headers, no `docs/interfaces.md`.
 **Affected tracks:** none — milestone scope and documentation only.
 

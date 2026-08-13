@@ -1,6 +1,6 @@
 # ICP 0014: opentelemetry-cpp API-adapter shim, and rule 13 restated as a testable claim
 
-**Status:** Draft
+**Status:** Accepted
 **Affected interfaces / docs:** [`CLAUDE.md`](../../CLAUDE.md) rules 12–13;
 `microtel-spec.md` §6.3 and §13 (new milestone); `microtel-roadmap.md` §3 (Tier 3
 row). No changes to `include/microtel/` or `docs/interfaces.md` — the shim is

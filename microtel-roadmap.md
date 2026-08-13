@@ -45,6 +45,15 @@ Each release advances along the four-tier model from spec §2.2. The progression
 
 "Profiles" refers to OpenTelemetry's continuous-profiling signal, which is still stabilizing upstream as of this writing. It graduates onto the roadmap once upstream marks it stable.
 
+> **Tier 3 is a plan, not shipped code — read this before citing the table.** No
+> API-adapter shim exists today. The rows above read as though `v1.0` already
+> ships "experimental: traces"; that was always a target, and the table's
+> incremental Tier 3 progression (traces → traces+metrics → all three) is now
+> **superseded**: the shim is scheduled as **M17** and lands *after* all three
+> signals shipped (M12/M13/M14), so its first release covers traces, metrics,
+> and logs at once. Tier 1 and Tier 2 columns are unaffected. See
+> [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md).
+
 ---
 
 ## 4. Release themes
@@ -60,8 +69,9 @@ Covered in detail in `microtel-spec.md` §13. Brief recap:
 - Production correctness: partial-success, retry policies, GOAWAY/RST_STREAM, fork-safety, deterministic shutdown
 - Static config + OTel env-var fallback, no hot reload
 - Preflight CLI flag, exporter-health API, internal logging
-- Python bindings (target, not blocker)
-- Experimental compat shims released as separate packages
+- Experimental compat shims released as separate packages (see the Tier 3 note under §3)
+
+Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, covering all three signals, per [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
 **v1.0 release gates** are listed in spec §13.5.
 

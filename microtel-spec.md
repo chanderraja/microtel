@@ -225,7 +225,7 @@ The public C++ API is exposed through lightweight headers; implementation lives 
 - Destructors are `noexcept` and must not block indefinitely; they invoke `Shutdown` with a small finite timeout if not already shut down.
 - `ForceFlush(timeout)` and `Shutdown(timeout)` return a structured status (`Completed` / `TimedOut` / `AlreadyShutDown` / `Failed`). The exact status type is locked during M0 and documented in `docs/interfaces.md`.
 
-### 6.2 Python (optional in v1; trace-only binding)
+### 6.2 Python (post-v1.0; M18, all three signals)
 
 ```python
 from microtel import SdkBuilder
@@ -244,18 +244,30 @@ provider.force_flush(timeout_s=5)
 provider.shutdown(timeout_s=5)
 ```
 
-Bindings via **nanobind**. The first Python wheel ships with traces only; `microtel.__capabilities__` exposes the binding scope at runtime. Unbound surfaces raise `NotImplementedError` with the version when they're expected.
+Bindings via **nanobind**, covering traces, metrics, and logs. `microtel.__capabilities__` exposes the binding scope at runtime; any surface not yet bound raises `NotImplementedError` with the version when it's expected.
 
-### 6.3 Compatibility shims (experimental in v1)
+> **The example above is the M18 target shape, not a description of today.**
+> `start_as_current_span` requires a thread-local current-span slot, which the
+> SDK does not yet have — `SdkTracer::StartAsCurrentSpan` currently delegates to
+> `StartSpan`, so the `with` block ends the span correctly but child spans are
+> not implicitly parented. The same missing slot is why log↔trace correlation
+> does not fire (`ICurrentSpanSource` is wired to `nullptr`). Both are
+> prerequisites for M18. See [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
+
+### 6.3 Compatibility shims (experimental; not yet implemented)
 
 Optional adapter packages let existing OTel API code call into microtel:
 
-- `microtel_otelcpp_shim`: implements the `opentelemetry::trace::TracerProvider` interface for traces.
-- `microtel_python_shim`: registers as the global provider for `opentelemetry-api` consumers (traces).
+- `microtel_otelcpp_shim`: implements the `opentelemetry-cpp` API over microtel's SDK for traces, metrics, and logs. Scheduled as **M17** — see [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md).
+- `microtel_python_shim`: registers as the global provider for `opentelemetry-api` consumers. Follows the Python bindings (M18); not separately scheduled.
 
-**These are released as experimental packages.** They are not v1.0 load-bearing, the supported subset is partial, and the compatibility matrix (§14) records exactly what's covered. Compatibility tests target the OTel-like API and wire output, not convenience wrappers.
+**Neither exists yet.** `microtel-roadmap.md` §3's tier table previously showed Tier 3 as "experimental: traces" from v1.0; that was a forward-looking target, not a description of shipped code, and the table has been corrected to reflect it.
 
-A migration guide (`docs/migration-from-otel-cpp.md`) ships with v1.0 covering: dependency-graph diff, build-system changes, API import changes, OTel env-var → `microtel.toml` translation, and a checklist of behavioral differences operators should sanity-check before promoting to production.
+**These are released as experimental packages.** They are not v1.0 load-bearing, the supported subset is partial, and the compatibility matrix records exactly what's covered. Compatibility tests target the OTel-like API and wire output, not convenience wrappers.
+
+`microtel_otelcpp_shim` is **source-only** — it is never shipped as a prebuilt binary, for any configuration. The opentelemetry-cpp API encodes its `nostd::` types and ABI version into every signature, so a prebuilt shim's ABI would depend on build choices made by the consumer. Building from source inside the consumer's own build is what makes exactly one configuration apply. Full reasoning in ICP 0014.
+
+A migration guide (`docs/migration-from-otel-cpp.md`) covers: dependency-graph diff, build-system changes, API import changes, OTel env-var → `microtel.toml` translation, and a checklist of behavioral differences operators should sanity-check before promoting to production. It is a v1.0 release deliverable (M10) and is validated against the working shim (M17). Milestone numbers in this project are as-built labels rather than an execution sequence — M11–M14 shipped while M10 has not — so M17 preceding M10 in practice is expected. If v1.0 ships first, the guide's shim-validated sections are the part that must wait.
 
 ### 6.4 Operational surface (v1)
 
@@ -622,7 +634,7 @@ The roadmap is structured for incremental delivery and parallel execution. Three
 
 1. **Architecture-first.** M0 produces `docs/architecture.md`, `docs/interfaces.md`, sequence diagrams, and stub interface headers — no source code. The spike (M1) validates those decisions with throwaway code. Only after M2 (Skeleton & contracts) locks the interfaces in code with mocks does parallel implementation work begin. See §14.1.
 2. **TDD from M3 onward.** Every implementation milestone follows test-first per §14.2.
-3. **One signal at a time.** v1 is traces only. Metrics is M11+, with an explicit design-doc milestone before implementation. Logs follow metrics.
+3. **One signal at a time.** Each signal lands as its own milestone sequence, with an explicit design-doc milestone and reviewer sign-off before implementation. Traces first (M3–M7), then metrics (M11 design → M12 implementation → M13 views), then logs (M14). **All three have shipped.** The *v1.0 release* (M10) is still scoped to traces; do not read "v1 is traces only" as a statement about what is implemented — that phrasing described the release cut, and the implementation has run ahead of it.
 
 The "Depends on" column gates start; "Parallel with" lists milestones whose file ownership and contract surfaces are disjoint and can therefore run concurrently.
 
@@ -638,17 +650,20 @@ This section covers v1.0 in detail. The path from v1.0 through full OpenTelemetr
 | **M5 – Production correctness** | Retry / backoff / jitter (HTTP and gRPC), explicit timeout taxonomy (connect / TLS / per-export / retry-budget / flush / shutdown), partial-success parsing, `GOAWAY` and `RST_STREAM` handling, ForceFlush / Shutdown, fork-safety, drop accounting. | 3 wk | M3 | M4, M6 |
 | **M6 – Config & deployability** | Strict `microtel.toml` validation, OTel env-var fallback, endpoint URL parsing, TLS / proxy / auth (static + callback), preflight CLI flag, secret redaction. | 3 wk | M2 | M3, M4, M5 |
 | **M7 – Performance harness & footprint proof** | Benchmark harness in `bench/`, opt-in via `cmake -DMICROTEL_BUILD_BENCH=ON`, measuring all hot-path / exporter / footprint metrics defined in §10. Validates the size and CPU claims that justify the project's existence. | 3 wk | M5 | — |
-| **M8 – Python bindings (traces only)** | nanobind layer, wheels via cibuildwheel for manylinux_2_28, examples. `microtel.__capabilities__` exposes `{"traces": True}`; metrics/logs raise `NotImplementedError` with the version target. **Python is part of the v1.0 target but not a release blocker for the C++ v1.0 release** — if M8 slips, C++ ships as v1.0 and Python ships as v1.0.1 when ready. | 3 wk | M3 | M6, M7 |
-| **M9 – Hardening** | Fuzzing (gRPC framing/trailer paths, TOML parser, response-size limits), soak tests, perf gates in CI, collector interop matrix CI (Collector / Jaeger / Tempo where supported), SonarQube clean run. | 4 wk | M7 | M8 |
-| **M10 – v1.0 traces release** | Apache 2.0 OSS release, PyPI publish, `docs/migration-from-otel-cpp.md` finalized, experimental compat shims released as separate packages, conf-talk submission. | — | M9 | — |
+| **M9 – Hardening** | Fuzzing (gRPC framing/trailer paths, TOML parser, response-size limits), soak tests, perf gates in CI, collector interop matrix CI (Collector / Jaeger / Tempo where supported), SonarQube clean run. | 4 wk | M7 | — |
+| **M10 – v1.0 traces release** | Apache 2.0 OSS release, `docs/migration-from-otel-cpp.md` finalized, experimental compat shims released as separate packages, conf-talk submission. | — | M9 | — |
 | **M11 – Metrics design doc** | `docs/metrics-design.md`: aggregation temporality (delta vs cumulative), cardinality limits, histogram bucket configuration, async-instrument callbacks, reader/exporter interaction, views, exemplars roadmap. **Reviewer sign-off.** No implementation in this milestone. | 2 wk | M10 | — |
 | **M12 – Metrics implementation** | Instruments, aggregations, MetricReader, async observables, Resource detectors expanded. | 6–8 wk | M11 | — |
 | **M13 – Views & attribute filtering** | OTel Views: per-instrument stream selection via `ViewRegistry` selector matching, and per-view `attribute_allowlist` filtering for synchronous and observable instruments. | 2 wk | M12 | — |
 | **M14 – Logs** | OTel logs API, OTLP/logs export, bridge to spdlog as adapter. | 3 wk | M12 | — |
 | **M15 – Control plane + hot reload** | Unix-socket server, JSON wire, `microtelctl` Go binary, REPL, hot-reloadable settings, multi-profile. | 4 wk | M10 | M12, M13, M14 |
 | **M16 – Sugar layer** | `microtel::sugar` C++ helpers and Python decorator/context-manager equivalents. | 3 wk | M10 | — |
+| **M17 – opentelemetry-cpp API-adapter shim** | `microtel_otelcpp_shim`: implements the `opentelemetry-cpp` API over microtel's SDK for traces, metrics, and logs. **Source-only distribution** — no prebuilt binaries, for any configuration. Opt-in via `MICROTEL_BUILD_OTELCPP_SHIM=ON`. `docs/migration-from-otel-cpp.md` written against the working shim. Experimental tier. | 4 wk | M14 | M15, M16 |
+| **M18 – Python bindings (all signals)** | nanobind layer over traces, metrics, and logs; `logging.Handler` bridge; wheels via `cibuildwheel` for manylinux_2_28; PyPI publish; examples. `microtel.__capabilities__` reports `{"traces": True, "metrics": True, "logs": True}`. | 4 wk | M10; thread-local current-span slot | M15, M16, M17 |
 
 > **Numbering note.** M13 (Views & attribute filtering) was split out from M12 during implementation and tracked under its own milestone number; Logs, control plane, and sugar renumbered to M14/M15/M16 to keep the spec aligned with the as-built commit labels. See [ICP 0010](docs/icps/0010-milestone-renumber-views.md).
+>
+> **M8 is a retired number.** It formerly held "Python bindings (traces only)". That scope was overtaken by M12/M13/M14 — all three signals ship — and the slot never corresponded to any implementation (history runs M7 → M9). Python bindings are now **M18**; M8 is not reused, so every as-built commit label M9–M16 keeps its meaning. See [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md). The opentelemetry-cpp shim takes **M17** per [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md), ahead of Python, because it has no SDK prerequisites while Python requires the thread-local current-span slot.
 
 ### 13.1 Parallel work tracks after M2
 
@@ -683,7 +698,7 @@ A CI check that fails PRs touching files outside the author's claimed track is d
 
 ### 13.4 Python binding cadence
 
-Python wheels ship **incrementally**, not at full feature parity. v1 wheels include traces only. `microtel.__capabilities__` exposes the binding scope at runtime; unbound surfaces raise `NotImplementedError` with the version target. No orphan C++ surfaces — if a public C++ method exists for more than one release without a Python equivalent, that's a bug, not a deferred feature.
+Python wheels ship **post-v1.0**, as M18, covering all three signals — traces, metrics, and logs — because all three are live public C++ surfaces. `microtel.__capabilities__` exposes the binding scope at runtime; any surface not yet bound raises `NotImplementedError` with the version target. No orphan C++ surfaces — if a public C++ method exists for more than one release without a Python equivalent, that's a bug, not a deferred feature. That rule is why a traces-only wheel is no longer an acceptable first release: it would ship the bug the rule forbids. See [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
 ### 13.5 v1.0 Release Gates
 
@@ -706,7 +721,7 @@ microtel v1.0 cannot ship until **all** of the following are true:
 - `SECURITY.md`, `CODEOWNERS`, `compatibility-matrix.md`, `interop-matrix.md`, and third-party notices exist and are current.
 - `make regen-protos` produces a zero-diff result against the pinned upb + opentelemetry-proto versions.
 
-Python bindings (M8) are a v1.0 *target* but not a gate; if Python slips, C++ ships v1.0 and Python ships v1.0.1.
+Python bindings are **not part of the v1.0 target set** and are not a gate. They ship post-v1.0 as **M18**, together with the PyPI publish. See [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
 ---
 
@@ -948,7 +963,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 - **Compatibility policy:** semantic versioning; the public C++ API is stable within a major version. Wire compatibility is tracked against a pinned OTel spec version, with changes called out per release.
 - **ABI policy:** No stable C++ ABI guarantee before 1.0. After 1.0, public headers follow semver source compatibility. Binary ABI compatibility is best-effort within a minor release, **not** guaranteed across minor releases unless explicitly stated. Users requiring strict binary compatibility should pin to a specific minor version.
 - **Maintainer model:** CODEOWNERS required for core transport, encoder, SDK, Python, and packaging directories.
-- **Threat model** (initial): enumerated for the v1.1 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M8.
+- **Threat model** (initial): enumerated for the v1.1 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M9 (Hardening).
 - **License scanning:** CI runs license scanning over vendored and generated code (upb, opentelemetry-proto). Release artifacts include third-party notices auto-generated from `third_party/*/README.md` license entries.
 - **CI quality gates** (per §14): test coverage thresholds, sanitizer-clean builds, clang-tidy with SonarQube-aligned rules, SonarQube Cloud OSS-tier scan with no critical/blocker issues, no flaky tests in queue beyond two weeks, RAII pattern enforcement, generated-code zero-diff verification.
 

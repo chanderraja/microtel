@@ -19,4 +19,12 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         NAME    otelcpp_config_test
         SOURCES otelcpp_config_test.cpp
         LIBS    microtel_otelcpp_shim)
+
+    # M17 L2 — otel-cpp's 16-alternative AttributeValue to microtel's 8.
+    microtel_add_test(
+        NAME    otelcpp_attribute_conversion_test
+        SOURCES otelcpp_attribute_conversion_test.cpp
+        LIBS    microtel_otelcpp_shim)
+    target_include_directories(otelcpp_attribute_conversion_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
 endif()

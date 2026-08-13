@@ -153,6 +153,14 @@ closure.
 **A scan that finds no artifacts fails with exit 2** rather than reporting green,
 so a build-layout change cannot silently turn this gate into a no-op.
 
+**Known gap — re-point at the install tree when `install()` lands.** The scan
+currently walks the *build* tree. "Shipped" properly means the *install* tree;
+the two coincide today only because the project has no `install(TARGETS …
+EXPORT …)` rules yet (issue #19). When those land, this job must be re-pointed at
+`cmake --install` output — or at minimum extended to cover it — in the same PR.
+Otherwise install rules ship and the gate quietly begins checking the wrong set
+of artifacts while still reporting green.
+
 ### `.github/workflows/license-scan.yml`
 
 License compliance check over vendored and generated code.

@@ -16,6 +16,7 @@ CI runs on **GitHub Actions** for the OSS path. A self-hosted Jenkins line may b
 | `coverage` | every PR | yes (diff coverage gate) | 10–15 min |
 | `test-presence` | every PR | yes | < 30 sec |
 | `proto-regen-check` | every PR touching `third_party/upb/` or `proto/` | yes | 2 min |
+| `symbol-scan` | every PR | yes | 3–5 min |
 | `license-scan` | every PR, weekly cron | yes (PR), reports (cron) | 3 min |
 | `fuzz-smoke` | every PR (60 sec budget per target) | yes | 5 min |
 | `fuzz-soak` | nightly cron | reports only | 8 hours |
@@ -121,6 +122,36 @@ Verifies that running `make regen-protos` produces a zero-diff result against th
 **Pass condition:** generated code matches the result of regenerating from pinned sources.
 
 **When it runs:** on PRs that touch `proto/`, `third_party/upb/`, `gen/`, or any `*.upb*` files. Skipped otherwise to save CI time.
+
+### `symbol-scan` (job in `.github/workflows/ci.yml`)
+
+Mechanical enforcement of the dependency closure: asserts that no shipped
+artifact defines **or references** a symbol from gRPC, abseil, or the protobuf
+C++ runtime. This is the test behind CLAUDE.md rule 13 and spec §3 — the closure
+claim is the project's reason to exist, so it is verified rather than asserted.
+
+Undefined (`U`) references count as violations alongside defined symbols: a
+static archive carrying `U absl::…` makes abseil a link requirement for every
+consumer even though the archive contains none of abseil's code.
+
+**Steps:**
+1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
+   configuration only, never gtest/gmock or other test-only inputs.
+2. Build.
+3. Run [`ci/scripts/symbol-scan.sh build`](../ci/scripts/symbol-scan.sh).
+
+**Pass condition:** zero forbidden symbols across every `libmicrotel_*.a` and the
+`microtel-preflight` binary.
+
+**Deliberate non-violations.** The scan anchors its patterns at the start of the
+demangled name, which is what keeps the vendored dependencies legal: upb emits C
+accessors such as `google_protobuf_Timestamp_set_seconds`, which are upb's own
+generated code and must not be confused with the `google::protobuf::` C++
+runtime. `upb_*` and `utf8_range_*` are likewise permitted members of the
+closure.
+
+**A scan that finds no artifacts fails with exit 2** rather than reporting green,
+so a build-layout change cannot silently turn this gate into a no-op.
 
 ### `.github/workflows/license-scan.yml`
 

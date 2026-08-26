@@ -42,10 +42,51 @@ if [[ ${#TUS[@]} -eq 0 ]]; then
     exit 0
 fi
 
-echo "tidy-check: linting ${#TUS[@]} TUs..."
+# Only lint TUs the build actually compiles. A file absent from
+# compile_commands.json — because it sits behind an off-by-default CMake option,
+# such as MICROTEL_BUILD_OTELCPP_SHIM — would otherwise be linted with
+# clang-tidy's fallback flags, which cannot resolve its include paths and
+# reports a bogus clang-diagnostic-error. Skipping is correct; skipping
+# *silently* is not, so the skipped set is always printed.
+mapfile -t COMPILED < <(
+    python3 -c '
+import json, os, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for entry in json.load(fh):
+        print(os.path.realpath(os.path.join(entry.get("directory", ""), entry["file"])))
+' "${BUILD_DIR}/compile_commands.json" | sort -u
+)
+
+declare -A IN_BUILD=()
+for f in "${COMPILED[@]}"; do
+    IN_BUILD["$f"]=1
+done
+
+LINT=()
+SKIPPED=()
+for tu in "${TUS[@]}"; do
+    if [[ -n "${IN_BUILD[$(realpath "$tu")]:-}" ]]; then
+        LINT+=("$tu")
+    else
+        SKIPPED+=("$tu")
+    fi
+done
+
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+    echo "tidy-check: skipping ${#SKIPPED[@]} TU(s) not in this build's compile_commands.json:"
+    printf '    %s\n' "${SKIPPED[@]}"
+    echo "tidy-check: configure with the relevant CMake option ON to lint them."
+fi
+
+if [[ ${#LINT[@]} -eq 0 ]]; then
+    echo "tidy-check: no TUs from this build to lint" >&2
+    exit 2
+fi
+
+echo "tidy-check: linting ${#LINT[@]} TUs..."
 
 failures=0
-for tu in "${TUS[@]}"; do
+for tu in "${LINT[@]}"; do
     echo "  -> $tu"
     if ! "$CLANG_TIDY" --quiet --warnings-as-errors='*' -p "$BUILD_DIR" "$tu"; then
         failures=$((failures + 1))

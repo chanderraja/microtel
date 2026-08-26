@@ -44,6 +44,13 @@ jobs:
             libssl-dev libnghttp2-dev
           sudo update-alternatives --install /usr/bin/clang-tidy \
             clang-tidy /usr/bin/clang-tidy-18 100
+      # Every optional tree is enabled here so its TUs land in
+      # compile_commands.json and are linted with real flags. tidy-check.sh
+      # skips (and reports) any TU absent from the build rather than linting it
+      # with clang-tidy's fallback flags, which cannot resolve include paths.
+      # Before this, the four tests/fuzz TUs were being linted with those
+      # fallback flags — they pass either way, but the findings were not
+      # trustworthy. FUZZ needs clang for -fsanitize=fuzzer, which this job uses.
       - name: Configure (compile_commands for clang-tidy)
         env:
           CC:  clang-18
@@ -54,7 +61,9 @@ jobs:
             -DCMAKE_CXX_STANDARD=20 \
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
-            -DMICROTEL_BUILD_TESTS=ON
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_FUZZ=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
       - name: Run tidy-check
@@ -203,6 +212,36 @@ jobs:
       - name: Build
         run: cmake --build build
       - name: Assert dependency closure (no gRPC / abseil / protobuf-cpp)
+        run: ci/scripts/symbol-scan.sh build
+
+  otelcpp-shim:
+    runs-on: ubuntu-latest
+    name: otelcpp-shim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build \
+            libssl-dev libnghttp2-dev
+      # Opt-in build (M17, ICP 0014). Fetches only opentelemetry-cpp's
+      # header-only API; its SDK and exporters are never configured.
+      - name: Configure with the shim enabled
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      # The shim must not change what microtel ships. Re-running the closure
+      # gate with the shim enabled proves it adds no shipped artifact and no
+      # forbidden symbol — the claim ICP 0014 §4 makes in prose.
+      - name: Assert the shim does not alter the dependency closure
         run: ci/scripts/symbol-scan.sh build
 
   coverage:

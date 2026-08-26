@@ -115,6 +115,49 @@ FetchContent_Declare(
 set(TOMLPLUSPLUS_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(tomlplusplus)
 
+# opentelemetry-cpp API-adapter shim (M17, ICP 0014) — opt-in, source-only.
+#
+# Only the header-only *API* is consumed. otel-cpp's SDK and exporters — and
+# their protobuf / libcurl dependencies — are never configured or built:
+# SOURCE_SUBDIR points at a directory containing no CMakeLists.txt, so
+# FetchContent populates the sources without calling add_subdirectory() on
+# otel-cpp's own project.
+#
+# OPENTELEMETRY_STL_VERSION=2020 is load-bearing, not a style preference. Under
+# the upstream default (WITH_STL=OFF) the API resolves nostd:: to a vendored
+# abseil snapshot shipped inside its own headers — WITH_ABSEIL=OFF does not
+# prevent that; only the STL mode does. Pinned by static_assert in
+# tests/unit/adapters/otelcpp_config_test.cpp so a change cannot pass silently.
+option(MICROTEL_BUILD_OTELCPP_SHIM
+       "Build the opentelemetry-cpp API-adapter shim (source-only, ICP 0014)" OFF)
+
+if(MICROTEL_BUILD_OTELCPP_SHIM)
+    include(FetchContent)
+    FetchContent_Declare(
+        opentelemetry_cpp_api
+        GIT_REPOSITORY https://github.com/open-telemetry/opentelemetry-cpp.git
+        GIT_TAG        v1.28.0
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  api/include
+    )
+    FetchContent_MakeAvailable(opentelemetry_cpp_api)
+
+    if(TARGET opentelemetry_api)
+        message(FATAL_ERROR
+                "opentelemetry-cpp's CMake project was added to the build. Only "
+                "its header-only API may be consumed. See ICP 0014.")
+    endif()
+
+    # SYSTEM: third-party headers must not trip this project's warning settings.
+    add_library(microtel_otelcpp_api INTERFACE)
+    target_include_directories(microtel_otelcpp_api SYSTEM INTERFACE
+        ${opentelemetry_cpp_api_SOURCE_DIR}/api/include)
+    target_compile_definitions(microtel_otelcpp_api INTERFACE
+        OPENTELEMETRY_STL_VERSION=2020
+        OPENTELEMETRY_ABI_VERSION_NO=1)
+    target_compile_features(microtel_otelcpp_api INTERFACE cxx_std_20)
+endif()
+
 # Compile-time gate: when ON, insecure = true in config causes init failure.
 # Default OFF (emit runtime warning only). See microtel-spec.md §12.3.
 option(MICROTEL_FORBID_INSECURE_TLS
@@ -146,6 +189,9 @@ add_subdirectory(src/transport)
 add_subdirectory(src/exporter)
 if(MICROTEL_USE_SPDLOG)
     add_subdirectory(src/adapters/spdlog)
+endif()
+if(MICROTEL_BUILD_OTELCPP_SHIM)
+    add_subdirectory(src/adapters/otelcpp)
 endif()
 add_subdirectory(tools)
 

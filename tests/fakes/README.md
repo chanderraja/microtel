@@ -16,6 +16,8 @@
 | `fake_span_processor.hpp`     | `internal::ISpanProcessor`   | Stores received spans in a vector for inspection. |
 | `fake_exporter.hpp`           | `internal::IExporter`        | Records batches in memory and exposes them. |
 | `fake_span.hpp`               | `microtel::Span`             | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests to assert on. |
+| `fake_tracer.hpp`             | `microtel::Tracer`           | Records every `StartSpan` (name, options) and hands out a fresh recording `FakeSpan` per call. |
+| `fake_provider.hpp`           | `microtel::Provider`         | Records tracer acquisitions and flush/shutdown timeouts; returns configured statuses. |
 
 ## Bar
 

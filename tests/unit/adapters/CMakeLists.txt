@@ -47,4 +47,14 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
+
+    # M17 L2 — TracerShim / TracerProviderShim over microtel Tracer/Provider.
+    microtel_add_test(
+        NAME    otelcpp_tracer_shim_test
+        SOURCES otelcpp_tracer_shim_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
+    target_include_directories(otelcpp_tracer_shim_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
 endif()

@@ -14,7 +14,7 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **done** (#110, #113, #114, #115) |
 | L3 | Metrics — `MeterProvider` / `Meter` / instruments | **done** — `MeterShim` (all 12 ABI-v1 creates), sync instrument shims, observable callback-registry bridging, `MakeMeterProvider` |
 | L4 | Logs — `LoggerProvider` / `Logger` | **done** — `LogRecordShim`, `LoggerShim`, `LoggerProviderShim`, `MakeLoggerProvider` |
-| L5 | Global provider registration + wire conformance end-to-end | not started |
+| L5 | Global provider registration | **partial** — `RegisterGlobally`/`UnregisterGlobally` (one call, all three signals) done; wire-conformance end-to-end tracked separately, see below |
 | L6 | `docs/migration-from-otel-cpp.md` written against the working shim | not started |
 
 ## Two rules that are easy to break
@@ -128,3 +128,6 @@ afterwards.
 - [`tests/unit/adapters/otelcpp_logger_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_logger_shim_test.cpp)
   — create/emit round trip, `logger_name`→`name` fallback, global
   registration (L4).
+- [`tests/unit/adapters/otelcpp_global_registration_test.cpp`](../../../tests/unit/adapters/otelcpp_global_registration_test.cpp)
+  — `RegisterGlobally` wires all three signals from one call;
+  `UnregisterGlobally` restores the noop defaults (L5).

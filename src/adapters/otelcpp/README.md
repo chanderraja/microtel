@@ -11,8 +11,8 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | Increment | Scope | State |
 |---|---|---|
 | L1 | Build scaffolding, pinned API headers, configuration assertions | **done** |
-| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **done** — attribute/context conversion, `SpanShim`, `TracerShim`, `TracerProviderShim`, `Scope` current-span inheritance, and `MakeTracerProvider` global registration |
-| L3 | Metrics — `MeterProvider` / `Meter` / instruments | not started |
+| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **done** (#110, #113, #114, #115) |
+| L3 | Metrics — `MeterProvider` / `Meter` / instruments | **done** — `MeterShim` (all 12 ABI-v1 creates), sync instrument shims, observable callback-registry bridging, `MakeMeterProvider` |
 | L4 | Logs — `LoggerProvider` / `Logger` | not started |
 | L5 | Global provider registration + wire conformance end-to-end | not started |
 | L6 | `docs/migration-from-otel-cpp.md` written against the working shim | not started |
@@ -120,3 +120,6 @@ afterwards.
 - [`tests/unit/adapters/otelcpp_tracer_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_tracer_shim_test.cpp)
   — `StartSpan` option mapping (kind, parent variant, time, links),
   flush/close delegation, provider scope pass-through (L2).
+- [`tests/unit/adapters/otelcpp_meter_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_meter_shim_test.cpp)
+  — every sync instrument's forwarding, the uint64 omit rule, observable
+  callback-registry bridging, global registration (L3).

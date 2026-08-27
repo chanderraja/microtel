@@ -17,7 +17,8 @@
 | `fake_exporter.hpp`           | `internal::IExporter`        | Records batches in memory and exposes them. |
 | `fake_span.hpp`               | `microtel::Span`             | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests to assert on. |
 | `fake_tracer.hpp`             | `microtel::Tracer`           | Records every `StartSpan` (name, options) and hands out a fresh recording `FakeSpan` per call. |
-| `fake_provider.hpp`           | `microtel::Provider`         | Records tracer acquisitions and flush/shutdown timeouts; returns configured statuses. |
+| `fake_provider.hpp`           | `microtel::Provider`         | Records tracer/meter acquisitions and flush/shutdown timeouts; returns configured statuses. |
+| `fake_meter.hpp`              | `microtel::Meter`            | Records instrument creations, returns recording sync instruments, captures observable callbacks for test-driven collection cycles. |
 
 ## Bar
 

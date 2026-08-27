@@ -27,4 +27,24 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim)
     target_include_directories(otelcpp_attribute_conversion_test
         PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # M17 L2 — TraceId / SpanId / SpanContext bridging, both directions.
+    microtel_add_test(
+        NAME    otelcpp_context_conversion_test
+        SOURCES otelcpp_context_conversion_test.cpp
+        LIBS    microtel_otelcpp_shim)
+    target_include_directories(otelcpp_context_conversion_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # M17 L2 — SpanShim: otel-cpp trace::Span over a microtel SpanHandle.
+    # microtel_sdk provides the out-of-line SpanDeleter::operator() the
+    # SpanHandle in the test destroys; consumers link it as a matter of course.
+    microtel_add_test(
+        NAME    otelcpp_span_shim_test
+        SOURCES otelcpp_span_shim_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
+    target_include_directories(otelcpp_span_shim_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
 endif()

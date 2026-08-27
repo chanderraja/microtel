@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <opentelemetry/common/attribute_value.h>
+#include <opentelemetry/common/key_value_iterable.h>
 
 /// @file
 /// Converts `opentelemetry::common::AttributeValue` to `microtel::AttributeValue`.
@@ -212,6 +213,27 @@ namespace detail
             }
         },
         value);
+}
+
+/// @brief Materialise an otel-cpp `KeyValueIterable` as owned microtel
+///        key/values, converting every value via `ConvertAttributeValue`.
+///
+/// The result owns its strings, so it outlives the iterable's borrowed
+/// storage; callers pass it on as an `AttributeSpan`.
+[[nodiscard]] inline std::vector<microtel::KeyValue> ConvertKeyValues(
+    const otel_common::KeyValueIterable& attributes)
+{
+    std::vector<microtel::KeyValue> out;
+    out.reserve(attributes.size());
+    attributes.ForEachKeyValue(
+        [&out](opentelemetry::nostd::string_view key,
+               const otel_common::AttributeValue& value) noexcept
+        {
+            out.push_back({.key = std::string{key.data(), key.size()},
+                           .value = ConvertAttributeValue(value)});
+            return true;
+        });
+    return out;
 }
 
 }  // namespace microtel::adapters::otelcpp

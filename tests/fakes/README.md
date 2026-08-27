@@ -15,6 +15,7 @@
 | `fake_resource_detector.hpp`  | `internal::IResourceDetector` | Returns a configured `Resource`; trivial but logically distinct from a mock. |
 | `fake_span_processor.hpp`     | `internal::ISpanProcessor`   | Stores received spans in a vector for inspection. |
 | `fake_exporter.hpp`           | `internal::IExporter`        | Records batches in memory and exposes them. |
+| `fake_span.hpp`               | `microtel::Span`             | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests to assert on. |
 
 ## Bar
 

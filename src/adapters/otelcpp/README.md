@@ -11,7 +11,7 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | Increment | Scope | State |
 |---|---|---|
 | L1 | Build scaffolding, pinned API headers, configuration assertions | **done** |
-| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | not started |
+| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **in progress** — attribute conversion, context bridging, and `SpanShim` landed; `Tracer` / `TracerProvider` next |
 | L3 | Metrics — `MeterProvider` / `Meter` / instruments | not started |
 | L4 | Logs — `LoggerProvider` / `Logger` | not started |
 | L5 | Global provider registration + wire conformance end-to-end | not started |
@@ -113,3 +113,7 @@ afterwards.
 - [`tests/unit/adapters/otelcpp_attribute_conversion_test.cpp`](../../../tests/unit/adapters/otelcpp_attribute_conversion_test.cpp)
   — every variant alternative, including the exact rendered strings for the
   three degraded cases (L2).
+- [`tests/unit/adapters/otelcpp_context_conversion_test.cpp`](../../../tests/unit/adapters/otelcpp_context_conversion_test.cpp)
+  — TraceId / SpanId / SpanContext bridging round-trips (L2).
+- [`tests/unit/adapters/otelcpp_span_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_span_shim_test.cpp)
+  — every `trace::Span` pure virtual forwarded onto a recording fake (L2).

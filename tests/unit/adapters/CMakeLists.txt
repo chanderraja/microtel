@@ -85,4 +85,15 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
+
+    # M17 L5 — RegisterGlobally/UnregisterGlobally: one-call startup wiring
+    # all three signals over a single microtel::Provider.
+    microtel_add_test(
+        NAME    otelcpp_global_registration_test
+        SOURCES otelcpp_global_registration_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
+    target_include_directories(otelcpp_global_registration_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
 endif()

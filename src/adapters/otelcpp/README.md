@@ -73,6 +73,24 @@ alternative produces a value — so the shim needs no drop accounting and no
 diagnostics path. Implementation:
 [`attribute_conversion.hpp`](attribute_conversion.hpp).
 
+## Adapter-local diagnostics (L3)
+
+Attributes never need drop accounting (above), but two metrics-shim events
+have no degraded form to preserve into and are counted instead, per
+[ICP 0016](../../../docs/icps/0016-adapter-drop-accounting.md):
+
+| Event | Counter |
+|---|---|
+| `uint64_t` measurement (Counter/Histogram) above `INT64_MAX`, omitted | `unrepresentable_measurements_omitted` |
+| An observable-metric callback threw, contained at the shim boundary | `observer_callback_failures` |
+
+These are **shim-local** counters — `GetShimDiagnostics()` — not part of
+`microtel::Provider::GetExporterHealth()`. ICP 0016 explains why: the cost of
+a new `Provider` API + `DropReason` enumerator is disproportionate to an
+event this rare (a measurement over 9.2 × 10¹⁸ is an overflow bug, not a real
+measurement in practice). Revisit if a second adapter needs the same shape.
+Implementation: [`shim_diagnostics.hpp`](shim_diagnostics.hpp).
+
 ## Dependency status
 
 The opentelemetry-cpp API headers are a **build-time dependency of this package
@@ -121,8 +139,12 @@ afterwards.
   — `StartSpan` option mapping (kind, parent variant, time, links),
   flush/close delegation, provider scope pass-through (L2).
 - [`tests/unit/adapters/otelcpp_meter_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_meter_shim_test.cpp)
-  — every sync instrument's forwarding, the uint64 omit rule, observable
+  — every sync instrument's forwarding, the uint64 omit rule (now
+  asserted against `GetShimDiagnostics()`, ICP 0016), observable
   callback-registry bridging, global registration (L3).
+- [`tests/unit/adapters/otelcpp_shim_diagnostics_test.cpp`](../../../tests/unit/adapters/otelcpp_shim_diagnostics_test.cpp)
+  — `GetShimDiagnostics()`'s own mechanics: independent counters,
+  concurrent recording loses no increments (TSAN-clean) (ICP 0016).
 - [`tests/unit/adapters/otelcpp_log_record_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_log_record_shim_test.cpp)
   — every `LogRecord` setter, including the event-id name/id split (L4).
 - [`tests/unit/adapters/otelcpp_logger_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_logger_shim_test.cpp)

@@ -7,6 +7,7 @@
 
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
+#include "adapters/otelcpp/shim_diagnostics.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -30,10 +31,11 @@
 /// the measurement is **dropped** — per ICP 0015's principle, preserve or
 /// omit, never invent, and unlike attributes a measurement has no degraded
 /// type to preserve into. (A single increment above 9.2 × 10¹⁸ does not occur
-/// in practice.) `int64_t` / `double` instruments map exactly.
-/// Today the omission is silent; giving it a drop counter needs a new
-/// `DropReason` and an adapter-visible way to record it — proposed as
-/// ICP 0016.
+/// in practice.) `int64_t` / `double` instruments map exactly. Omissions —
+/// and observer-callback exceptions caught below — are counted via
+/// `shim_diagnostics.hpp` (ICP 0016), not through `microtel::Provider`'s own
+/// diagnostics: that path is unreachable from here, since the conversion
+/// fails above the SDK.
 ///
 /// **Context parameters** on `Add`/`Record` carry exemplar correlation in
 /// otel-cpp; microtel has no exemplar surface in v1, so they are ignored.
@@ -90,7 +92,8 @@ private:
         {
             if (!FitsInt64(value))
             {
-                return;  // omit, never invent (see @file; accounting: ICP 0016)
+                RecordUnrepresentableMeasurementOmitted();
+                return;  // omit, never invent (see @file)
             }
         }
         m_counter->Add(static_cast<MicroT>(value), attrs);
@@ -168,7 +171,8 @@ private:
         {
             if (!FitsInt64(value))
             {
-                return;  // omit, never invent (see @file; accounting: ICP 0016)
+                RecordUnrepresentableMeasurementOmitted();
+                return;  // omit, never invent (see @file)
             }
         }
         m_histogram->Record(static_cast<MicroT>(value), attrs);
@@ -264,9 +268,10 @@ public:
             // arbitrary application code and microtel's noexcept collection
             // path; anything escaping here would std::terminate inside a
             // telemetry library. Observations the callback made before
-            // throwing are kept. Accounting for the failure is ICP 0016.
-            catch (...)  // NOLINT(bugprone-empty-catch)
+            // throwing are kept.
+            catch (...)
             {
+                RecordObserverCallbackFailure();
             }
         }
     }

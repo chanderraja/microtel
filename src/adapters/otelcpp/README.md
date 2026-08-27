@@ -11,7 +11,7 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | Increment | Scope | State |
 |---|---|---|
 | L1 | Build scaffolding, pinned API headers, configuration assertions | **done** |
-| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **in progress** — attribute conversion, context bridging, and `SpanShim` landed; `Tracer` / `TracerProvider` next |
+| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **in progress** — attribute conversion, context bridging, `SpanShim`, `TracerShim`, and `TracerProviderShim` landed; global registration / `Scope` next |
 | L3 | Metrics — `MeterProvider` / `Meter` / instruments | not started |
 | L4 | Logs — `LoggerProvider` / `Logger` | not started |
 | L5 | Global provider registration + wire conformance end-to-end | not started |
@@ -117,3 +117,6 @@ afterwards.
   — TraceId / SpanId / SpanContext bridging round-trips (L2).
 - [`tests/unit/adapters/otelcpp_span_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_span_shim_test.cpp)
   — every `trace::Span` pure virtual forwarded onto a recording fake (L2).
+- [`tests/unit/adapters/otelcpp_tracer_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_tracer_shim_test.cpp)
+  — `StartSpan` option mapping (kind, parent variant, time, links),
+  flush/close delegation, provider scope pass-through (L2).

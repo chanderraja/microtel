@@ -15,7 +15,7 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | L3 | Metrics — `MeterProvider` / `Meter` / instruments | **done** — `MeterShim` (all 12 ABI-v1 creates), sync instrument shims, observable callback-registry bridging, `MakeMeterProvider` |
 | L4 | Logs — `LoggerProvider` / `Logger` | **done** — `LogRecordShim`, `LoggerShim`, `LoggerProviderShim`, `MakeLoggerProvider` |
 | L5 | Global provider registration + wire conformance end-to-end | **done** — `RegisterGlobally`/`UnregisterGlobally`; `tests/integration/otelcpp_shim/` proves all three signals reach correct OTLP/HTTP bytes on a real loopback connection |
-| L6 | `docs/migration-from-otel-cpp.md` written against the working shim | not started |
+| L6 | `docs/migration-from-otel-cpp.md` written against the working shim | **done** — [`docs/migration-from-otel-cpp.md`](../../../docs/migration-from-otel-cpp.md) |
 
 ## Two rules that are easy to break
 

@@ -4,7 +4,8 @@
 // Covers TracerShim and TracerProviderShim (otel-cpp ABI v1): StartSpan
 // option mapping (kind, parent in all three variant states, start time,
 // initial attributes), link forwarding via AddLink, flush/close delegation,
-// and provider scope pass-through.
+// provider scope pass-through, current-span inheritance through
+// trace::Scope, and global registration via trace::Provider.
 
 #include "adapters/otelcpp/tracer_shim.hpp"
 #include "fakes/fake_provider.hpp"
@@ -20,6 +21,9 @@
 
 #include <opentelemetry/context/context.h>
 #include <opentelemetry/trace/context.h>
+#include <opentelemetry/trace/noop.h>
+#include <opentelemetry/trace/provider.h>
+#include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/span_context.h>
 #include <opentelemetry/trace/span_startoptions.h>
 
@@ -259,6 +263,57 @@ TEST(OtelCppTracerShim, CloseDelegatesToProviderShutdown)
     EXPECT_EQ(f.provider->shutdown_calls[0], std::chrono::milliseconds{500});
 }
 
+// ── Current-span inheritance (trace::Scope) ───────────────────────────────────
+
+TEST(OtelCppTracerShim, ScopeMakesActiveSpanTheDefaultParent)
+{
+    ShimFixture f;
+
+    auto parent_span = f.shim.StartSpan("parent");
+    f.provider->tracer->spans[0]->context = microtel::SpanContext{
+        .trace_id = microtel::TraceId{microtel::TraceId::Bytes{
+            7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7}},
+        .span_id = microtel::SpanId{microtel::SpanId::Bytes{6, 5, 4, 3, 2, 1, 9, 8}},
+        .trace_flags = microtel::TraceFlags{microtel::TraceFlags::kSampled},
+        .trace_state = {},
+        .remote = false,
+    };
+
+    {
+        const otel_trace::Scope scope{parent_span};
+        auto child = f.shim.StartSpan("child");
+
+        ASSERT_EQ(f.provider->tracer->starts.size(), 2U);
+        const auto& parent = f.provider->tracer->starts[1].parent;
+        ASSERT_TRUE(parent.has_value());
+        EXPECT_EQ(parent.value().trace_id.AsBytes().at(0), 7);
+        EXPECT_EQ(parent.value().span_id.AsBytes().at(0), 6);
+    }
+
+    // Scope has detached: back to no active span, so the default roots again.
+    auto sibling = f.shim.StartSpan("sibling");
+    EXPECT_FALSE(f.provider->tracer->starts[2].parent.has_value());
+}
+
+TEST(OtelCppTracerShim, RootContextOverridesActiveSpan)
+{
+    ShimFixture f;
+
+    auto parent_span = f.shim.StartSpan("parent");
+    const otel_trace::Scope scope{parent_span};
+
+    opentelemetry::context::Context root;
+    root = root.SetValue(otel_trace::kIsRootSpanKey, true);
+    otel_trace::StartSpanOptions options;
+    options.parent = root;
+    auto span = f.shim.StartSpan("s", options);
+
+    // is_root_span must beat the active span: set-but-invalid parent.
+    const auto& parent = f.provider->tracer->starts[1].parent;
+    ASSERT_TRUE(parent.has_value());
+    EXPECT_FALSE(parent.value().IsValid());
+}
+
 // ── TracerProviderShim ────────────────────────────────────────────────────────
 
 TEST(OtelCppTracerProviderShim, GetTracerForwardsNameAndVersion)
@@ -284,6 +339,31 @@ TEST(OtelCppTracerProviderShim, GetTracerReturnsWorkingShim)
     auto span = tracer->StartSpan("s");
 
     EXPECT_EQ(provider->tracer->starts.size(), 1U);
+}
+
+// ── Global registration ───────────────────────────────────────────────────────
+
+TEST(OtelCppTracerProviderShim, GlobalRegistrationRoutesOtelApiCallsToMicrotel)
+{
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+
+    otel_trace::Provider::SetTracerProvider(
+        microtel::adapters::otelcpp::MakeTracerProvider(provider));
+
+    // From here on this is exactly what already-instrumented application code
+    // does — no microtel type appears.
+    auto tracer = otel_trace::Provider::GetTracerProvider()->GetTracer("app.lib");
+    auto span = tracer->StartSpan("op");
+    span->End();
+
+    ASSERT_EQ(provider->tracer_requests.size(), 1U);
+    EXPECT_EQ(provider->tracer_requests[0].name, "app.lib");
+    EXPECT_EQ(provider->tracer->starts.size(), 1U);
+
+    // Restore the noop default so no other test observes this global.
+    otel_trace::Provider::SetTracerProvider(
+        opentelemetry::nostd::shared_ptr<otel_trace::TracerProvider>{
+            std::make_shared<otel_trace::NoopTracerProvider>()});
 }
 
 }  // namespace

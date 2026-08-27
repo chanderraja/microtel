@@ -138,21 +138,19 @@ instantiation. There is currently no equivalent guard for
 `OPENTELEMETRY_STL_VERSION` mismatches specifically — those manifest as the
 ABI-mismatch link failures ICP 0014 describes.
 
-### 4. Known gap: the shim's headers are not yet a clean public include path
+### 4. `src/` is on the public include path
 
-`microtel_otelcpp_shim`'s CMake target exposes microtel's own public
-`include/microtel/` headers, but its **own** implementation headers
+`microtel_otelcpp_shim` exposes both microtel's public `include/microtel/`
+headers and `src/` itself — the shim's own implementation headers
 (`tracer_shim.hpp`, `meter_shim.hpp`, `logger_shim.hpp`,
-`global_registration.hpp`, …) live under `src/adapters/otelcpp/`, which the
-target does not currently add to its `INTERFACE` include directories. Every
-in-tree test that includes a shim header adds `${CMAKE_SOURCE_DIR}/src`
-manually. Until that's fixed upstream (the shim is explicitly a
-build-and-test-in-tree target today, not yet the "separate package" the
-roadmap's M10 row describes), do the same in your own build:
-
-```cmake
-target_include_directories(your_app PRIVATE ${microtel_SOURCE_DIR}/src)
-```
+`global_registration.hpp`, …) live under `src/adapters/otelcpp/` and include
+each other by that path, so `src/` has to be reachable for a consumer linking
+only `microtel_otelcpp_shim` to resolve them. No extra
+`target_include_directories` call needed on your side — linking the target is
+enough. (Note for anyone reading an old checkout: earlier versions of this
+target exposed only `include/`, requiring a manual `-Isrc` workaround; that
+gap is closed. `tests/unit/adapters/otelcpp_shim_public_include_test.cpp` is
+the regression test.)
 
 ## API import changes
 

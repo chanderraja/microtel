@@ -96,4 +96,12 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
+
+    # Regression test for the shim's public include path (see the test file's
+    # own comment). Deliberately no target_include_directories call here —
+    # that is the point.
+    microtel_add_test(
+        NAME    otelcpp_shim_public_include_test
+        SOURCES otelcpp_shim_public_include_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
 endif()

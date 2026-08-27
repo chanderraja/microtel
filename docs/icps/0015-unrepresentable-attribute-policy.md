@@ -136,3 +136,90 @@ affected keys. Not proposed here; the cost seems high for inputs this rare.
 > OTel data model by otel-cpp's own documentation; doubling the attribute count
 > for them buys self-description nobody has asked for. Revisit on real demand,
 > as a follow-up ICP if it would change the shim's public behaviour.
+
+## Addendum (2026-08-27) — retrospective review findings
+
+A retrospective review of this ICP's reasoning, after acceptance and
+implementation, surfaced four points worth recording. None changes the
+Option B recommendation; the original decision text above is left as written
+— this section adds to the record rather than editing it.
+
+**1. Hex encoding interacts badly with `attribute_value_length_limit`, if
+that limit is ever enforced.** `span<const uint8_t>` renders at two hex
+characters per byte, so any byte span over 2048 bytes produces a string
+longer than the 4096-character default `attribute_value_length_limit`. A
+naive byte-offset truncation of that string can land on an odd nibble
+boundary, producing a string that is *still valid hex* but decodes to a
+different final byte than the application set — silent corruption
+indistinguishable from a correctly-encoded value, which is exactly the
+failure mode this ICP rejects clamping to avoid. **This does not happen
+today**: `attribute_value_length_limit` is a declared config field
+(`SpanLimitOptions::attribute_value_length_limit`) and `DropReason::
+AttributeValueTruncated` is a declared enum value, but nothing in the
+codebase currently reads the former or increments the latter —
+`SdkSpan::SetAttribute` enforces only `attribute_count_limit`, a count cap,
+not a per-value length cap. The interaction is real but not yet live. It is
+far cheaper to record this now, while nobody has built the enforcement, than
+to discover it after the fact via a corrupted payload: whoever implements
+`attribute_value_length_limit` enforcement should treat hex-encoded byte
+attributes as a case that needs truncation to an even nibble boundary (or
+omission above the limit, matching this ICP's own preserve-or-omit
+principle), not a generic string-truncate. Flagged in
+`attribute_conversion.hpp`'s `RenderBytesAsHex` doc comment so it's
+discoverable from the code that produces the affected values, not only from
+this ICP. A large-byte-span test
+(`LargeByteSpanEncodesCorrectlyAtScale`) now pins correct encoding at scale,
+though it cannot test the truncation interaction itself until the
+enforcement it would interact with exists.
+
+**2. The array-uniformity cost is understated.** The Option B cost line
+above ("a consumer filtering on attribute type sees a string where an
+integer was set") describes the mildest possible consequence. The sharper
+one: `[1, 2, 3]` and `[1, 2, 2⁶³]` export as different attribute *types*
+(int64 array vs. string array) under the same key, depending on the values
+observed at runtime, not on any static schema property. Backends with schema
+inference or fixed field mappings commonly reject or coerce on a type
+conflict for an established field — the failure mode isn't a confused
+downstream filter, it's a rejected record, potentially the whole span.
+Option A (drop) does not have this property: an absent attribute is
+something every backend already handles. This doesn't change the
+recommendation — Option A's own costs (data loss, permanent public-API
+growth for an optional adapter) are still worse — but the trade-off is
+sharper than "Cost:" above states.
+
+**3. The alternatives considered for Option A's accounting gap were
+incomplete.** Option A's costing above considers only "a new `DropReason`
+enumerator" plus "a new public mutation method on `Provider` or an internal
+sink" — both permanent core-API growth. A third shape exists: a
+shim-local counter, behind the shim's own header, touching no microtel core
+API at all. This would have made *accounted-for* dropping viable at much
+lower cost than this ICP assumed, and the Recommendation section's reason 2
+("does not grow the public surface") would not have applied against it —
+only reason 1 ("it loses less") would have. The recommendation still holds
+on that ground alone: Option B preserves the value and needs no accounting
+of any kind, which strictly beats an accounted-for drop regardless of how
+cheap the accounting is. The shim-local-counter shape is now evaluated
+properly, for the analogous case of an omitted *measurement* (no degraded
+form exists for a number), in [ICP 0016](0016-adapter-drop-accounting.md).
+
+**4. The indistinguishability argument against clamping is not applied to
+the chosen option.** Clamping is rejected above because *"a reader cannot
+distinguish it from a genuine `INT64_MAX`."* Option B's degraded strings have
+the same property in a weaker form: a consumer cannot distinguish
+`"18446744073709551615"` produced by degradation from a string the
+application genuinely set. The harm is lower — clamping fabricates a value
+that was never set; degradation preserves the exact value that was — but the
+same argument structure applies to both, and the original text doesn't name
+that it's making a different call on the same axis. Resolving it explicitly:
+**indistinguishability is disqualifying only when it can misrepresent a
+value the application never set (clamping); it is acceptable when the value
+is exactly what the application set (degradation)**. That is the actual
+ground on which the marker question above is decided against — not "the
+cost seems high," which was true but not the decisive reason.
+
+**5. "Revisit on real demand" (bytes alternative) is not a free option.**
+Adding a native bytes alternative to `microtel::AttributeValue` later — the
+rejected-for-now alternative above — would be a breaking behavior change for
+any consumer that has come to depend on the current hex-string form (a
+filter, a dashboard, a stored query). Worth stating plainly rather than
+leaving the migration cost implicit in "revisit."

@@ -6,6 +6,7 @@
 #include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 
+#include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/metrics_instruments_shim.hpp"
 
 #include <cstdint>
@@ -27,6 +28,12 @@
 /// pins ABI v1 (observable gauges are v1 and are covered). microtel's
 /// exponential histograms have no otel-cpp API surface to arrive through —
 /// applications wanting them use microtel's API directly.
+///
+/// **`schema_url` asymmetry is deliberate, not a bug:** `GetMeter` passes it
+/// through because `microtel::Provider::GetMeter` carries the parameter;
+/// `GetTracer` (tracer_shim.hpp) drops it because `Provider::GetTracer` has
+/// no such surface. Reconciling that sits with microtel's Provider API, not
+/// with the shim — do not "fix" it here.
 
 namespace microtel::adapters::otelcpp
 {

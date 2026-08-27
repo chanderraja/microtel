@@ -6,6 +6,7 @@
 #include "microtel/provider.hpp"
 #include "microtel/tracer.hpp"
 
+#include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 #include "adapters/otelcpp/context_conversion.hpp"
 #include "adapters/otelcpp/span_shim.hpp"

@@ -11,7 +11,7 @@ Milestone **M17**. Design and rationale: [ICP 0014](../../../docs/icps/0014-otel
 | Increment | Scope | State |
 |---|---|---|
 | L1 | Build scaffolding, pinned API headers, configuration assertions | **done** |
-| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **done** — attribute/context conversion, `SpanShim`, `TracerShim`, `TracerProviderShim`, `Scope` current-span inheritance, and `MakeTracerProvider` global registration |
+| L2 | Traces — `TracerProvider` / `Tracer` / `Span` | **done** (#110, #113, #114, #115) |
 | L3 | Metrics — `MeterProvider` / `Meter` / instruments | **done** — `MeterShim` (all 12 ABI-v1 creates), sync instrument shims, observable callback-registry bridging, `MakeMeterProvider` |
 | L4 | Logs — `LoggerProvider` / `Logger` | not started |
 | L5 | Global provider registration + wire conformance end-to-end | not started |

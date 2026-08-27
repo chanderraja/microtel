@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <variant>
 
@@ -166,6 +167,105 @@ TEST(OtelCppMeterShim, ObservableCounterBridgesCollectionCycle)
     microtel::testing::FakeObservableResult<std::int64_t> after;
     f.fake->observable_callbacks_i64[0](after);
     EXPECT_TRUE(after.observations.empty());
+}
+
+void ObserveState(otel_metrics::ObserverResult result, void* state)
+{
+    if (auto* typed = opentelemetry::nostd::get_if<
+            opentelemetry::nostd::shared_ptr<otel_metrics::ObserverResultT<std::int64_t>>>(&result))
+    {
+        (*typed)->Observe(*static_cast<const std::int64_t*>(state));
+    }
+}
+
+TEST(OtelCppMeterShim, RemoveCallbackMatchesTheCallbackStatePairNotTheFunction)
+{
+    MeterFixture f;
+    auto observable = f.shim.CreateInt64ObservableCounter("c");
+
+    // The same free function registered twice with different state pointers
+    // is how one callback serves several objects; removal must take out only
+    // the matching (callback, state) pair.
+    std::int64_t first = 1;
+    std::int64_t second = 2;
+    observable->AddCallback(&ObserveState, &first);
+    observable->AddCallback(&ObserveState, &second);
+
+    observable->RemoveCallback(&ObserveState, &first);
+
+    microtel::testing::FakeObservableResult<std::int64_t> result;
+    f.fake->observable_callbacks_i64[0](result);
+
+    ASSERT_EQ(result.observations.size(), 1U);
+    EXPECT_EQ(result.observations[0].value, 2);
+}
+
+struct SelfRemovingState
+{
+    otel_metrics::ObservableInstrument* instrument = nullptr;
+    std::int64_t value = 0;
+};
+
+void ObserveOnceThenRemove(otel_metrics::ObserverResult result, void* state)
+{
+    auto* self = static_cast<SelfRemovingState*>(state);
+    if (auto* typed = opentelemetry::nostd::get_if<
+            opentelemetry::nostd::shared_ptr<otel_metrics::ObserverResultT<std::int64_t>>>(&result))
+    {
+        (*typed)->Observe(self->value);
+    }
+    // Removing yourself after a terminal observation is a normal pattern; it
+    // must not self-deadlock on the registry lock.
+    self->instrument->RemoveCallback(&ObserveOnceThenRemove, state);
+}
+
+TEST(OtelCppMeterShim, CallbackMayRemoveItselfDuringCollectionWithoutDeadlock)
+{
+    MeterFixture f;
+    auto observable = f.shim.CreateInt64ObservableCounter("c");
+
+    SelfRemovingState state{.instrument = observable.get(), .value = 42};
+    observable->AddCallback(&ObserveOnceThenRemove, &state);
+
+    microtel::testing::FakeObservableResult<std::int64_t> first_cycle;
+    f.fake->observable_callbacks_i64[0](first_cycle);
+    ASSERT_EQ(first_cycle.observations.size(), 1U);
+    EXPECT_EQ(first_cycle.observations[0].value, 42);
+
+    // Removal took effect for subsequent cycles.
+    microtel::testing::FakeObservableResult<std::int64_t> second_cycle;
+    f.fake->observable_callbacks_i64[0](second_cycle);
+    EXPECT_TRUE(second_cycle.observations.empty());
+}
+
+void ObserveThenThrow(otel_metrics::ObserverResult result, void* /*state*/)
+{
+    if (auto* typed = opentelemetry::nostd::get_if<
+            opentelemetry::nostd::shared_ptr<otel_metrics::ObserverResultT<std::int64_t>>>(&result))
+    {
+        (*typed)->Observe(std::int64_t{1});
+    }
+    throw std::runtime_error{"application callback failure"};
+}
+
+TEST(OtelCppMeterShim, ThrowingCallbackCostsNeitherTheProcessNorTheOtherCallbacks)
+{
+    MeterFixture f;
+    auto observable = f.shim.CreateInt64ObservableCounter("c");
+
+    std::int64_t other = 9;
+    observable->AddCallback(&ObserveThenThrow, nullptr);
+    observable->AddCallback(&ObserveState, &other);
+
+    // otel-cpp does not require observer callbacks to be noexcept. The
+    // exception must stop at the shim boundary: observations made before the
+    // throw survive, and later callbacks in the same cycle still run.
+    microtel::testing::FakeObservableResult<std::int64_t> result;
+    f.fake->observable_callbacks_i64[0](result);
+
+    ASSERT_EQ(result.observations.size(), 2U);
+    EXPECT_EQ(result.observations[0].value, 1);
+    EXPECT_EQ(result.observations[1].value, 9);
 }
 
 TEST(OtelCppMeterShim, ObservableKindsRouteToMatchingMicrotelCreates)

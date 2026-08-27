@@ -5,6 +5,8 @@
 
 #include "microtel/trace.hpp"
 
+#include "adapters/otelcpp/abi_guard.hpp"
+
 #include <algorithm>
 #include <cstdint>
 

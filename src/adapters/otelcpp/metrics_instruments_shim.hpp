@@ -5,6 +5,7 @@
 
 #include "microtel/meter.hpp"
 
+#include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 
 #include <cstdint>
@@ -30,6 +31,9 @@
 /// omit, never invent, and unlike attributes a measurement has no degraded
 /// type to preserve into. (A single increment above 9.2 × 10¹⁸ does not occur
 /// in practice.) `int64_t` / `double` instruments map exactly.
+/// Today the omission is silent; giving it a drop counter needs a new
+/// `DropReason` and an adapter-visible way to record it — proposed as
+/// ICP 0016.
 ///
 /// **Context parameters** on `Add`/`Record` carry exemplar correlation in
 /// otel-cpp; microtel has no exemplar surface in v1, so they are ignored.
@@ -86,7 +90,7 @@ private:
         {
             if (!FitsInt64(value))
             {
-                return;  // omit, never invent (see @file)
+                return;  // omit, never invent (see @file; accounting: ICP 0016)
             }
         }
         m_counter->Add(static_cast<MicroT>(value), attrs);
@@ -164,7 +168,7 @@ private:
         {
             if (!FitsInt64(value))
             {
-                return;  // omit, never invent (see @file)
+                return;  // omit, never invent (see @file; accounting: ICP 0016)
             }
         }
         m_histogram->Record(static_cast<MicroT>(value), attrs);
@@ -230,13 +234,40 @@ public:
 
     /// @brief One collection cycle: hand every registered otel callback an
     ///        adapter writing into @p result.
+    ///
+    /// The callback list is copied under the lock and invoked outside it, so
+    /// a callback that calls `AddCallback`/`RemoveCallback` on its own
+    /// instrument (e.g. removing itself after a terminal observation) does
+    /// not self-deadlock. Removal concurrent with a running cycle therefore
+    /// takes effect from the *next* cycle — the same guarantee otel-cpp's SDK
+    /// gives.
+    ///
+    /// Each callback runs behind its own exception boundary: otel-cpp does
+    /// not require observer callbacks to be noexcept, and one throwing
+    /// callback must cost neither the process (microtel's collection path is
+    /// noexcept) nor the other callbacks' observations in the same cycle.
     void Invoke(microtel::ObservableResult<T>& result)
     {
-        const auto adapter = std::make_shared<ObserverResultAdapter<T>>(result);
-        const std::scoped_lock lock{m_mu};
-        for (const auto& entry : m_callbacks)
+        std::vector<Entry> snapshot;
         {
-            entry.callback(opentelemetry::metrics::ObserverResult{adapter}, entry.state);
+            const std::scoped_lock lock{m_mu};
+            snapshot = m_callbacks;
+        }
+        const auto adapter = std::make_shared<ObserverResultAdapter<T>>(result);
+        for (const auto& entry : snapshot)
+        {
+            try
+            {
+                entry.callback(opentelemetry::metrics::ObserverResult{adapter}, entry.state);
+            }
+            // Deliberate catch-all swallow: this is the boundary between
+            // arbitrary application code and microtel's noexcept collection
+            // path; anything escaping here would std::terminate inside a
+            // telemetry library. Observations the callback made before
+            // throwing are kept. Accounting for the failure is ICP 0016.
+            catch (...)  // NOLINT(bugprone-empty-catch)
+            {
+            }
         }
     }
 

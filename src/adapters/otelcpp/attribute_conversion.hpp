@@ -5,6 +5,8 @@
 
 #include "microtel/attribute.hpp"
 
+#include "adapters/otelcpp/abi_guard.hpp"
+
 #include <cstdint>
 #include <limits>
 #include <string>

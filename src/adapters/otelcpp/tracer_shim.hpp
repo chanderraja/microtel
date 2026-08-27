@@ -16,6 +16,7 @@
 #include <utility>
 
 #include <opentelemetry/context/context.h>
+#include <opentelemetry/context/runtime_context.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/trace/context.h>
 #include <opentelemetry/trace/span_context_kv_iterable.h>
@@ -54,13 +55,28 @@ namespace detail
     return microtel::SpanKind::Internal;
 }
 
+/// @brief The currently active otel span's context, if one is attached and
+///        valid — the `trace::Scope` / `WithActiveSpan` thread-local.
+[[nodiscard]] inline std::optional<microtel::SpanContext> ActiveSpanParent() noexcept
+{
+    const auto active =
+        opentelemetry::trace::GetSpan(opentelemetry::context::RuntimeContext::GetCurrent());
+    if (active != nullptr && active->GetContext().IsValid())
+    {
+        return ToMicrotelSpanContext(active->GetContext());
+    }
+    return std::nullopt;
+}
+
 /// @brief Resolve otel-cpp's parent variant into microtel's optional parent.
 ///
 /// The three otel states map onto microtel's `StartSpanOptions::parent`:
 ///
 /// - **valid `SpanContext`** → that context, converted.
-/// - **invalid `SpanContext`** (otel's default) → unset — both sides read
-///   this as "inherit the current context".
+/// - **invalid `SpanContext`** (otel's default) → the currently active span
+///   (`trace::Scope`), if any; otherwise unset. microtel's SDK does not yet
+///   consult a current context on its own (`StartAsCurrentSpan` is v1.1), so
+///   the shim performs the inheritance otel-cpp semantics require.
 /// - **`context::Context`** → the span it carries, if any; a context flagged
 ///   `is_root_span` becomes a *set but invalid* parent, which microtel's SDK
 ///   treats as an explicit root (fresh trace id); a context carrying neither
@@ -75,7 +91,7 @@ namespace detail
         {
             return ToMicrotelSpanContext(*span_context);
         }
-        return std::nullopt;
+        return ActiveSpanParent();
     }
 
     const auto& context = std::get<opentelemetry::context::Context>(parent);
@@ -211,5 +227,22 @@ public:
 private:
     std::shared_ptr<microtel::Provider> m_provider;
 };
+
+/// @brief Build an otel-cpp tracer provider over a microtel provider, ready
+///        for `opentelemetry::trace::Provider::SetTracerProvider`.
+///
+/// The one-liner an adopting application calls at startup:
+/// ```cpp
+/// opentelemetry::trace::Provider::SetTracerProvider(
+///     microtel::adapters::otelcpp::MakeTracerProvider(microtel_provider));
+/// ```
+/// After that, already-instrumented otel-cpp code routes to microtel with no
+/// call-site edits — the point of the shim (ICP 0014).
+[[nodiscard]] inline opentelemetry::nostd::shared_ptr<opentelemetry::trace::TracerProvider>
+MakeTracerProvider(std::shared_ptr<microtel::Provider> provider)
+{
+    return opentelemetry::nostd::shared_ptr<opentelemetry::trace::TracerProvider>{
+        std::make_shared<TracerProviderShim>(std::move(provider))};
+}
 
 }  // namespace microtel::adapters::otelcpp

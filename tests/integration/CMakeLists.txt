@@ -33,3 +33,4 @@ function(microtel_add_integration_test)
 endfunction()
 
 add_subdirectory(transport)
+add_subdirectory(otelcpp_shim)

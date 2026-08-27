@@ -219,7 +219,15 @@ Created by the `Provider` at `Build()` time. Owned by the `Provider`. Destroyed 
 
 #### Threading
 
-- `Connect` and `Close` are caller-thread-safe; called once each from the `Provider` lifecycle path.
+- `Close` is caller-thread-safe; called once from the `Provider` lifecycle path.
+- `Connect` is caller-thread-safe. It is called once from the `Provider`
+  lifecycle path when the application calls `Provider::Connect()` explicitly;
+  otherwise `IWireCodec::Send` calls it from the exporter worker thread on
+  first use (ICP 0017). Either way it may be attempted more than once if
+  multiple codecs share one transport — `Http2Transport::Connect`'s
+  `Disconnected → Connecting` compare-and-swap guard ensures exactly one
+  caller performs the handshake; the rest receive an "already connecting"
+  error, surfaced like any other retryable transport failure.
 - `Send` is **single-threaded** — only the exporter worker calls it (LOCKED). Concurrent `Send` calls are a contract violation.
 - `Cancel` is callable from any thread but in practice from the exporter worker and from a shutdown-driving caller thread.
 - `GetState` is thread-safe.
@@ -324,7 +332,9 @@ public:
 };
 ```
 
-**Preconditions.** The underlying `ITransport` is connected.
+**Preconditions.** None. If the underlying `ITransport` is not connected,
+`Send` connects it first (ICP 0017). A failed connect attempt is reported as
+an ordinary `retryable` `WireResult`, not a distinct error shape.
 
 **Postconditions.** Returns a fully-classified `WireResult`. The codec has parsed any response, populated `partial_success_rejected` if applicable, and applied the protocol's retry rules. The exporter must respect `retryable` and `retry_after` without reinterpretation.
 

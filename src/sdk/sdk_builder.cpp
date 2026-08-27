@@ -344,7 +344,10 @@ constexpr std::string_view kGrpcLogsPath =
                                                          .extra_headers = std::move(extra_headers),
                                                          .service_path = std::string{signal_path},
                                                      },
-                                                     auth);
+                                                     auth,
+                                                     /*diag=*/nullptr,
+                                                     /*clock=*/nullptr,
+                                                     BuildConnectOptions(cfg));
     }
     return std::make_unique<wire::HttpWireCodec>(transport,
                                                  wire::HttpWireCodecConfig{
@@ -354,7 +357,10 @@ constexpr std::string_view kGrpcLogsPath =
                                                      .signal_path = std::string{signal_path},
                                                      .extra_headers = std::move(extra_headers),
                                                  },
-                                                 auth);
+                                                 auth,
+                                                 /*diag=*/nullptr,
+                                                 /*clock=*/nullptr,
+                                                 BuildConnectOptions(cfg));
 }
 
 [[nodiscard]] sdk::ViewRegistry BuildViewRegistry(std::vector<ViewConfig>& views)

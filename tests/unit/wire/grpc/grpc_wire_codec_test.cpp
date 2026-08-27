@@ -591,3 +591,64 @@ TEST(GrpcWireCodecTest, Send_ServicePath_OverridesDefaultTracesPath)
     EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, ":path"),
               "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export");
 }
+
+// ---------------------------------------------------------------------------
+// Lazy connect (ICP 0017)
+// ---------------------------------------------------------------------------
+
+TEST(GrpcWireCodecTest, Send_WhenDisconnected_ConnectsThenSucceeds)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "0"}},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(transport.connect_calls.size(), 1U);
+    EXPECT_EQ(transport.sent_specs.size(), 1U);
+}
+
+TEST(GrpcWireCodecTest, Send_WhenAlreadyConnected_DoesNotCallConnect)
+{
+    mtfk::FakeTransport transport;  // default state: Connected
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "0"}},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(transport.connect_calls.size(), 0U);
+}
+
+TEST(GrpcWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWithoutSending)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "refused");
+    EXPECT_EQ(transport.connect_calls.size(), 1U);
+    EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
+}

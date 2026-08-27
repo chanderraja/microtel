@@ -126,12 +126,14 @@ HttpWireCodec::HttpWireCodec(internal::ITransport* transport,
                              HttpWireCodecConfig config,
                              internal::IAuthProvider* auth,
                              internal::IDiagnosticsSink* diag,
-                             internal::ISteadyClock* clock) noexcept
+                             internal::ISteadyClock* clock,
+                             internal::ConnectOptions connect_opts) noexcept
     : m_transport(transport),
       m_config(std::move(config)),
       m_auth(auth),
       m_diag(diag),
-      m_clock(clock)
+      m_clock(clock),
+      m_connect_opts(std::move(connect_opts))
 {
 }
 
@@ -207,9 +209,34 @@ std::string HttpWireCodec::BuildExcerpt(const std::vector<std::byte>& body)
     return excerpt;
 }
 
+std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
+{
+    if (m_transport->GetState() == ConnectionState::Connected)
+    {
+        return std::nullopt;
+    }
+    auto connected = m_transport->Connect(m_connect_opts);
+    if (!connected)
+    {
+        return internal::WireResult{
+            .success = false,
+            .retryable = true,  // failed connect: same shape as any other transport failure
+            .retry_after = {},
+            .error = connected.error(),
+            .response_excerpt = {},
+        };
+    }
+    return std::nullopt;
+}
+
 internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
                                          std::chrono::milliseconds deadline)
 {
+    if (auto failure = EnsureConnected())
+    {
+        return std::move(*failure);
+    }
+
     const internal::EncodedPayload owned = std::move(payload);
     auto headers = BuildHeaders(owned.Size());
     AppendAuthHeader(headers);
@@ -309,6 +336,13 @@ std::vector<internal::WireResult> HttpWireCodec::SendAll(
     if (payloads.empty())
     {
         return {};
+    }
+
+    if (auto failure = EnsureConnected())
+    {
+        // One copy per payload: `results[i]` must line up with the caller's
+        // `payloads[i]` (OtlpExporter::FanOutAndProcess indexes both by i).
+        return std::vector<internal::WireResult>(payloads.size(), *failure);
     }
 
     // Keeping each EncodedPayload alive alongside its handle is required:

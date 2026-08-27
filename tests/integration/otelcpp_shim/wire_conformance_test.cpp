@@ -453,14 +453,8 @@ TEST_F(OtelCppWireConformanceTest, AllThreeSignalsProduceCorrectOtlpHttpBytes)
     ASSERT_TRUE(build_result.has_value()) << build_result.error().message;
     const std::shared_ptr<microtel::Provider> provider = std::move(*build_result);
 
-    // Connect() is documented as optional ("established lazily on the first
-    // export" — provider.hpp), but nothing in the export path actually calls
-    // it lazily (Http2Transport::Send fails fast with "not connected" if
-    // Connect() was never called, and no exporter/processor code path calls
-    // it either — verified by tracing Export() -> RunRetryLoop() ->
-    // IWireCodec::Send() -> Http2Transport::Send()). Call it explicitly.
-    ASSERT_TRUE(provider->Connect().has_value());
-
+    // Deliberately NOT calling provider->Connect(): the point of this test is
+    // that the first export below connects transparently (ICP 0017).
     microtel::adapters::otelcpp::RegisterGlobally(provider);
 
     // Drive all three signals through nothing but the otel-cpp API.

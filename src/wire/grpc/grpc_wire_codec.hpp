@@ -10,6 +10,7 @@
 #include "microtel/internal/wire_codec.hpp"
 
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,7 +45,9 @@ struct GrpcWireCodecConfig
 /// partial-success body parsing are deferred to M5.
 ///
 /// **Dependencies (all non-owning):**
-/// - `ITransport` — required; must be Connected before first `Send` call.
+/// - `ITransport` — required; connected lazily on the first `Send` call if
+///   not already connected (ICP 0017). A failed connect attempt is reported
+///   as an ordinary retryable `WireResult`, not a distinct shape.
 /// - `IAuthProvider` — optional; `Authorization` header populated if set.
 /// - `IDiagnosticsSink` — optional; used from M5 onward.
 /// - `ISteadyClock` — optional; passed to `IAuthProvider` for TTL arithmetic.
@@ -52,6 +55,7 @@ struct GrpcWireCodecConfig
 /// @threadsafety Not thread-safe — single caller (exporter worker).
 /// @see docs/grpc-wire-protocol.md
 /// @see docs/error-model.md §7.2
+/// @see docs/icps/0017-lazy-transport-connect.md
 class GrpcWireCodec final : public internal::IWireCodec
 {
 public:
@@ -59,7 +63,8 @@ public:
                            GrpcWireCodecConfig config,
                            internal::IAuthProvider* auth = nullptr,
                            internal::IDiagnosticsSink* diag = nullptr,
-                           internal::ISteadyClock* clock = nullptr) noexcept;
+                           internal::ISteadyClock* clock = nullptr,
+                           internal::ConnectOptions connect_opts = {}) noexcept;
 
     ~GrpcWireCodec() noexcept override = default;
 
@@ -74,6 +79,10 @@ public:
 private:
     [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders() const;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
+    /// @brief Connects `m_transport` if it isn't already (ICP 0017).
+    /// @return `nullopt` when the transport is connected (already, or newly);
+    ///         otherwise the retryable `WireResult` to return immediately.
+    [[nodiscard]] std::optional<internal::WireResult> EnsureConnected();
 
     internal::ITransport* m_transport;
     GrpcWireCodecConfig m_config;
@@ -81,6 +90,7 @@ private:
     // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M5 onward
     [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
+    internal::ConnectOptions m_connect_opts;
 };
 
 }  // namespace microtel::wire

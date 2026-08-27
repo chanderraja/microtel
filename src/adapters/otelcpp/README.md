@@ -51,6 +51,28 @@ The definition is applied by the `microtel_otelcpp_api` target in the root
 Change it and that file stops compiling, which is deliberate — the failure is
 otherwise invisible at runtime.
 
+## Attribute-value conversion (L2)
+
+otel-cpp's `common::AttributeValue` has **16** alternatives; microtel's has
+**8**, matching what the OTel data model specifies. Thirteen map exactly or
+widen losslessly. The three with no faithful *type* mapping are preserved with
+a **degraded type** — never dropped, never clamped — per
+[ICP 0015](../../../docs/icps/0015-unrepresentable-attribute-policy.md):
+
+| otel-cpp value | becomes | fidelity |
+|---|---|---|
+| `uint64_t` > `INT64_MAX` | its exact decimal digits as `string` | value exact, type changed |
+| `span<const uint64_t>` with any such element | every element rendered decimally (`vector<string>`) | value exact, type changed |
+| `span<const uint8_t>` | lowercase hex `string`, no separators | value exact, type changed |
+
+If one element of a `uint64_t` array overflows, **all** elements render as
+strings: microtel's array alternatives cannot hold mixed types, and dropping
+just the offending element would change the array's length, silently breaking
+index correlation with a parallel attribute. The conversion is total — every
+alternative produces a value — so the shim needs no drop accounting and no
+diagnostics path. Implementation:
+[`attribute_conversion.hpp`](attribute_conversion.hpp).
+
 ## Dependency status
 
 The opentelemetry-cpp API headers are a **build-time dependency of this package
@@ -88,3 +110,6 @@ afterwards.
 
 - [`tests/unit/adapters/otelcpp_config_test.cpp`](../../../tests/unit/adapters/otelcpp_config_test.cpp)
   — configuration assertions (L1).
+- [`tests/unit/adapters/otelcpp_attribute_conversion_test.cpp`](../../../tests/unit/adapters/otelcpp_attribute_conversion_test.cpp)
+  — every variant alternative, including the exact rendered strings for the
+  three degraded cases (L2).

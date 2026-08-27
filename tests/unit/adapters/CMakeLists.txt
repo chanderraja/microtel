@@ -67,4 +67,22 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
+
+    # M17 L4 — LogRecordShim: otel-cpp logs::LogRecord as a field accumulator.
+    microtel_add_test(
+        NAME    otelcpp_log_record_shim_test
+        SOURCES otelcpp_log_record_shim_test.cpp
+        LIBS    microtel_otelcpp_shim)
+    target_include_directories(otelcpp_log_record_shim_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # M17 L4 — LoggerShim / LoggerProviderShim over microtel Logger/Provider.
+    microtel_add_test(
+        NAME    otelcpp_logger_shim_test
+        SOURCES otelcpp_logger_shim_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
+    target_include_directories(otelcpp_logger_shim_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
 endif()

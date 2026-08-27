@@ -5,6 +5,7 @@
 
 #include "microtel/provider.hpp"
 
+#include "fakes/fake_logger.hpp"
 #include "fakes/fake_meter.hpp"
 #include "fakes/fake_tracer.hpp"
 
@@ -19,11 +20,11 @@ namespace microtel::testing
 /// @brief Fake `microtel::Provider` that records tracer acquisitions and
 ///        flush/shutdown calls.
 ///
-/// `GetTracer` and `GetMeter` return the single shared `tracer` / `meter`
-/// regardless of scope so tests can inspect what the returned instance was
-/// asked to do; requested scopes are recorded in `tracer_requests` /
-/// `meter_requests` (+ `meter_schema_urls`). Loggers are out of scope for the
-/// otelcpp shim and return null. Single-threaded use only.
+/// `GetTracer` / `GetMeter` / `GetLogger` return the single shared
+/// `tracer` / `meter` / `logger` regardless of scope so tests can inspect
+/// what the returned instance was asked to do; requested scopes are recorded
+/// in `tracer_requests` / `meter_requests` (+ `meter_schema_urls`) /
+/// `logger_requests`. Single-threaded use only.
 class FakeProvider : public microtel::Provider
 {
 public:
@@ -35,9 +36,11 @@ public:
 
     std::shared_ptr<FakeTracer> tracer = std::make_shared<FakeTracer>();
     std::shared_ptr<FakeMeter> meter = std::make_shared<FakeMeter>();
+    std::shared_ptr<FakeLogger> logger = std::make_shared<FakeLogger>();
     std::vector<ScopeRequest> tracer_requests;
     std::vector<ScopeRequest> meter_requests;
     std::vector<std::string> meter_schema_urls;
+    std::vector<ScopeRequest> logger_requests;
     std::vector<std::chrono::milliseconds> force_flush_calls;
     std::vector<std::chrono::milliseconds> shutdown_calls;
     microtel::Status flush_result = microtel::Status::Completed;
@@ -81,10 +84,11 @@ public:
         return meter;
     }
 
-    [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(std::string_view /*name*/,
-                                                              std::string_view /*version*/) override
+    [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(std::string_view name,
+                                                              std::string_view version) override
     {
-        return nullptr;
+        logger_requests.push_back({.name = std::string{name}, .version = std::string{version}});
+        return logger;
     }
 };
 

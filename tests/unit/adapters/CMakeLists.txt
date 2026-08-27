@@ -57,4 +57,14 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
+
+    # M17 L3 — MeterShim / MeterProviderShim over microtel Meter/Provider.
+    microtel_add_test(
+        NAME    otelcpp_meter_shim_test
+        SOURCES otelcpp_meter_shim_test.cpp
+        LIBS    microtel_otelcpp_shim microtel_sdk)
+    target_include_directories(otelcpp_meter_shim_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
 endif()

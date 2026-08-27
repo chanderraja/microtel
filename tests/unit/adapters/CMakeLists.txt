@@ -68,6 +68,14 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/tests)
 
+    # ICP 0016 — shim-local diagnostics for adapter-level omissions. No
+    # microtel core dependency at all; linking the shim is enough to resolve
+    # its header (src/ is public on microtel_otelcpp_shim as of #125).
+    microtel_add_test(
+        NAME    otelcpp_shim_diagnostics_test
+        SOURCES otelcpp_shim_diagnostics_test.cpp
+        LIBS    microtel_otelcpp_shim)
+
     # M17 L4 — LogRecordShim: otel-cpp logs::LogRecord as a field accumulator.
     microtel_add_test(
         NAME    otelcpp_log_record_shim_test

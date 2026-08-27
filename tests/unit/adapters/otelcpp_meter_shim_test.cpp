@@ -8,6 +8,7 @@
 // and global registration via metrics::Provider.
 
 #include "adapters/otelcpp/meter_shim.hpp"
+#include "adapters/otelcpp/shim_diagnostics.hpp"
 #include "fakes/fake_provider.hpp"
 
 #include <gtest/gtest.h>
@@ -69,6 +70,8 @@ TEST(OtelCppMeterShim, Uint64AboveInt64MaxIsOmittedNotWrapped)
 {
     MeterFixture f;
     auto counter = f.shim.CreateUInt64Counter("c");
+    const auto baseline =
+        microtel::adapters::otelcpp::GetShimDiagnostics().unrepresentable_measurements_omitted;
 
     counter->Add(std::numeric_limits<std::uint64_t>::max());
     counter->Add(static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()));
@@ -78,6 +81,11 @@ TEST(OtelCppMeterShim, Uint64AboveInt64MaxIsOmittedNotWrapped)
     const auto& calls = f.fake->counters_i64[0]->calls;
     ASSERT_EQ(calls.size(), 1U);
     EXPECT_EQ(calls[0].value, std::numeric_limits<std::int64_t>::max());
+
+    // The omission is counted (ICP 0016); the boundary value is not.
+    EXPECT_EQ(
+        microtel::adapters::otelcpp::GetShimDiagnostics().unrepresentable_measurements_omitted,
+        baseline + 1U);
 }
 
 TEST(OtelCppMeterShim, DoubleCounterForwardsExactly)
@@ -252,6 +260,8 @@ TEST(OtelCppMeterShim, ThrowingCallbackCostsNeitherTheProcessNorTheOtherCallback
 {
     MeterFixture f;
     auto observable = f.shim.CreateInt64ObservableCounter("c");
+    const auto baseline =
+        microtel::adapters::otelcpp::GetShimDiagnostics().observer_callback_failures;
 
     std::int64_t other = 9;
     observable->AddCallback(&ObserveThenThrow, nullptr);
@@ -266,6 +276,10 @@ TEST(OtelCppMeterShim, ThrowingCallbackCostsNeitherTheProcessNorTheOtherCallback
     ASSERT_EQ(result.observations.size(), 2U);
     EXPECT_EQ(result.observations[0].value, 1);
     EXPECT_EQ(result.observations[1].value, 9);
+
+    // The contained exception is counted (ICP 0016).
+    EXPECT_EQ(microtel::adapters::otelcpp::GetShimDiagnostics().observer_callback_failures,
+              baseline + 1U);
 }
 
 TEST(OtelCppMeterShim, ObservableKindsRouteToMatchingMicrotelCreates)

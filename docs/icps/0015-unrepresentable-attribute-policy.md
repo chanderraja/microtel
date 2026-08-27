@@ -1,7 +1,7 @@
 # ICP 0015: Policy for attribute values microtel's model cannot represent
 
-**Status:** Draft
-**Affected interfaces / docs:** possibly `include/microtel/provider.hpp` (`DropReason`, `kDropReasonCount`) and `docs/error-model.md` §3 — **only if Option A is chosen**. Option B (recommended) touches no locked interface. Shim behaviour is documented in `src/adapters/otelcpp/README.md`.
+**Status:** Accepted — signed off 2026-08-26; Option B implemented in #110
+**Affected interfaces / docs:** none — Option B was chosen, which touches no locked interface. Shim behaviour is documented in `src/adapters/otelcpp/README.md`.
 **Affected tracks:** M17 (otelcpp shim); sets precedent for any future bridge (Python M18, other log bridges).
 
 ## Summary
@@ -131,3 +131,8 @@ Whether the degraded string forms should carry a marker (e.g. a companion
 degraded value from one the application genuinely set as a string. It makes the
 degradation self-describing at the cost of doubling the attribute count for
 affected keys. Not proposed here; the cost seems high for inputs this rare.
+
+> **Resolved at acceptance: no marker.** The affected inputs are outside the
+> OTel data model by otel-cpp's own documentation; doubling the attribute count
+> for them buys self-description nobody has asked for. Revisit on real demand,
+> as a follow-up ICP if it would change the shim's public behaviour.

@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <string>
 #include <vector>
@@ -197,6 +198,34 @@ TEST(OtelCppAttributeConversion, EmptyByteSpanBecomesEmptyString)
     const auto converted = ConvertAttributeValue(
         opentelemetry::common::AttributeValue{nostd::span<const std::uint8_t>{}});
     EXPECT_EQ(std::get<std::string>(converted), "");
+}
+
+TEST(OtelCppAttributeConversion, LargeByteSpanEncodesCorrectlyAtScale)
+{
+    // Exercises hex encoding well past the point where its output would
+    // exceed the default attribute_value_length_limit (4096 chars, i.e.
+    // inputs over 2048 bytes) if that limit were enforced anywhere — it is
+    // not, as of ICP 0015's addendum. Pins correct large-scale encoding so a
+    // future length-limit implementation has a known-good baseline to
+    // truncate from, and catches bugs (off-by-one loop bounds, buffer
+    // growth) invisible at the 2-3 byte scale the tests above use.
+    //
+    // `expected` is built independently of RenderBytesAsHex, via
+    // std::format, so this isn't just calling the same nibble math twice.
+    constexpr std::size_t kByteCount = 5000;
+    std::vector<std::uint8_t> raw(kByteCount);
+    std::string expected;
+    expected.reserve(kByteCount * 2);
+    for (std::size_t i = 0; i < kByteCount; ++i)
+    {
+        raw[i] = static_cast<std::uint8_t>((i * 37U + 11U) % 256U);
+        expected += std::format("{:02x}", raw[i]);
+    }
+
+    const auto converted = ConvertAttributeValue(opentelemetry::common::AttributeValue{
+        nostd::span<const std::uint8_t>{raw.data(), raw.size()}});
+
+    EXPECT_EQ(std::get<std::string>(converted), expected);
 }
 
 // ── Coverage guard ────────────────────────────────────────────────────────────

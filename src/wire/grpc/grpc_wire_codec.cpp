@@ -664,12 +664,14 @@ GrpcWireCodec::GrpcWireCodec(internal::ITransport* transport,
                              GrpcWireCodecConfig config,
                              internal::IAuthProvider* auth,
                              internal::IDiagnosticsSink* diag,
-                             internal::ISteadyClock* clock) noexcept
+                             internal::ISteadyClock* clock,
+                             internal::ConnectOptions connect_opts) noexcept
     : m_transport(transport),
       m_config(std::move(config)),
       m_auth(auth),
       m_diag(diag),
-      m_clock(clock)
+      m_clock(clock),
+      m_connect_opts(std::move(connect_opts))
 {
 }
 
@@ -712,9 +714,35 @@ void GrpcWireCodec::AppendAuthHeader(std::vector<internal::HeaderField>& headers
     headers.push_back({.name = "authorization", .value = token_opt.value()});
 }
 
+std::optional<internal::WireResult> GrpcWireCodec::EnsureConnected()
+{
+    if (m_transport->GetState() == ConnectionState::Connected)
+    {
+        return std::nullopt;
+    }
+    auto connected = m_transport->Connect(m_connect_opts);
+    if (!connected)
+    {
+        return internal::WireResult{
+            .success = false,
+            .retryable = true,  // failed connect: same shape as any other transport failure
+            .retry_after = {},
+            .partial_success_rejected = 0,
+            .error = connected.error(),
+            .response_excerpt = {},
+        };
+    }
+    return std::nullopt;
+}
+
 internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
                                          std::chrono::milliseconds deadline)
 {
+    if (auto failure = EnsureConnected())
+    {
+        return std::move(*failure);
+    }
+
     const internal::EncodedPayload owned = std::move(payload);
     const auto framed = FramePayload(owned);
     auto headers = BuildHeaders();

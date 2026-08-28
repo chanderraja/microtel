@@ -6,7 +6,8 @@ is backed by a passing test, not aspiration.
 **Companion:** [ICP 0014](icps/0014-otelcpp-shim-and-rule-13.md) (shim design
 and distribution model), [ICP 0015](icps/0015-unrepresentable-attribute-policy.md)
 (attribute-value policy), [ICP 0016](icps/0016-adapter-drop-accounting.md)
-(draft — measurement-drop accounting), [`configuration.md`](configuration.md)
+(shim-local diagnostics for adapter-level omissions), [ICP 0017](icps/0017-lazy-transport-connect.md)
+(lazy transport connect), [`configuration.md`](configuration.md)
 (env-var / `microtel.toml` reference), [`src/adapters/otelcpp/README.md`](../src/adapters/otelcpp/README.md)
 (implementation-level detail).
 
@@ -42,14 +43,6 @@ if (!provider)
     // handle provider.error() — see error-model.md §8
 }
 
-// Provider::Connect() is NOT automatic — see "Known gaps" below. Skipping
-// this call is the single most common way to get an experimental-looking
-// silent failure out of this shim.
-if (!(*provider)->Connect())
-{
-    // handle the connection error
-}
-
 microtel::adapters::otelcpp::RegisterGlobally(*provider);
 
 // From here on, every existing opentelemetry-cpp call site — anywhere in the
@@ -64,6 +57,12 @@ application code. `otel_trace::Provider::GetTracerProvider()`,
 If you only use one signal, `MakeTracerProvider` / `MakeMeterProvider` /
 `MakeLoggerProvider` (declared alongside each signal's shim header) let you
 register just that one via the signal's own `Provider::SetXProvider` call.
+
+The connection to your collector is established lazily on the first export —
+there is no separate connect step to call, matching `opentelemetry-cpp`'s own
+OTLP exporters (ICP 0017). Call `(*provider)->Connect()` yourself only if you
+want fail-fast-at-startup semantics instead of discovering a bad endpoint on
+first export.
 
 ## Dependency-graph diff
 
@@ -193,11 +192,10 @@ value is always either exact or absent, never a plausible-looking fabrication.
 
 | Area | Behavior | Why | Reference |
 |---|---|---|---|
-| **`Provider::Connect()` is not automatic** | Every export fails fast with "not connected" until you call `provider->Connect()` explicitly, despite `Provider::Connect()`'s own doc saying the connection is "established lazily on the first export." Nothing in the export path currently implements that lazy path. | Found while building this guide's own conformance test — reproduced with microtel's native API, no shim involved, before concluding it wasn't a shim bug. | `include/microtel/provider.hpp` `Connect()` Doxygen vs. `src/exporter/otlp_exporter.cpp` / `src/transport/http2_transport.cpp` (`Send()` requires `ConnectionState::Connected`) |
 | `uint64_t` attribute above `INT64_MAX` | Arrives as its **exact decimal digits**, as a string. Type changes; value doesn't. | ICP 0015 | `otelcpp_attribute_conversion_test.cpp` |
 | `span<const uint64_t>` with any such element | **Every** element in the array renders as a decimal string, not just the offending one — arrays can't hold mixed types, and dropping one element would silently shift index correlation with a parallel attribute. | ICP 0015 | `otelcpp_attribute_conversion_test.cpp` |
 | `span<const uint8_t>` (byte attributes) | Lowercase hex string, no separators. `microtel::AttributeValue` has no bytes variant. | ICP 0015 | `otelcpp_attribute_conversion_test.cpp` |
-| `uint64_t` **measurement** (Counter/Histogram) above `INT64_MAX` | **Omitted**, not wrapped to negative and not clamped. Unlike attributes, there is no degraded string form for a measurement — the instrument only accepts numbers. Silently dropped: no diagnostic counter increments yet (ICP 0016 is drafted, not implemented). | ICP 0015's principle, extended; ICP 0016 (draft) | `metrics_instruments_shim.hpp`, `otelcpp_meter_shim_test.cpp` |
+| `uint64_t` **measurement** (Counter/Histogram) above `INT64_MAX` | **Omitted**, not wrapped to negative and not clamped. Unlike attributes, there is no degraded string form for a measurement — the instrument only accepts numbers. Counted via `microtel::adapters::otelcpp::GetShimDiagnostics().unrepresentable_measurements_omitted`, a shim-local counter — not `microtel::Provider`'s own diagnostics, which conversion failures above the SDK can't reach. | ICP 0015's principle, extended; ICP 0016 | `shim_diagnostics.hpp`, `otelcpp_meter_shim_test.cpp` |
 | `LogRecord::SetEventId(id, name)` | The `name` half survives into `event_name`; the numeric `id` has no microtel field and is dropped. | `microtel::LogRecord` has no integer event-id slot | `log_record_shim.hpp`, `otelcpp_log_record_shim_test.cpp` |
 | `TraceState` | Does **not** round-trip. `microtel::TraceState` has no storage or `FromHeader`/`ToHeader` implementation yet; both directions produce the empty default. | `context_conversion.hpp`'s file comment | `otelcpp_context_conversion_test.cpp` |
 | `schema_url` on `GetTracer` | **Dropped.** `microtel::Provider::GetTracer` has no such parameter. | — | `tracer_shim.hpp` |

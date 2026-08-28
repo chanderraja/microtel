@@ -481,3 +481,98 @@ TEST(HttpWireCodecTest, Send_SignalPath_WithBasePath_UsesSignalPathDirectly)
 
     EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, ":path"), "/v1/metrics");
 }
+
+// ---------------------------------------------------------------------------
+// Lazy connect (ICP 0017)
+// ---------------------------------------------------------------------------
+
+TEST(HttpWireCodecTest, Send_WhenDisconnected_ConnectsThenSucceeds)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(transport.connect_calls.size(), 1U);
+    EXPECT_EQ(transport.sent_specs.size(), 1U);
+}
+
+TEST(HttpWireCodecTest, Send_WhenAlreadyConnected_DoesNotCallConnect)
+{
+    mtfk::FakeTransport transport;  // default state: Connected
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(transport.connect_calls.size(), 0U);
+}
+
+TEST(HttpWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWithoutSending)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "refused");
+    EXPECT_EQ(transport.connect_calls.size(), 1U);
+    EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
+}
+
+TEST(HttpWireCodecTest, SendAll_WhenDisconnected_ConnectsOnceThenSendsAll)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    const auto results = codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(results.size(), 2U);
+    EXPECT_TRUE(results[0].success);
+    EXPECT_TRUE(results[1].success);
+    EXPECT_EQ(transport.connect_calls.size(), 1U);  // one prologue check, not per-payload
+    EXPECT_EQ(transport.sent_specs.size(), 2U);
+}
+
+TEST(HttpWireCodecTest, SendAll_WhenDisconnectedAndConnectFails_EveryPayloadMarkedRetryable)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    const auto results = codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    // results[i] must line up with the caller's original payloads[i]
+    // (OtlpExporter::FanOutAndProcess indexes both by i) — every batch gets
+    // its own retryable result even though none of them were actually sent.
+    ASSERT_EQ(results.size(), 3U);
+    for (const auto& result : results)
+    {
+        EXPECT_FALSE(result.success);
+        EXPECT_TRUE(result.retryable);
+    }
+    EXPECT_EQ(transport.connect_calls.size(), 1U);
+    EXPECT_EQ(transport.sent_specs.size(), 0U);
+}

@@ -131,8 +131,9 @@ public:
     /// @brief Eagerly establish the export connection.
     ///
     /// Optional. If not called, the connection is established lazily on the
-    /// first export. Returns a network-level outcome — DNS / TCP / TLS /
-    /// HTTP/2 SETTINGS exchange. No telemetry is sent.
+    /// first export — `microtel::internal::IWireCodec::Send` performs it
+    /// transparently (ICP 0017). Returns a network-level outcome — DNS / TCP
+    /// / TLS / HTTP/2 SETTINGS exchange. No telemetry is sent.
     ///
     /// @threadsafety Thread-safe.
     [[nodiscard]] virtual Expected<void, Error> Connect() = 0;

@@ -10,6 +10,7 @@
 #include "microtel/internal/wire_codec.hpp"
 
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -38,7 +39,9 @@ struct HttpWireCodecConfig
 /// status code per the matrix in `docs/error-model.md` §7.1.
 ///
 /// **Dependencies (all non-owning):**
-/// - `ITransport` — required; must be Connected before first `Send` call.
+/// - `ITransport` — required; connected lazily on the first `Send`/`SendAll`
+///   call if not already connected (ICP 0017). A failed connect attempt is
+///   reported as an ordinary retryable `WireResult`, not a distinct shape.
 /// - `IAuthProvider` — optional; if non-null, the `Authorization` header is
 ///   populated on every request.
 /// - `IDiagnosticsSink` — optional; if non-null, non-retryable failures are
@@ -48,6 +51,7 @@ struct HttpWireCodecConfig
 ///
 /// @threadsafety Not thread-safe — single caller (exporter worker).
 /// @see docs/error-model.md §7.1
+/// @see docs/icps/0017-lazy-transport-connect.md
 class HttpWireCodec final : public internal::IWireCodec
 {
 public:
@@ -55,7 +59,8 @@ public:
                            HttpWireCodecConfig config,
                            internal::IAuthProvider* auth = nullptr,
                            internal::IDiagnosticsSink* diag = nullptr,
-                           internal::ISteadyClock* clock = nullptr) noexcept;
+                           internal::ISteadyClock* clock = nullptr,
+                           internal::ConnectOptions connect_opts = {}) noexcept;
 
     ~HttpWireCodec() noexcept override = default;
 
@@ -85,6 +90,10 @@ private:
     [[nodiscard]] static std::string BuildExcerpt(const std::vector<std::byte>& body);
     [[nodiscard]] internal::WireResult CollectOneResult(
         InFlight& item, std::chrono::steady_clock::time_point deadline_point);
+    /// @brief Connects `m_transport` if it isn't already (ICP 0017).
+    /// @return `nullopt` when the transport is connected (already, or newly);
+    ///         otherwise the retryable `WireResult` to return immediately.
+    [[nodiscard]] std::optional<internal::WireResult> EnsureConnected();
 
     internal::ITransport* m_transport;
     HttpWireCodecConfig m_config;
@@ -92,6 +101,7 @@ private:
     // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M3-C onward
     [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
+    internal::ConnectOptions m_connect_opts;
 };
 
 }  // namespace microtel::wire

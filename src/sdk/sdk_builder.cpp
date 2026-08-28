@@ -403,6 +403,19 @@ struct ExporterPack
     std::unique_ptr<internal::ILogExporter> log_exporter;
 };
 
+/// @brief Build the auth provider, or nullptr when no callback was supplied.
+[[nodiscard]] std::unique_ptr<internal::IAuthProvider> BuildAuthProvider(
+    std::optional<AuthCallback>& cb, std::chrono::milliseconds cache_ttl)
+{
+    if (!cb)
+    {
+        return nullptr;
+    }
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    return std::make_unique<config::CallbackAuthProvider>(std::move(*cb), cache_ttl);
+    // NOLINTEND(bugprone-unchecked-optional-access)
+}
+
 [[nodiscard]] ExporterPack BuildExporters(wire::OtlpEncoder* encoder,
                                           internal::ITransport* transport,
                                           internal::IAuthProvider* auth,
@@ -560,14 +573,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto resource = BuildResource(cfg);
 
     // --- Step 4: auth provider ----------------------------------------------
-    std::unique_ptr<internal::IAuthProvider> auth;
-    if (m_impl->auth_cb)
-    {
-        // NOLINTBEGIN(bugprone-unchecked-optional-access)
-        auth = std::make_unique<config::CallbackAuthProvider>(std::move(*m_impl->auth_cb),
-                                                              m_impl->auth_cache_ttl);
-        // NOLINTEND(bugprone-unchecked-optional-access)
-    }
+    auto auth = BuildAuthProvider(m_impl->auth_cb, m_impl->auth_cache_ttl);
 
     // --- Steps 5–6: transport -----------------------------------------------
     auto transport_result = CreateTransport();

@@ -89,6 +89,11 @@ private:
     ///         which case the caller's own result is the batch's outcome.
     [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(
         const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
+    /// @brief Resolve one batch's terminal outcome: the fan-out result, or
+    ///        the last result of the retry loop when the fan-out result was
+    ///        retryable and further attempts were made.
+    [[nodiscard]] internal::WireResult ResolveOutcome(const internal::WireResult& first_attempt,
+                                                      const internal::BatchHandle& batch);
     /// @brief Report one batch's terminal outcome to the diagnostics sink.
     ///        No-op when no sink was supplied.
     void RecordOutcome(const internal::WireResult& result) noexcept;

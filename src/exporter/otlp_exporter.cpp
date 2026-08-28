@@ -148,6 +148,23 @@ std::optional<internal::WireResult> OtlpExporter::RunRetryLoop(const internal::B
     return last;
 }
 
+internal::WireResult OtlpExporter::ResolveOutcome(const internal::WireResult& first_attempt,
+                                                  const internal::BatchHandle& batch)
+{
+    if (first_attempt.success || !first_attempt.retryable)
+    {
+        return first_attempt;
+    }
+    auto retried = RunRetryLoop(batch, 1U);
+    if (retried.has_value())
+    {
+        return std::move(*retried);
+    }
+    // nullopt: the retry budget was already spent on entry, so no further
+    // attempt was made and the fan-out result stands as this batch's outcome.
+    return first_attempt;
+}
+
 void OtlpExporter::RecordOutcome(const internal::WireResult& result) noexcept
 {
     if (m_diag == nullptr)
@@ -241,17 +258,9 @@ void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& ba
     // retry loop does not exceed the configured max_attempts total.
     for (std::size_t i = 0; i < results.size(); ++i)
     {
-        internal::WireResult outcome = results[i];
-        if (!outcome.success && outcome.retryable)
-        {
-            if (auto retried = RunRetryLoop(batches[i], 1U))
-            {
-                outcome = std::move(*retried);
-            }
-        }
         // Exactly one outcome per batch: intermediate retryable failures are
         // attempts, not failed batches.
-        RecordOutcome(outcome);
+        RecordOutcome(ResolveOutcome(results[i], batches[i]));
     }
 }
 

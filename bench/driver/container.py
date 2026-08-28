@@ -7,6 +7,7 @@ from __future__ import annotations
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -198,14 +199,44 @@ def remove_network(engine: str, name: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# Lines of captured build/run output echoed on failure. The tail is what
+# matters -- a failing `podman build` puts the compiler error or the apt
+# failure at the end, after thousands of lines of layer chatter.
+_FAILURE_LOG_TAIL_LINES = 40
+
+
 def _run(cmd: list, verbose: bool, desc: str) -> None:
     if verbose:
         print(f"[container] {desc}: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
-    else:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise subprocess.CalledProcessError(
-                result.returncode, cmd,
-                output=result.stdout, stderr=result.stderr,
-            )
+        return
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        return
+
+    # Without this the captured output dies inside the exception and the user
+    # sees only "returned non-zero exit status 1" under a Python traceback,
+    # with nothing to act on and no hint that -v would have shown the reason.
+    _echo_failure(cmd, desc, result.stdout, result.stderr)
+    raise subprocess.CalledProcessError(
+        result.returncode, cmd,
+        output=result.stdout, stderr=result.stderr,
+    )
+
+
+def _echo_failure(cmd: list, desc: str, stdout: str, stderr: str) -> None:
+    print(f"\n[container] FAILED: {desc}", file=sys.stderr)
+    print(f"[container] command: {' '.join(cmd)}", file=sys.stderr)
+    for stream_name, text in (("stderr", stderr), ("stdout", stdout)):
+        lines = (text or "").splitlines()
+        if not lines:
+            continue
+        shown = lines[-_FAILURE_LOG_TAIL_LINES:]
+        elided = len(lines) - len(shown)
+        header = f"[container] last {len(shown)} line(s) of {stream_name}"
+        if elided > 0:
+            header += f" ({elided} earlier line(s) elided; re-run with -v for all)"
+        print(f"{header}:", file=sys.stderr)
+        for line in shown:
+            print(f"    {line}", file=sys.stderr)

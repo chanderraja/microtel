@@ -14,6 +14,18 @@ microtel_add_test(
 target_include_directories(otlp_response_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# UpbArena RAII wrapper. Links microtel_encoder for the upb runtime; the
+# wrapper itself is header-only.
+microtel_add_test(
+    NAME    upb_arena_test
+    SOURCES upb_arena_test.cpp
+    LIBS    microtel_encoder)
+
+target_include_directories(upb_arena_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/third_party/upb)
+
 microtel_add_test(
     NAME    otlp_encoder_test
     SOURCES otlp_encoder_test.cpp

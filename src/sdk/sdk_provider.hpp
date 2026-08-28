@@ -145,6 +145,19 @@ public:
     [[nodiscard]] internal::IDiagnosticsSink& DiagnosticsSink() noexcept;
 
 private:
+    /// @brief Borrowed pointer to the lazily-built metric reader, read under
+    ///        `m_meter_mu`. Returns nullptr when no meter has been created.
+    /// @note Exists so `ForceFlush`/`Shutdown` can observe the pointer without
+    ///       holding the mutex across the call into the reader — taking
+    ///       `m_meter_mu` and then the reader's own lock would nest two
+    ///       non-leaf locks, which `docs/threading-model.md` §4 forbids.
+    [[nodiscard]] PeriodicExportingMetricReader* MetricReaderPtr() noexcept;
+    /// @brief Borrowed pointer to the lazily-built log processor, read under
+    ///        `m_logger_mu`. Same rationale as `MetricReaderPtr`.
+    [[nodiscard]] internal::ILogRecordProcessor* LogProcessorPtr() noexcept;
+
+public:
+private:
     // Declared before every other member → destroyed last, so the sink stays
     // alive past any late RecordDrop from the metric machinery (or any other
     // pipeline component) during reverse-order teardown — same reasoning as

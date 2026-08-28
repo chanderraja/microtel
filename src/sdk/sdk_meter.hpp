@@ -33,8 +33,16 @@ class ViewRegistry;
 /// the storage); instruments hold non-owning raw pointers into that storage.
 /// An instrument must not be used after the provider that owns it is destroyed.
 ///
-/// @threadsafety Thread-safe for concurrent `Add()`/`Record()` calls.
-///               `Create*()` calls are guarded by the provider's meter mutex.
+/// @threadsafety Thread-safe for concurrent `Add()`/`Record()` calls, and for
+///               concurrent `Create*()` calls. `Create*()` registers the new
+///               stream through `MetricProducer::AddStream`, which takes the
+///               producer's own mutex.
+///
+/// @note This previously claimed `Create*()` was "guarded by the provider's
+///       meter mutex". It is not: `m_meter_mu` is held only inside
+///       `SdkProvider::GetMeter`, never during instrument creation. The
+///       synchronisation now lives in `MetricProducer`, where the contended
+///       state actually is.
 class SdkMeter final : public microtel::Meter
 {
 public:

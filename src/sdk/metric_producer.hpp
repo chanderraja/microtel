@@ -10,6 +10,7 @@
 #include "sdk/metric_stream.hpp"
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace microtel::sdk
@@ -22,11 +23,19 @@ namespace microtel::sdk
 /// and streams, snapshots each stream's aggregation state, and assembles one
 /// `MetricBatchHandle` per scope.
 ///
-/// Streams are registered at SDK-build time via `AddStream`; no removal API
-/// is needed in v1.2. The producer is move-only and single-owner.
+/// Streams are registered via `AddStream` whenever the application creates an
+/// instrument — **not** only at SDK-build time, as this comment previously
+/// claimed. Every `SdkMeter::Create*` reaches it (25 call sites), so
+/// registration races collection on the reader thread unless synchronised.
+/// There is no removal API in v1.2, which is what makes the borrowed-pointer
+/// snapshot in `Collect` safe: a stream, once added, lives as long as the
+/// producer.
 ///
-/// @threadsafety Single-caller (the reader thread). Each stream's `Collect()`
-/// acquires its own per-instrument mutex internally.
+/// @threadsafety Thread-safe. `AddStream` and `Collect` may be called
+/// concurrently from different threads. `Collect` snapshots the scope/stream
+/// structure under `m_mu`, releases it, and only then calls into each stream —
+/// so the producer's mutex is never held while a per-instrument mutex is
+/// acquired (`docs/threading-model.md` §4).
 class MetricProducer : public internal::IMetricProducer
 {
 public:
@@ -57,7 +66,22 @@ private:
         std::vector<std::unique_ptr<IMetricStream>> streams;
     };
 
+    /// @brief One scope's borrowed streams, captured under `m_mu` so the
+    ///        call-out to `IMetricStream::Collect` happens unlocked.
+    struct ScopeSnapshot
+    {
+        internal::InstrumentationScope scope;
+        std::vector<IMetricStream*> streams;  ///< borrowed; owned by m_scopes
+    };
+
+    /// @brief Copy the scope/stream structure under `m_mu`.
+    [[nodiscard]] std::vector<ScopeSnapshot> SnapshotScopes() const;
+
     std::shared_ptr<const Resource> m_resource;
+    /// Guards `m_scopes`. Application threads append through `AddStream` while
+    /// the reader thread walks it in `Collect`; without this, a `push_back`
+    /// that reallocates invalidates the iterators `Collect` is holding.
+    mutable std::mutex m_mu;
     std::vector<ScopeEntry> m_scopes;
 };
 

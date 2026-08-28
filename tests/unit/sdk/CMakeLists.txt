@@ -185,6 +185,20 @@ microtel_add_test(
     LIBS    microtel_sdk)
 
 # SdkProvider::ForceFlush two-stage flush (processor → exporter).
+# Concurrency regression: MetricProducer had no mutex; AddStream raced Collect.
+microtel_add_test(
+    NAME    metric_producer_race_test
+    SOURCES metric_producer_race_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(metric_producer_race_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(metric_producer_race_test PRIVATE
+    -Wno-missing-field-initializers)
+
 microtel_add_test(
     NAME    sdk_provider_test
     SOURCES sdk_provider_test.cpp

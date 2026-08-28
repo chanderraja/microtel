@@ -167,7 +167,7 @@ The deeper implementation notes for the gRPC codec — state machine, byte-level
 
 A small set of shared, layer-independent services:
 
-- **`src/common/raii/`** — `Socket`, `SslCtx`, `SslSession`, `Nghttp2Session`, `UpbArena`. Each is move-only, has a `noexcept` destructor, and exposes `release()` for explicit ownership transfer.
+- **`src/common/raii/`** — `UniqueFd`, `SslCtx`, `SslSession`, `Nghttp2Session`. Each is move-only, has a `noexcept` destructor, and exposes `Release()` for explicit ownership transfer. (`UpbArena` follows the same contract but lives in `src/wire/encoder/`, since including it means including upb.)
 - **`src/common/config/`** (Track E) — `microtel.toml` parser, env-var resolution, validation. Returns a frozen, validated `Config` value to the SDK.
 - **Logging** — spdlog-by-default (header-only, `SPDLOG_USE_STD_FORMAT`), with a minimal stderr fallback when `MICROTEL_USE_SPDLOG=OFF`. Sink injection via `LogSink` (public). Internal diagnostics are **never** routed back through microtel's own OTLP exporter — see `error-model.md` §9.
 - **Errors and limits** — `microtel::Error`, `ConfigError`, the lifecycle `Status` enum, the byte / record / response / trailer / decompression budget constants from `microtel-spec.md` §5.5.

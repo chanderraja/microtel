@@ -1,10 +1,19 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// LOCKED: this is the only file in the project that #includes upb headers.
-// See docs/interfaces.md §4.2 / docs/memory-model.md §3.1.
+// LOCKED: upb headers are confined to src/wire/encoder/. This file and its
+// sibling upb_arena.hpp are the only two that #include them; no upb type
+// appears in any header outside this directory, which is the invariant the
+// rule protects (CLAUDE.md rule 13, docs/interfaces.md §4.2,
+// docs/memory-model.md §3.1). The wrapper cannot live in src/common/raii/
+// precisely because including it would mean including upb.
+//
+// The wording changed from "the only file" when upb_arena.hpp was added; the
+// containment guarantee did not.
 
 #include "otlp_encoder.hpp"
+
+#include "upb_arena.hpp"
 
 // upb C headers use flexible array members (C99/C11, not ISO C++).
 // Suppress the pedantic warning for this include block only.
@@ -607,7 +616,8 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
         return {};
     }
 
-    upb_Arena* arena = upb_Arena_New();
+    const UpbArena arena_owner;
+    upb_Arena* const arena = arena_owner.Get();
 
     UpbRequest* req = opentelemetry_proto_collector_trace_v1_ExportTraceServiceRequest_new(arena);
     UpbResSp* rs =
@@ -636,7 +646,6 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::BatchHandle& batch)
         payload = internal::EncodedPayload{std::move(bytes), len};
     }
 
-    upb_Arena_Free(arena);
     return payload;
 }
 
@@ -651,7 +660,8 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::MetricBatchHandle& 
         return {};
     }
 
-    upb_Arena* arena = upb_Arena_New();
+    const UpbArena arena_owner;
+    upb_Arena* const arena = arena_owner.Get();
 
     UpbMetReq* req =
         opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_new(arena);
@@ -682,7 +692,6 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::MetricBatchHandle& 
         payload = internal::EncodedPayload{std::move(bytes), len};
     }
 
-    upb_Arena_Free(arena);
     return payload;
 }
 
@@ -796,7 +805,8 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::LogBatchHandle& bat
         return {};
     }
 
-    upb_Arena* arena = upb_Arena_New();
+    const UpbArena arena_owner;
+    upb_Arena* const arena = arena_owner.Get();
 
     UpbLogReq* req = opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_new(arena);
     UpbResLog* rl =
@@ -825,7 +835,6 @@ internal::EncodedPayload OtlpEncoder::Encode(const internal::LogBatchHandle& bat
         payload = internal::EncodedPayload{std::move(bytes), len};
     }
 
-    upb_Arena_Free(arena);
     return payload;
 }
 

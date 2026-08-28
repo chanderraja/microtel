@@ -611,7 +611,13 @@ struct RetrySearchSignal
     {
         return internal::WireResult{
             .success = false,
-            .retryable = false,
+            // Transport-level failure: connection reset, refused, read timeout.
+            // Retryable, matching HttpWireCodec and this codec's own
+            // EnsureConnected path (ICP 0017) — these are the transient
+            // conditions the retry engine exists for. Returning false here
+            // meant a gRPC deployment dropped a batch on the first collector
+            // restart that HTTP would have delivered.
+            .retryable = true,
             .retry_after = {},
             .partial_success_rejected = 0,
             .error = tr.error,

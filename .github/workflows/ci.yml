@@ -214,6 +214,34 @@ jobs:
       - name: Assert dependency closure (no gRPC / abseil / protobuf-cpp)
         run: ci/scripts/symbol-scan.sh build
 
+  corpus-check:
+    runs-on: ubuntu-latest
+    name: corpus-check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build \
+            libssl-dev libnghttp2-dev
+      # libFuzzer is clang-only, hence plain `clang` rather than the clang-18
+      # used elsewhere: -fsanitize=fuzzer must match the driver that links it.
+      # Tests off — the harnesses are the only targets this job needs.
+      - name: Configure fuzz harnesses
+        run: |
+          cmake -S . -B build-fuzz -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_BUILD_TESTS=OFF
+      - name: Build
+        run: cmake --build build-fuzz
+      # Replays committed crashing inputs only. Fuzzing itself stays in the
+      # periodic fuzz.yml job; this is the deterministic regression half that
+      # tests/fuzz/CMakeLists.txt and tests/fuzz/README.md call a hard gate.
+      - name: Replay crash corpus
+        run: ci/scripts/corpus-check.sh build-fuzz
+
   otelcpp-shim:
     runs-on: ubuntu-latest
     name: otelcpp-shim

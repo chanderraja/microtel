@@ -1,7 +1,7 @@
 # microtel Control Plane Design
 
-**Status:** Draft — M15 design milestone. **Not implemented.** Requires
-reviewer sign-off before any implementation begins.
+**Status:** Accepted — signed off 2026-08-28. Design-only; L1–L8 deferred
+until M10 ships (§1). L0 decoupled and proceeding immediately.
 
 This document settles the decisions M15 (control plane + hot reload) cannot be
 built without, the same way `docs/metrics-design.md` preceded M12 and
@@ -40,45 +40,72 @@ Explicitly **out of scope** for M15 (anti-goals):
 Each item has a proposed **Decision** below. Reviewer approves by checking
 every box (and editing any decision they want changed first).
 
-- [ ] §0 Doc drift — three normative docs describe code that does not exist
-- [ ] §1 Prerequisite — M15's stated dependency (M10) has not shipped
-- [ ] §2 What is actually reloadable — **three tiers, not one feature**
-- [ ] §3 Wire format — JSON needs a parser microtel does not have (**ICP**)
-- [ ] §4 Threat model — incl. a live `SIGPIPE` process-kill hazard
-- [ ] §5 `microtelctl` language — Go (spec, ×4) vs C++ (**ICP** either way)
-- [ ] §6 Command surface
-- [ ] §7 Multi-profile — touches a LOCKED threading constraint
-- [ ] §8 `SIGHUP`, and the unimplemented `pthread_atfork` prerequisite
-- [ ] §9 Threading — a fourth thread role needs an **ICP**
-- [ ] §10 Testing, fuzzing, and a CI gate that does not exist
+- [x] §0 LOCKED means "needs an ICP to change", never "verified true"
+- [x] §1 Design-only until M10; L0 decoupled and proceeding now
+- [x] §2 Four tiers, not one feature; Tier 4 deferred
+- [x] §3 Asymmetric wire: token requests, real-JSON responses (**ICP**)
+- [x] §4 Threat model; socket path required, no default; `SIGPIPE` fix
+- [x] §5 `microtelctl` in C++, not Go (**ICP**)
+- [x] §6 Command surface
+- [x] §7 Multi-profile — reloadable-tier only, load-time validation
+- [x] §8 `SIGHUP`; `pthread_atfork` pulled forward to L0
+- [x] §9 Threading — fourth thread role needs an **ICP**
+- [x] §10 Testing/fuzzing; `corpus-check.sh` pulled forward to L0
 
 ---
 
-## §0 Documentation that is currently wrong
+## §0 The LOCKED marker does not mean what it appears to mean
 
-Three normative documents describe code that is not there. Any design that
-leans on them is designing against fantasy, so they are listed first.
+Three normative documents describe code that is not there. Listing them first
+is not throat-clearing: the most important one is marked **LOCKED —
+single-source-of-truth**, and understanding *how it got that way* changes how
+much any locked document should be trusted as design input.
 
 1. **`docs/threading-model.md` §5.3** (line 167), marked **(LOCKED —
    single-source-of-truth)**, declares that *"A single
    `std::atomic<ShutdownState> m_state` on the `Provider` is the ground truth
    for shutdown progress."*
    **No such member exists.** `SdkProvider` (`src/sdk/sdk_provider.hpp:143-191`)
-   has no atomic at all; teardown ordering is achieved purely by member
-   declaration order. A reload path must not assume `m_state`.
+   has zero atomics; teardown ordering is achieved purely by member
+   declaration order. §9 below already routes around it.
 2. **`docs/threading-model.md` §2** states v1 has *"exactly three thread
-   roles"*. The code has **seven** threads: I/O, BSP worker, log-processor
-   worker, metric reader, and three exporter workers (trace/metric/log).
+   roles"*. The code has **seven**: I/O, BSP worker, log-processor worker,
+   metric reader, and three exporter workers (trace/metric/log).
 3. **`pthread_atfork` is normative in two documents** —
    `docs/threading-model.md` §7 (LOCKED) and
    `docs/sequences/fork-survival.md` — and **registered nowhere**. A repo-wide
    grep for `pthread_atfork`, `signal(`, and `sigaction` returns zero hits.
-   See §8.
 
-**Decision.** Fixing these is not M15's job, but M15 must not cite them.
-Item 3 is a genuine prerequisite (§8). All three are worth their own small
-docs PR; a fourth known drift (§2.3's I/O-thread creation site) is already
-tracked separately.
+### How a LOCKED doc came to assert a member that never existed
+
+`ShutdownState` has **never existed in any commit in this repository's
+history** — `git log -S ShutdownState -- src/ include/` is empty. The claim,
+already marked LOCKED, entered in `dd94e85`: *"M0: design docs,
+public/internal headers, ICPs 0001 and 0002"*.
+
+That is the whole explanation, and it generalizes. `threading-model.md`,
+`interfaces.md`, and `memory-model.md` were **all added by that same M0
+commit**, and M0 is by definition the phase with no source code (CLAUDE.md
+rule 1). Every LOCKED marker in this project was therefore applied to *design
+intent*, at a moment when there was nothing to verify it against — and nothing
+since re-checks that the code still matches. **LOCKED means "don't change this
+without an ICP." It has never meant "this is true."** Those two readings are
+easy to conflate, and an earlier draft of this document did exactly that.
+
+Scale: **58 LOCKED markers** across the design docs — `interfaces.md` 19,
+`threading-model.md` 12, `error-model.md` 10, `memory-model.md` 9,
+`grpc-wire-protocol.md` 6, plus singles. Four are now known false: the three
+above, plus §2.3's I/O-thread creation site (tracked separately). Nobody has
+audited the other 54, and the hit rate among the handful this milestone
+happened to touch is not reassuring.
+
+**Decision.** M15 cites no locked document without checking it against the
+code first — which is what §2, §9, and §10 do throughout. Beyond M15, the
+**58-marker audit deserves its own work item**: the failure is not that one
+document drifted, it is that the mechanism meant to prevent drift never had a
+verification step. Item 3 is additionally a hard prerequisite for M15's own
+socket (§8) and is being done **now**, not deferred with the rest of M15 —
+see the Increment plan.
 
 ---
 
@@ -98,17 +125,25 @@ under the §19 compatibility policy.
 
 **Decision.** M15 proceeds **design-only**: this document is the deliverable,
 and implementation waits on either (a) M10 shipping, or (b) an explicit
-reviewer decision to run ahead of the dependency, recorded here. The design
-work is not wasted either way — §3 and §5 add a dependency and possibly a
-toolchain that a v1.0 release would have to carry, so deciding them informs
-M10's scope.
+reviewer decision to run ahead of the dependency, recorded here.
+
+The justification is narrow, and worth stating precisely because an earlier
+draft over-reached. It is **not** that §3 and §5 inform M10's scope — they do
+not. The control plane is off by default and not in the v1.0 cut, so neither
+the wire format nor the client language touches what M10 ships. The actual
+reason is the one above: an administrative interface designed with zero
+operational feedback, then frozen under §19's compatibility policy, is a bad
+trade that gets worse the longer it is supported.
+
+Note this defers **L1–L8 only**. L0 (below) has no dependency on M15 and is
+being done now.
 
 ---
 
 ## §2 What is actually reloadable
 
 "Hot-reloadable settings (sampler ratio, batch sizes, internal log level)"
-reads as one feature. It is **three, with wildly different costs**, because
+reads as one feature. It is **four, with wildly different costs**, because
 the settings differ in how they are synchronized today. This is the finding
 that should shape M15's scope.
 
@@ -225,26 +260,50 @@ Rule 12 makes every path an ICP:
 | Option | Cost |
 |---|---|
 | **A. Vendor a header-only JSON library** | New vendored dependency. Grows the closure microtel exists to keep small — the closure claim is the project's whole pitch. Most such libraries are exception- and allocation-heavy. |
-| **B. Hand-roll a restricted parser** | No new dependency, but it is a **parser on an inbound socket** — the exact shape CVEs are made of. Requires its own fuzz harness (§10) and a hard pre-parse size cap. Realistically 300–500 lines of security-relevant code. |
-| **C. Non-JSON framing** (length-prefixed key=value) | Cheapest and safest: fixed grammar, no nesting, no recursion. Departs from the spec's wire, and `jq`-style ad-hoc tooling stops working. |
+| **B. Hand-roll a restricted JSON parser** | No new dependency, but a **parser on an inbound socket** — the exact shape CVEs are made of. Needs its own fuzz harness and a hard pre-parse size cap. |
+| **C. Non-JSON framing** both directions | Safest, but gives up `jq`-able output, which is most of why an operator wants JSON at all. |
 
-**Decision.** **Option B**, constrained: a strict, non-recursive subset —
-objects of string keys to scalar values, no nested objects, no arrays, no
-`\u` escapes — with a hard frame cap (proposed 64 KiB) enforced *before*
-parsing. That subset covers every command in §6, is small enough to fuzz
-exhaustively, and keeps the closure claim intact while staying JSON on the
-wire.
+### The asymmetry these options miss
 
-**Structural constraint from §10:** the parser must be a pure
+Requests and responses have **opposite trust properties**, and the table above
+prices them as if they were the same problem. Request bytes are
+attacker-controlled; response bytes are ours. **Parsing is the dangerous half;
+emitting is trivial and safe.** A symmetric design pays the parser cost twice
+over for a benefit that only ever applies to one direction.
+
+An earlier draft of this document recommended Option B with a subset so
+restricted — string keys to scalar values, no nesting, no arrays, no `\u` —
+that it was *key=value wearing JSON punctuation*. That is the worst position
+available: it pays the full price of hand-written parsing on an inbound
+socket, delivers none of JSON's expressiveness, and does not even earn the
+`jq` compatibility that was used to reject Option C, since nothing in that
+grammar round-trips meaningfully through real JSON tooling.
+
+**Decision — split the wire by direction.**
+
+- **Requests: a fixed, non-recursive token grammar.** `set batch.max_queue_size
+  2048` — verb, dotted key, scalar. Tokenize on whitespace after a length cap;
+  there is no nesting, no quoting problem, and no recursive descent. The
+  "parser" is a field split, which is about as much attack surface as an
+  inbound socket can have while still doing something.
+- **Responses: real, unrestricted JSON**, produced by a small serializer.
+  Emitting is a formatting problem, not a parsing one: no untrusted input
+  reaches it, and correctness is testable by round-tripping through a real
+  JSON parser in the test suite. Operators get genuine `jq` on the thing they
+  actually pipe to `jq`.
+
+This also resolves §5's client cleanly. If `microtelctl` wants to *parse*
+those responses (for the REPL's table rendering, say), it may **vendor a JSON
+library freely** — it is a separate binary, outside the runtime closure claim
+rule 12 governs, and its only untrusted input is the server's own output. The
+dangerous parser, if one is wanted at all, lands where it costs nothing.
+
+**Structural constraint from §10:** the request tokenizer must still be a pure
 `ParseControlRequest(std::string_view) -> Expected<Request, Error>` with all
 socket I/O strictly outside it — mirroring `config::ParseTomlString`
-(`src/common/config/toml_loader.hpp:28`), which is what makes `toml_fuzz`
-a six-line harness. Getting this factoring wrong makes the required fuzzing
-impossible.
-
-Rejecting A is a judgment call worth overturning if the reviewer would rather
-not hand-write parsing code on an attack surface; if so, the ICP should name
-the library and measure the closure delta.
+(`src/common/config/toml_loader.hpp:28`), which is what makes `toml_fuzz` a
+six-line harness. It remains fuzzed (§10); the point is that there is now very
+little left to find.
 
 ---
 
@@ -266,18 +325,37 @@ read back its resolved config and health.
 | Threat | Mitigation |
 |---|---|
 | Any local user connects and reconfigures the process | Socket mode `0600` owned by the process UID, **and** an `SO_PEERCRED` check rejecting any UID that is neither the process UID nor root. Both, not either. |
-| Socket path predictable or squatted before bind | Default under `$XDG_RUNTIME_DIR/microtel-<pid>.sock`, never `/tmp`. Bind to a temp name and `rename()` into place; refuse to unlink an existing path that is not a socket we own. |
+| Socket path predictable or squatted before bind | **The path is required configuration with no default** — see below. Bind to a temp name and `rename()` into place; refuse to unlink an existing path that is not a socket we own. |
 | Secret disclosure via read-back | §12.6 redaction applies unconditionally to every response. There is **no control-plane equivalent of `--show-secrets`** — secrets are never readable over the socket at any privilege level. |
 | Malformed frame → parser exploit | §3's restricted grammar, pre-parse size cap, dedicated fuzz harness (§10). |
 | Resource exhaustion (connection flood, slowloris) | Single-threaded accept loop, max 4 concurrent connections, per-connection idle timeout, bounded read buffer. Reject rather than queue. |
 | **`SIGPIPE` kills the process** | **Live hazard, not hypothetical.** There is no `MSG_NOSIGNAL` and no `SIG_IGN` anywhere in the repo. A UDS write to a client that has hung up — trivially triggered by Ctrl-C'ing `microtelctl` — would terminate the host application. Every control-plane `send` must use `MSG_NOSIGNAL`. Process-wide `SIG_IGN` is the alternative but is a library imposing policy on its host, which needs its own ICP. |
 | Control plane as persistence/escalation foothold | No command may execute a path, load a library, or write a file. §6 is a closed enumeration — no passthrough, no eval, no config-file path argument. |
 
-**Decision.** As tabled. Two properties are invariants, not defaults:
-**UDS-only forever** (no TCP option, not even opt-in — off-box reachability
-voids this entire model), and **no secret is ever readable over the socket**.
-`MSG_NOSIGNAL` on every write is a correctness requirement, not a hardening
-nicety.
+### The socket path has no safe default
+
+An earlier draft defaulted to `$XDG_RUNTIME_DIR/microtel-<pid>.sock`. That
+variable is **frequently unset** — system services, containers, and any host
+process that did not originate from a user login session. Since the doc also
+(correctly) forbids `/tmp`, a default-seeking design is left with no safe
+fallback, and every candidate fallback reintroduces the squatting question in
+a new location.
+
+microtel is a library embedded in an arbitrary host process; it does not know
+where that host's runtime directory is, and guessing is precisely the wrong
+move for a security-relevant path.
+
+**Decision.** The socket path is **required configuration with no default**.
+Enabling the control plane means naming the path; there is no
+"enabled-but-unconfigured" state to reason about. This composes naturally with
+off-by-default (§9) and removes an entire class of path-discovery and
+squatting questions rather than answering them one at a time.
+
+**Decision (§4 overall).** As tabled. Two properties are invariants, not
+defaults: **UDS-only forever** (no TCP option, not even opt-in — off-box
+reachability voids this entire model), and **no secret is ever readable over
+the socket**. `MSG_NOSIGNAL` on every write is a correctness requirement, not
+a hardening nicety.
 
 ---
 
@@ -472,36 +550,55 @@ The gate M15's ship criterion depends on is currently vapor.
 
 ---
 
-## Open items flagged for the reviewer
+## Resolved at review
 
-1. **§1** — Implement now, ahead of M10, or stop at this document?
-   Recommend stopping here until M10 ships.
-2. **§2** — Accept the tiering: ship ratio/batch/log-level, defer sampler-
-   *object* swap? This is the main scope judgment.
-3. **§3** — Hand-rolled restricted parser (recommended) vs. vendoring a JSON
-   library. ICP either way.
-4. **§5** — C++ client (recommended) vs. the spec's Go binary, asserted in
-   four places including packaging. ICP either way.
-5. **§8** — Confirm M15 absorbs the unimplemented `pthread_atfork` work as a
-   prerequisite rather than deferring it again.
-6. Should the spec/roadmap be amended to match §2/§3/§5, so they stop
-   describing shapes the project has decided against?
+All six open items were answered in review; recorded here so the decisions
+live with the design rather than in a thread.
+
+1. **§1 — stop at this document** until M10 ships, on the operational-feedback
+   grounds only (the "informs M10's scope" argument was withdrawn as wrong).
+   Defers L1–L8; **L0 is decoupled and proceeds now.**
+2. **§2 — tiering accepted**, including Tier 4's deferral: a refcount
+   round-trip on `StartSpan` for a feature the roadmap never asked for is
+   backwards given what the project's pitch rests on.
+3. **§3 — asymmetric wire**, overturning the original Option B. Requests in a
+   fixed token grammar; responses in real JSON. See §3.
+4. **§5 — C++ client accepted.** Shared framing between client and server is
+   worth more here than Go's cross-compilation, and the four-CI-job toolchain
+   cost is not close for a program that opens a socket and prints replies.
+5. **§8 — confirmed**, and pulled forward out of M15 entirely (L0).
+6. **Spec/roadmap amendments land *after* the ICPs**, not before, so the ICP
+   is the record and the spec follows it. Amending both in parallel risks a
+   third version of the same decision.
+
+Also accepted: **§7** (validation error at load time, not runtime surprise)
+and **§6's two rules** — loud failure on `set sampler.ratio` against a
+non-ratio sampler is the ICP 0017 pattern deliberately not repeating.
 
 ## Increment plan
 
-Assumes sign-off, and assumes §1 resolves in favour of proceeding.
+**L0 is not part of the M15 deferral.** Both items are outstanding promises
+made elsewhere — `pthread_atfork` is normative in a LOCKED document and a
+sequence diagram and has been unimplemented since M5; `corpus-check.sh` is
+asserted as a hard PR gate by two files and does not exist. Neither should
+wait on a deferred milestone: parking them inside M15 is how they became
+orphaned in the first place, and M15 is not where that debt should sit.
 
-| Increment | Scope |
-|---|---|
-| L0 | Prerequisites: `pthread_atfork` handlers (§8), `ci/scripts/corpus-check.sh` (§10) |
-| L1 | ICPs: §3 wire/closure, §5 client language, §9 threading-model amendment, §12.8 anti-goal lift |
-| L2 | Frame codec as a pure `string_view → Expected` function + fuzz harness. No socket. |
-| L3 | `UniqueUnixListener`, UDS server, §4 threat-model controls, off-by-default config |
-| L4 | Tier-1 setters (batch/interval) + `status`/`get`/`set`/`flush` dispatch |
-| L5 | Tier-2 atomic ratio threshold + Tier-3 log-level filter and its emission sites |
-| L6 | `microtelctl` single-shot, sharing L2's codec |
-| L7 | REPL, `reload` + `SIGHUP` (§8), profiles (§7) |
-| L8 | Integration tests over a real socket; TSAN; `docs/threading-model.md` update |
+| Increment | Scope | State |
+|---|---|---|
+| **L0a** | `pthread_atfork` handlers (§8, `threading-model.md` §7) | **now — own work item** |
+| **L0b** | `ci/scripts/corpus-check.sh` (§10) | **now — own work item** |
+| L1 | ICPs: §3 wire, §5 client language, §9 threading-model amendment, §12.8 anti-goal lift | deferred |
+| L2 | Request tokenizer + response serializer + fuzz harness. No socket. | deferred |
+| L3 | `UniqueUnixListener`, UDS server, §4 controls, required-path config | deferred |
+| L4 | Tier-1 setters (batch/interval) + `status`/`get`/`set`/`flush` dispatch | deferred |
+| L5 | Tier-2 atomic ratio threshold + Tier-3 log-level filter and emission sites | deferred |
+| L6 | `microtelctl` single-shot, sharing L2's framing | deferred |
+| L7 | REPL, `reload` + `SIGHUP` (§8), profiles (§7) | deferred |
+| L8 | Integration tests over a real socket; TSAN; `docs/threading-model.md` update | deferred |
+
+Separately tracked, out of M15's scope but surfaced by it: the **58-marker
+LOCKED audit** (§0).
 
 ## References
 

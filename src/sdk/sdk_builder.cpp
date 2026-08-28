@@ -403,10 +403,24 @@ struct ExporterPack
     std::unique_ptr<internal::ILogExporter> log_exporter;
 };
 
+/// @brief Build the auth provider, or nullptr when no callback was supplied.
+[[nodiscard]] std::unique_ptr<internal::IAuthProvider> BuildAuthProvider(
+    std::optional<AuthCallback>& cb, std::chrono::milliseconds cache_ttl)
+{
+    if (!cb)
+    {
+        return nullptr;
+    }
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    return std::make_unique<config::CallbackAuthProvider>(std::move(*cb), cache_ttl);
+    // NOLINTEND(bugprone-unchecked-optional-access)
+}
+
 [[nodiscard]] ExporterPack BuildExporters(wire::OtlpEncoder* encoder,
                                           internal::ITransport* transport,
                                           internal::IAuthProvider* auth,
-                                          const config::Config& cfg)
+                                          const config::Config& cfg,
+                                          internal::IDiagnosticsSink* diag)
 {
     auto codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth);
     const std::string_view metric_path =
@@ -418,7 +432,7 @@ struct ExporterPack
     auto log_codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, log_path);
 
     const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
-    auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg);
+    auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
     auto metric_exp = std::make_unique<exporter::OtlpMetricExporter>(
         encoder,
         metric_codec.get(),
@@ -559,14 +573,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto resource = BuildResource(cfg);
 
     // --- Step 4: auth provider ----------------------------------------------
-    std::unique_ptr<internal::IAuthProvider> auth;
-    if (m_impl->auth_cb)
-    {
-        // NOLINTBEGIN(bugprone-unchecked-optional-access)
-        auth = std::make_unique<config::CallbackAuthProvider>(std::move(*m_impl->auth_cb),
-                                                              m_impl->auth_cache_ttl);
-        // NOLINTEND(bugprone-unchecked-optional-access)
-    }
+    auto auth = BuildAuthProvider(m_impl->auth_cb, m_impl->auth_cache_ttl);
 
     // --- Steps 5–6: transport -----------------------------------------------
     auto transport_result = CreateTransport();
@@ -578,7 +585,11 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
 
     // --- Steps 7–9: encoder + codecs + exporters ----------------------------
     auto encoder = std::make_unique<wire::OtlpEncoder>();
-    auto exporters = BuildExporters(encoder.get(), transport.get(), auth.get(), cfg);
+    // Created before the exporters because they borrow it; ownership moves
+    // into the Provider below, which declares it first and so destroys it last.
+    auto diagnostics = std::make_unique<sdk::DiagnosticsCounters>();
+    auto exporters =
+        BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
 
     // --- Step 10: processor -------------------------------------------------
     internal::InstrumentationScope scope{
@@ -591,6 +602,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
     return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
+        .diagnostics = std::move(diagnostics),
         .encoder = std::move(encoder),
         .auth = std::move(auth),
         .transport = std::move(transport),

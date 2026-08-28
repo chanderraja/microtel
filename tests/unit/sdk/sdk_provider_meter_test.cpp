@@ -51,6 +51,7 @@ std::unique_ptr<mts::SdkProvider> MakeProvider()
     auto transport = std::make_unique<mtm::MockTransport>();
 
     return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::move(transport),
@@ -71,6 +72,7 @@ std::unique_ptr<mts::SdkProvider> MakeProviderWithCardinality(std::size_t max_ca
     auto transport = std::make_unique<mtm::MockTransport>();
 
     return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::move(transport),
@@ -176,6 +178,7 @@ TEST(SdkProviderMeterTest, ForceFlush_WithMetricExporter_FlushesExporter)
     const auto* metric_exp_ptr = metric_exp.get();
 
     auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::move(transport),
@@ -207,6 +210,7 @@ TEST(SdkProviderMeterTest, Shutdown_WithMetricExporter_ShutsDownExporter)
     const auto* metric_exp_ptr = metric_exp.get();
 
     auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::move(transport),
@@ -286,6 +290,7 @@ std::unique_ptr<mts::SdkProvider> MakeProviderWithCardinalityAndExporter(
     auto metric_exp = std::make_unique<mtm::MockMetricExporter>();
 
     return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::move(transport),

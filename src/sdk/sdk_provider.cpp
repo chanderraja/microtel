@@ -49,7 +49,8 @@ constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 }  // namespace
 
 SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
-    : m_encoder(std::move(args.encoder)),
+    : m_diagnostics(std::move(args.diagnostics)),
+      m_encoder(std::move(args.encoder)),
       m_auth(std::move(args.auth)),
       m_transport(std::move(args.transport)),
       m_codec(std::move(args.codec)),
@@ -161,7 +162,7 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 
 HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 {
-    HealthSnapshot health = m_diagnostics.Snapshot();
+    HealthSnapshot health = m_diagnostics->Snapshot();
     // Connection state is read live from the transport; the sink's
     // SetConnectionState channel is wired up in increment 26.
     health.connection_state = m_transport->GetState();
@@ -170,7 +171,7 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 
 internal::IDiagnosticsSink& SdkProvider::DiagnosticsSink() noexcept
 {
-    return m_diagnostics;
+    return *m_diagnostics;
 }
 
 std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
@@ -203,7 +204,7 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                            .version = std::string{version}},
             m_metric_producer,
             m_metric_max_cardinality,
-            &m_diagnostics,
+            m_diagnostics.get(),
             m_view_registry);
     }
     return entry;
@@ -235,7 +236,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
             internal::InstrumentationScope{.name = std::string{name},
                                            .version = std::string{version}},
             nullptr,  // ICurrentSpanSource — trace-correlation seam, wired later
-            &m_diagnostics,
+            m_diagnostics.get(),
             LogLimitOptions{});
     }
     return entry;

@@ -45,6 +45,10 @@ class PeriodicExportingMetricReader;
 /// declaration order in SdkProvider (reverse-destruction semantics).
 struct SdkProviderArgs
 {
+    /// @brief Diagnostics sink backing `GetExporterHealth()`. Created by
+    /// `SdkBuilder::Build` before the exporters, which borrow it. Must be
+    /// non-null.
+    std::unique_ptr<DiagnosticsCounters> diagnostics;
     std::unique_ptr<internal::IOtlpEncoder> encoder;
     std::unique_ptr<internal::IAuthProvider> auth;
     std::unique_ptr<internal::ITransport> transport;
@@ -145,7 +149,14 @@ private:
     // alive past any late RecordDrop from the metric machinery (or any other
     // pipeline component) during reverse-order teardown — same reasoning as
     // the m_metric_codec ordering note below.
-    DiagnosticsCounters m_diagnostics;
+    //
+    // Heap-allocated rather than held by value because the eagerly-built
+    // exporters need a pointer to it at *their* construction time, which is
+    // before this Provider exists. SdkBuilder::Build creates it, hands the raw
+    // pointer to the exporters, and moves ownership in here. DiagnosticsCounters
+    // is neither copyable nor movable (it holds atomics), so a value member
+    // could not be transferred in.
+    std::unique_ptr<DiagnosticsCounters> m_diagnostics;
     // Encoder is stateless; no teardown order concern.
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
     std::unique_ptr<internal::IAuthProvider> m_auth;

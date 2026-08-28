@@ -3,6 +3,7 @@
 
 #include "exporter/otlp_exporter.hpp"
 
+#include "microtel/error.hpp"
 #include "microtel/internal/batch.hpp"
 #include "microtel/status.hpp"
 
@@ -11,6 +12,7 @@
 #include <chrono>
 #include <exception>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <thread>
 #include <utility>
@@ -56,6 +58,7 @@ internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexc
     try
     {
         m_queue.push_back(std::move(batch));
+        PublishQueueDepth();
     }
     catch (const std::bad_alloc&)
     {
@@ -103,25 +106,28 @@ microtel::Status OtlpExporter::Shutdown(std::chrono::milliseconds timeout) noexc
     return completed ? microtel::Status::Completed : microtel::Status::TimedOut;
 }
 
-void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch, std::uint32_t starting_attempt)
+std::optional<internal::WireResult> OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch,
+                                                               std::uint32_t starting_attempt)
 {
     const RetryPolicyConfig& rp = m_config.retry_policy;
     const std::uint32_t max_attempts = (rp.max_attempts > 0U) ? rp.max_attempts : 1U;
     const auto budget_deadline = ClockNow() + rp.retry_budget;
 
     // When starting after attempt 0 (fan-out already made the first send),
-    // skip all retries if the budget is already exhausted.
+    // skip all retries if the budget is already exhausted. No attempt is made,
+    // so the caller's own result stands as the batch outcome.
     if (starting_attempt > 0U && ClockNow() >= budget_deadline)
     {
-        return;
+        return std::nullopt;
     }
 
+    std::optional<internal::WireResult> last;
     for (std::uint32_t attempt = starting_attempt; attempt < max_attempts; ++attempt)
     {
         auto payload = m_encoder->Encode(batch);
-        const auto result = m_codec->Send(std::move(payload), m_config.export_deadline);
+        last = m_codec->Send(std::move(payload), m_config.export_deadline);
 
-        if (result.success || !result.retryable)
+        if (last->success || !last->retryable)
         {
             break;
         }
@@ -131,13 +137,57 @@ void OtlpExporter::RunRetryLoop(const internal::BatchHandle& batch, std::uint32_
             break;
         }
 
-        const auto backoff = ComputeBackoff(attempt, rp, result.retry_after, DrawJitter01());
+        const auto backoff = ComputeBackoff(attempt, rp, last->retry_after, DrawJitter01());
         if (ClockNow() >= budget_deadline)
         {
             break;
         }
 
         std::this_thread::sleep_for(backoff);
+    }
+    return last;
+}
+
+internal::WireResult OtlpExporter::ResolveOutcome(const internal::WireResult& first_attempt,
+                                                  const internal::BatchHandle& batch)
+{
+    if (first_attempt.success || !first_attempt.retryable)
+    {
+        return first_attempt;
+    }
+    auto retried = RunRetryLoop(batch, 1U);
+    if (retried.has_value())
+    {
+        return std::move(*retried);
+    }
+    // nullopt: the retry budget was already spent on entry, so no further
+    // attempt was made and the fan-out result stands as this batch's outcome.
+    return first_attempt;
+}
+
+void OtlpExporter::RecordOutcome(const internal::WireResult& result) noexcept
+{
+    if (m_diag == nullptr)
+    {
+        return;
+    }
+    if (result.success)
+    {
+        m_diag->RecordBatchSent();
+        return;
+    }
+    // A codec may report failure without populating `error`. Recording an
+    // empty message would leave GetExporterHealth() saying a batch failed and
+    // refusing to say why, so name the stage instead.
+    m_diag->RecordBatchFailed(result.error.value_or(
+        Error{.kind = Error::Kind::Network, .message = "export failed at wire codec"}));
+}
+
+void OtlpExporter::PublishQueueDepth() noexcept
+{
+    if (m_diag != nullptr)
+    {
+        m_diag->SetQueueDepth(static_cast<std::uint64_t>(m_queue.size()));
     }
 }
 
@@ -182,6 +232,7 @@ void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
         {
         }
         lock.lock();
+        PublishQueueDepth();
     }
 }
 
@@ -207,10 +258,9 @@ void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& ba
     // retry loop does not exceed the configured max_attempts total.
     for (std::size_t i = 0; i < results.size(); ++i)
     {
-        if (!results[i].success && results[i].retryable)
-        {
-            RunRetryLoop(batches[i], 1U);
-        }
+        // Exactly one outcome per batch: intermediate retryable failures are
+        // attempts, not failed batches.
+        RecordOutcome(ResolveOutcome(results[i], batches[i]));
     }
 }
 

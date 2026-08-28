@@ -1,6 +1,6 @@
 # ICP 0017: Lazy transport connect, and the interfaces it touches
 
-**Status:** Draft
+**Status:** Accepted — signed off 2026-08-27; implemented in #129
 **Affected interfaces / docs:** [`docs/interfaces.md`](../interfaces.md) §4.3
 (`IWireCodec` — precondition amendment, LOCKED, requires this ICP);
 `include/microtel/provider.hpp` (`Connect()` Doxygen correction — not a locked
@@ -234,3 +234,19 @@ lazy-connect question, and shouldn't be bundled into this diff:
    related finding #1 above means the two cases currently look identical
    (`Disconnected`) despite being operationally different? Deferred to
    whichever ICP eventually tackles reconnect-after-drop.
+
+> **Resolved at acceptance (#129):**
+>
+> 1. **No new `DropReason` or health signal.** `SdkProvider::GetExporterHealth()`
+>    reads `connection_state` live from `ITransport::GetState()`
+>    (`src/sdk/sdk_provider.cpp`) rather than from a value recorded during
+>    export, so a failed lazy-connect is reflected immediately with zero new
+>    code — the same way any other connection failure already is. Checked
+>    `last_error_message` specifically and found it's **not currently
+>    populated by anything in the export path**: `DiagnosticsCounters::
+>    RecordBatchFailed` (the only writer) has no call site outside its own
+>    unit test. That's a pre-existing gap in every export failure's
+>    visibility, not one this ICP creates or is responsible for closing — a
+>    lazy-connect failure is exactly as visible via `last_error_message` as
+>    any other retryable transport failure already is today.
+> 2. **Stays deferred**, as proposed. No change from the draft's answer.

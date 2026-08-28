@@ -425,7 +425,12 @@ TEST(GrpcWireCodecTest, Send_MissingGrpcStatus_Http200_NotRetryable)
 // Transport-level error
 // ---------------------------------------------------------------------------
 
-TEST(GrpcWireCodecTest, Send_TransportError_NotRetryable)
+// A transport-level failure is exactly what the retry engine exists for:
+// collector restarts, rolling deploys, load balancers draining. This used to
+// return retryable=false, so a gRPC deployment dropped the batch on the first
+// connection reset while an HTTP deployment retried the identical failure
+// (`http_wire_codec.cpp`, "transport-level failure: connection reset, etc.").
+TEST(GrpcWireCodecTest, Send_TransportError_IsRetryable)
 {
     mtfk::FakeTransport transport;
     transport.default_response = mti::TransportResult{
@@ -439,8 +444,38 @@ TEST(GrpcWireCodecTest, Send_TransportError_NotRetryable)
 
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
-    EXPECT_FALSE(result.retryable);
-    EXPECT_TRUE(result.error.has_value());
+    EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "connection reset");
+}
+
+// The codec used to disagree with itself: a connection that failed while being
+// established was retryable (ICP 0017's EnsureConnected), but one that failed
+// after being established was not. Same Error::Kind, same recovery, opposite
+// verdicts.
+TEST(GrpcWireCodecTest, Send_ConnectFailureAndMidStreamFailure_AgreeOnRetryability)
+{
+    mtfk::FakeTransport connect_fails;
+    connect_fails.state = mt::ConnectionState::Disconnected;
+    connect_fails.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::GrpcWireCodec connect_codec{&connect_fails, MakeConfig()};
+    const auto connect_result = connect_codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    mtfk::FakeTransport send_fails;
+    send_fails.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Network, .message = "connection reset"},
+    };
+    mtw::GrpcWireCodec send_codec{&send_fails, MakeConfig()};
+    const auto send_result = send_codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_EQ(connect_result.retryable, send_result.retryable);
+    EXPECT_TRUE(send_result.retryable);
 }
 
 // ---------------------------------------------------------------------------

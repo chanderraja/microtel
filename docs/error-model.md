@@ -222,8 +222,15 @@ The wire codec — not the exporter — owns retry classification (per ICP 0001 
 
 ### 7.2 OTLP/gRPC
 
+Every row below is keyed on `grpc-status`, which presupposes that a response
+arrived. The first row covers the case where none did — it is evaluated before
+any `grpc-status` is inspected, and its omission is why the transport-failure
+gap in this table went unnoticed (`ClassifyResponse` returned `retryable=false`
+here while OTLP/HTTP returned `true` for the identical failure).
+
 | `grpc-status` | `success` | `retryable` | `retry_after` | Counter |
 |---|---|---|---|---|
+| *(no response — connection failure / TLS failure / read timeout)* | false | true (limited attempts) | jittered backoff | `connect_failure` if pre-request |
 | `OK (0)` | true | n/a | n/a | (success) |
 | `OK` with partial-success rejected > 0 | true | **false** (never retried) | n/a | `partial_success_rejection` |
 | `CANCELLED (1)` | false | true | jittered backoff | |

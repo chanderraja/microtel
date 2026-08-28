@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -630,5 +631,25 @@ def _run_regression_check(baseline_path: str, current: dict, threshold: float) -
     return 0
 
 
+def _cli() -> int:
+    """Entry point wrapper: turn expected failures into a clean message.
+
+    A failing container build is an ordinary outcome of running the harness
+    (a missing package, a compiler error in a SUT), not a driver bug. Letting
+    CalledProcessError escape printed a Python traceback whose final line was
+    just the exit status -- container.py has already echoed the real error by
+    the time we get here, so a traceback adds nothing but noise.
+    """
+    try:
+        return main()
+    except subprocess.CalledProcessError as exc:
+        prog = exc.cmd[0] if exc.cmd else "command"
+        _log(f"FAIL: {prog} exited {exc.returncode}; see the error above")
+        return 1
+    except KeyboardInterrupt:
+        _log("interrupted")
+        return 130
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_cli())

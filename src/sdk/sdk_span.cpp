@@ -32,6 +32,11 @@ namespace
 /// own strong/basic guarantee leaves the record intact on throw — so a failed
 /// mutation drops one field or one event, never a half-written span.
 ///
+/// Catches `std::exception` rather than `std::bad_alloc` alone: `std::string`
+/// and `std::vector` also throw `std::length_error`, and *any* exception
+/// escaping a `noexcept` frame terminates. Matches the house pattern in
+/// `otlp_exporter.cpp` and `sdk_builder.cpp`.
+///
 /// @note §2.2 also requires incrementing a drop counter. There is no
 ///       `DropReason` for allocation failure, and adding one is explicitly
 ///       ICP-gated (`provider.hpp`), so the count is deferred rather than
@@ -87,7 +92,7 @@ void DropOnBadAlloc(Mutate mutate) noexcept
     // there is nothing to handle, and rethrowing from a noexcept frame is the
     // terminate this guard exists to prevent.
     // NOLINTNEXTLINE(bugprone-empty-catch)
-    catch (const std::bad_alloc&)
+    catch (const std::exception&)
     {
     }
 }

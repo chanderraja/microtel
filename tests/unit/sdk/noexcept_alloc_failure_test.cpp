@@ -38,6 +38,8 @@ namespace
 {
 
 // Armed only around the exact call under test.
+// A replaced global operator new has nowhere else to read its switch from.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> g_fail_allocations{false};
 
 struct ScopedAllocFailure
@@ -59,30 +61,77 @@ struct ScopedAllocFailure
 }  // namespace
 
 // Replacing global operator new is legal and is the only way to drive the
-// bad_alloc path deterministically.
+// allocation-failure path deterministically.
+//
+// The nothrow forms must be replaced too: SdkTracer::StartSpan allocates with
+// `new (std::nothrow)`, so leaving it on the real allocator while delete goes
+// through free() is an alloc/dealloc mismatch. ASan catches exactly that.
+// NOLINTBEGIN(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
 void* operator new(std::size_t size)
 {
     if (g_fail_allocations.load(std::memory_order_acquire))
     {
         throw std::bad_alloc{};
     }
-    void* const p = std::malloc(size);  // NOLINT(cppcoreguidelines-no-malloc)
-    if (p == nullptr)
+    // The pointee cannot be const: this is an allocator handing back
+    // writable storage.
+    // NOLINTNEXTLINE(misc-const-correctness)
+    if (void* const allocated = std::malloc(size); allocated != nullptr)
     {
-        throw std::bad_alloc{};
+        return allocated;
     }
-    return p;
+    throw std::bad_alloc{};
+}
+
+void* operator new(std::size_t size, const std::nothrow_t& /*tag*/) noexcept
+{
+    if (g_fail_allocations.load(std::memory_order_acquire))
+    {
+        return nullptr;
+    }
+    return std::malloc(size);
+}
+
+void* operator new[](std::size_t size)
+{
+    return ::operator new(size);
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept
+{
+    return ::operator new(size, tag);
 }
 
 void operator delete(void* p) noexcept
 {
-    std::free(p);  // NOLINT(cppcoreguidelines-no-malloc)
+    std::free(p);
 }
 
 void operator delete(void* p, std::size_t /*size*/) noexcept
 {
-    std::free(p);  // NOLINT(cppcoreguidelines-no-malloc)
+    std::free(p);
 }
+
+void operator delete(void* p, const std::nothrow_t& /*tag*/) noexcept
+{
+    std::free(p);
+}
+
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+
+void operator delete[](void* p, std::size_t /*size*/) noexcept
+{
+    std::free(p);
+}
+
+void operator delete[](void* p, const std::nothrow_t& /*tag*/) noexcept
+{
+    std::free(p);
+}
+// NOLINTEND(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
 
 namespace
 {
@@ -95,6 +144,9 @@ namespace mtmk = microtel::testing;
 // A long value forces a heap allocation rather than a small-string one.
 std::string LongValue()
 {
+    // A braced list here selects initializer_list<char>, not the
+    // (count, char) constructor.
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
     return std::string(512, 'x');
 }
 

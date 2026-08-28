@@ -218,6 +218,13 @@ target_compile_options(metric_producer_race_test PRIVATE
 # Allocation-failure regression. Replaces global operator new process-wide, so
 # it must be its own binary — arming the failure switch while another test's
 # gtest machinery allocates would abort the run.
+#
+# Skipped under sanitizers: asan and tsan install their own global operator
+# new/delete to track allocations, and a second replacement in the test binary
+# either fails to link (tsan) or trips alloc-dealloc-mismatch (asan). The
+# behaviour under test — surviving a throwing allocator — is orthogonal to what
+# the sanitizers check, so the non-sanitized build is the right place for it.
+if(MICROTEL_SANITIZER STREQUAL "")
 microtel_add_test(
     NAME    noexcept_alloc_failure_test
     SOURCES noexcept_alloc_failure_test.cpp
@@ -230,6 +237,7 @@ target_include_directories(noexcept_alloc_failure_test
 
 target_compile_options(noexcept_alloc_failure_test PRIVATE
     -Wno-missing-field-initializers)
+endif()
 
 microtel_add_test(
     NAME    sdk_provider_test

@@ -43,7 +43,7 @@ void SimpleSpanProcessor::OnEnd(SpanRecord&& record) noexcept
     // there is nothing to handle, and rethrowing from a noexcept frame is the
     // terminate this guard exists to prevent.
     // NOLINTNEXTLINE(bugprone-empty-catch)
-    catch (const std::bad_alloc&)
+    catch (const std::exception&)
     {
     }
 }

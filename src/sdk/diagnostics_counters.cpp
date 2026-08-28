@@ -34,7 +34,7 @@ void DiagnosticsCounters::RecordBatchFailed(const Error& err) noexcept
     {
         m_last_error_message.assign(err.message, 0, kMaxErrorMessageLength);
     }
-    catch (const std::bad_alloc&)
+    catch (const std::exception&)
     {
         // Recording a diagnostic must never fail the caller's operation;
         // on allocation failure keep the counter bump and drop the text.
@@ -76,7 +76,7 @@ HealthSnapshot DiagnosticsCounters::Snapshot() const noexcept
     {
         snap.last_error_message = m_last_error_message;
     }
-    catch (const std::bad_alloc&)
+    catch (const std::exception&)
     {
         snap.last_error_message.clear();
     }

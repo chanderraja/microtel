@@ -215,6 +215,22 @@ target_include_directories(metric_producer_race_test
 target_compile_options(metric_producer_race_test PRIVATE
     -Wno-missing-field-initializers)
 
+# Allocation-failure regression. Replaces global operator new process-wide, so
+# it must be its own binary — arming the failure switch while another test's
+# gtest machinery allocates would abort the run.
+microtel_add_test(
+    NAME    noexcept_alloc_failure_test
+    SOURCES noexcept_alloc_failure_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(noexcept_alloc_failure_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(noexcept_alloc_failure_test PRIVATE
+    -Wno-missing-field-initializers)
+
 microtel_add_test(
     NAME    sdk_provider_test
     SOURCES sdk_provider_test.cpp

@@ -66,8 +66,20 @@ HealthSnapshot DiagnosticsCounters::Snapshot() const noexcept
     const std::scoped_lock lk{m_error_mu};
     snap.last_error_time = m_last_error_time;
     // One bounded allocation per snapshot — accepted by interfaces.md §4.11
-    // ("Snapshot allocates one HealthSnapshot value").
-    snap.last_error_message = m_last_error_message;
+    // ("Snapshot allocates one HealthSnapshot value"). Guarded because this
+    // function is noexcept: under memory pressure a std::string copy would
+    // otherwise terminate the host process at exactly the moment an operator
+    // is reading health to find out what is wrong. The counters are the part
+    // that matters; the message is dropped rather than the process.
+    // RecordBatchFailed already guards its own copy the same way.
+    try
+    {
+        snap.last_error_message = m_last_error_message;
+    }
+    catch (const std::bad_alloc&)
+    {
+        snap.last_error_message.clear();
+    }
     return snap;
 }
 

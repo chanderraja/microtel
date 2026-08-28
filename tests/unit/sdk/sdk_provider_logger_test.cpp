@@ -43,6 +43,7 @@ namespace
 std::unique_ptr<mts::SdkProvider> MakeProvider(std::unique_ptr<mti::ILogExporter> log_exp)
 {
     return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
         .encoder = nullptr,
         .auth = nullptr,
         .transport = std::make_unique<mtm::MockTransport>(),

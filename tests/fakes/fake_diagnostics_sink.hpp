@@ -26,6 +26,7 @@ public:
     std::uint64_t batches_sent = 0;
     std::uint64_t batches_failed = 0;
     std::uint64_t queue_depth_now = 0;
+    std::uint64_t queue_depth_call_count = 0;
 
     std::optional<std::chrono::system_clock::time_point> last_error_time;
     std::string last_error_message;
@@ -51,6 +52,7 @@ public:
     void SetQueueDepth(std::uint64_t depth) noexcept override
     {
         queue_depth_now = depth;
+        ++queue_depth_call_count;
     }
 
     void SetConnectionState(microtel::ConnectionState state) noexcept override

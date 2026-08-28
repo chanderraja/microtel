@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
@@ -81,7 +82,18 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
-    void RunRetryLoop(const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
+    /// @brief Retry `batch` from `starting_attempt` until success, a
+    ///        non-retryable result, or exhaustion of attempts / retry budget.
+    /// @return The last `WireResult` observed, or `nullopt` when no further
+    ///         attempt was made (retry budget already spent on entry) — in
+    ///         which case the caller's own result is the batch's outcome.
+    [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(
+        const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
+    /// @brief Report one batch's terminal outcome to the diagnostics sink.
+    ///        No-op when no sink was supplied.
+    void RecordOutcome(const internal::WireResult& result) noexcept;
+    /// @brief Publish the current queue depth. Caller must hold `m_mu`.
+    void PublishQueueDepth() noexcept;
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
     [[nodiscard]] double DrawJitter01() noexcept;
 
@@ -89,7 +101,7 @@ private:
     internal::IWireCodec* m_codec;
     OtlpExporterConfig m_config;
     // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M3-C onward
-    [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
+    internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
     std::mt19937_64 m_rng;
 

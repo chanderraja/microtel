@@ -32,5 +32,6 @@ function(microtel_add_integration_test)
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
 endfunction()
 
+add_subdirectory(sdk)
 add_subdirectory(transport)
 add_subdirectory(otelcpp_shim)

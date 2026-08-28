@@ -1,7 +1,48 @@
 # microtel Control Plane Design
 
-**Status:** Accepted — signed off 2026-08-28. Design-only; L1–L8 deferred
-until M10 ships (§1). L0 decoupled and proceeding immediately.
+**Status:** Design complete, implementation DEFERRED — see
+"Status and disposition" below. Not a sign-off blocker for any
+other milestone.
+
+## Status and disposition
+
+The design below is **accepted as an accurate account of what this codebase
+can and cannot support**. It is not being implemented now, and no date is
+attached to when it will be.
+
+**Why deferred.** M10 has not shipped. Nothing is packageable, and nothing is
+deployed. An operator-facing administrative interface designed with zero
+operational feedback — and then frozen under spec §19's compatibility policy —
+is a bad trade. The signal that would justify building it is concrete: a real
+user reporting that they could not turn up sampling during an incident. That
+signal cannot exist yet, because there are no users in production to produce
+it.
+
+**What it would cost, stated plainly.** This would be the project's first
+inbound socket, a fourth thread, a hand-written parser on attacker-adjacent
+input, a signal handler, a permanent threat model, and an administrative
+surface frozen under the compatibility policy. That is a lot of new
+surface area for a project whose entire pitch is a small, auditable dependency
+closure aimed at embedded, edge, CNF, and air-gapped deployments — which are
+precisely the environments least likely to permit a listening socket at all.
+
+**What it would buy, not inflated.** After §2's tiering, the user-visible
+capability is **four knobs adjustable without a restart**: batch parameters,
+metric interval, sampler ratio, and log level. That is genuinely useful during
+incident response. It is also all of it.
+
+**Revisit trigger.** Real deployment feedback after v1.0 asking for runtime
+reconfiguration. Not a date, and not a milestone slot.
+
+**On the spec and roadmap.** `microtel-spec.md` and `microtel-roadmap.md` are
+deliberately **not** amended to match this document. §3 (wire format), §5
+(client language), and §9 (fourth thread role) are design-doc decisions whose
+ICPs were never filed; with implementation deferred, those ICPs stay unfiled
+and the spec keeps saying what it has always said — a Go `microtelctl`,
+length-prefixed JSON, three thread roles. **The divergence between this
+document and the spec is therefore deliberate and unresolved, not an
+oversight.** Anyone reconciling the two later should start by filing the three
+ICPs, not by editing the spec to match this file.
 
 This document settles the decisions M15 (control plane + hot reload) cannot be
 built without, the same way `docs/metrics-design.md` preceded M12 and
@@ -41,16 +82,16 @@ Each item has a proposed **Decision** below. Reviewer approves by checking
 every box (and editing any decision they want changed first).
 
 - [x] §0 LOCKED means "needs an ICP to change", never "verified true"
-- [x] §1 Design-only until M10; L0 decoupled and proceeding now
+- [x] §1 Design-only until M10; prerequisites split out to their own issues
 - [x] §2 Four tiers, not one feature; Tier 4 deferred
 - [x] §3 Asymmetric wire: token requests, real-JSON responses (**ICP**)
 - [x] §4 Threat model; socket path required, no default; `SIGPIPE` fix
 - [x] §5 `microtelctl` in C++, not Go (**ICP**)
 - [x] §6 Command surface
 - [x] §7 Multi-profile — reloadable-tier only, load-time validation
-- [x] §8 `SIGHUP`; `pthread_atfork` pulled forward to L0
+- [x] §8 `SIGHUP`; `pthread_atfork` split out to its own issue
 - [x] §9 Threading — fourth thread role needs an **ICP**
-- [x] §10 Testing/fuzzing; `corpus-check.sh` pulled forward to L0
+- [x] §10 Testing/fuzzing; `corpus-check.sh` split out to its own issue
 
 ---
 
@@ -101,11 +142,11 @@ happened to touch is not reassuring.
 
 **Decision.** M15 cites no locked document without checking it against the
 code first — which is what §2, §9, and §10 do throughout. Beyond M15, the
-**58-marker audit deserves its own work item**: the failure is not that one
-document drifted, it is that the mechanism meant to prevent drift never had a
-verification step. Item 3 is additionally a hard prerequisite for M15's own
-socket (§8) and is being done **now**, not deferred with the rest of M15 —
-see the Increment plan.
+**58-marker audit deserves its own work item** (#134): the failure is not that
+one document drifted, it is that the mechanism meant to prevent drift never had
+a verification step. Item 3 is additionally a hard prerequisite for M15's own
+socket (§8); it is **not** deferred with the rest of M15 and has its own issue
+(#132) — see the Increment plan.
 
 ---
 
@@ -135,8 +176,10 @@ reason is the one above: an administrative interface designed with zero
 operational feedback, then frozen under §19's compatibility policy, is a bad
 trade that gets worse the longer it is supported.
 
-Note this defers **L1–L8 only**. L0 (below) has no dependency on M15 and is
-being done now.
+Note this defers the socket work only. The two prerequisites that were
+originally staged inside this milestone have no dependency on M15 and are now
+tracked as their own issues — see "Status and disposition" and the Increment
+plan.
 
 ---
 
@@ -243,6 +286,32 @@ survives on `SdkProvider` is a handful of members; endpoint, TLS, protocol,
 `ConnectOptions` and are **unreachable afterwards** — which is exactly the
 roadmap's non-reloadable list. The architecture already enforces the policy
 at no cost, and the design should say so rather than re-deriving it.
+
+### Alternative: expose the reloadable knobs as ordinary public setters
+
+Tiers 1–3 do not actually require a control plane. They could be exposed as
+thread-safe public setters on `Provider` — `SetBatchOptions`,
+`SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — with **no socket, no
+parser, no fourth thread, no signal handling, and no threat model**. The host
+application calls them from whatever administrative interface it already has:
+its own HTTP admin endpoint, its own config-reload path, its own management
+console.
+
+That delivers most of the user-visible value at a small fraction of the cost,
+and it moves the socket, parser, and signal-handling surface **into the host**,
+where it usually already exists and is already secured — rather than making
+every microtel consumer inherit a listening socket they may not want (see the
+disposition note above on embedded and air-gapped deployments).
+
+What it does **not** give, stated honestly: **no out-of-process
+administration.** An operator cannot change anything unless the host
+application has already built its own control surface and wired these setters
+into it. For a host with no such surface, the answer under this alternative is
+"restart with new config" — which is exactly the gap the control plane exists
+to close. It is a smaller feature, not the same feature delivered more cheaply.
+
+**Not decided here.** Recorded as the **leading candidate to evaluate first**
+if M15 is ever revisited, ahead of the socket design in §3–§9.
 
 ---
 
@@ -557,7 +626,8 @@ live with the design rather than in a thread.
 
 1. **§1 — stop at this document** until M10 ships, on the operational-feedback
    grounds only (the "informs M10's scope" argument was withdrawn as wrong).
-   Defers L1–L8; **L0 is decoupled and proceeds now.**
+   Defers L1–L8; **the two prerequisites are decoupled into their own
+   issues.**
 2. **§2 — tiering accepted**, including Tier 4's deferral: a refcount
    round-trip on `StartSpan` for a feature the roadmap never asked for is
    backwards given what the project's pitch rests on.
@@ -566,7 +636,7 @@ live with the design rather than in a thread.
 4. **§5 — C++ client accepted.** Shared framing between client and server is
    worth more here than Go's cross-compilation, and the four-CI-job toolchain
    cost is not close for a program that opens a socket and prints replies.
-5. **§8 — confirmed**, and pulled forward out of M15 entirely (L0).
+5. **§8 — confirmed**, and pulled out of M15 entirely into its own issue.
 6. **Spec/roadmap amendments land *after* the ICPs**, not before, so the ICP
    is the record and the spec follows it. Amending both in parallel risks a
    third version of the same decision.
@@ -577,17 +647,24 @@ non-ratio sampler is the ICP 0017 pattern deliberately not repeating.
 
 ## Increment plan
 
-**L0 is not part of the M15 deferral.** Both items are outstanding promises
-made elsewhere — `pthread_atfork` is normative in a LOCKED document and a
-sequence diagram and has been unimplemented since M5; `corpus-check.sh` is
-asserted as a hard PR gate by two files and does not exist. Neither should
-wait on a deferred milestone: parking them inside M15 is how they became
-orphaned in the first place, and M15 is not where that debt should sit.
+Retained as the implementation record if M15 is revisited. Everything below is
+**deferred** — see "Status and disposition" at the top of this document.
+
+**L0 has been removed from this plan entirely.** Its two items were never
+really M15 work: both are outstanding debts asserted elsewhere in the
+repository, and parking them behind a milestone is how they were orphaned in
+the first place. They now have their own GitHub issues and are **not gated on
+M15**:
+
+- **`pthread_atfork` handlers** (#132) — normative in
+  `docs/threading-model.md` §7 (LOCKED) and `docs/sequences/fork-survival.md`,
+  unimplemented since M5.
+- **`ci/scripts/corpus-check.sh`** (#133) — asserted as a hard PR gate by
+  `tests/fuzz/CMakeLists.txt:9` and `tests/fuzz/README.md:38-43`, does not
+  exist.
 
 | Increment | Scope | State |
 |---|---|---|
-| **L0a** | `pthread_atfork` handlers (§8, `threading-model.md` §7) | **now — own work item** |
-| **L0b** | `ci/scripts/corpus-check.sh` (§10) | **now — own work item** |
 | L1 | ICPs: §3 wire, §5 client language, §9 threading-model amendment, §12.8 anti-goal lift | deferred |
 | L2 | Request tokenizer + response serializer + fuzz harness. No socket. | deferred |
 | L3 | `UniqueUnixListener`, UDS server, §4 controls, required-path config | deferred |

@@ -185,6 +185,22 @@ microtel_add_test(
     LIBS    microtel_sdk)
 
 # SdkProvider::ForceFlush two-stage flush (processor → exporter).
+# Concurrency regression: Provider is documented thread-safe; GetMeter/
+# GetLogger raced ForceFlush/Shutdown on the lazily-built members. Meaningful
+# under TSAN.
+microtel_add_test(
+    NAME    sdk_provider_race_test
+    SOURCES sdk_provider_race_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(sdk_provider_race_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(sdk_provider_race_test PRIVATE
+    -Wno-missing-field-initializers)
+
 microtel_add_test(
     NAME    sdk_provider_test
     SOURCES sdk_provider_test.cpp

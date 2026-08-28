@@ -109,18 +109,20 @@ Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
         return s2;
     }
     // Metric reader ForceFlush: collect a snapshot then flush the exporter.
-    if (m_metric_reader != nullptr)
+    // Read through the accessor: GetMeter publishes this pointer from another
+    // thread under m_meter_mu, and Provider is documented thread-safe.
+    if (auto* const reader = MetricReaderPtr(); reader != nullptr)
     {
-        const Status ms = m_metric_reader->ForceFlush(timeout);
+        const Status ms = reader->ForceFlush(timeout);
         if (ms != Status::Completed)
         {
             return ms;
         }
     }
     // Log pipeline: drain the processor queue into the exporter, then flush it.
-    if (m_log_processor != nullptr)
+    if (auto* const processor = LogProcessorPtr(); processor != nullptr)
     {
-        const Status ls = m_log_processor->ForceFlush(timeout);
+        const Status ls = processor->ForceFlush(timeout);
         if (ls != Status::Completed)
         {
             return ls;
@@ -133,13 +135,25 @@ Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
     return Status::Completed;
 }
 
+PeriodicExportingMetricReader* SdkProvider::MetricReaderPtr() noexcept
+{
+    const std::scoped_lock lk{m_meter_mu};
+    return m_metric_reader.get();
+}
+
+internal::ILogRecordProcessor* SdkProvider::LogProcessorPtr() noexcept
+{
+    const std::scoped_lock lk{m_logger_mu};
+    return m_log_processor.get();
+}
+
 Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 {
     const Status status = m_processor->Shutdown(timeout);
     // Metric reader shutdown (also shuts down the metric exporter internally).
-    if (m_metric_reader != nullptr)
+    if (auto* const reader = MetricReaderPtr(); reader != nullptr)
     {
-        (void)m_metric_reader->Shutdown(timeout);
+        (void)reader->Shutdown(timeout);
     }
     else if (m_metric_exporter != nullptr)
     {
@@ -147,9 +161,9 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     }
     // Log pipeline: stop the processor (halts emits to the exporter), then the
     // exporter, before the shared transport is closed.
-    if (m_log_processor != nullptr)
+    if (auto* const processor = LogProcessorPtr(); processor != nullptr)
     {
-        (void)m_log_processor->Shutdown(timeout);
+        (void)processor->Shutdown(timeout);
     }
     if (m_log_exporter != nullptr)
     {

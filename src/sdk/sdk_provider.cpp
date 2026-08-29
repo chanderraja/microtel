@@ -180,6 +180,10 @@ namespace
 
 Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 {
+    // Set before tearing anything down so a concurrent GetMeter/GetLogger
+    // stops building pipeline components (and spawning their threads).
+    m_shut_down.store(true, std::memory_order_release);
+
     Status status = m_processor->Shutdown(timeout);
     // Every component below still runs even if an earlier one timed out: a
     // partial teardown would leak threads and sockets. Their statuses are
@@ -227,10 +231,15 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                                        std::string_view /*schema_url*/)
 {
     const std::scoped_lock lk{m_meter_mu};
+    const bool shut_down = m_shut_down.load(std::memory_order_acquire);
     if (!m_metric_producer)
     {
         m_metric_producer = std::make_shared<MetricProducer>(m_resource);
-        if (m_metric_exporter != nullptr)
+        // Same reasoning as GetLogger: no new reader thread after Shutdown.
+        // The meter itself is still returned so callers do not have to
+        // null-check, but nothing collects from it. There is no NoopMeter to
+        // hand back instead -- see the PR note.
+        if (m_metric_exporter != nullptr && !shut_down)
         {
             m_metric_reader = std::make_unique<PeriodicExportingMetricReader>(
                 *m_metric_producer,
@@ -261,7 +270,10 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
 std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
                                                          std::string_view version)
 {
-    if (m_log_exporter == nullptr)
+    // After Shutdown the pipeline is gone; building a BatchLogRecordProcessor
+    // here would spawn a worker thread that nothing joins until destruction,
+    // and its records could never be exported anyway (threading-model.md §6.2).
+    if (m_log_exporter == nullptr || m_shut_down.load(std::memory_order_acquire))
     {
         return m_noop_logger;
     }

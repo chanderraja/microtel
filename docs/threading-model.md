@@ -211,8 +211,29 @@ Forking a process that has microtel running raises real correctness questions be
 
 Concretely:
 
-- A `pthread_atfork` handler runs in the child and sets `m_state = Closed` on every live `Provider`. Worker and I/O threads are not present in the child (only the forking thread survives `fork`); the state-machine flip ensures any future API call observes a closed state and drops with `post_shutdown`.
-- The atfork handler runs in the **parent** before the fork to record a diagnostic that fork was observed. No locks are taken in the prepare handler — there is no safe way to acquire them and unlock them across the fork.
+- A `pthread_atfork` handler runs in the child and marks the live `Provider`
+  shut down. Worker and I/O threads are not present in the child (only the
+  forking thread survives `fork`), so any API entry point that consults the
+  shutdown flag before touching shared state drops instead of blocking.
+
+  The mechanism is a flag, not a state machine: this section previously
+  specified `m_state = Closed`, and no such member has ever existed
+  (see ICP 0018 and issue #134). The flag it sets is
+  `SdkProvider::m_shut_down`, and the child handler does nothing but one
+  atomic store — it takes no lock, because a lock held at `fork()` time by a
+  thread that does not exist in the child would never be released.
+
+  **This does not make a forked child fully safe, and the previous wording
+  overstated it.** It covers entry points that check the flag first —
+  `GetLogger` and `GetMeter`. It does not cover `Span::End()`, which reaches
+  `BatchSpanProcessor::OnEnd` and takes that processor's mutex with no path to
+  the flag; a child calling it can still deadlock on a mutex held at fork time.
+  Closing that needs a per-component fork check, tracked separately.
+- There is **no parent and no prepare handler.** The rule previously asked the
+  parent handler to "record a diagnostic that fork was observed"; there is
+  nothing to record it to. `LogImpl` has no production call sites and is not
+  async-signal-safe, and no `DropReason` covers fork. Registering an empty
+  handler would only disguise that.
 - `SdkBuilder::Build()` may be called again in the child to construct a fresh `Provider`. The new provider initialises fresh threads, sockets, and nghttp2 sessions. The parent's I/O state is **not shared**.
 
 The fork-survival sequence diagram is `docs/sequences/fork-survival.md`.

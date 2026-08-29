@@ -17,17 +17,72 @@
 #include "sdk/sdk_meter.hpp"
 #include "sdk/sdk_tracer.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <pthread.h>
 
 namespace microtel::sdk
 {
 
 namespace
 {
+
+/// The single live provider, for the fork child handler to reach.
+///
+/// `docs/threading-model.md` §2.2 (LOCKED) fixes v1 at one `Provider` per
+/// process, so this is one atomic pointer rather than a registry. That matters
+/// for correctness, not just simplicity: a child-side handler must not take a
+/// lock, because a lock held at `fork()` time by a thread that does not exist
+/// in the child is never released. An atomic has no such hazard.
+///
+/// Multi-profile (v1.1) turns this into a real registry, and that design has
+/// to solve the locking problem this one sidesteps.
+// A pthread_atfork handler takes no arguments, so the provider it must reach
+// has to be reachable from a global. Both are only ever touched atomically or
+// through call_once.
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<SdkProvider*> g_live_provider{nullptr};
+std::once_flag g_atfork_once;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+
+/// Runs in the child after `fork()`. Async-signal-safe: one atomic load, one
+/// virtual call that does one atomic store.
+extern "C" void ForkChildHandler() noexcept
+{
+    if (auto* const provider = g_live_provider.load(std::memory_order_acquire); provider != nullptr)
+    {
+        provider->MarkForkedChild();
+    }
+}
+
+/// Registered once, at first `Provider` construction.
+///
+/// No prepare or parent handler. §7 asks the parent handler to "record a
+/// diagnostic that fork was observed", but there is nothing to record it to:
+/// `LogImpl` has no production call sites and is not async-signal-safe, and no
+/// `DropReason` covers it. Registering an empty handler would only obscure
+/// that. See the PR notes.
+void InstallForkHandlersOnce() noexcept
+{
+    try
+    {
+        std::call_once(g_atfork_once,
+                       [] { (void)::pthread_atfork(nullptr, nullptr, &ForkChildHandler); });
+    }
+    // Losing fork-safety must not fail provider construction, and there is
+    // nothing to handle: pthread_atfork does not throw, so this is
+    // unreachable in practice and exists to keep the noexcept promise.
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (const std::exception&)
+    {
+    }
+}
 
 constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 
@@ -71,11 +126,26 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_view_registry(std::make_shared<ViewRegistry>(std::move(args.view_registry))),
       m_noop_logger(std::make_shared<NoopLogger>())
 {
+    InstallForkHandlersOnce();
+    g_live_provider.store(this, std::memory_order_release);
 }
 
 SdkProvider::~SdkProvider() noexcept
 {
+    // Clear only if we are still the registered provider: a test that builds
+    // providers in sequence must not have an earlier one's destructor unhook a
+    // later one. Cannot be a pointer-to-const: compare_exchange_strong takes
+    // its expected value by mutable reference.
+    // NOLINTNEXTLINE(misc-const-correctness)
+    SdkProvider* self = this;
+    (void)g_live_provider.compare_exchange_strong(
+        self, nullptr, std::memory_order_acq_rel, std::memory_order_relaxed);
     (void)Shutdown(kProviderDestructorTimeout);
+}
+
+void SdkProvider::MarkForkedChild() noexcept
+{
+    m_shut_down.store(true, std::memory_order_release);
 }
 
 std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::string_view version)
@@ -230,8 +300,11 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                                        std::string_view version,
                                                        std::string_view /*schema_url*/)
 {
-    const std::scoped_lock lk{m_meter_mu};
+    // Read before taking m_meter_mu, not after: in a forked child that mutex
+    // may be held by a thread that no longer exists, so locking first would
+    // deadlock before the flag was ever consulted. GetLogger already does this.
     const bool shut_down = m_shut_down.load(std::memory_order_acquire);
+    const std::scoped_lock lk{m_meter_mu};
     if (!m_metric_producer)
     {
         m_metric_producer = std::make_shared<MetricProducer>(m_resource);

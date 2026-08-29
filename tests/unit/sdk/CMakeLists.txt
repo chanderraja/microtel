@@ -239,6 +239,21 @@ target_compile_options(noexcept_alloc_failure_test PRIVATE
     -Wno-missing-field-initializers)
 endif()
 
+# threading-model.md §7 fork semantics. Actually forks; Linux-only, which
+# matches the project's target platform.
+microtel_add_test(
+    NAME    fork_safety_test
+    SOURCES fork_safety_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(fork_safety_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(fork_safety_test PRIVATE
+    -Wno-missing-field-initializers)
+
 microtel_add_test(
     NAME    sdk_provider_test
     SOURCES sdk_provider_test.cpp

@@ -105,10 +105,19 @@ microtel::Expected<std::unique_ptr<EpollReactor>, microtel::Error> EpollReactor:
         return std::unique_ptr<EpollReactor>(
             new EpollReactor(std::move(epoll_fd), std::move(wake_fd)));
     }
-    catch (const std::bad_alloc&)
+    // Create is noexcept and returns Expected, so any escaping exception
+    // terminates instead of being reported.
+    catch (const std::exception&)
     {
         return microtel::Unexpected<microtel::Error>{
-            microtel::Error{.kind = microtel::Error::Kind::InternalFailure, .message = "OOM"}};
+            microtel::Error{.kind = microtel::Error::Kind::InternalFailure,
+                            // MUST fit std::string's SSO buffer (15 chars on
+                            // libstdc++). This is the out-of-memory path: a
+                            // longer message allocates, and an allocation that
+                            // throws inside this catch escapes a noexcept
+                            // function and terminates the process — which is
+                            // exactly what the guard exists to prevent.
+                            .message = "OOM"}};
     }
 }
 

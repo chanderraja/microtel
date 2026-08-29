@@ -22,6 +22,7 @@
 #include "sdk/diagnostics_counters.hpp"
 #include "sdk/sdk_span.hpp"
 #include "sdk/simple_span_processor.hpp"
+#include "transport/epoll_reactor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -57,6 +58,7 @@ struct ScopedAllocFailure
     ScopedAllocFailure(ScopedAllocFailure&&) = delete;
     ScopedAllocFailure& operator=(ScopedAllocFailure&&) = delete;
 };
+
 
 }  // namespace
 
@@ -283,6 +285,28 @@ TEST(NoexceptAllocFailureTest, DiagnosticsSnapshotSurvivesAllocationFailure)
         EXPECT_EQ(snap.batches_failed, 1U);
     }
     SUCCEED();
+}
+
+
+// EpollReactor::Create is noexcept, returns Expected, and allocates with a
+// bare `new`. Its guard used to catch only std::bad_alloc; the frame is
+// noexcept, so anything else escaping terminated the process. This drives the
+// allocation failure for real -- unlike the exporters' Export(), where a fresh
+// deque already has a block and push_back does not allocate, so an
+// alloc-failure test there passes without exercising the guard at all.
+TEST(NoexceptAllocFailureTest, ReactorCreateReportsAllocationFailure)
+{
+    microtel::Expected<std::unique_ptr<microtel::transport::EpollReactor>, mt::Error> result =
+        microtel::transport::EpollReactor::Create();
+    ASSERT_TRUE(result.has_value()) << "unarmed Create must succeed";
+
+    {
+        const ScopedAllocFailure fail;
+        result = microtel::transport::EpollReactor::Create();
+    }
+
+    // Reported as an error rather than terminating the process.
+    EXPECT_FALSE(result.has_value());
 }
 
 }  // namespace

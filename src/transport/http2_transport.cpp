@@ -12,10 +12,12 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -506,7 +508,7 @@ microtel::Expected<void, microtel::Error> Http2Transport::Connect(
     return {};
 }
 
-microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) noexcept
+microtel::Status Http2Transport::Close(std::chrono::milliseconds timeout) noexcept
 {
     const auto prev =
         m_state.exchange(microtel::ConnectionState::Closed, std::memory_order_acq_rel);
@@ -518,6 +520,20 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) no
     m_stop.store(true, std::memory_order_release);
     m_reactor->Wake();
 
+    // Wait for the loop to publish its exit, bounded by the caller's timeout.
+    // Previously the timeout parameter was not even named and this was a bare
+    // join(), so a wedged I/O thread hung Provider::Shutdown -- and through it
+    // the host application's exit -- with no way for the caller to find out.
+    const bool exited_in_time = [&]
+    {
+        std::unique_lock lk{m_io_done_mu};
+        return m_io_done_cv.wait_for(lk, timeout, [this] { return m_io_done; });
+    }();
+
+    // Joined either way: the loop touches members of `this`, so detaching a
+    // thread that has not finished would leave it running against a destroyed
+    // transport. The timeout governs how long the caller waits before being
+    // told the truth, not whether the join happens.
     if (m_io_thread.joinable())
     {
         m_io_thread.join();
@@ -557,7 +573,7 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds /*timeout*/) no
     m_ssl_ctx.Reset();
     m_socket.Close();
 
-    return microtel::Status::Completed;
+    return exited_in_time ? microtel::Status::Completed : microtel::Status::TimedOut;
 }
 
 // ---------------------------------------------------------------------------
@@ -950,6 +966,12 @@ void Http2Transport::IoThreadLoop() noexcept
             DrainCancelQueue();
         }
     }
+    // Publish loop exit so Close's wait can be bounded by its timeout.
+    {
+        const std::scoped_lock lk{m_io_done_mu};
+        m_io_done = true;
+    }
+    m_io_done_cv.notify_all();
 }
 
 void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept

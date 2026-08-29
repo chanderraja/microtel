@@ -142,3 +142,69 @@ TEST(SdkProviderTest, ForceFlush_ExporterTimedOut_ReturnTimedOut)
     EXPECT_EQ(proc->force_flush_call_count, 1);
     EXPECT_EQ(exp->force_flush_call_count, 1);
 }
+
+// MakeProvider reports its mocks through T** out-params, so these locals must
+// be non-const pointers even in tests that only read the mock afterwards.
+// NOLINTBEGIN(misc-const-correctness)
+// ---------------------------------------------------------------------------
+// Shutdown status aggregation.
+//
+// Provider::Shutdown drove six components and returned only the span
+// processor's status, discarding the other five with (void). A transport or
+// exporter that timed out was invisible to the caller — which made
+// Http2Transport::Close's timeout unobservable even after it was honoured.
+// ---------------------------------------------------------------------------
+
+TEST(SdkProviderTest, Shutdown_TransportTimedOut_IsReportedToTheCaller)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProvider(&proc, &exp, &transport);
+    ASSERT_NE(transport, nullptr);
+
+    ASSERT_NE(proc, nullptr);
+    ASSERT_NE(exp, nullptr);
+    transport->close_result = mt::Status::TimedOut;
+
+    EXPECT_EQ(provider->Shutdown(std::chrono::milliseconds(10)), mt::Status::TimedOut);
+    // The timeout must not stop the rest of the teardown.
+    EXPECT_GT(proc->shutdown_call_count, 0);
+    EXPECT_GT(exp->shutdown_call_count, 0);
+}
+
+TEST(SdkProviderTest, Shutdown_AllComponentsComplete_ReportsCompleted)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProvider(&proc, &exp, &transport);
+    ASSERT_NE(proc, nullptr);
+    ASSERT_NE(exp, nullptr);
+    ASSERT_NE(transport, nullptr);
+
+    EXPECT_EQ(provider->Shutdown(std::chrono::milliseconds(10)), mt::Status::Completed);
+    EXPECT_GT(proc->shutdown_call_count, 0);
+    EXPECT_GT(exp->shutdown_call_count, 0);
+    EXPECT_GT(transport->close_call_count, 0);
+}
+
+TEST(SdkProviderTest, Shutdown_TransportStillClosesWhenProcessorTimedOut)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProvider(&proc, &exp, &transport);
+    ASSERT_NE(proc, nullptr);
+    ASSERT_NE(transport, nullptr);
+
+    ASSERT_NE(exp, nullptr);
+    proc->shutdown_result = mt::Status::TimedOut;
+
+    EXPECT_EQ(provider->Shutdown(std::chrono::milliseconds(10)), mt::Status::TimedOut);
+    EXPECT_GT(exp->shutdown_call_count, 0);
+    // A partial teardown would leak the I/O thread and socket, so an early
+    // timeout must not short-circuit the components after it.
+    EXPECT_GT(transport->close_call_count, 0);
+}
+// NOLINTEND(misc-const-correctness)

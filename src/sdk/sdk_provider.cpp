@@ -147,30 +147,64 @@ internal::ILogRecordProcessor* SdkProvider::LogProcessorPtr() noexcept
     return m_log_processor.get();
 }
 
+namespace
+{
+
+/// @brief Combine two shutdown statuses, worst-outcome-wins.
+///
+/// `Provider::Shutdown` promises a structured status (CLAUDE.md rule 17), but
+/// it drove six components and reported only the span processor's, discarding
+/// the rest with `(void)`. A transport or exporter that timed out was
+/// invisible to the caller — which made `Close`'s timeout unobservable even
+/// once it was honoured.
+[[nodiscard]] Status WorseOf(Status a, Status b) noexcept
+{
+    // Failed is the strongest signal, then TimedOut. AlreadyShutDown only
+    // survives if nothing else had anything to report.
+    if (a == Status::Failed || b == Status::Failed)
+    {
+        return Status::Failed;
+    }
+    if (a == Status::TimedOut || b == Status::TimedOut)
+    {
+        return Status::TimedOut;
+    }
+    if (a == Status::Completed || b == Status::Completed)
+    {
+        return Status::Completed;
+    }
+    return a;
+}
+
+}  // namespace
+
 Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
 {
-    const Status status = m_processor->Shutdown(timeout);
+    Status status = m_processor->Shutdown(timeout);
+    // Every component below still runs even if an earlier one timed out: a
+    // partial teardown would leak threads and sockets. Their statuses are
+    // folded in rather than discarded.
     // Metric reader shutdown (also shuts down the metric exporter internally).
     if (auto* const reader = MetricReaderPtr(); reader != nullptr)
     {
-        (void)reader->Shutdown(timeout);
+        status = WorseOf(status, reader->Shutdown(timeout));
     }
     else if (m_metric_exporter != nullptr)
     {
-        (void)m_metric_exporter->Shutdown(timeout);
+        status = WorseOf(status, m_metric_exporter->Shutdown(timeout));
     }
     // Log pipeline: stop the processor (halts emits to the exporter), then the
     // exporter, before the shared transport is closed.
     if (auto* const processor = LogProcessorPtr(); processor != nullptr)
     {
-        (void)processor->Shutdown(timeout);
+        status = WorseOf(status, processor->Shutdown(timeout));
     }
     if (m_log_exporter != nullptr)
     {
-        (void)m_log_exporter->Shutdown(timeout);
+        status = WorseOf(status, m_log_exporter->Shutdown(timeout));
     }
-    (void)m_exporter->Shutdown(timeout);
-    (void)m_transport->Close(timeout);
+    status = WorseOf(status, m_exporter->Shutdown(timeout));
+    status = WorseOf(status, m_transport->Close(timeout));
     return status;
 }
 

@@ -44,7 +44,9 @@ internal::ExportResult OtlpLogExporter::Export(internal::LogBatchHandle&& batch)
     {
         m_queue.push_back(std::move(batch));
     }
-    catch (const std::bad_alloc&)
+    // See OtlpExporter::Export — noexcept frame, so the catch must be wide
+    // enough that nothing escapes.
+    catch (const std::exception&)
     {
         return internal::ExportResult::Dropped;
     }

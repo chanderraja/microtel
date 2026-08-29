@@ -60,7 +60,10 @@ internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexc
         m_queue.push_back(std::move(batch));
         PublishQueueDepth();
     }
-    catch (const std::bad_alloc&)
+    // std::exception, not std::bad_alloc: push_back can also throw
+    // std::length_error, and Export is noexcept, so anything that escapes
+    // terminates the host process rather than dropping one batch.
+    catch (const std::exception&)
     {
         return internal::ExportResult::Dropped;
     }

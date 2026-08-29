@@ -408,10 +408,19 @@ microtel::Expected<std::unique_ptr<Http2Transport>, microtel::Error> Http2Transp
         t->m_io_thread = std::thread(&Http2Transport::IoThreadLoop, t.get());
         return t;
     }
-    catch (const std::bad_alloc&)
+    // Not just bad_alloc: std::thread's constructor throws std::system_error
+    // when the process cannot spawn another thread (EAGAIN — a container pid
+    // limit, say), which is a far likelier failure here than heap exhaustion.
+    // Create is noexcept, so that exception used to terminate the host process
+    // instead of being reported as a build error.
+    catch (const std::exception&)
     {
         return microtel::Unexpected<microtel::Error>{
-            microtel::Error{.kind = microtel::Error::Kind::InternalFailure, .message = "OOM"}};
+            microtel::Error{.kind = microtel::Error::Kind::InternalFailure,
+                            // Must fit the SSO buffer — see EpollReactor::Create.
+                            // Covers both causes: heap exhaustion and EAGAIN
+                            // from std::thread.
+                            .message = "OOM or EAGAIN"}};
     }
 }
 

@@ -211,7 +211,9 @@ Where `ConnectOptions` carries endpoint, TLS material, ALPN preference, timeout 
 
 **Postconditions.** `Send` returns immediately with a handle; the underlying request runs asynchronously on the I/O thread. The bytes referenced in `RequestSpec.payload` are read by the I/O thread; the **caller (the wire codec) retains ownership** of those bytes and must not free them until the completion fires.
 
-**Invariants.** One transport instance manages exactly one socket and one nghttp2 session. Reconnect is internal — clients do not see it.
+**Invariants.** One transport instance manages exactly one socket and one nghttp2 session. Reconnect is internal: there is no client-initiated reconnect call, and no reconnect policy to configure. Clients observe it only indirectly — through `ConnectionState::Reconnecting` in `GetExporterHealth()`, and through the retryable export failure that triggers it.
+
+This sentence previously read "Reconnect is internal — clients do not see it", which was both imprecise and, until ICP 0018, untrue in the other direction: no reconnect existed at all. The vague phrasing is part of why that went unnoticed — "clients do not see it" reads as a property nobody can test.
 
 #### Lifetime
 

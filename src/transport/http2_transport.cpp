@@ -442,30 +442,67 @@ microtel::ConnectionState Http2Transport::GetState() const noexcept
 // ITransport — lifecycle
 // ---------------------------------------------------------------------------
 
+namespace
+{
+
+/// @brief Move the transport into `Connecting`, from either state that permits
+///        it, reporting which one we came from.
+///
+/// `Disconnected → Connecting` is a first connect; `Reconnecting → Connecting`
+/// recovers from a mid-connection drop (ICP 0018 §3). Two compare-exchange
+/// attempts rather than one, because compare_exchange takes a single expected
+/// value; the second re-reads, so a state that moved in between simply loses.
+///
+/// @param prior Set to the observed state — the one won from on success, or
+///              the blocking state on failure.
+[[nodiscard]] bool ClaimConnectSlot(std::atomic<microtel::ConnectionState>& state,
+                                    microtel::ConnectionState& prior) noexcept
+{
+    prior = microtel::ConnectionState::Disconnected;
+    if (state.compare_exchange_strong(prior,
+                                      microtel::ConnectionState::Connecting,
+                                      std::memory_order_acq_rel,
+                                      std::memory_order_acquire))
+    {
+        return true;
+    }
+    if (prior != microtel::ConnectionState::Reconnecting)
+    {
+        return false;
+    }
+    return state.compare_exchange_strong(prior,
+                                         microtel::ConnectionState::Connecting,
+                                         std::memory_order_acq_rel,
+                                         std::memory_order_acquire);
+}
+
+}  // namespace
+
 microtel::Expected<void, microtel::Error> Http2Transport::Connect(
     const internal::ConnectOptions& opts)
 {
-    // Guard: only transition from Disconnected → Connecting.
-    microtel::ConnectionState expected = microtel::ConnectionState::Disconnected;
-    if (!m_state.compare_exchange_strong(expected,
-                                         microtel::ConnectionState::Connecting,
-                                         std::memory_order_acq_rel,
-                                         std::memory_order_acquire))
+    // Claim the right to connect. `prior` is the state we won from.
+    microtel::ConnectionState prior = microtel::ConnectionState::Disconnected;
+    if (!ClaimConnectSlot(m_state, prior))
     {
-        const auto* const msg = (expected == microtel::ConnectionState::Closed)
-                                    ? "transport is closed"
-                                    : "already connecting";
+        const auto* const msg = (prior == microtel::ConnectionState::Closed) ? "transport is closed"
+                                                                             : "already connecting";
         return microtel::Unexpected<microtel::Error>{
             {.kind = microtel::Error::Kind::Network, .message = msg}};
     }
 
-    auto rollback = [this]() noexcept
+    // Restore whichever state we won from, not unconditionally Disconnected:
+    // a failed *re*connect leaves the transport still recovering from a drop,
+    // and reporting Disconnected would tell an operator the connection never
+    // came up. `prior` is Disconnected or Reconnecting here — the CAS cannot
+    // have succeeded from any other value.
+    auto rollback = [this, prior]() noexcept
     {
         m_nghttp2_session.Reset();
         m_ssl_session.Reset();
         m_ssl_ctx.Reset();
         m_socket.Close();
-        m_state.store(microtel::ConnectionState::Disconnected, std::memory_order_release);
+        m_state.store(prior, std::memory_order_release);
     };
 
     auto ep = ParseEndpoint(opts.endpoint, opts.insecure);
@@ -961,7 +998,16 @@ void Http2Transport::IoThreadLoop() noexcept
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
         m_reactor->WaitAndDispatch(deadline);
-        if (m_nghttp2_session.IsValid())
+        // Gate on m_state before touching the connection objects, exactly as
+        // OnIoEvent does. Connect writes m_socket / m_ssl_* / m_nghttp2_session
+        // and *then* release-stores Connected; reading the session without the
+        // matching acquire is a data race against a concurrent reconnect.
+        //
+        // Harmless while a transport connected once and never again, which is
+        // why it went unnoticed — implementing Reconnecting (ICP 0018 §3) made
+        // reconnect a first-class path and TSAN found it immediately.
+        if (m_state.load(std::memory_order_acquire) == microtel::ConnectionState::Connected &&
+            m_nghttp2_session.IsValid())
         {
             DrainPendingRequests();
             DrainCancelQueue();
@@ -1003,7 +1049,12 @@ void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
         // Future().get() and blocked forever on a promise nobody would set
         // (ICP 0018).
         AbandonInFlight("connection lost");
-        m_state.store(microtel::ConnectionState::Disconnected, std::memory_order_release);
+        // Reconnecting, not Disconnected: this transport *was* connected, and
+        // the next export's lazy connect will re-establish it (ICP 0018).
+        // Distinguishing the two is the point of the state — "never came up"
+        // is a config or network problem, "dropped and recovering" is a peer
+        // problem, and an operator needs to tell them apart.
+        m_state.store(microtel::ConnectionState::Reconnecting, std::memory_order_release);
         return;
     }
 
@@ -1012,7 +1063,7 @@ void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
         if (::nghttp2_session_recv(m_nghttp2_session.Get()) != 0)
         {
             AbandonInFlight("connection lost");
-            m_state.store(microtel::ConnectionState::Disconnected, std::memory_order_release);
+            m_state.store(microtel::ConnectionState::Reconnecting, std::memory_order_release);
             return;
         }
     }

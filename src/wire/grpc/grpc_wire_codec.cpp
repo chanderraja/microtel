@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <optional>
 #include <span>
 #include <string>
@@ -759,7 +760,28 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
         .deadline = deadline,
     };
     auto handle = m_transport->Send(std::move(spec));
-    const auto tr = handle.Future().get();
+    auto& fut = handle.Future();
+
+    // Bounded, matching HttpWireCodec::Send. This was an unbounded get(),
+    // which blocked forever whenever a promise went unfulfilled — as the
+    // mid-connection drop path did until ICP 0018. That path now fulfils, so
+    // this is defence in depth: a future bug that abandons a promise costs one
+    // deadline, not a permanently wedged exporter thread.
+    if (fut.wait_for(deadline) != std::future_status::ready)
+    {
+        m_transport->Cancel(handle);
+        return internal::WireResult{
+            .success = false,
+            .retryable = true,
+            .retry_after = {},
+            .partial_success_rejected = 0,
+            .error = microtel::Error{.kind = microtel::Error::Kind::Cancelled,
+                                     .message = "request deadline exceeded"},
+            .response_excerpt = {},
+        };
+    }
+
+    const auto tr = fut.get();
     return ClassifyResponse(tr);
 }
 

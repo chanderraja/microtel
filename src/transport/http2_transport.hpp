@@ -129,6 +129,18 @@ private:
                                      microtel::Error>
     TlsHandshake(const internal::ConnectOptions& opts, const std::string& host);
 
+    /// @brief Fulfil and drop every in-flight stream with @p message.
+    ///
+    /// Called from `Close` (after the I/O thread is joined) and from the
+    /// mid-connection drop path in `OnIoEvent` (on the I/O thread itself).
+    /// `m_streams` is I/O-thread-only and `Close` runs after the join, so
+    /// neither caller needs a lock.
+    ///
+    /// @param message Must fit `std::string`'s SSO buffer (15 chars on
+    ///        libstdc++). This can run under memory pressure, and a message
+    ///        that allocates would throw out of a `noexcept` frame — see #150.
+    void AbandonInFlight(const char* message) noexcept;
+
     [[nodiscard]] microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Handshake(
         const internal::ConnectOptions& opts);
 

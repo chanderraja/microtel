@@ -54,17 +54,38 @@ v1 has exactly three thread roles. There is no thread pool, no fiber scheduler, 
 
 ### 2.3 I/O thread (one per process)
 
-**Identity.** Owned by the `Transport`. Created at `Transport::Connect`; joined at `Transport::Close`.
+**Identity.** Owned by the `Transport`. Created in `Http2Transport::Create()`
+— **not** at `Connect`, as this line said until it was checked against the
+code. The loop starts polling immediately and runs whether or not a
+connection exists; `IoThreadLoop` simply finds `m_nghttp2_session` invalid and
+skips the drain steps. Joined at `Transport::Close`, which is accurate.
 
 **v1 always has exactly one I/O thread per process** (LOCKED). One nghttp2 session, one socket, one reactor.
 
-**Owns:** the OpenSSL `SslCtx` reference, the `SslSession`, the `Nghttp2Session`, the `Socket`, the `IReactor` (epoll on Linux, kqueue on BSD/macOS), the per-stream in-flight request state.
+**Reads:** the OpenSSL `SslCtx` reference, the `SslSession`, the
+`Nghttp2Session`, the socket fd (a `common::raii::UniqueFd` — there is no
+`Socket` type), the `IReactor` (epoll on Linux), the per-stream in-flight
+request state.
+
+These are *constructed by* `Connect`, on whichever thread calls it — the
+application thread via `Provider::Connect()`, or an **exporter worker** thread
+via `IWireCodec::Send`'s lazy connect (ICP 0017). They are published to the I/O
+thread by the release-store of `m_state = Connected`, which the I/O thread
+acquire-loads before touching them. The per-stream state is genuinely
+I/O-thread-only.
 
 **Calls into:** OpenSSL, nghttp2, libc syscalls. Receives completion notifications from nghttp2 callbacks.
 
 **May not:** call into the encoder, the SDK, or any caller-facing API. The I/O thread is purely the byte-mover.
 
-**Sleep state.** Blocked in `epoll_wait` / `kevent` with a timeout that is the nearest of: pending HTTP/2 timeout, retry-after deadline, shutdown deadline. Wake sources: socket-readable / -writable, eventfd from the request queue, eventfd from the shutdown signal.
+**Sleep state.** Blocked in `epoll_wait` with a **fixed 100 ms tick**
+(`Http2Transport::IoThreadLoop`), not a computed deadline. This section
+previously described a timeout derived from "the nearest of: pending HTTP/2
+timeout, retry-after deadline, shutdown deadline"; no such computation exists.
+Wake
+sources are socket readability/writability and a **single** eventfd —
+`EpollReactor::m_wake_fd`, driven by `Wake()` — shared by the request-queue and
+shutdown signals. The two separate eventfds this section named do not exist.
 
 ---
 

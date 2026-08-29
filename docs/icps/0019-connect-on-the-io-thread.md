@@ -1,10 +1,9 @@
 # ICP 0019: Perform `Connect` on the I/O thread
 
 **Status:** Draft
-**Depends on:** #153 (`ConnectionState::Reconnecting`), which introduces the
-`ClaimConnectSlot` helper and the `Disconnected|Reconnecting → Connecting`
-claim this proposal builds on. At the time of writing #153 is in review, not
-merged.
+**Depends on:** #153 (`ConnectionState::Reconnecting`), merged — it introduces
+the `ClaimConnectSlot` helper and the `Disconnected|Reconnecting → Connecting`
+claim this proposal builds on.
 **Affected interfaces / docs:** [`docs/interfaces.md`](../interfaces.md) §4.1
 (`ITransport` threading contract — LOCKED, requires this ICP);
 [`docs/threading-model.md`](../threading-model.md) §2.3.
@@ -76,8 +75,8 @@ Reuse the mechanism `Send` already uses.
    `m_pending_queue`.
 
 2. **`Connect` becomes a submit-and-wait.** It performs the existing
-   `Disconnected|Reconnecting → Connecting` claim via `ClaimConnectSlot`
-   (introduced by #153 — see Depends on), enqueues the request, calls `Wake()`, and waits on the future with
+   `Disconnected|Reconnecting → Connecting` claim via `ClaimConnectSlot`,
+   enqueues the request, calls `Wake()`, and waits on the future with
    `opts.connect_timeout`. On timeout it restores the prior state and returns
    the existing timeout error.
 

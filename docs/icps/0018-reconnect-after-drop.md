@@ -1,6 +1,6 @@
 # ICP 0018: Reconnect after a mid-connection transport drop
 
-**Status:** Draft
+**Status:** Draft — items 1 and 2 implemented in #151; §3 and open question 1 still open
 **Affected interfaces / docs:** [`docs/interfaces.md`](../interfaces.md) §4.1
 (`ITransport` — the "Reconnect is internal" invariant, currently unimplemented);
 `include/microtel/provider.hpp` (`ConnectionState::Reconnecting`, dead since M0);
@@ -85,8 +85,28 @@ void Http2Transport::AbandonInFlight(microtel::Error::Kind kind, const char* why
 ```
 
 `Close` keeps its current message (`"transport closed"`); the drop path uses
-`"connection lost"`. Both mark the result `retryable`-shaped so the codec's
-existing classification does the right thing without a new error path.
+`"connection lost"`.
+
+**Both paths pass `Error::Kind::Cancelled`, and that is safe — but for a
+reason worth pinning down, because it is incidental rather than designed.**
+Neither codec branches on `Error::Kind`. `GrpcWireCodec::ClassifyResponse`
+tests `tr.error.has_value()` and `HttpWireCodec::Send` tests `!result.success`;
+both then return `retryable = true` unconditionally for transport-level
+failures. So a drop is retried, which is what we want.
+
+The hazard this avoids is real: if either codec were changed to treat
+`Cancelled` as non-retryable — a defensible reading, since a cancelled request
+genuinely should not be retried — item 1 would convert the hang into a
+**silent permanent failure**, which is worse than the hang because nothing
+surfaces it. Any future change to error classification must keep drop-path
+errors retryable, or give the drop path its own `Kind`.
+
+For `Close`, retryability is moot: the provider is shutting down, so the retry
+loop does not run.
+
+Implementation note (#151): the helper takes only a message, not a `Kind`,
+precisely because both callers want `Cancelled` today. Splitting them is the
+change to make if the classification above ever moves.
 
 This alone converts the gRPC hang into an ordinary retryable failure, which
 `OtlpExporter`'s retry loop already handles — and, thanks to §"Reconnect
@@ -99,6 +119,26 @@ connection.
 rather than an unbounded `get()`. Item 1 removes the known way to wedge it;
 item 2 means a future bug cannot re-open the same hole. The `RequestSpec`
 already carries a deadline, so the value is to hand.
+
+**Ordering hazard, checked.** A timed-out codec calls `Cancel` while the I/O
+thread may be abandoning the same stream. Three properties make that safe, and
+all three are load-bearing enough to state rather than rediscover:
+
+1. **`Cancel` never fulfils.** It pushes the handle id onto `m_cancel_queue`
+   under `m_cancel_mu` and wakes the reactor. All fulfilment happens on the I/O
+   thread.
+2. **Everything that touches `m_streams` runs on the I/O thread.**
+   `AbandonInFlight` (from `OnIoEvent`), `DrainCancelQueue`, and
+   `FulfillStream` are all reached from `IoThreadLoop`, so they are serialised
+   with no lock needed. `Close`'s call runs after the join.
+3. **Neither path can double-fulfil.** `FulfillStream` erases the entry before
+   setting its promise, so any entry still in the map has an unset promise;
+   `DrainCancelQueue` looks the handle up and `continue`s when it is gone.
+   After `AbandonInFlight` clears the maps, a queued cancel for the same
+   request finds nothing and does nothing.
+
+A double `set_value` would throw `std::future_error` out of a `noexcept`
+frame and terminate, so this is not a theoretical tidiness point.
 
 ### 3. Decide `Reconnecting`
 
@@ -114,12 +154,20 @@ Two options, and this is the part that most needs a reviewer's call:
   change requiring its own ICP note; and operators lose a distinction the
   documentation has promised since M0.
 
-**Recommendation: (a).** The distinction is real and operationally valuable —
-"never came up" is a config or network problem, "dropped and recovering" is a
-peer problem — and the audit (#134) found that the health surface is already
-thinner than documented. Deleting a documented state to match an
-unimplemented reality is the wrong direction when the state is cheap to
-populate.
+**Recommendation: (a)**, and the decisive argument is compatibility, not
+operator ergonomics.
+
+**`Reconnecting` is already a public enumerator.** Any consumer writing an
+exhaustive `switch` on `ConnectionState` already has a `Reconnecting` arm;
+anyone who wrote a non-exhaustive one has a latent bug today, independent of
+this ICP. **Populating the value is therefore not a compatibility event.
+Deleting it is** — and it would be the second breaking change to the health
+surface, which is precisely the part of the API operators build alerting
+against.
+
+The operator argument is real but secondary: "never came up" is a config or
+network problem, "dropped and recovering" is a peer problem, and the audit
+(#134) found the health surface already thinner than documented.
 
 ### 4. Backoff is out of scope
 
@@ -131,11 +179,32 @@ retry, that is a separate proposal with its own evidence.
 
 ## Migration
 
-- No public API change under recommendation (a); `ConnectionState::Reconnecting`
-  becomes reachable, which readers of `GetExporterHealth()` should already
-  handle since it has always been declared.
+- No public API *shape* change under recommendation (a);
+  `ConnectionState::Reconnecting` becomes reachable, which readers of
+  `GetExporterHealth()` should already handle since it has always been
+  declared.
+- **But there is a behavioural change, and calling it "no public API change"
+  would hide it.** Consumers that branch on `Disconnected` will see *fewer*
+  `Disconnected` transitions once (a) lands, because a mid-connection drop
+  produces `Reconnecting` instead. Nobody depends on that yet — the state
+  machine has never emitted `Reconnecting` — but an alerting rule keyed on
+  `Disconnected` would silently stop firing for drops, which is exactly the
+  kind of change that should be announced rather than discovered.
 - `docs/interfaces.md` §4.1's "Reconnect is internal — clients do not see it"
-  becomes true rather than aspirational.
+  becomes **mostly** true rather than aspirational, and the sentence should be
+  sharpened while it is being made real. Clients *do* observe reconnect: through
+  `connection_state` transitions, and through the retryable `WireResult` on the
+  export that triggers it. What the sentence actually means is that there is
+  **no client-initiated reconnect API** — no `Reconnect()` to call, no
+  reconnect policy to configure. Proposed wording:
+
+  > Reconnect is internal: there is no client-initiated reconnect call. Clients
+  > observe it only indirectly, through `connection_state` and through the
+  > retryable export failure that triggers it.
+
+  Stating it precisely matters here because the imprecise version is what let
+  the invariant go unimplemented for so long — "clients do not see it" reads as
+  a property nobody can test.
 - Tests: a drop with in-flight requests must fulfil them (both codecs); a gRPC
   `Send` must not block past its deadline; a reconnect after a drop must
   succeed on the next export.
@@ -159,6 +228,15 @@ retry, that is a separate proposal with its own evidence.
    increment site (one of the 22 dead counters in #134); a drop is arguably a
    different event. Deciding this alongside #134's counter work rather than
    inventing a reason here.
-3. Should `Close` and the drop path report distinguishable errors to the codec,
-   or is the shared `retryable` shape enough? Proposed: same shape, different
-   message, since no caller currently branches on the distinction.
+3. **Resolved: same shape, different message — and the distinction matters
+   more than the original framing suggested.** The proposal justified it by
+   saying no caller branches on it. That is true of the *codec*, and it is the
+   wrong consumer to reason about: the message lands in
+   `HealthSnapshot::last_error_message`, where `"transport closed"` versus
+   `"connection lost"` is the difference between an operator seeing an orderly
+   shutdown and an unexpected peer drop. Since the two messages already
+   differ, the distinction is free.
+
+   Recorded so that nobody later "simplifies" the two call sites into one
+   shared message on the grounds that the codec cannot tell them apart. **The
+   health surface is the consumer, not the codec.**

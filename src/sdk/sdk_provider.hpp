@@ -145,6 +145,20 @@ public:
     /// and tests assert on health counters.
     [[nodiscard]] internal::IDiagnosticsSink& DiagnosticsSink() noexcept;
 
+    /// @brief Mark this provider dead after `fork()`, from the child.
+    ///
+    /// Called by the `pthread_atfork` child handler. Only the forking thread
+    /// survives `fork`, so every worker and I/O thread this provider owns is
+    /// gone in the child while their mutexes may still be held by threads that
+    /// no longer exist. Flipping the shutdown flag makes the API entry points
+    /// that check it drop instead of touching that state
+    /// (`docs/threading-model.md` §7).
+    ///
+    /// @note Runs in the child of `fork()`, where only async-signal-safe
+    ///       operations are permitted: this does nothing but a relaxed-release
+    ///       store to an atomic. It takes no lock and allocates nothing.
+    void MarkForkedChild() noexcept;
+
 private:
     /// @brief Borrowed pointer to the lazily-built metric reader, read under
     ///        `m_meter_mu`. Returns nullptr when no meter has been created.

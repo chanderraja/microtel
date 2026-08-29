@@ -58,6 +58,12 @@ public:
     /// FIFO of scripted Send results. Each `Send` pops the front; falls
     /// back to `default_response` when empty.
     std::deque<internal::TransportResult> scripted_responses;
+    /// When true, Send returns a handle whose promise is never fulfilled —
+    /// the state a mid-connection drop used to leave in-flight requests in.
+    bool abandon_promises = false;
+    /// Holds the unfulfilled promises alive; letting them destruct would set
+    /// broken_promise and the future would throw instead of blocking.
+    std::vector<std::promise<internal::TransportResult>> abandoned;
     /// Default-constructed (`success=false`); test sets `default_response.success = true`
     /// to opt in to a successful default.
     internal::TransportResult default_response{};
@@ -75,6 +81,16 @@ public:
         sent_specs.push_back(std::move(spec));
         std::promise<internal::TransportResult> p;
         std::future<internal::TransportResult> f = p.get_future();
+        if (abandon_promises)
+        {
+            // Reproduce a mid-connection drop: the promise is never fulfilled,
+            // exactly as the transport's drop path left it before ICP 0018.
+            // Keeping it alive (rather than letting ~promise set broken_promise)
+            // is what makes the wait block rather than throw.
+            abandoned.push_back(std::move(p));
+            return internal::RequestHandle{static_cast<std::uint64_t>(sent_specs.size()),
+                                           std::move(f)};
+        }
         if (!scripted_responses.empty())
         {
             p.set_value(std::move(scripted_responses.front()));

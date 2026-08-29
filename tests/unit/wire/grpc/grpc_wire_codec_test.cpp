@@ -687,3 +687,35 @@ TEST(GrpcWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWit
     EXPECT_EQ(transport.connect_calls.size(), 1U);
     EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
 }
+
+// ── Abandoned promise: the mid-connection drop hang (ICP 0018) ───────────────
+//
+// The transport's drop path left every in-flight promise unfulfilled, and this
+// codec waited on it with an unbounded Future().get(). A dropped connection
+// therefore wedged a gRPC exporter thread permanently — the process had to be
+// restarted. HttpWireCodec was never affected because it always waited with a
+// deadline.
+//
+// The drop path now fulfils (see Http2Transport::AbandonInFlight); this test
+// covers the codec half, so that a future bug which abandons a promise costs
+// one deadline instead of the thread.
+
+TEST(GrpcWireCodecTest, Send_PromiseNeverFulfilled_TimesOutInsteadOfHanging)
+{
+    mtfk::FakeTransport transport;
+    transport.abandon_promises = true;
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(50));
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable) << "a timed-out request must be retried, not dropped";
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded above
+    EXPECT_EQ(result.error->message, "request deadline exceeded");
+    // Returned near the deadline rather than blocking indefinitely.
+    EXPECT_LT(elapsed, std::chrono::seconds(5));
+    EXPECT_EQ(transport.cancel_call_count, 1) << "the abandoned request must be cancelled";
+}

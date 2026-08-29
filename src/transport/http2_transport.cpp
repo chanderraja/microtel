@@ -549,15 +549,7 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds timeout) noexce
     }
 
     // I/O thread has stopped — fulfill any streams it didn't get to close.
-    for (auto& [stream_id, state] : m_streams)
-    {
-        internal::TransportResult result;
-        result.error = microtel::Error{.kind = microtel::Error::Kind::Cancelled,
-                                       .message = "transport closed"};
-        state->promise.set_value(std::move(result));
-    }
-    m_streams.clear();
-    m_handle_to_stream.clear();
+    AbandonInFlight("transport closed");
 
     // Fulfill any requests that were queued but never submitted.
     {
@@ -983,6 +975,19 @@ void Http2Transport::IoThreadLoop() noexcept
     m_io_done_cv.notify_all();
 }
 
+void Http2Transport::AbandonInFlight(const char* message) noexcept
+{
+    for (auto& [stream_id, state] : m_streams)
+    {
+        internal::TransportResult result;
+        result.error =
+            microtel::Error{.kind = microtel::Error::Kind::Cancelled, .message = message};
+        state->promise.set_value(std::move(result));
+    }
+    m_streams.clear();
+    m_handle_to_stream.clear();
+}
+
 void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
 {
     if (m_state.load(std::memory_order_acquire) != microtel::ConnectionState::Connected)
@@ -992,6 +997,12 @@ void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
 
     if (internal::HasEvent(events, internal::EventMask::Error))
     {
+        // Fulfil before publishing the state change. Without this, every
+        // in-flight promise was simply abandoned: the HTTP codec waits with a
+        // deadline and recovers, but GrpcWireCodec::Send used an unbounded
+        // Future().get() and blocked forever on a promise nobody would set
+        // (ICP 0018).
+        AbandonInFlight("connection lost");
         m_state.store(microtel::ConnectionState::Disconnected, std::memory_order_release);
         return;
     }
@@ -1000,6 +1011,7 @@ void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
     {
         if (::nghttp2_session_recv(m_nghttp2_session.Get()) != 0)
         {
+            AbandonInFlight("connection lost");
             m_state.store(microtel::ConnectionState::Disconnected, std::memory_order_release);
             return;
         }

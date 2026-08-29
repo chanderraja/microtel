@@ -3,6 +3,7 @@
 
 #include "sdk/simple_span_processor.hpp"
 
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -24,12 +25,27 @@ void SimpleSpanProcessor::OnStart(microtel::Span& /*span*/,
 
 void SimpleSpanProcessor::OnEnd(SpanRecord&& record) noexcept
 {
-    std::vector<SpanRecord> records;
-    records.reserve(1);
-    records.push_back(std::move(record));
+    // ISpanProcessor::OnEnd is noexcept, but building the one-record batch
+    // allocates. Without this guard a std::bad_alloc here terminates the host
+    // process; dropping the span is the behaviour docs/error-model.md §2.2
+    // requires. (No DropReason exists for allocation failure and adding one is
+    // ICP-gated, so the drop is currently uncounted — see issue #134.)
+    try
+    {
+        std::vector<SpanRecord> records;
+        records.reserve(1);
+        records.push_back(std::move(record));
 
-    BatchHandle batch{std::move(records), m_resource, m_scope};
-    (void)m_exporter->Export(std::move(batch));
+        BatchHandle batch{std::move(records), m_resource, m_scope};
+        (void)m_exporter->Export(std::move(batch));
+    }
+    // Dropping the span IS the documented behaviour (error-model.md §2.2);
+    // there is nothing to handle, and rethrowing from a noexcept frame is the
+    // terminate this guard exists to prevent.
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (const std::exception&)
+    {
+    }
 }
 
 microtel::Status SimpleSpanProcessor::ForceFlush(std::chrono::milliseconds /*timeout*/) noexcept

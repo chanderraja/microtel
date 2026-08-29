@@ -291,3 +291,104 @@ TEST(Http2TransportIntegrationTest, Connect_InsecureLoopback_Succeeds)
     (void)t->Close(std::chrono::milliseconds(1000));
     server.Stop();
 }
+
+// ---------------------------------------------------------------------------
+// ConnectionState::Reconnecting (ICP 0018 §3)
+//
+// Declared since M0 and never emitted: the drop path stored Disconnected, so
+// GetExporterHealth() could not tell "never came up" from "was connected and
+// dropped" — operationally the difference between a config problem and a peer
+// problem. These drive a real drop by stopping the server, rather than poking
+// the state machine directly.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Poll until @p transport reports @p want, or the deadline passes. The I/O
+/// thread notices a drop on its next 100 ms tick, so this cannot be a bare
+/// read.
+[[nodiscard]] bool WaitForState(const mtt::Http2Transport& transport,
+                                microtel::ConnectionState want,
+                                std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (transport.GetState() == want)
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return transport.GetState() == want;
+}
+
+}  // namespace
+
+TEST(Http2TransportIntegrationTest, DroppedConnection_ReportsReconnecting)
+{
+    MinimalHttp2Server server;
+    const int port = server.Start();
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+    ASSERT_TRUE(t->Connect(opts).has_value());
+    ASSERT_EQ(t->GetState(), microtel::ConnectionState::Connected);
+
+    // Real drop: the peer goes away underneath an established connection.
+    server.Stop();
+
+    EXPECT_TRUE(WaitForState(*t, microtel::ConnectionState::Reconnecting, std::chrono::seconds(5)))
+        << "a mid-connection drop must report Reconnecting, not Disconnected — "
+           "state was "
+        << static_cast<int>(t->GetState());
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+}
+
+TEST(Http2TransportIntegrationTest, ConnectSucceedsFromReconnecting)
+{
+    MinimalHttp2Server first;
+    const int first_port = first.Start();
+    ASSERT_GT(first_port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(first_port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+    ASSERT_TRUE(t->Connect(opts).has_value());
+
+    first.Stop();
+    ASSERT_TRUE(WaitForState(*t, microtel::ConnectionState::Reconnecting, std::chrono::seconds(5)));
+
+    // The CAS must accept Reconnecting → Connecting, not just Disconnected →
+    // Connecting. Without that, every reconnect fails with "already
+    // connecting" and the transport is permanently stuck after one drop.
+    MinimalHttp2Server second;
+    const int second_port = second.Start();
+    ASSERT_GT(second_port, 0);
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(second_port);
+
+    const auto reconnected = t->Connect(opts);
+    EXPECT_TRUE(reconnected.has_value())
+        << (reconnected.has_value() ? "" : reconnected.error().message);
+    EXPECT_EQ(t->GetState(), microtel::ConnectionState::Connected);
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+}

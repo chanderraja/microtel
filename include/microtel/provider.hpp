@@ -28,10 +28,26 @@ namespace microtel
 /// @brief Connection state observable through `HealthSnapshot`.
 enum class ConnectionState : std::uint8_t
 {
+    /// Never connected, or a first connect attempt failed. For an operator
+    /// this points at configuration or reachability — the endpoint, TLS
+    /// material, or the network path.
     Disconnected = 0,
+    /// A connect attempt is in progress.
     Connecting = 1,
+    /// Connected; exports can proceed.
     Connected = 2,
+    /// Was connected, the connection dropped, and the transport will
+    /// re-establish it on the next export (ICP 0018). Distinct from
+    /// `Disconnected` because the operator response differs: this points at
+    /// the peer or the link, not at local configuration.
+    ///
+    /// @note Declared since M0 but never emitted until ICP 0018 was
+    ///       implemented. Consumers switching exhaustively on this enum always
+    ///       had to handle it; those that did not have a latent bug
+    ///       independent of that change. Alerting keyed on `Disconnected` will
+    ///       see fewer transitions now, because drops report this instead.
     Reconnecting = 3,
+    /// `Close` has run. Terminal — the transport cannot be reconnected.
     Closed = 4,
 };
 

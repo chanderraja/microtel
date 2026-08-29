@@ -77,8 +77,24 @@ Reuse the mechanism `Send` already uses.
 2. **`Connect` becomes a submit-and-wait.** It performs the existing
    `Disconnected|Reconnecting → Connecting` claim via `ClaimConnectSlot`,
    enqueues the request, calls `Wake()`, and waits on the future with
-   `opts.connect_timeout`. On timeout it restores the prior state and returns
-   the existing timeout error.
+   `opts.connect_timeout`.
+
+   **On timeout the caller returns the error and touches no state.** An earlier
+   draft of this ICP said it "restores the prior state", which reads as
+   harmless and is not: the I/O thread may be mid-connect at that moment and
+   will go on to write `m_socket` and `m_nghttp2_session` and store
+   `Connected` — *after* the caller has already stored `Disconnected` and
+   returned failure. The state would then claim disconnected while a live
+   connection existed, and the next `Connect` would win the claim and overwrite
+   those objects, closing a socket the I/O thread had just registered.
+
+   That is the one place where relocating the work would otherwise *create* a
+   hazard instead of removing one, and it is the same principle this ICP is
+   built on, applied to the caller: **the I/O thread owns every `m_state`
+   transition out of `Connecting`, including the abandoned one.** The caller
+   only ever reports. A late success is then simply a connection that is up
+   when the caller believed it was not, which the next `Send` handles correctly
+   since ICP 0017's lazy connect.
 
 3. **The I/O thread performs the connect** — DNS, TCP, TLS, SETTINGS,
    `Register` — using today's code, unchanged, simply relocated. All writes to
@@ -88,7 +104,22 @@ Reuse the mechanism `Send` already uses.
    `IoThreadLoop` becomes unnecessary. Keeping it is harmless and it documents
    intent, so it should stay, but it stops being load-bearing.
 
-`Close` is untouched: it already runs after the join.
+5. **The I/O thread's exit path must fulfil every queued connect request.**
+   If the thread exits — `Close`, or an unrecoverable loop error — between an
+   enqueue and its drain, that `std::promise` is never set and `Connect` waits
+   out its full `connect_timeout` on a future nobody will fulfil. Bounded, so
+   not ICP 0018's indefinite hang, but ten seconds of a caller blocked for no
+   reason. `ClaimConnectSlot`'s `Closed` arm does not help: the claim already
+   succeeded before the thread died.
+
+   This is the same bug class ICP 0018 fixed for stream promises, and the
+   remedy is the same shape — the loop's exit path abandons queued connect
+   requests with an error, exactly as `Close` calls `AbandonInFlight` for
+   in-flight streams. Naming it here rather than leaving it to implementation,
+   because it is the kind of path that only shows up under a race and is easy
+   to omit.
+
+`Close` is otherwise untouched: it already runs after the join.
 
 ## What this costs
 
@@ -151,18 +182,44 @@ Stated plainly, because it is a real trade and not a free win.
   unchanged — that is the acceptance criterion. Add one for connect-after-Close
   failing fast rather than blocking for `connect_timeout`.
 
-## Open questions for the reviewer
+## Resolved at review
 
-1. **Is blocking the I/O thread for the connect duration acceptable?** It is
-   the crux. If the answer is no, the alternative above (`atomic<shared_ptr>`)
-   achieves the same safety without moving the work, at the cost of more
-   machinery.
-2. **Should `Provider::Connect()` keep its synchronous signature?** It could
-   return once the request is *enqueued* rather than completed, which would
-   remove the round trip — but it would also break the fail-fast-at-startup
-   semantics `Provider::Connect()` exists to provide (ICP 0017 §3). Proposed:
-   keep it synchronous.
-3. Does this want to wait for the v2 leaf/concentrator design? If the transport
-   is going to multiplex endpoints, the single-connection assumption underneath
-   this proposal expires, and `atomic<shared_ptr>` becomes the better long-term
-   shape.
+1. **Is blocking the I/O thread for the connect duration acceptable? — Yes.**
+   The concession that matters is `DrainCancelQueue` stalling, and it is
+   smaller than it first appears: during a reconnect there is no live
+   connection, so the requests whose cancels are stalled are ones that cannot
+   make progress anyway. The codec times out, the cancel lands late, the stream
+   state is cleaned up when the connect finishes. Nothing is lost but
+   promptness, on a path where promptness has no consumer.
+
+   `atomic<shared_ptr>` remains correctly identified as airtight and correctly
+   rejected on machinery. The deciding property is that **single-threaded
+   access is right for a new contributor who does not understand why** — the
+   `shared_ptr` design's subtlety (nghttp2 callbacks holding raw `this` across
+   a `recv`/`send`) is exactly the kind that produces an unreproducible bug
+   two years later.
+
+2. **Should `Provider::Connect()` stay synchronous? — Yes.** Returning on
+   *enqueue* would have it report success for a connect that has not happened,
+   which is precisely the failure ICP 0017 was written to eliminate.
+
+3. **Should this wait for the v2 leaf/concentrator design? — No, but record
+   the expiry.** Blocking a correct fix on a design that does not exist yet,
+   in service of an architecture that may not survive contact with M7's
+   numbers, is the wrong trade. And if v2 does multiplex endpoints,
+   `atomic<shared_ptr>` is a contained change to the same four objects, not a
+   rewrite.
+
+   **The implementation must carry the expiry condition as a comment at the
+   connect-request drain site**, not only here. A v2 designer adding a second
+   endpoint will read that code; they will not necessarily read this ICP. The
+   comment should say plainly that performing the connect inline is safe only
+   while this thread services exactly one connection, and that multiplexing
+   invalidates it.
+
+## Open questions
+
+None outstanding. Two implementation requirements — the exit-path drain
+(Proposed change §5) and the caller-touches-no-state rule on timeout
+(§2) — came out of review and are recorded there rather than left open,
+because both are correctness properties rather than preferences.

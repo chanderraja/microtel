@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <future>
@@ -135,6 +136,15 @@ private:
     std::atomic<microtel::ConnectionState> m_state{microtel::ConnectionState::Disconnected};
     std::atomic<bool> m_stop{false};
     std::thread m_io_thread;
+    /// Signalled by the I/O thread as its loop exits, so `Close` can bound how
+    /// long it waits. `std::thread` has no timed join, and detaching is not an
+    /// option here because the loop touches members of `this` — so the wait is
+    /// what the timeout actually governs, and a timeout is reported honestly
+    /// rather than silently ignored (`Provider::Shutdown` contract, CLAUDE.md
+    /// rule 15). Same shape as `OtlpExporter::Shutdown`.
+    std::mutex m_io_done_mu;
+    std::condition_variable m_io_done_cv;
+    bool m_io_done{false};
 
     // Connection resources — written by Connect(), read by I/O-thread callbacks.
     // Thread-safety: Connect() writes these before the release-store of

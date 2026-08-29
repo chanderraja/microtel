@@ -22,6 +22,7 @@
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/view_registry.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <memory>
@@ -170,6 +171,18 @@ private:
     // is neither copyable nor movable (it holds atomics), so a value member
     // could not be transferred in.
     std::unique_ptr<DiagnosticsCounters> m_diagnostics;
+    /// Set by `Shutdown` before it tears anything down, so `GetMeter` and
+    /// `GetLogger` stop building pipeline components afterwards. Without it
+    /// either could construct a `PeriodicExportingMetricReader` or a
+    /// `BatchLogRecordProcessor` — and spawn its thread — *after* `Shutdown`
+    /// returned, contradicting `docs/threading-model.md` §6.2 and leaving the
+    /// new thread joined only at destruction.
+    ///
+    /// Atomic because `Provider` is documented thread-safe: the check races
+    /// a concurrent `Shutdown` on another thread. It narrows the window to
+    /// the same one every other component here has (see `OtlpExporter::
+    /// m_shutdown`); it does not eliminate it.
+    std::atomic<bool> m_shut_down{false};
     // Encoder is stateless; no teardown order concern.
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
     std::unique_ptr<internal::IAuthProvider> m_auth;

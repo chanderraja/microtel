@@ -12,6 +12,8 @@
 #include "microtel/status.hpp"
 
 #include "mocks/mock_exporter.hpp"
+#include "mocks/mock_log_exporter.hpp"
+#include "mocks/mock_metric_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
 
@@ -20,7 +22,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <memory>
+#include <string_view>
 
 namespace mt = microtel;
 namespace mts = microtel::sdk;
@@ -58,6 +62,64 @@ std::unique_ptr<mts::SdkProvider> MakeProvider(mtm::MockSpanProcessor** out_proc
         .sampler = mt::MakeAlwaysOnSampler(),
         .span_limits = {},
         .connect_opts = {},
+    });
+}
+
+// Variants that actually wire a log / metric exporter. Without one, GetLogger
+// returns the noop logger and GetMeter never builds a reader, so a
+// post-shutdown test against the plain fixture would pass while proving
+// nothing.
+std::unique_ptr<mts::SdkProvider> MakeProviderWithLogExporter(mtm::MockSpanProcessor** out_proc,
+                                                              mtm::MockExporter** out_exp,
+                                                              mtm::MockTransport** out_transport)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+    *out_proc = proc.get();
+    *out_exp = exp.get();
+    *out_transport = transport.get();
+
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .log_exporter = std::make_unique<mtm::MockLogExporter>(),
+    });
+}
+
+std::unique_ptr<mts::SdkProvider> MakeProviderWithMetricExporter(mtm::MockSpanProcessor** out_proc,
+                                                                 mtm::MockExporter** out_exp,
+                                                                 mtm::MockTransport** out_transport)
+{
+    auto proc = std::make_unique<mtm::MockSpanProcessor>();
+    auto exp = std::make_unique<mtm::MockExporter>();
+    auto transport = std::make_unique<mtm::MockTransport>();
+    *out_proc = proc.get();
+    *out_exp = exp.get();
+    *out_transport = transport.get();
+
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::move(transport),
+        .codec = nullptr,
+        .exporter = std::move(exp),
+        .processor = std::move(proc),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_exporter = std::make_unique<mtm::MockMetricExporter>(),
     });
 }
 
@@ -207,4 +269,82 @@ TEST(SdkProviderTest, Shutdown_TransportStillClosesWhenProcessorTimedOut)
     // timeout must not short-circuit the components after it.
     EXPECT_GT(transport->close_call_count, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Post-shutdown component construction.
+//
+// GetMeter and GetLogger had no shutdown check, so either could build a
+// PeriodicExportingMetricReader or a BatchLogRecordProcessor -- and spawn its
+// thread -- after Shutdown() returned. threading-model.md §6.2 says no further
+// records are accepted after Shutdown; the new thread was also joined only at
+// destruction. Thread count is the assertion because the thread is the bug.
+// ---------------------------------------------------------------------------
+
+// Live threads in this process, via /proc. Cheap and Linux-only, which matches
+// the project's target platform.
+namespace
+{
+[[nodiscard]] int LiveThreadCount()
+{
+    std::ifstream status{"/proc/self/status"};
+    std::string line;
+    while (std::getline(status, line))
+    {
+        constexpr std::string_view kPrefix = "Threads:";
+        if (std::string_view{line}.starts_with(kPrefix))
+        {
+            return std::stoi(line.substr(kPrefix.size()));
+        }
+    }
+    return -1;
+}
+}  // namespace
+
+TEST(SdkProviderTest, GetLoggerAfterShutdown_SpawnsNoThread)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProviderWithLogExporter(&proc, &exp, &transport);
+
+    ASSERT_EQ(provider->Shutdown(std::chrono::milliseconds(50)), mt::Status::Completed);
+
+    const int before = LiveThreadCount();
+    ASSERT_GT(before, 0);
+    auto logger = provider->GetLogger("after", "1.0");
+    EXPECT_EQ(LiveThreadCount(), before);
+    EXPECT_NE(logger, nullptr);
+}
+
+TEST(SdkProviderTest, GetMeterAfterShutdown_SpawnsNoThread)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProviderWithMetricExporter(&proc, &exp, &transport);
+
+    ASSERT_EQ(provider->Shutdown(std::chrono::milliseconds(50)), mt::Status::Completed);
+
+    const int before = LiveThreadCount();
+    ASSERT_GT(before, 0);
+    auto meter = provider->GetMeter("after", "1.0");
+    EXPECT_EQ(LiveThreadCount(), before);
+    EXPECT_NE(meter, nullptr);
+}
+
+// The guard must not break the ordinary path.
+TEST(SdkProviderTest, GetLoggerBeforeShutdown_StillBuildsThePipeline)
+{
+    mtm::MockSpanProcessor* proc = nullptr;
+    mtm::MockExporter* exp = nullptr;
+    mtm::MockTransport* transport = nullptr;
+    auto provider = MakeProviderWithLogExporter(&proc, &exp, &transport);
+
+    const int before = LiveThreadCount();
+    auto logger = provider->GetLogger("before", "1.0");
+    EXPECT_NE(logger, nullptr);
+    // The processor's worker thread is expected here.
+    EXPECT_GT(LiveThreadCount(), before);
+}
+
 // NOLINTEND(misc-const-correctness)

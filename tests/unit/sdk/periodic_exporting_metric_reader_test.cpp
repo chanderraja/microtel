@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -309,4 +310,104 @@ TEST(PeriodicExportingMetricReaderTest, Collect_WithDeltaTemporality_PassesDelta
 
     EXPECT_EQ(reader.Collect(100ms), mt::Status::Completed);
     EXPECT_EQ(producer.LastTemporality(), mti::AggregationTemporality::Delta);
+}
+
+// ── Serialization after the nested-lock fix ──────────────────────────────────
+//
+// DoCollectExport used to hold m_collect_mu for the whole cycle, which nested
+// it over MetricProducer's lock and the exporter's lock — the thing
+// threading-model.md §4 marks LOCKED against. The mutex is now held only to
+// claim and release the cycle. These tests pin the property that made the
+// mutex worth having in the first place: one interval's deltas must never be
+// split across two overlapping exports.
+
+namespace
+{
+
+/// Producer that reports whether two collect+export cycles ever overlap.
+class OverlapDetectingProducer : public mti::IMetricProducer
+{
+public:
+    [[nodiscard]] std::vector<mti::MetricBatchHandle> Collect(
+        mti::AggregationTemporality /*temporality*/ =
+            mti::AggregationTemporality::Cumulative) override
+    {
+        if (m_inside.exchange(true, std::memory_order_acq_rel))
+        {
+            m_overlapped.store(true, std::memory_order_relaxed);
+        }
+        // Widen the window so an unserialized caller reliably collides.
+        std::this_thread::sleep_for(2ms);
+        m_inside.store(false, std::memory_order_release);
+        m_cycles.fetch_add(1, std::memory_order_relaxed);
+        return {};
+    }
+
+    [[nodiscard]] bool Overlapped() const noexcept
+    {
+        return m_overlapped.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] int Cycles() const noexcept
+    {
+        return m_cycles.load(std::memory_order_relaxed);
+    }
+
+private:
+    std::atomic<bool> m_inside{false};
+    std::atomic<bool> m_overlapped{false};
+    std::atomic<int> m_cycles{0};
+};
+
+constexpr int kOverlapThreads = 8;
+constexpr int kCallsPerThread = 10;
+
+void CollectRepeatedly(mts::PeriodicExportingMetricReader& reader)
+{
+    for (int i = 0; i < kCallsPerThread; ++i)
+    {
+        (void)reader.Collect(100ms);
+    }
+}
+
+}  // namespace
+
+TEST(PeriodicExportingMetricReaderTest, ConcurrentCollectsNeverOverlap)
+{
+    OverlapDetectingProducer producer;
+    FakeMetricExporter exporter;
+    // Long interval: the background thread must not contribute cycles, so any
+    // overlap is attributable to the concurrent callers below.
+    mts::PeriodicExportingMetricReader reader{producer, exporter, 1h};
+
+    std::vector<std::thread> threads;
+    threads.reserve(kOverlapThreads);
+    for (int i = 0; i < kOverlapThreads; ++i)
+    {
+        threads.emplace_back(CollectRepeatedly, std::ref(reader));
+    }
+    for (auto& t : threads)
+    {
+        t.join();
+    }
+
+    EXPECT_FALSE(producer.Overlapped()) << "two collect+export cycles ran concurrently";
+    EXPECT_EQ(producer.Cycles(), kOverlapThreads * kCallsPerThread);
+    ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
+}
+
+TEST(PeriodicExportingMetricReaderTest, CollectAndForceFlushDoNotOverlap)
+{
+    OverlapDetectingProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{producer, exporter, 1h};
+
+    std::thread collector(CollectRepeatedly, std::ref(reader));
+    for (int i = 0; i < kCallsPerThread; ++i)
+    {
+        (void)reader.ForceFlush(100ms);
+    }
+    collector.join();
+
+    EXPECT_FALSE(producer.Overlapped());
+    ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
 }

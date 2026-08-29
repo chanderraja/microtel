@@ -31,8 +31,13 @@ namespace microtel::sdk
 /// for it to exit, then delegates to the exporter's `Shutdown`.
 ///
 /// Concurrent calls to `Collect`, `ForceFlush`, and the background thread are
-/// serialized by `m_collect_mu` so neither the producer nor the exporter need
-/// to be independently thread-safe against concurrent calls from this reader.
+/// serialized so that one interval's deltas are never split across two
+/// exports. The serialization is a `m_collecting` flag guarded by
+/// `m_collect_mu` rather than the mutex being held for the whole cycle:
+/// `MetricProducer::Collect` and `IMetricExporter::Export` each take their own
+/// lock, so holding `m_collect_mu` across them nested two non-leaf locks —
+/// which `docs/threading-model.md` §4 marks LOCKED against. The flag gives the
+/// same mutual exclusion while `m_collect_mu` stays a leaf.
 ///
 /// @threadsafety Thread-safe.
 /// @noexcept All public methods; background thread entry point.
@@ -96,7 +101,11 @@ private:
     std::condition_variable m_cv;  // signalled on wake or shutdown
     bool m_wake{false};            // early-wakeup flag, guarded by m_mu
 
-    std::mutex m_collect_mu;  // serializes DoCollectExport across threads
+    // Serializes DoCollectExport across threads. Held only to claim or release
+    // the cycle — never across a call into the producer or the exporter.
+    std::mutex m_collect_mu;
+    std::condition_variable m_collect_cv;
+    bool m_collecting{false};  // guarded by m_collect_mu
 
     std::thread m_thread;  // started last; joined in Shutdown/dtor
 };

@@ -80,9 +80,53 @@ void PeriodicExportingMetricReader::RunLoop() noexcept
     }
 }
 
+namespace
+{
+
+/// @brief Holds the right to run one collect+export cycle.
+///
+/// Waits for any in-flight cycle, claims the slot, and releases it on scope
+/// exit — including the early `return`s below, which is why this is a guard
+/// rather than two bare flag assignments. `m_collect_mu` is only ever held
+/// inside this type's constructor and destructor, so it never overlaps the
+/// producer's or the exporter's locks.
+class CollectSlot
+{
+public:
+    CollectSlot(std::mutex& mu, std::condition_variable& cv, bool& busy) noexcept
+        : m_mu(mu), m_cv(cv), m_busy(busy)
+    {
+        std::unique_lock lk{m_mu};
+        m_cv.wait(lk, [this] { return !m_busy; });
+        m_busy = true;
+    }
+
+    ~CollectSlot() noexcept
+    {
+        {
+            const std::scoped_lock lk{m_mu};
+            m_busy = false;
+        }
+        m_cv.notify_one();
+    }
+
+    CollectSlot(const CollectSlot&) = delete;
+    CollectSlot& operator=(const CollectSlot&) = delete;
+    CollectSlot(CollectSlot&&) = delete;
+    CollectSlot& operator=(CollectSlot&&) = delete;
+
+private:
+    std::mutex& m_mu;
+    std::condition_variable& m_cv;
+    bool& m_busy;
+};
+
+}  // namespace
+
 microtel::Status PeriodicExportingMetricReader::DoCollectExport() noexcept
 {
-    const std::scoped_lock lk{m_collect_mu};
+    const CollectSlot slot{m_collect_mu, m_collect_cv, m_collecting};
+
     std::vector<internal::MetricBatchHandle> handles;
     try
     {

@@ -20,8 +20,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <mutex>
+#include <set>
+#include <span>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -353,4 +357,114 @@ TEST(Http2TransportSendIntegrationTest, Send_InsecureLoopback_Succeeds)
     EXPECT_TRUE(server.WaitForResponse(std::chrono::milliseconds(5000)));
     (void)t->Close(std::chrono::milliseconds(1000));
     server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent Send (ICP 0009)
+//
+// ICP 0009 proposed relaxing ITransport::Send from "single-caller — only the
+// exporter worker may call" to "safe for concurrent callers", so the M12
+// metrics pipeline could share one transport with traces. The relaxation
+// shipped — SdkBuilder builds three codecs over one transport, each driven by
+// its own exporter worker — but the ICP was never accepted, interfaces.md §4.1
+// went on marking the single-caller contract LOCKED, and the test 0009 asked
+// for was never written.
+//
+// This is that test. It is the thing that turns "mechanically MPSC-safe" from
+// an assertion into a checked property, and it is meaningful under TSAN
+// (-DMICROTEL_SANITIZER=tsan).
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr int kConcurrentSenders = 4;
+constexpr int kSendsPerSender = 5;
+
+/// One sender thread: issue kSendsPerSender requests, then await them.
+///
+/// The payload buffers must outlive the transport's use of them:
+/// `RequestSpec::payload` is a *borrowed* span (`memory-model.md` §3.3), and
+/// the I/O thread reads those bytes from `PayloadReadCb` until the stream
+/// completes. An earlier version of this test let each payload die at the end
+/// of its loop iteration, and TSAN caught the use-after-free immediately —
+/// a write in `operator delete` here against a read in `PayloadReadCb` there.
+/// Keeping them in a vector that outlives the awaits is the fix.
+void SendRepeatedly(mtt::Http2Transport& transport,
+                    std::vector<std::uint64_t>& out_ids,
+                    std::mutex& out_mu)
+{
+    std::vector<std::vector<std::byte>> payloads;
+    std::vector<mti::RequestHandle> handles;
+    payloads.reserve(kSendsPerSender);
+    handles.reserve(kSendsPerSender);
+
+    for (int i = 0; i < kSendsPerSender; ++i)
+    {
+        payloads.emplace_back(16, std::byte{0x5A});
+        mti::RequestSpec spec{
+            .headers = {{.name = ":method", .value = "POST"},
+                        {.name = ":scheme", .value = "http"},
+                        {.name = ":path", .value = "/v1/traces"},
+                        {.name = "content-type", .value = "application/x-protobuf"}},
+            .payload = std::span<const std::byte>{payloads.back().data(), payloads.back().size()},
+            .deadline = std::chrono::milliseconds(3000),
+        };
+        handles.push_back(transport.Send(std::move(spec)));
+    }
+
+    // Await before `payloads` goes out of scope.
+    for (auto& h : handles)
+    {
+        (void)h.Future().wait_for(std::chrono::seconds(3));
+        const std::scoped_lock lk{out_mu};
+        out_ids.push_back(h.Id());
+    }
+}
+
+}  // namespace
+
+TEST(Http2TransportIntegrationTest, ConcurrentSendFromMultipleThreads)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start();
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+    ASSERT_TRUE(t->Connect(opts).has_value());
+
+    // Four threads submitting concurrently — the shape SdkBuilder produces with
+    // three exporter workers, plus margin.
+    std::vector<std::uint64_t> ids_seen;
+    std::mutex ids_mu;
+    std::vector<std::thread> senders;
+    senders.reserve(kConcurrentSenders);
+    for (int i = 0; i < kConcurrentSenders; ++i)
+    {
+        senders.emplace_back(SendRepeatedly, std::ref(*t), std::ref(ids_seen), std::ref(ids_mu));
+    }
+    for (auto& s : senders)
+    {
+        s.join();
+    }
+
+    EXPECT_EQ(ids_seen.size(), static_cast<std::size_t>(kConcurrentSenders * kSendsPerSender));
+
+    // Every submission must have been allocated a distinct handle id. A torn
+    // read or a lost update on m_next_handle_id would collide here, and a
+    // collision would route a response to the wrong waiter.
+    const std::set<std::uint64_t> unique_ids{ids_seen.begin(), ids_seen.end()};
+    EXPECT_EQ(unique_ids.size(), ids_seen.size())
+        << "handle ids collided across concurrent Send calls";
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
 }

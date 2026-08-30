@@ -130,7 +130,11 @@ public:
         const ConnectOptions& opts) = 0;
 
     /// @brief Submit a request. Returns immediately with a handle.
-    /// @threadsafety Single-threaded; only the exporter worker may call.
+    /// @threadsafety Thread-safe for submission — any number of caller threads
+    ///               may call `Send` concurrently; the transport serialises
+    ///               submissions onto its single I/O thread. Each caller still
+    ///               owns its own `IWireCodec`; codecs and `IOtlpEncoder`
+    ///               remain single-caller. (ICP 0009.)
     [[nodiscard]] virtual RequestHandle Send(RequestSpec spec) noexcept = 0;
 
     /// @brief Cancel an in-flight request.

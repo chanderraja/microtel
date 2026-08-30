@@ -121,16 +121,29 @@ The exact data-structure choice (lock-free atomic ring vs. mutex-protected ring 
 
 ### 3.2 Exporter worker → I/O thread — the transport request queue
 
-**Producer:** the exporter worker, when it calls `IWireCodec::Send` and the codec hands a request to the transport.
+**Producers:** the exporter workers — **three of them** since M12/M14 (traces,
+metrics, logs), each driving its own `IWireCodec` over the one shared
+transport.
 **Consumer:** the I/O thread, in its reactor loop.
 
-**Shape.** SPSC (single-producer, single-consumer) bounded queue. Capacity is small — the spec allows at most a few outstanding batches (`microtel-spec.md` §5.2 — one HTTP/2 connection per endpoint, multiplexed; outstanding batches are bounded by the codec's own configuration).
+**Shape.** MPSC (multi-producer, single-consumer), per ICP 0009. This section
+said SPSC until that ICP was applied; it had been wrong since M12, when the
+metrics pipeline began sharing the transport with traces.
 
-**Producer-side contract.** The exporter worker calls into the transport synchronously; the transport acquires the request-queue lock, pushes a request descriptor (carrying a borrowed `std::span<const std::byte>` over the `EncodedPayload` bytes — see `memory-model.md` §3.3), wakes the I/O thread via eventfd, releases the lock, returns to the worker. The worker then awaits a completion (described in §3.3 below).
+**Unbounded.** `Send` performs no capacity check and `m_pending_queue` is a
+plain `std::vector`. This section previously described a bounded queue with
+`transport_busy` backpressure — see the Backpressure note below.
+
+**Producer-side contract.** An exporter worker calls into the transport synchronously; the transport acquires the request-queue lock (`m_pending_mu`), pushes a request descriptor (carrying a borrowed `std::span<const std::byte>` over the `EncodedPayload` bytes — see `memory-model.md` §3.3), wakes the I/O thread via eventfd, releases the lock, returns to the worker. The worker then awaits a completion (described in §3.3 below).
 
 **Consumer-side contract.** The I/O thread's reactor wakes on the eventfd, drains pending requests under the same lock, attaches each to a new nghttp2 stream, and returns to its reactor sleep until socket activity or another wake.
 
-**Backpressure.** If the request queue is full (very rare in v1 because outstanding batches are tightly bounded), the transport returns a `WireCodec`-visible failure with reason `transport_busy`. The codec surfaces this as a `WireResult` with `retryable=true` and a small backoff. The I/O thread does not exert backpressure on the worker beyond this.
+**Backpressure — not implemented.** This section described the transport
+returning a `transport_busy` failure when the request queue is full. There is
+no such path: `Send` never checks capacity, and `DropReason::TransportBusy` is
+declared and never incremented (one of the dead counters catalogued in #134).
+Bounding this queue is unresolved work, not a shipped behaviour, and is
+recorded as such rather than left as a promise.
 
 ### 3.3 I/O thread → exporter worker — request completion
 
@@ -163,6 +176,12 @@ Locks in v1, from leaf to root in the partial order:
 
 1. **`m_diag` is a leaf** — no lock from this table is acquired while `m_diag` is held. Diagnostic counters are designed so the increment path is short and self-contained. Where a counter increment can be done with `std::atomic<uint64_t>::fetch_add`, no lock is taken at all.
 2. **A thread holds at most one of `{m_queue, m_transport_request}` at a time.** The queue lock is dropped before the transport lock is acquired, and vice versa.
+
+   Per ICP 0009, the transport's request lock (`m_pending_mu` in the code — the
+   table's `m_transport_request` is one of several names in this table that do
+   not match the source; see #134) is a **leaf** that *any* submitting thread
+   may take. No caller holds another non-leaf lock while calling `Send`: the
+   exporter drains its own queue to empty and releases before submitting.
 3. **`m_completion` is acquired *after* `m_transport_request`** when the transport pushes a new request, *or* without `m_transport_request` when the I/O thread completes a request (it locates the completion record by request ID, which is itself stored under `m_transport_request`, but releases that lock before acquiring the per-request `m_completion`).
 4. **`m_shutdown` is acquired only at state transitions** (start of `Shutdown`, observation of shutdown by worker / I/O thread). It is never held while `m_queue`, `m_transport_request`, or `m_completion` is held.
 

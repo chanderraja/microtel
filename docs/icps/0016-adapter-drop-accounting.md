@@ -1,6 +1,6 @@
 # ICP 0016: Drop accounting for adapter-level omissions
 
-**Status:** Draft
+**Status:** Accepted — signed off 2026-08-30; shim-local design implemented in #127.
 **Affected interfaces / docs:** none — no locked microtel interface is
 touched. New shim-local header, documented in
 `src/adapters/otelcpp/README.md`.

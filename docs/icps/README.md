@@ -22,7 +22,7 @@ headers.
 | [0006](0006-bench-drop-counter-naming.md) | Bench drop-counter naming | Accepted | — |
 | [0007](0007-wire-codec-send-all.md) | `IWireCodec::SendAll` | Accepted | — |
 | [0008](0008-metric-drop-reasons.md) | Metric `DropReason` values | Accepted | #75 |
-| [0009](0009-transport-concurrent-send.md) | `ITransport::Send` safe for concurrent callers | **Draft — but shipped** ⚠️ | see note |
+| [0009](0009-transport-concurrent-send.md) | `ITransport::Send` safe for concurrent callers | Accepted (retroactively) | M12; docs + test in #156 |
 | [0010](0010-milestone-renumber-views.md) | Milestone renumber (Views → M13) | Accepted | — |
 | [0011](0011-log-attribute-limit-drop-reason.md) | `LogAttributeLimit` drop reason | Accepted | — |
 | [0012](0012-provider-get-logger.md) | `Provider::GetLogger` | Accepted | — |
@@ -41,32 +41,22 @@ the milestone that motivated them. Grepping for the ICP number finds passing
 mentions as often as implementations, so the column is deliberately sparse
 rather than speculatively filled.
 
-### ⚠️ ICP 0009 is Draft, and the code shipped it anyway
+### ICP 0009 — resolved, and worth remembering
 
-0009 proposed relaxing `ITransport::Send` from "single-caller — only the
-exporter worker may call" to "safe for concurrent callers", so the M12 metrics
-pipeline could share one transport. **It was never accepted and its changes
-were never applied**, yet the behaviour it proposed is what ships:
+0009 proposed relaxing `ITransport::Send` from "single-caller" to "safe for
+concurrent callers", so the M12 metrics pipeline could share one transport.
+**The relaxation shipped and the ICP did not**: `SdkBuilder::Build` has built
+three codecs over one transport since M12, each driven by its own exporter
+worker, while `interfaces.md` §4.1 went on stating — LOCKED — that concurrent
+`Send` was a contract violation. The TSAN test 0009 specified was never
+written.
 
-- `SdkBuilder::Build` constructs **three** codecs over one transport
-  (trace, metric, log), each driven by its own exporter worker thread — so
-  `Send` is called concurrently from three threads.
-- `docs/interfaces.md` §4.1 still states the opposite, and marks it **LOCKED**:
-  *"`Send` is **single-threaded** — only the exporter worker calls it (LOCKED).
-  Concurrent `Send` calls are a contract violation."*
-- The TSAN test 0009 asked for (two threads issuing `Send` concurrently) does
-  not exist.
+Nothing ever raced; the implementation was mechanically safe exactly as 0009
+argued. But the contract asserted the opposite of the code for four
+milestones, and the evidence for the safety claim did not exist until #156.
 
-The implementation is *mechanically* safe — `m_pending_queue` is guarded by
-`m_pending_mu` and handle ids are atomic, which 0009 itself noted — so this is
-a documentation and validation gap rather than a live race. But it is the
-clearest instance of the pattern issue #134 is about: a LOCKED contract
-asserting the opposite of what the code does, with the ICP that would have
-made it legal sitting unaccepted.
-
-Resolving it means accepting 0009 (retroactively, recording that M12 shipped
-it), applying its documentation changes, and writing the concurrent-`Send`
-TSAN test. Tracked in #134.
+Kept here as the worked example of what issue #134 is about: the gap is not
+that a document drifted, it is that nothing ever checked one against the other.
 
 ## When an ICP is required
 

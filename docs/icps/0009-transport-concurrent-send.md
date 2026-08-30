@@ -1,6 +1,12 @@
 # ICP 0009 — `ITransport::Send` is safe for concurrent callers
 
-**Status:** Draft
+**Status:** Accepted — signed off 2026-08-30, **retroactively**. The relaxation
+this ICP proposed shipped with M12: `SdkBuilder::Build` has built three codecs
+over one transport since then, each driven by its own exporter worker, so
+`Send` has had concurrent callers in every build. The ICP was never accepted
+and its changes were never applied, leaving `interfaces.md` §4.1 asserting the
+opposite — LOCKED — for the whole period. Documentation applied and the
+concurrent-`Send` TSAN test written in the PR that carries this line.
 **Author:** Chander Raja
 **Affected interfaces / docs:** `include/microtel/internal/transport.hpp`
 (`ITransport::Send` threading contract); `docs/threading-model.md` §2.2 / §3.2
@@ -71,3 +77,20 @@ contract, rather than relying on incidental thread-safety.
 
 The I/O thread remains the single consumer either way; this ICP only widens the
 *producer* side, which the implementation already supports.
+
+## Postscript — what the delay cost
+
+Nothing raced. The implementation was mechanically MPSC-safe exactly as this
+ICP argued: `m_pending_queue` under `m_pending_mu`, handle ids allocated with
+an atomic `fetch_add`. What was missing was the *evidence*, and the contract
+said the opposite of the code for four milestones.
+
+The TSAN test this ICP asked for and that was never written earned its keep on
+the first run — not by finding a transport bug, but by catching a
+use-after-free in the test itself: `RequestSpec::payload` is a borrowed span
+(`memory-model.md` §3.3), and the first draft let each payload buffer die at
+the end of its loop iteration while `PayloadReadCb` was still reading it. That
+is the contract this interface actually imposes on callers, and it took writing
+a concurrent test to exercise it.
+
+Found and resolved via the ICP index (`docs/icps/README.md`) and issue #134.

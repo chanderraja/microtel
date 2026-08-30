@@ -230,7 +230,9 @@ Created by the `Provider` at `Build()` time. Owned by the `Provider`. Destroyed 
   `Disconnected → Connecting` compare-and-swap guard ensures exactly one
   caller performs the handshake; the rest receive an "already connecting"
   error, surfaced like any other retryable transport failure.
-- `Send` is **single-threaded** — only the exporter worker calls it (LOCKED). Concurrent `Send` calls are a contract violation.
+- `Send` is **safe for concurrent callers** (LOCKED, relaxed by ICP 0009). Any number of threads may call it; the transport serialises submissions onto its single I/O thread via `m_pending_queue` under `m_pending_mu`, with atomically-allocated handle ids. Each caller still owns its own `IWireCodec` — codecs and `IOtlpEncoder` remain single-caller.
+
+  This line previously read *"single-threaded — only the exporter worker calls it (LOCKED). Concurrent `Send` calls are a contract violation."* That was false from M12 onward: `SdkBuilder::Build` constructs three codecs over one transport (traces, metrics, logs), each driven by its own exporter worker, so `Send` has had three concurrent callers in every build since. ICP 0009 proposed this relaxation for exactly that reason and was never applied, leaving the contract asserting the opposite of what shipped. See `docs/icps/README.md`.
 - `Cancel` is callable from any thread but in practice from the exporter worker and from a shutdown-driving caller thread.
 - `GetState` is thread-safe.
 

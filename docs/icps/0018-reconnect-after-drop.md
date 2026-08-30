@@ -1,9 +1,13 @@
 # ICP 0018: Reconnect after a mid-connection transport drop
 
-**Status:** Draft — items 1 and 2 implemented in #151; §3 and open question 1 still open
+**Status:** Accepted — signed off 2026-08-30. Items 1 and 2 implemented in
+#151; §3 (`ConnectionState::Reconnecting`) implemented in #153; review applied
+in #152.
 **Affected interfaces / docs:** [`docs/interfaces.md`](../interfaces.md) §4.1
-(`ITransport` — the "Reconnect is internal" invariant, currently unimplemented);
-`include/microtel/provider.hpp` (`ConnectionState::Reconnecting`, dead since M0);
+(`ITransport` — the "Reconnect is internal" invariant, unimplemented when this
+ICP was written, sharpened and made true in #153);
+`include/microtel/provider.hpp` (`ConnectionState::Reconnecting` — declared and
+never emitted from M0 until #153);
 [`docs/threading-model.md`](../threading-model.md) §3.3.
 **Affected tracks:** Track D (`src/transport/`), Track B/C (wire codecs).
 

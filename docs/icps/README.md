@@ -29,9 +29,9 @@ headers.
 | [0013](0013-rescope-defer-python-bindings.md) | Defer Python bindings to M18 | Accepted | #107 |
 | [0014](0014-otelcpp-shim-and-rule-13.md) | otel-cpp shim, source-only, rule 13 | Accepted | #107 |
 | [0015](0015-unrepresentable-attribute-policy.md) | Unrepresentable attribute values | Accepted | #110 |
-| [0016](0016-adapter-drop-accounting.md) | Adapter drop accounting (shim-local) | Draft — implemented | #127 |
+| [0016](0016-adapter-drop-accounting.md) | Adapter drop accounting (shim-local) | Accepted | #127 |
 | [0017](0017-lazy-transport-connect.md) | Lazy transport connect | Accepted | #129 |
-| [0018](0018-reconnect-after-drop.md) | Reconnect after a mid-connection drop | Draft — partly implemented | #151, #153 |
+| [0018](0018-reconnect-after-drop.md) | Reconnect after a mid-connection drop | Accepted | #151, #153 |
 | [0019](0019-connect-on-the-io-thread.md) | Perform `Connect` on the I/O thread | Draft | — |
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.

@@ -30,6 +30,10 @@ struct HttpWireCodecConfig
     /// suffix. Use `/v1/metrics` to point this codec at the metrics endpoint.
     std::string signal_path;
     std::vector<internal::HeaderField> extra_headers;  ///< forwarded verbatim
+    /// @brief When true, request bodies are gzip-compressed and
+    /// `content-encoding: gzip` is set. Responses are unaffected: no
+    /// `accept-encoding` is advertised, so servers return identity.
+    bool compression_gzip{false};
 };
 
 /// @brief OTLP/HTTP-protobuf implementation of `IWireCodec`.
@@ -81,11 +85,42 @@ private:
     {
         internal::EncodedPayload payload;
         internal::RequestHandle handle;
+        /// @brief Compressed body, when `compression_gzip` is on. Empty
+        /// otherwise. Held here for the same reason as `payload`: the spec's
+        /// span borrows it until the stream closes.
+        std::vector<std::byte> compressed;
+        /// @brief Index into the caller's `payloads`, so `SendAll` can return
+        /// results in the caller's order even when an entry never went out.
+        std::size_t index{0};
     };
 
+    /// @brief What actually goes on the wire, and whether it ended up gzipped.
+    struct Body
+    {
+        std::span<const std::byte> bytes;
+        /// @brief True only if `bytes` really is a gzip stream. Drives the
+        /// `content-encoding` header, so it must never be inferred from
+        /// config: the two disagree whenever compression was attempted and
+        /// failed.
+        bool compressed;
+    };
+
+    /// @brief Gzip-compresses @p raw into @p storage when `compression_gzip`
+    ///        is set; otherwise a no-op.
+    /// @param raw the uncompressed body.
+    /// @param storage buffer that owns the compressed bytes on return. Must
+    ///        outlive the request: the returned span borrows from it.
+    /// @return the bytes to send. Cannot fail: if `deflate` fails — which in
+    ///         practice means allocation failure — the payload is sent
+    ///         uncompressed rather than dropped. Losing telemetry is a worse
+    ///         outcome than ignoring a compression preference, and every OTLP
+    ///         server accepts an identity-encoded body.
+    [[nodiscard]] Body PrepareBody(std::span<const std::byte> raw,
+                                   std::vector<std::byte>& storage) const noexcept;
+
     [[nodiscard]] std::string ResolvePath() const noexcept;
-    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(
-        std::size_t content_length) const noexcept;
+    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(std::size_t content_length,
+                                                                  bool compressed) const noexcept;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
     [[nodiscard]] static std::string BuildExcerpt(const std::vector<std::byte>& body);
     [[nodiscard]] internal::WireResult CollectOneResult(

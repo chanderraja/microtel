@@ -14,6 +14,7 @@
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_steady_clock.hpp"
 #include "fakes/fake_transport.hpp"
+#include "helpers/gunzip.hpp"
 
 #include <gtest/gtest.h>
 
@@ -21,6 +22,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace mt = microtel;
 namespace mti = microtel::internal;
@@ -575,4 +577,93 @@ TEST(HttpWireCodecTest, SendAll_WhenDisconnectedAndConnectFails_EveryPayloadMark
     }
     EXPECT_EQ(transport.connect_calls.size(), 1U);
     EXPECT_EQ(transport.sent_specs.size(), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Request compression (grpc-wire-protocol.md §5.1; configuration.md
+// `exporter.compression`)
+// ---------------------------------------------------------------------------
+
+static mti::EncodedPayload MakePayloadFrom(const std::string& s)
+{
+    auto buf = std::make_unique<std::byte[]>(s.size());
+    for (std::size_t i = 0; i < s.size(); ++i)
+    {
+        buf[i] = static_cast<std::byte>(s[i]);
+    }
+    return mti::EncodedPayload{std::move(buf), s.size()};
+}
+
+TEST(HttpWireCodecTest, Send_CompressionOff_OmitsContentEncoding)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayloadFrom("hello"), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "content-encoding"), "");
+    // Body goes out verbatim.
+    ASSERT_EQ(transport.sent_payloads[0].size(), 5U);
+}
+
+TEST(HttpWireCodecTest, Send_CompressionOn_SetsContentEncodingAndCompressesBody)
+{
+    const std::string body(2048, 'x');
+
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.compression_gzip = true;
+    mtw::HttpWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakePayloadFrom(body), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "content-encoding"), "gzip");
+
+    const auto& sent = transport.sent_payloads[0];
+    EXPECT_LT(sent.size(), body.size());
+
+    const auto restored = mtfk::GunzipToString(sent);
+    ASSERT_TRUE(restored.has_value());
+    EXPECT_EQ(restored.value_or(""), body);
+}
+
+TEST(HttpWireCodecTest, Send_CompressionOn_ContentLengthMatchesCompressedSize)
+{
+    // content-length describing the uncompressed size is the classic mistake
+    // here: the server reads the wrong number of bytes and the stream hangs.
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.compression_gzip = true;
+    mtw::HttpWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakePayloadFrom(std::string(2048, 'y')), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    const auto declared = FindHeader(transport.sent_specs[0].headers, "content-length");
+    EXPECT_EQ(declared, std::to_string(transport.sent_payloads[0].size()));
+}
+
+TEST(HttpWireCodecTest, SendAll_CompressionOn_CompressesEveryPayloadInOrder)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.compression_gzip = true;
+    mtw::HttpWireCodec codec{&transport, cfg};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayloadFrom("first"));
+    payloads.push_back(MakePayloadFrom("second"));
+
+    const auto results = codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(results.size(), 2U);
+    ASSERT_EQ(transport.sent_payloads.size(), 2U);
+    EXPECT_EQ(mtfk::GunzipToString(transport.sent_payloads[0]).value_or(""), "first");
+    EXPECT_EQ(mtfk::GunzipToString(transport.sent_payloads[1]).value_or(""), "second");
 }

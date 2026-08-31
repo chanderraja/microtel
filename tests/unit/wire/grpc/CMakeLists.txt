@@ -6,7 +6,7 @@
 microtel_add_test(
     NAME    grpc_wire_codec_test
     SOURCES grpc_wire_codec_test.cpp
-    LIBS    microtel_grpc_wire)
+    LIBS    microtel_grpc_wire ZLIB::ZLIB)
 
 target_include_directories(grpc_wire_codec_test
     PRIVATE

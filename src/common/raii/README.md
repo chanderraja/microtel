@@ -27,6 +27,7 @@ The wrappers required by `microtel-spec.md` §14.3 and listed in
 | `SslCtx` | `SSL_CTX*` | `SSL_CTX_free` |
 | `SslSession` | `SSL*` | `SSL_free` (with clean shutdown if reachable) |
 | `Nghttp2Session` | `nghttp2_session*` | `nghttp2_session_del` |
+| `DeflateStream` | initialised `z_stream` | `deflateEnd` |
 
 The `UpbArena` wrapper lives in [`src/wire/encoder/`](../../wire/encoder/),
 not here, because it must not escape that directory (LOCKED —

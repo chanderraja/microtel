@@ -41,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 clang-tidy-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
           sudo update-alternatives --install /usr/bin/clang-tidy \
             clang-tidy /usr/bin/clang-tidy-18 100
       # Every optional tree is enabled here so its TUs land in
@@ -96,7 +96,7 @@ jobs:
           else
             sudo apt-get install -y clang-18
           fi
-          sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev
+          sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev
 
       - name: Configure
         run: |
@@ -128,7 +128,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
       - name: Configure
         env:
           CC:  clang-18
@@ -201,7 +201,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
       # Tests off: the gate asserts the closure of what actually ships, so it
       # must not see gtest/gmock or any other test-only input.
       - name: Configure (shipped configuration)
@@ -223,7 +223,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
       # libFuzzer is clang-only, hence plain `clang` rather than the clang-18
       # used elsewhere: -fsanitize=fuzzer must match the driver that links it.
       # Tests off — the harnesses are the only targets this job needs.
@@ -251,7 +251,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
       # Opt-in build (M17, ICP 0014). Fetches only opentelemetry-cpp's
       # header-only API; its SDK and exporters are never configured.
       - name: Configure with the shim enabled
@@ -281,7 +281,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y g++-13 cmake ninja-build lcov \
-            libssl-dev libnghttp2-dev
+            libssl-dev libnghttp2-dev zlib1g-dev
       - name: Run coverage script
         env:
           CC:  gcc-13

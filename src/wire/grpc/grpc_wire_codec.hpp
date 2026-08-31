@@ -27,6 +27,10 @@ struct GrpcWireCodecConfig
     /// `:path` pseudo-header instead of the default trace service path.
     /// Use the metrics service path to point this codec at the metrics endpoint.
     std::string service_path;
+    /// @brief When true, the request message is gzip-compressed, the frame's
+    /// compression flag is `0x01`, and `grpc-encoding: gzip` is set. No
+    /// `grpc-accept-encoding` is advertised, so responses stay uncompressed.
+    bool compression_gzip{false};
 };
 
 /// @brief OTLP/gRPC implementation of `IWireCodec` — no gRPC library.
@@ -77,7 +81,7 @@ public:
                                             std::chrono::milliseconds deadline) override;
 
 private:
-    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders() const;
+    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(bool compressed) const;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
     /// @brief Connects `m_transport` if it isn't already (ICP 0017).
     /// @return `nullopt` when the transport is connected (already, or newly);

@@ -268,6 +268,13 @@ Advertised via `grpc-accept-encoding: gzip`. If the server returns `grpc-encodin
 
 Mixed messages (some compressed, some not) are permitted by gRPC but unused for OTLP unary; the codec handles the per-message flag correctly anyway.
 
+**Implementation status (not implemented).** This section describes intent, not
+the shipped codec. `GrpcWireCodec` does **not** send `grpc-accept-encoding`, and
+`ClassifyResponse` never inspects the response frame's compression flag. The two
+facts are deliberately paired: advertising the capability without implementing
+the decompression would invite a response the parser reads as garbage. Request
+compression (§5.1) ships independently and is unaffected. Tracked by issue #161.
+
 ### 5.3 Distinct from HTTP `Content-Encoding`
 
 `grpc-encoding` is per-message and lives at the gRPC layer. HTTP `Content-Encoding` is per-stream and would be applied by HTTP/2 transport layer. **microtel never sets HTTP `Content-Encoding` for gRPC requests** (LOCKED — gRPC compression is gRPC-layer).

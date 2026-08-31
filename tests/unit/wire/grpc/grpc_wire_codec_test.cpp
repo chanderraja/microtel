@@ -12,6 +12,7 @@
 #include "microtel/internal/wire_result.hpp"
 
 #include "fakes/fake_transport.hpp"
+#include "helpers/gunzip.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -718,4 +720,83 @@ TEST(GrpcWireCodecTest, Send_PromiseNeverFulfilled_TimesOutInsteadOfHanging)
     // Returned near the deadline rather than blocking indefinitely.
     EXPECT_LT(elapsed, std::chrono::seconds(5));
     EXPECT_EQ(transport.cancel_call_count, 1) << "the abandoned request must be cancelled";
+}
+
+// ---------------------------------------------------------------------------
+// Request compression (grpc-wire-protocol.md §2.2 and §5.1)
+// ---------------------------------------------------------------------------
+
+static mti::EncodedPayload MakeGrpcPayloadFrom(const std::string& s)
+{
+    auto buf = std::make_unique<std::byte[]>(s.size());
+    for (std::size_t i = 0; i < s.size(); ++i)
+    {
+        buf[i] = static_cast<std::byte>(s[i]);
+    }
+    return mti::EncodedPayload{std::move(buf), s.size()};
+}
+
+/// Decodes the big-endian uint32 message length from a gRPC frame prefix.
+static std::uint32_t FrameLength(const std::vector<std::byte>& framed)
+{
+    return (static_cast<std::uint32_t>(framed[1]) << 24U) |
+           (static_cast<std::uint32_t>(framed[2]) << 16U) |
+           (static_cast<std::uint32_t>(framed[3]) << 8U) | static_cast<std::uint32_t>(framed[4]);
+}
+
+TEST(GrpcWireCodecTest, Send_CompressionOff_UsesUncompressedFlag)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakeGrpcPayloadFrom("hello"), std::chrono::milliseconds(500));
+
+    ASSERT_EQ(transport.sent_payloads.size(), 1U);
+    const auto& framed = transport.sent_payloads[0];
+    ASSERT_EQ(framed.size(), 5U + 5U);
+    EXPECT_EQ(framed[0], std::byte{0x00});
+    EXPECT_EQ(FrameLength(framed), 5U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "grpc-encoding"), "");
+}
+
+TEST(GrpcWireCodecTest, Send_CompressionOn_SetsGrpcEncodingHeader)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodecConfig cfg = MakeConfig();
+    cfg.compression_gzip = true;
+    mtw::GrpcWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakeGrpcPayloadFrom("hello"), std::chrono::milliseconds(500));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "grpc-encoding"), "gzip");
+}
+
+TEST(GrpcWireCodecTest, Send_CompressionOn_SetsCompressedFlagAndCompressedLength)
+{
+    const std::string body(2048, 'z');
+
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodecConfig cfg = MakeConfig();
+    cfg.compression_gzip = true;
+    mtw::GrpcWireCodec codec{&transport, cfg};
+
+    (void)codec.Send(MakeGrpcPayloadFrom(body), std::chrono::milliseconds(500));
+
+    ASSERT_EQ(transport.sent_payloads.size(), 1U);
+    const auto& framed = transport.sent_payloads[0];
+    ASSERT_GT(framed.size(), 5U);
+
+    // §2.2: the prefix is computed from the compressed bytes, not the input.
+    EXPECT_EQ(framed[0], std::byte{0x01});
+    EXPECT_EQ(FrameLength(framed), framed.size() - 5U);
+    EXPECT_LT(framed.size(), body.size());
+
+    const std::span<const std::byte> message{framed.data() + 5, framed.size() - 5};
+    const auto restored = mtfk::GunzipToString(message);
+    ASSERT_TRUE(restored.has_value());
+    EXPECT_EQ(restored.value_or(""), body);
 }

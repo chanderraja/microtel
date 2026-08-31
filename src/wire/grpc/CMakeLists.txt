@@ -5,7 +5,7 @@
 
 add_library(microtel_grpc_wire STATIC grpc_wire_codec.cpp)
 
-target_link_libraries(microtel_grpc_wire PUBLIC microtel_headers microtel_otlp_response)
+target_link_libraries(microtel_grpc_wire PUBLIC microtel_headers microtel_otlp_response microtel_gzip)
 
 target_include_directories(microtel_grpc_wire PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

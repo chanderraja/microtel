@@ -33,6 +33,8 @@ headers.
 | [0017](0017-lazy-transport-connect.md) | Lazy transport connect | Accepted | #129 |
 | [0018](0018-reconnect-after-drop.md) | Reconnect after a mid-connection drop | Accepted | #151, #153 |
 | [0019](0019-connect-on-the-io-thread.md) | Perform `Connect` on the I/O thread | Draft | — |
+| [0020](0020-install-and-package-config.md) | `install()` rules and the exported target set | Accepted | — (M9/M10) |
+| [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | — (scheduled) |
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.
 A dash means the link was not determinable from commit messages, **not** that

@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <limits>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -105,4 +107,46 @@ TEST(GzipTest, RoundTripsBinaryDataIncludingNulls)
     const auto restored = mtfk::Gunzip(*compressed);
     ASSERT_TRUE(restored.has_value());
     EXPECT_EQ(restored.value_or(NoValue()), input);
+}
+
+TEST(GzipTest, HandlesIncompressibleInputThatExpands)
+{
+    // gzip has a fixed header and trailer, so a short high-entropy payload
+    // comes out LARGER than it went in. The output buffer is sized from
+    // deflateBound rather than the input length precisely so this is not an
+    // overrun; a bound taken from the input would corrupt memory here.
+    // A fixed seed is deliberate: this asserts an exact size relationship, so
+    // a run-to-run varying input would make the test flaky rather than strong.
+    // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
+    std::mt19937 rng{42};
+    for (const std::size_t n : {std::size_t{1}, std::size_t{8}, std::size_t{40}})
+    {
+        std::vector<std::byte> input;
+        input.reserve(n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            input.push_back(static_cast<std::byte>(rng() & 0xFFU));
+        }
+
+        const auto compressed = mtw::GzipCompress(input);
+        ASSERT_TRUE(compressed.has_value()) << "n=" << n;
+        EXPECT_GT(compressed->size(), n) << "expected expansion at n=" << n;
+
+        const auto restored = mtfk::Gunzip(*compressed);
+        ASSERT_TRUE(restored.has_value()) << "n=" << n;
+        EXPECT_EQ(restored.value_or(NoValue()), input) << "n=" << n;
+    }
+}
+
+TEST(GzipTest, RejectsInputLargerThanOneDeflatePass)
+{
+    // A single deflate pass takes its lengths as uInt. GzipCompress checks the
+    // size before touching the bytes, so a span that merely *claims* to be
+    // oversized exercises the guard without any memory being read.
+    const std::byte probe{0x00};
+    const std::span<const std::byte> oversized{
+        &probe, static_cast<std::size_t>(std::numeric_limits<uInt>::max()) + 1U};
+
+    const auto result = mtw::GzipCompress(oversized);
+    EXPECT_FALSE(result.has_value());
 }

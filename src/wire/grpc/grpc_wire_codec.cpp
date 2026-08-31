@@ -683,7 +683,7 @@ GrpcWireCodec::GrpcWireCodec(internal::ITransport* transport,
 {
 }
 
-std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders() const
+std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders(bool compressed) const
 {
     std::vector<internal::HeaderField> headers;
     headers.push_back({.name = ":method", .value = "POST"});
@@ -695,7 +695,7 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders() const
     headers.push_back({.name = "te", .value = "trailers"});
     headers.push_back({.name = "content-type", .value = "application/grpc+proto"});
     headers.push_back({.name = "user-agent", .value = "microtel-cpp/0.1.0"});
-    if (m_config.compression_gzip)
+    if (compressed)
     {
         headers.push_back({.name = "grpc-encoding", .value = "gzip"});
     }
@@ -758,25 +758,24 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     const internal::EncodedPayload owned = std::move(payload);
     std::vector<std::byte> compressed;
     std::span<const std::byte> body = owned.Bytes();
+    bool did_compress = false;
     if (m_config.compression_gzip)
     {
+        // On failure fall back to the uncompressed body rather than dropping
+        // the batch. gRPC's compression flag is per-message, so an
+        // uncompressed message is legal even with `grpc-encoding` negotiated
+        // — but only if the flag and the header agree with what was actually
+        // done, which is why `did_compress` drives both below.
         auto result = GzipCompress(body);
-        if (!result)
+        if (result)
         {
-            return internal::WireResult{
-                .success = false,
-                .retryable = false,
-                .retry_after = {},
-                .partial_success_rejected = 0,
-                .error = result.error(),
-                .response_excerpt = {},
-            };
+            compressed = std::move(*result);
+            body = compressed;
+            did_compress = true;
         }
-        compressed = std::move(*result);
-        body = compressed;
     }
-    const auto framed = FramePayload(body, m_config.compression_gzip);
-    auto headers = BuildHeaders();
+    const auto framed = FramePayload(body, did_compress);
+    auto headers = BuildHeaders(did_compress);
     AppendAuthHeader(headers);
     internal::RequestSpec spec{
         .headers = std::move(headers),

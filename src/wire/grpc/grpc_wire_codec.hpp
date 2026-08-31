@@ -81,7 +81,7 @@ public:
                                             std::chrono::milliseconds deadline) override;
 
 private:
-    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders() const;
+    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(bool compressed) const;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
     /// @brief Connects `m_transport` if it isn't already (ICP 0017).
     /// @return `nullopt` when the transport is connected (already, or newly);

@@ -151,8 +151,8 @@ std::string HttpWireCodec::ResolvePath() const noexcept
     return m_config.path + std::string{kV1TracesPath};
 }
 
-std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(
-    std::size_t content_length) const noexcept
+std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(std::size_t content_length,
+                                                               bool compressed) const noexcept
 {
     std::vector<internal::HeaderField> headers;
     headers.reserve(kBuiltInHeaderCount + m_config.extra_headers.size());
@@ -163,7 +163,7 @@ std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(
     headers.push_back({.name = ":authority", .value = m_config.host});
     headers.push_back({.name = "content-type", .value = "application/x-protobuf"});
     headers.push_back({.name = "content-length", .value = std::to_string(content_length)});
-    if (m_config.compression_gzip)
+    if (compressed)
     {
         headers.push_back({.name = "content-encoding", .value = "gzip"});
     }
@@ -234,27 +234,23 @@ std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
     return std::nullopt;
 }
 
-microtel::Expected<std::span<const std::byte>, internal::WireResult> HttpWireCodec::MaybeCompress(
-    std::span<const std::byte> raw, std::vector<std::byte>& storage) const
+HttpWireCodec::Body HttpWireCodec::PrepareBody(std::span<const std::byte> raw,
+                                               std::vector<std::byte>& storage) const noexcept
 {
-    if (!m_config.compression_gzip)
+    if (m_config.compression_gzip)
     {
-        return raw;
+        auto result = GzipCompress(raw);
+        if (result)
+        {
+            storage = std::move(*result);
+            return Body{.bytes = std::span<const std::byte>{storage}, .compressed = true};
+        }
+        // Compression failed — fall through and send the payload as-is.
+        // `deflate` fails only on allocation failure or a programming error,
+        // and neither is a reason to throw away spans the caller already
+        // produced.
     }
-    auto result = GzipCompress(raw);
-    if (!result)
-    {
-        return microtel::make_unexpected(internal::WireResult{
-            .success = false,
-            .retryable = false,
-            .retry_after = {},
-            .partial_success_rejected = 0,
-            .error = result.error(),
-            .response_excerpt = {},
-        });
-    }
-    storage = std::move(*result);
-    return std::span<const std::byte>{storage};
+    return Body{.bytes = raw, .compressed = false};
 }
 
 internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
@@ -269,18 +265,14 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
 
     // `compressed` must outlive the request: RequestSpec::payload borrows it.
     std::vector<std::byte> compressed;
-    auto body = MaybeCompress(owned.Bytes(), compressed);
-    if (!body)
-    {
-        return body.error();
-    }
+    const Body body = PrepareBody(owned.Bytes(), compressed);
 
-    auto headers = BuildHeaders(body->size());
+    auto headers = BuildHeaders(body.bytes.size(), body.compressed);
     AppendAuthHeader(headers);
 
     internal::RequestSpec spec{
         .headers = std::move(headers),
-        .payload = *body,
+        .payload = body.bytes,
         .deadline = deadline,
     };
 
@@ -386,9 +378,14 @@ std::vector<internal::WireResult> HttpWireCodec::SendAll(
     // RequestSpec::payload is a span borrowing from it; the I/O thread reads
     // those bytes until the stream closes. With compression on the span
     // borrows `InFlight::compressed` instead — same rule, second buffer.
-    // Moving either into `InFlight` after the span is taken is safe: a vector
-    // move transfers the heap buffer rather than copying it, so the address
-    // the span holds stays valid.
+    //
+    // Taking the span before moving the owner into `InFlight` depends on both
+    // owners keeping their bytes in a heap block that a move transfers rather
+    // than copies. That holds for `std::vector` and for `EncodedPayload`'s
+    // `unique_ptr` buffer. It would stop holding if either became a
+    // small-buffer-optimised or inline-array type, and the break would be
+    // silent — so a change to how these store their bytes has to revisit this
+    // loop.
     std::vector<InFlight> in_flight;
     in_flight.reserve(payloads.size());
     const auto deadline_point = std::chrono::steady_clock::now() + deadline;
@@ -402,18 +399,13 @@ std::vector<internal::WireResult> HttpWireCodec::SendAll(
     for (std::size_t i = 0; i < payloads.size(); ++i)
     {
         std::vector<std::byte> compressed;
-        auto body = MaybeCompress(payloads[i].Bytes(), compressed);
-        if (!body)
-        {
-            results[i] = body.error();
-            continue;
-        }
+        const Body body = PrepareBody(payloads[i].Bytes(), compressed);
 
-        auto headers = BuildHeaders(body->size());
+        auto headers = BuildHeaders(body.bytes.size(), body.compressed);
         AppendAuthHeader(headers);
         internal::RequestSpec spec{
             .headers = std::move(headers),
-            .payload = *body,
+            .payload = body.bytes,
             .deadline = deadline,
         };
         auto handle = m_transport->Send(std::move(spec));

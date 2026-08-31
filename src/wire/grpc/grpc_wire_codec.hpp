@@ -27,6 +27,10 @@ struct GrpcWireCodecConfig
     /// `:path` pseudo-header instead of the default trace service path.
     /// Use the metrics service path to point this codec at the metrics endpoint.
     std::string service_path;
+    /// @brief When true, the request message is gzip-compressed, the frame's
+    /// compression flag is `0x01`, and `grpc-encoding: gzip` is set. No
+    /// `grpc-accept-encoding` is advertised, so responses stay uncompressed.
+    bool compression_gzip{false};
 };
 
 /// @brief OTLP/gRPC implementation of `IWireCodec` — no gRPC library.

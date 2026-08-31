@@ -67,6 +67,7 @@ ARG INSTALL_PERF=false
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libnghttp2-14 \
+        zlib1g \
         libssl3 \
     && if [ "$INSTALL_PERF" = "true" ]; then \
         apt-get install -y --no-install-recommends linux-tools-generic \

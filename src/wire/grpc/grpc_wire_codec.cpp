@@ -8,6 +8,7 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "wire/gzip.hpp"
 #include "wire/otlp_response.hpp"
 
 #include <charconv>
@@ -97,6 +98,7 @@ constexpr std::int32_t kNanosPerMilli = 1'000'000;
 
 constexpr std::size_t kGrpcFrameHeaderSize = 5U;
 constexpr std::uint8_t kGrpcUncompressedFlag = 0x00U;
+constexpr std::uint8_t kGrpcCompressedFlag = 0x01U;
 constexpr std::uint8_t kByteMask = 0xFFU;
 constexpr unsigned kByteShift24 = 24U;
 constexpr unsigned kByteShift16 = 16U;
@@ -645,19 +647,18 @@ struct RetrySearchSignal
 // gRPC frame builder — 5-byte length prefix (compression flag + BE uint32)
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] std::vector<std::byte> FramePayload(const internal::EncodedPayload& payload)
+[[nodiscard]] std::vector<std::byte> FramePayload(std::span<const std::byte> body, bool compressed)
 {
-    const std::size_t n = payload.Size();
+    const std::size_t n = body.size();
     // GCC 15 false-positive -Wfree-nonheap-object fires on reserve+push_back
     // when inlined; size-constructor + index assignment avoids that analysis path.
     std::vector<std::byte> framed(kGrpcFrameHeaderSize + n);
-    framed[0] = std::byte{kGrpcUncompressedFlag};
+    framed[0] = std::byte{compressed ? kGrpcCompressedFlag : kGrpcUncompressedFlag};
     framed[1] = std::byte{static_cast<std::uint8_t>((n >> kByteShift24) & kByteMask)};
     framed[2] = std::byte{static_cast<std::uint8_t>((n >> kByteShift16) & kByteMask)};
     framed[3] = std::byte{static_cast<std::uint8_t>((n >> kByteShift8) & kByteMask)};
     framed[4] = std::byte{static_cast<std::uint8_t>(n & kByteMask)};
-    const auto bytes = payload.Bytes();
-    std::ranges::copy(bytes, framed.begin() + kGrpcFrameHeaderSize);
+    std::ranges::copy(body, framed.begin() + kGrpcFrameHeaderSize);
     return framed;
 }
 
@@ -694,6 +695,10 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders() const
     headers.push_back({.name = "te", .value = "trailers"});
     headers.push_back({.name = "content-type", .value = "application/grpc+proto"});
     headers.push_back({.name = "user-agent", .value = "microtel-cpp/0.1.0"});
+    if (m_config.compression_gzip)
+    {
+        headers.push_back({.name = "grpc-encoding", .value = "gzip"});
+    }
     for (const auto& h : m_config.extra_headers)
     {
         headers.push_back(h);
@@ -751,7 +756,26 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     }
 
     const internal::EncodedPayload owned = std::move(payload);
-    const auto framed = FramePayload(owned);
+    std::vector<std::byte> compressed;
+    std::span<const std::byte> body = owned.Bytes();
+    if (m_config.compression_gzip)
+    {
+        auto result = GzipCompress(body);
+        if (!result)
+        {
+            return internal::WireResult{
+                .success = false,
+                .retryable = false,
+                .retry_after = {},
+                .partial_success_rejected = 0,
+                .error = result.error(),
+                .response_excerpt = {},
+            };
+        }
+        compressed = std::move(*result);
+        body = compressed;
+    }
+    const auto framed = FramePayload(body, m_config.compression_gzip);
     auto headers = BuildHeaders();
     AppendAuthHeader(headers);
     internal::RequestSpec spec{

@@ -22,14 +22,15 @@ Conan, which is the actual distribution path.
 
 ## What exists to export
 
-Twelve shipped static libraries, with this dependency graph:
+Thirteen shipped static libraries, with this dependency graph:
 
 ```
 microtel_sdk ──┬─ microtel_config
                ├─ microtel_exporter
                ├─ microtel_transport ── microtel_common
                ├─ microtel_http_wire ─┐
-               ├─ microtel_grpc_wire ─┴─ microtel_otlp_response
+               ├─ microtel_grpc_wire ─┴─┬─ microtel_otlp_response
+               │                        └─ microtel_gzip ── (system zlib)
                └─ microtel_encoder ───── microtel_upb_gen
 
 microtel_upb_runtime ── microtel_utf8_range        (vendored)
@@ -73,7 +74,7 @@ unsupported**: they may merge, split, or disappear without an ICP.
 | Target | Status |
 |---|---|
 | `microtel::microtel` | **Public — the only supported name.** |
-| `microtel::sdk`, `::transport`, `::encoder`, `::exporter`, `::config`, `::common`, `::http_wire`, `::grpc_wire`, `::otlp_response`, `::upb_gen`, `::upb_runtime`, `::utf8_range` | Exported, **not supported**. Present so the link closure resolves. |
+| `microtel::sdk`, `::transport`, `::encoder`, `::exporter`, `::config`, `::common`, `::http_wire`, `::grpc_wire`, `::otlp_response`, `::gzip`, `::upb_gen`, `::upb_runtime`, `::utf8_range` | Exported, **not supported**. Present so the link closure resolves. |
 
 **`microtel::sdk` was demoted at review**, and the reason is this section's own
 principle: no component exposes public headers directly, so a consumer never
@@ -217,3 +218,34 @@ Without this, the export set is asserted rather than tested — the pattern issu
 ## Open questions
 
 None outstanding.
+
+## Amendment — 2026-08-31: a thirteenth library, and zlib in the install interface
+
+Request compression (`compression = "gzip"`) shipped after this ICP was signed
+off, adding `microtel_gzip` and making **zlib a real link dependency** rather
+than a permitted-but-unused member of rule 12's closure. Two consequences for
+the install work, neither of which changes a decision above:
+
+1. **The component inventory is thirteen, not twelve.** `microtel::gzip` joins
+   the exported-but-unsupported row. Decision 2's principle is unchanged — it
+   exposes no public header, so it is link-graph plumbing like the rest.
+2. **The generated package config must `find_dependency(ZLIB)`, and this is
+   what turns Decision 6 from hypothetical into demonstrated.** zlib reaches
+   `microtel_gzip` through a PRIVATE link interface, so it is *not* a usage
+   requirement that propagates to consumers — but the static archive still
+   carries `U deflate` and needs it resolved at final link. That combination is
+   exactly the case that builds cleanly in-tree, configures cleanly under
+   `find_package(microtel)`, and fails only in a consumer's link step.
+
+   Nothing in this repository can catch it. Every in-tree target links zlib
+   because the top-level `find_package(ZLIB REQUIRED)` is still in scope; only
+   a project configured against an installed tree sees the omission. **zlib is
+   therefore the first concrete thing Decision 6's consumer test would catch**,
+   and the first argument that the test must run against a real
+   `cmake --install` output rather than the build directory — against a build
+   tree the dependency resolves by accident and the test passes while the
+   package is broken.
+
+   OpenSSL and nghttp2 reach consumers the same way and need the same
+   `find_dependency` treatment; the gzip work is simply what made the class of
+   defect concrete.

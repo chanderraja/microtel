@@ -7,6 +7,14 @@ add_subdirectory(http)
 add_subdirectory(grpc)
 
 microtel_add_test(
+    NAME    gzip_test
+    SOURCES gzip_test.cpp
+    LIBS    microtel_gzip ZLIB::ZLIB)
+
+target_include_directories(gzip_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
     NAME    otlp_response_test
     SOURCES otlp_response_test.cpp
     LIBS    microtel_otlp_response)

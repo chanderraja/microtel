@@ -30,6 +30,10 @@ struct HttpWireCodecConfig
     /// suffix. Use `/v1/metrics` to point this codec at the metrics endpoint.
     std::string signal_path;
     std::vector<internal::HeaderField> extra_headers;  ///< forwarded verbatim
+    /// @brief When true, request bodies are gzip-compressed and
+    /// `content-encoding: gzip` is set. Responses are unaffected: no
+    /// `accept-encoding` is advertised, so servers return identity.
+    bool compression_gzip{false};
 };
 
 /// @brief OTLP/HTTP-protobuf implementation of `IWireCodec`.
@@ -81,7 +85,24 @@ private:
     {
         internal::EncodedPayload payload;
         internal::RequestHandle handle;
+        /// @brief Compressed body, when `compression_gzip` is on. Empty
+        /// otherwise. Held here for the same reason as `payload`: the spec's
+        /// span borrows it until the stream closes.
+        std::vector<std::byte> compressed;
+        /// @brief Index into the caller's `payloads`, so `SendAll` can return
+        /// results in the caller's order even when an entry never went out.
+        std::size_t index{0};
     };
+
+    /// @brief Gzip-compresses @p raw into @p storage when `compression_gzip`
+    ///        is set; otherwise a no-op.
+    /// @param raw the uncompressed body.
+    /// @param storage buffer that owns the compressed bytes on return. Must
+    ///        outlive the request: the returned span borrows from it.
+    /// @return the span to put on the wire, or the `WireResult` to report when
+    ///         compression fails.
+    [[nodiscard]] microtel::Expected<std::span<const std::byte>, internal::WireResult>
+    MaybeCompress(std::span<const std::byte> raw, std::vector<std::byte>& storage) const;
 
     [[nodiscard]] std::string ResolvePath() const noexcept;
     [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(

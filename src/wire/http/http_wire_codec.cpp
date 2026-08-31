@@ -8,6 +8,7 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "wire/gzip.hpp"
 #include "wire/otlp_response.hpp"
 
 #include <algorithm>
@@ -162,6 +163,10 @@ std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(
     headers.push_back({.name = ":authority", .value = m_config.host});
     headers.push_back({.name = "content-type", .value = "application/x-protobuf"});
     headers.push_back({.name = "content-length", .value = std::to_string(content_length)});
+    if (m_config.compression_gzip)
+    {
+        headers.push_back({.name = "content-encoding", .value = "gzip"});
+    }
 
     for (const auto& h : m_config.extra_headers)
     {
@@ -229,6 +234,29 @@ std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
     return std::nullopt;
 }
 
+microtel::Expected<std::span<const std::byte>, internal::WireResult> HttpWireCodec::MaybeCompress(
+    std::span<const std::byte> raw, std::vector<std::byte>& storage) const
+{
+    if (!m_config.compression_gzip)
+    {
+        return raw;
+    }
+    auto result = GzipCompress(raw);
+    if (!result)
+    {
+        return microtel::make_unexpected(internal::WireResult{
+            .success = false,
+            .retryable = false,
+            .retry_after = {},
+            .partial_success_rejected = 0,
+            .error = result.error(),
+            .response_excerpt = {},
+        });
+    }
+    storage = std::move(*result);
+    return std::span<const std::byte>{storage};
+}
+
 internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
                                          std::chrono::milliseconds deadline)
 {
@@ -238,12 +266,21 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
     }
 
     const internal::EncodedPayload owned = std::move(payload);
-    auto headers = BuildHeaders(owned.Size());
+
+    // `compressed` must outlive the request: RequestSpec::payload borrows it.
+    std::vector<std::byte> compressed;
+    auto body = MaybeCompress(owned.Bytes(), compressed);
+    if (!body)
+    {
+        return body.error();
+    }
+
+    auto headers = BuildHeaders(body->size());
     AppendAuthHeader(headers);
 
     internal::RequestSpec spec{
         .headers = std::move(headers),
-        .payload = owned.Bytes(),
+        .payload = *body,
         .deadline = deadline,
     };
 
@@ -347,30 +384,48 @@ std::vector<internal::WireResult> HttpWireCodec::SendAll(
 
     // Keeping each EncodedPayload alive alongside its handle is required:
     // RequestSpec::payload is a span borrowing from it; the I/O thread reads
-    // those bytes until the stream closes.
+    // those bytes until the stream closes. With compression on the span
+    // borrows `InFlight::compressed` instead — same rule, second buffer.
+    // Moving either into `InFlight` after the span is taken is safe: a vector
+    // move transfers the heap buffer rather than copying it, so the address
+    // the span holds stays valid.
     std::vector<InFlight> in_flight;
     in_flight.reserve(payloads.size());
     const auto deadline_point = std::chrono::steady_clock::now() + deadline;
 
+    // Indexed rather than appended: a payload that fails to compress never
+    // reaches `in_flight`, so `results[i]` would otherwise drift out of step
+    // with `payloads[i]`.
+    std::vector<internal::WireResult> results(payloads.size());
+
     // Submit all requests without waiting — each opens a separate HTTP/2 stream.
-    for (auto& payload : payloads)
+    for (std::size_t i = 0; i < payloads.size(); ++i)
     {
-        auto headers = BuildHeaders(payload.Size());
+        std::vector<std::byte> compressed;
+        auto body = MaybeCompress(payloads[i].Bytes(), compressed);
+        if (!body)
+        {
+            results[i] = body.error();
+            continue;
+        }
+
+        auto headers = BuildHeaders(body->size());
         AppendAuthHeader(headers);
         internal::RequestSpec spec{
             .headers = std::move(headers),
-            .payload = payload.Bytes(),
+            .payload = *body,
             .deadline = deadline,
         };
         auto handle = m_transport->Send(std::move(spec));
-        in_flight.push_back(InFlight{.payload = std::move(payload), .handle = std::move(handle)});
+        in_flight.push_back(InFlight{.payload = std::move(payloads[i]),
+                                     .handle = std::move(handle),
+                                     .compressed = std::move(compressed),
+                                     .index = i});
     }
 
-    std::vector<internal::WireResult> results;
-    results.reserve(in_flight.size());
     for (auto& item : in_flight)
     {
-        results.push_back(CollectOneResult(item, deadline_point));
+        results[item.index] = CollectOneResult(item, deadline_point);
     }
     return results;
 }

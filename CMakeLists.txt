@@ -176,6 +176,9 @@ add_subdirectory(gen)
 # System dependencies: OpenSSL (TLS) and nghttp2 (HTTP/2 transport).
 # Required by src/common/raii/ and src/transport/; also linked by their tests.
 find_package(OpenSSL REQUIRED)
+# zlib: request compression (`compression = "gzip"`). Already a member of the
+# v1 runtime dependency closure per CLAUDE.md rule 12; this wires it up.
+find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
 

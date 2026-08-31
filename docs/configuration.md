@@ -82,7 +82,7 @@ Rows are alphabetised within each subsection.
 |---|---|---|---|---|---|
 | `exporter.endpoint` | `WithEndpoint(s)` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | none (required) | If unset, `Build` fails with `ConfigError::EndpointMalformed`. Per-signal `_TRACES_` overrides the unsigned form. |
 | `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | — | derived from URL scheme; otherwise `grpc` | `http` or `grpc`. URL schemes `grpc://` / `grpcs://` are accepted shorthand (spec §12.2). |
-| `exporter.compression` | `WithCompression(c)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | `off` | `off` or `gzip`. |
+| `exporter.compression` | `WithCompression(c)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | `off` | `off` or `gzip`. Applies to **requests only**: gzip request bodies with `content-encoding: gzip` (HTTP) or frame flag `0x01` with `grpc-encoding: gzip` (gRPC). microtel advertises no `accept-encoding`, so responses stay uncompressed. |
 | `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers; runtime auth via `WithAuthProvider` is separate. |
 
 ### 3.4 Exporter — timeouts (six independent, spec §7.3)

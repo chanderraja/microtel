@@ -58,28 +58,46 @@ The two suites answer different questions and are deliberately not merged.
 `tests/conformance/`. Correctness against a real receiver: does the collector
 accept what microtel emits, and is what it decodes what microtel meant?
 
-| Area | Status |
-|---|---|
-| Acceptance (connect, export, `ForceFlush`) | OTLP/HTTP ✅ |
-| Content round-trip (ids, attribute types, events, status) | OTLP/HTTP ✅ |
-| Multi-batch delivery, exactly-once, large multi-DATA-frame bodies | OTLP/HTTP ✅ |
-| gzip request compression | OTLP/HTTP ✅ |
-| TLS, mTLS, CA pinning, SNI override | OTLP/HTTP ✅ |
-| Bearer-token auth (static header, callback, 401 rejection) | OTLP/HTTP ✅ |
-| Plaintext h2c gap, pinned as a negative test | OTLP/HTTP ✅ |
-| OTLP/gRPC, all of the above | planned |
+| Area | OTLP/HTTP | OTLP/gRPC |
+|---|---|---|
+| Acceptance (connect, export, `ForceFlush`) | ✅ | ✅ |
+| Content round-trip (ids, attribute types, events, status) | ✅ | ✅ |
+| Multi-batch delivery, exactly-once, large multi-DATA-frame bodies | ✅ | ✅ |
+| gzip request compression | ✅ | ✅ (per-message, `grpc-encoding`) |
+| TLS, mTLS, CA pinning, SNI override | ✅ | ✅ |
+| Bearer-token auth (static header, callback, wrong-credential rejection) | ✅ (401) | ✅ (`grpc-status: 16`) |
+| Plaintext transport | ✗ — pinned as a negative test, issue #166 | ✅ — h2c, the counterpoint |
 
-Two caveats behind those ticks:
+The two suites are deliberate per-file duplicates rather than one parameterised
+harness: they diverge on which endpoint is reachable, on what a rejection looks
+like on the wire, and on what the failure surface says, and a shared template
+would have to be taught all three differences to hide none of them.
+
+Three caveats behind those ticks:
 
 - **`drop_counters` is not yet evidence.** The negative tests assert
   `batches_failed` and the collector's output file, not the `DropReason`
-  counters `docs/error-model.md` §7.1 names, because only two of the 24
-  counters are ever incremented (issue #169). The 401 assertion is parked as
-  `DISABLED_WrongTokenIncrementsNonRetryableDropCounter` in
-  `tests/conformance/http/auth_test.cpp` until they are wired.
+  counters `docs/error-model.md` §7 names, because only two of the 24 counters
+  are ever incremented (issue #169). The assertion is parked as
+  `DISABLED_WrongTokenIncrementsNonRetryableDropCounter` in both
+  `tests/conformance/http/auth_test.cpp` and
+  `tests/conformance/grpc/auth_test.cpp` until they are wired.
 - **Instrumentation scope is not asserted.** `ScopeSpans.scope` currently
   carries the service name rather than the `GetTracer(name, version)` scope
   (issue #167), so no test here asserts on it — that would enshrine the bug.
+  Confirmed identical on both protocols.
+- **The gRPC failure surface is thin.** Every non-zero `grpc-status` reaches
+  `HealthSnapshot::last_error_message` as the literal `"grpc error"`; the
+  status code and the collector's `grpc-message` are both discarded (issue
+  #171). `tests/conformance/grpc/auth_test.cpp` asserts that observed string
+  rather than the status its HTTP sibling can assert.
+
+**Encoding is protocol-independent, and that was measured.** The collector's
+file-exporter line for the OTLP/HTTP basic-export span and the one for its
+OTLP/gRPC twin are byte-identical after normalising trace/span ids, timestamps
+and the per-run marker — same key order, same typed value envelopes. The gRPC
+suite therefore reuses the HTTP suite's protojson fragment constants verbatim
+rather than maintaining a second set.
 
 **Weekly interop** — [`interop.yml`](../.github/workflows/interop.yml).
 Behaviour at volume against collector and Jaeger: delivery rate and
@@ -111,7 +129,10 @@ Consequences:
   isolate the `Authorization` header. Its **grpc** twin (`:4347`) stays
   plaintext.
 - OTLP/**gRPC** over plaintext is unaffected: gRPC is h2c by definition and the
-  collector's gRPC receiver speaks it.
+  collector's gRPC receiver speaks it. This is no longer an argument — the
+  whole gRPC conformance suite except `tls_test.cpp` runs over `http://` against
+  the same collector, so the two directories side by side are the measurement of
+  how far the gap reaches.
 - `bench/sink/blackhole` already wraps its handler in `h2c.NewHandler` for this
   reason, so the bench harness does not see the gap.
 

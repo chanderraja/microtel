@@ -27,7 +27,8 @@ of the wire, so its green says the client agrees with itself.
 
 - **`unit/`** — one type against mocks. Includes the byte-level wire
   corpus under [`tests/unit/wire/`](../unit/wire/): what microtel
-  *writes*, asserted against committed fixtures.
+  *writes*, asserted against hand-encoded byte fixtures in the test
+  sources.
 - **`integration/`** — real components wired together against fakes at
   the system boundary (sockets, the clock).
 - **`conformance/`** — the bytes leave the process and a receiver
@@ -226,7 +227,7 @@ file is the only place a test can observe what the collector
 
 | Not here | Where instead | Why |
 |---|---|---|
-| Partial-success responses | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) and the two codec tests, against committed byte fixtures | A collector configured to accept spans never returns a `partial_success` body, so this tier cannot elicit one. |
+| Partial-success responses | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) and the two codec tests, against hand-encoded byte fixtures | A collector configured to accept spans never returns a `partial_success` body, so this tier cannot elicit one. |
 | Retry and backoff timing | [`tests/unit/exporter/retry_policy_test.cpp`](../unit/exporter/retry_policy_test.cpp), [`tests/integration/sdk/exporter_health_test.cpp`](../integration/sdk/exporter_health_test.cpp) against fakes | Needs a clock the test controls. Here the negative tests run a near-zero retry budget precisely to *avoid* the schedule. |
 | Restart recovery (collector bounced mid-export) | deferred — [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
 | Metrics conformance | deferred to v1.2 — [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |

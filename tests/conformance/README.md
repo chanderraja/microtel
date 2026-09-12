@@ -109,10 +109,10 @@ auth tests buy the isolation back by pinning the correct CA in every
 test, so the negative test differs from the positive ones in exactly
 one field: the token.
 
-The same gap is why every other OTLP/HTTP test here points at a TLS
-endpoint. They were not chosen to test TLS; TLS is where ALPN
-negotiates `h2`, which is the only OTLP/HTTP path that reaches a stock
-collector today.
+The same gap is why every OTLP/HTTP test here except
+`plaintext_gap_test.cpp` points at a TLS endpoint. Those endpoints were
+not chosen to test TLS; TLS is where ALPN negotiates `h2`, which is the
+only OTLP/HTTP path that reaches a stock collector today.
 
 ## Running it locally
 
@@ -239,11 +239,17 @@ per-run marker are normalised
 
 ## Known-defect tripwires
 
-Five defects were found by building this tier. None is asserted as
-desired behaviour: each is either pinned by a test that **fails when the
-defect is fixed**, or left conspicuously unasserted. A fixed defect
-flips a test rather than passing silently — so when one of these fails,
-do not delete it, invert it.
+Five defects were found by building this tier. None of them is asserted
+as desired behaviour. Each is handled one of three ways:
+
+- **Pinned by a test that fails when the defect is fixed** — #166, #171.
+- **Parked as a `DISABLED_` assertion**, already written, waiting to be
+  re-enabled — #169.
+- **Left conspicuously unasserted**, with the reason recorded in the
+  source — #167, #168.
+
+Nothing here turns green by accident when a fix lands. When one of the
+first kind fails, do not delete it — invert it.
 
 | Issue | What guards it |
 |---|---|

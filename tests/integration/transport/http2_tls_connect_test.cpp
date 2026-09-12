@@ -689,13 +689,18 @@ TEST(Http2TlsConnectTest, HostnameMismatch_ConnectFails)
 // which named neither ALPN nor the endpoint's actual protocol.
 // ---------------------------------------------------------------------------
 
-// Where the boundary actually falls. microtel offers only `h2`, and OpenSSL's
-// client enforces RFC 7301 itself: a ServerHello naming a protocol the client
-// never offered aborts the handshake before any microtel code runs, so this
-// case never reaches the ALPN check below. Pinned so that the check is not
-// "fixed" to cover a case it cannot see — and so that the generic message this
-// path produces is a known quantity rather than a surprise.
-TEST(Http2TlsConnectTest, AlpnAnswersUnofferedProtocol_OpenSslRejectsHandshake)
+// A receiver that answers ALPN with `http/1.1` — a protocol microtel never
+// offered, since it offers only `h2`.
+//
+// Which layer catches this depends on the linked OpenSSL, and both are correct
+// outcomes: OpenSSL 3.2+ enforces RFC 7301's "must be one the client offered"
+// and aborts the handshake before any microtel code runs (`Network`), while
+// 3.0 and 3.1 let the ServerHello through and microtel's own ALPN check is
+// what refuses it (`Protocol`). CI runs the first, Fedora the second. The
+// assertion is on what holds either way — the connection is refused — plus,
+// where microtel is the one refusing, that its message names what the peer
+// chose.
+TEST(Http2TlsConnectTest, AlpnAnswersHttp11_ConnectFails)
 {
     const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
     ASSERT_TRUE(server_cred.cert);
@@ -708,9 +713,19 @@ TEST(Http2TlsConnectTest, AlpnAnswersUnofferedProtocol_OpenSslRejectsHandshake)
     opts.insecure = true;  // the certificate is not what this test is about
 
     const auto outcome = ConnectOnce(opts);
-    EXPECT_FALSE(outcome.connected) << "a peer that answered http/1.1 cannot speak HTTP/2";
-    EXPECT_EQ(outcome.kind, microtel::Error::Kind::Network)
-        << "OpenSSL fails the handshake, so this is a TLS error, not microtel's ALPN check";
+    ASSERT_FALSE(outcome.connected) << "a peer that answered http/1.1 cannot speak HTTP/2";
+    if (outcome.kind == microtel::Error::Kind::Protocol)
+    {
+        EXPECT_NE(outcome.message.find("http/1.1"), std::string::npos)
+            << "microtel's ALPN check must name what was negotiated; error was: "
+            << outcome.message;
+    }
+    else
+    {
+        EXPECT_EQ(outcome.kind, microtel::Error::Kind::Network)
+            << "the only other acceptable refusal is OpenSSL failing the handshake; error was: "
+            << outcome.message;
+    }
 }
 
 TEST(Http2TlsConnectTest, AlpnNotNegotiated_ConnectFailsWithProtocolError)

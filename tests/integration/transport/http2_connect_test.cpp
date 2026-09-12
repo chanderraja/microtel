@@ -357,7 +357,10 @@ private:
         // The collector answers after reading the preface; writing immediately
         // is indistinguishable from the client's side and races nothing, since
         // the client sends its preface before it ever polls for readability.
-        (void)::write(client_fd, kHttp1Response.data(), kHttp1Response.size());
+        // The result is bound rather than cast to void: glibc marks `write`
+        // `warn_unused_result`, which a cast does not satisfy under GCC.
+        const ssize_t written = ::write(client_fd, kHttp1Response.data(), kHttp1Response.size());
+        (void)written;
         while (!m_stop.load(std::memory_order_acquire))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));

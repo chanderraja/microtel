@@ -104,12 +104,16 @@ three of these surfaces say so:
   budget spent on it only buries the message.
 
 The neighbouring case — a TLS endpoint that never agrees to `h2` — is caught
-by an ALPN check right after the handshake and reports
-`Error::Kind::Protocol` naming what was negotiated. One boundary is worth
-knowing: if such a server answers ALPN with a protocol microtel never offered,
-OpenSSL's client fails the handshake itself (RFC 7301), so that variant
-surfaces as a TLS error rather than the ALPN message. Pinned by
-`Http2TlsConnectTest.AlpnAnswersUnofferedProtocol_OpenSslRejectsHandshake`.
+by an ALPN check right after the handshake and reports `Error::Kind::Protocol`
+naming what was negotiated.
+
+One boundary is worth knowing, because it moves with the linked OpenSSL. If
+such a server answers ALPN with a protocol microtel never offered (microtel
+offers only `h2`), OpenSSL **3.2 and later** enforce RFC 7301 themselves and
+fail the handshake, so the refusal arrives as a TLS error rather than the ALPN
+message; **3.0 and 3.1** let it through and microtel's check is what refuses
+it. Either way the connection is refused — which is what
+`Http2TlsConnectTest.AlpnAnswersHttp11_ConnectFails` asserts.
 
 ---
 

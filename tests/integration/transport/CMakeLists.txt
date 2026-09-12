@@ -12,3 +12,10 @@ microtel_add_integration_test(
     NAME    http2_send_test
     SOURCES http2_send_test.cpp
     LIBS    microtel_transport)
+
+# OpenSSL is linked explicitly: microtel_transport keeps it PRIVATE, and this
+# test builds its own TLS server rather than borrowing the transport's.
+microtel_add_integration_test(
+    NAME    http2_tls_connect_test
+    SOURCES http2_tls_connect_test.cpp
+    LIBS    microtel_transport OpenSSL::SSL OpenSSL::Crypto)

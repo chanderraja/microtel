@@ -35,6 +35,7 @@ headers.
 | [0019](0019-connect-on-the-io-thread.md) | Perform `Connect` on the I/O thread | Draft | — |
 | [0020](0020-install-and-package-config.md) | `install()` rules and the exported target set | Accepted | — (M9/M10) |
 | [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | — (scheduled) |
+| [0022](0022-tls-peer-verification.md) | Enforce TLS server-certificate verification | Accepted | #164 |
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.
 A dash means the link was not determinable from commit messages, **not** that

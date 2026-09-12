@@ -23,6 +23,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `coverage` | `coverage` | ✅ |
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
+| `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
 | `fuzz.yml`, `soak.yml`, `interop.yml`, `benchmark.yml` | — | scheduled / on-demand | ❌ |
 
@@ -68,10 +69,20 @@ The bread-and-butter check. Builds on a matrix of (compiler × build-type × arc
 2. Install deps (`nghttp2`, `openssl`, `zlib`, `cmake`, `ninja`).
 3. `cmake --preset ci-${{ matrix.build_type }}-${{ matrix.compiler }}`.
 4. `cmake --build build --parallel`.
-5. `ctest --test-dir build --output-on-failure --label-regex 'unit|integration|wire'`.
-6. `ctest --test-dir build --output-on-failure --label-regex 'conformance'` — runs against a collector container started in-job.
+5. `ctest --test-dir build --output-on-failure`.
 
 **Pass condition:** all matrix cells green.
+
+**As built, for step 5 and the conformance step this section used to list.**
+The ctest labels that exist are `unit`, `integration` and `conformance` — set
+in [`tests/CMakeLists.txt`](../tests/CMakeLists.txt),
+[`tests/integration/CMakeLists.txt`](../tests/integration/CMakeLists.txt) and
+[`tests/conformance/CMakeLists.txt`](../tests/conformance/CMakeLists.txt)
+respectively. There is no `wire` label: the byte-level wire tests live under
+`tests/unit/wire/` (and `tests/unit/wire/grpc/`) and carry `unit`. The
+as-built `compile` job runs `ctest` unfiltered rather than by label regex, and
+conformance is not a step in any build job — it is the separate `conformance`
+job documented below.
 
 ### `.github/workflows/static-analysis.yml`
 
@@ -189,6 +200,52 @@ EXPORT …)` rules yet (issue #19). When those land, this job must be re-pointed
 `cmake --install` output — or at minimum extended to cover it — in the same PR.
 Otherwise install rules ship and the gate quietly begins checking the wrong set
 of artifacts while still reporting green.
+
+### `conformance` (job in `.github/workflows/ci.yml`)
+
+The spec §13.5 Tier 1 gate: a real OpenTelemetry Collector accepts what
+microtel emits, and what the collector decodes is what microtel meant. A mock
+cannot discharge that claim — it is about a receiver microtel's authors did not
+write — so the collector is as much the system under test as microtel is. The
+tier itself is documented in
+[`tests/conformance/README.md`](../tests/conformance/README.md).
+
+**Steps:**
+1. Install clang-18 plus `libssl-dev`, `libnghttp2-dev`, `zlib1g-dev`.
+2. Configure with `-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_STANDARD=20
+   -DMICROTEL_BUILD_TESTS=ON`.
+3. Build.
+4. Run [`ci/scripts/conformance.sh build`](../ci/scripts/conformance.sh). That
+   script generates a throwaway certificate set, starts the collector image
+   pinned in [`interop-matrix.md`](interop-matrix.md), waits up to 60 s on its
+   `health_check` extension, refuses to continue if no test carries the
+   `conformance` label, exports the endpoint / certificate / output-file
+   environment contract, and runs `ctest -L conformance`.
+
+Engine selection is the script's: `podman` if present, else `docker` (docker is
+what the GitHub-hosted runner has). The job's timeout is 30 minutes because
+pulling the collector image dominates; the tests themselves are seconds.
+
+**Pass condition:** every `conformance`-labelled test passes. The script exits
+1 when a test fails and 2 when the gate could not run at all — no container
+engine, the collector never became healthy, or nothing carried the label — so a
+gate that ran nothing cannot report green.
+
+**Why every other job stays green without a collector.** `compile`,
+`sanitizers`, `otelcpp-shim` and [`coverage.sh`](../ci/scripts/coverage.sh) all
+run `ctest` unfiltered, so the conformance binaries execute there too and skip,
+because the `MICROTEL_CONFORMANCE_*` variables are exported only by the runner.
+To stop that skip from masquerading as a pass *inside* the gate, the runner also
+exports `MICROTEL_CONFORMANCE_REQUIRE`: with it set, an unset variable is a test
+failure rather than a skip
+([`tests/conformance/support/conformance_env.hpp`](../tests/conformance/support/conformance_env.hpp)).
+
+**Not currently a required status check.** The required list is in
+[`branch-protection.md`](branch-protection.md) and `conformance` is not on it,
+so a Tier 1 wire regression can merge today. Whether to require it is an open
+decision: the argument for is that Tier 1 is the compatibility promise spec
+§2.2 makes testable, and the argument against is making every PR depend on
+pulling a third-party container image.
 
 ### `.github/workflows/license-scan.yml`
 

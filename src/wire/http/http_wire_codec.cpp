@@ -223,6 +223,14 @@ std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
     auto connected = m_transport->Connect(m_connect_opts);
     if (!connected)
     {
+        // The transport owns no diagnostics sink; the codec is where a failed
+        // connect is observed, so it is where the counter moves. One attempt,
+        // one increment — a fan-out behind a single prologue connect is one
+        // connect failure, not one per payload.
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::ConnectFailure);
+        }
         return internal::WireResult{
             .success = false,
             .retryable = true,  // failed connect: same shape as any other transport failure

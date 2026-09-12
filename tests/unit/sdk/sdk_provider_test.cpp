@@ -210,6 +210,92 @@ TEST(SdkProviderTest, ForceFlush_ExporterTimedOut_ReturnTimedOut)
     EXPECT_EQ(exp->force_flush_call_count, 1);
 }
 
+// ---------------------------------------------------------------------------
+// Drop accounting for lifecycle outcomes — issue #169. The Provider is the
+// only layer that sees one user-visible ForceFlush / Shutdown / Connect call;
+// counting inside the processor and the exporter arms as well would report
+// two or three drops for one timed-out call.
+// ---------------------------------------------------------------------------
+
+std::uint64_t DropCount(const mt::HealthSnapshot& health, mt::DropReason reason)
+{
+    return health.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
+TEST(SdkProviderTest, Diagnostics_ForceFlushTimedOut_CountsOncePerCall)
+{
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    exp->force_flush_result = mt::Status::TimedOut;
+
+    ASSERT_EQ(provider->ForceFlush(kTimeout), mt::Status::TimedOut);
+
+    const mt::HealthSnapshot health = provider->GetExporterHealth();
+    EXPECT_EQ(DropCount(health, mt::DropReason::ForceFlushTimeout), 1U);
+    EXPECT_EQ(DropCount(health, mt::DropReason::ShutdownTimeout), 0U);
+}
+
+TEST(SdkProviderTest, Diagnostics_ForceFlushCompleted_CountsNothing)
+{
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    ASSERT_EQ(provider->ForceFlush(kTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(DropCount(provider->GetExporterHealth(), mt::DropReason::ForceFlushTimeout), 0U);
+}
+
+TEST(SdkProviderTest, Diagnostics_ShutdownTimedOut_CountsOncePerCall)
+{
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    // Two components time out; the user made one Shutdown call, so the
+    // counter must read 1, not 2.
+    proc->shutdown_result = mt::Status::TimedOut;
+    transport->close_result = mt::Status::TimedOut;
+
+    ASSERT_EQ(provider->Shutdown(kTimeout), mt::Status::TimedOut);
+
+    const mt::HealthSnapshot health = provider->GetExporterHealth();
+    EXPECT_EQ(DropCount(health, mt::DropReason::ShutdownTimeout), 1U);
+    EXPECT_EQ(DropCount(health, mt::DropReason::ForceFlushTimeout), 0U);
+}
+
+TEST(SdkProviderTest, Diagnostics_ConnectFailed_CountsConnectFailure)
+{
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    transport->connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+
+    EXPECT_FALSE(provider->Connect().has_value());
+
+    EXPECT_EQ(DropCount(provider->GetExporterHealth(), mt::DropReason::ConnectFailure), 1U);
+}
+
+TEST(SdkProviderTest, Diagnostics_ConnectSucceeded_CountsNothing)
+{
+    mtm::MockSpanProcessor* proc = nullptr;   // NOLINT(misc-const-correctness)
+    mtm::MockExporter* exp = nullptr;         // NOLINT(misc-const-correctness)
+    mtm::MockTransport* transport = nullptr;  // NOLINT(misc-const-correctness)
+    auto provider = MakeProvider(&proc, &exp, &transport);
+
+    EXPECT_TRUE(provider->Connect().has_value());
+
+    EXPECT_EQ(DropCount(provider->GetExporterHealth(), mt::DropReason::ConnectFailure), 0U);
+}
+
 // MakeProvider reports its mocks through T** out-params, so these locals must
 // be non-const pointers even in tests that only read the mock afterwards.
 // NOLINTBEGIN(misc-const-correctness)

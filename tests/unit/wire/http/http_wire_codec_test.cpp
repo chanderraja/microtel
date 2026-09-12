@@ -9,6 +9,7 @@
 
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/wire_result.hpp"
+#include "microtel/provider.hpp"
 
 #include "fakes/fake_auth_provider.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
@@ -20,6 +21,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -531,6 +533,78 @@ TEST(HttpWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWit
     EXPECT_EQ(result.error->message, "refused");
     EXPECT_EQ(transport.connect_calls.size(), 1U);
     EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
+}
+
+// ---------------------------------------------------------------------------
+// Drop accounting — issue #169. connect_failure was documented as owned by
+// "transport", which owns no diagnostics sink; the codec is where the failed
+// connect is observed, so it is where the counter moves.
+// ---------------------------------------------------------------------------
+
+static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
+TEST(HttpWireCodecTest, Diagnostics_ConnectFails_CountsConnectFailure)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 1U);
+}
+
+TEST(HttpWireCodecTest, Diagnostics_SendAllConnectFails_CountsConnectFailureOnce)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    (void)codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    // SendAll makes one prologue connect attempt for the whole fan-out, so
+    // one failed connect is one connect_failure however many payloads waited
+    // behind it — those are accounted for by the exporter's batch counters.
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 1U);
+}
+
+TEST(HttpWireCodecTest, Diagnostics_ConnectSucceeds_CountsNothing)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 0U);
+}
+
+TEST(HttpWireCodecTest, Diagnostics_NullSink_IsNotDereferenced)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};  // no sink
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
 }
 
 TEST(HttpWireCodecTest, SendAll_WhenDisconnected_ConnectsOnceThenSendsAll)

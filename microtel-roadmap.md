@@ -408,6 +408,7 @@ This log is appended to, never rewritten. When a decision is reversed (none yet)
 3. **Native API vs OTel API in v3.0.** Real choice: either native `microtel::*` API stays first-class with shims as alternative, or microtel commits fully to OTel API surface and natives become a thin convenience layer. Discussion happens during v2.x; decision lands in v3.0 design doc.
 4. **Windows support — ever?** Currently a hard non-goal. Could land in v3.x if there's real demand. The transport layer abstraction makes it possible; the work is in IOCP-based I/O and Windows packaging.
 5. **HTTP/3 graduation.** Experimental in v1.5. Could stabilize in v2.0 or stay experimental indefinitely depending on real-world signal.
+6. **HTTP/1.1 for plaintext OTLP/HTTP — worth it?** microtel is HTTP/2-only, so a plaintext `http://` endpoint is h2c with prior knowledge and cannot reach an HTTP/1.1-only receiver — including the OpenTelemetry Collector's own plaintext `:4318`. v1.0 deliberately **documents** this rather than fixing it: `Build()` warns, `Connect()` fails with a targeted message, and `docs/compatibility-matrix.md` §4 marks it unsupported. The OTLP specification does permit HTTP/1.1, so a fallback is implementable — but it is a second request path through the transport, with its own framing, chunking, and connection reuse, for a configuration whose two working alternatives (`https://`, or OTLP/gRPC) are each a one-line change. Revisit if real deployments turn up where neither is available. Would need an ICP. Issue #166.
 
 ---
 

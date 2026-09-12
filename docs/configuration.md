@@ -112,13 +112,17 @@ Caller-provided timeouts to `ForceFlush(timeout)` and `Shutdown(timeout)` overri
 
 ### 3.6 Exporter — proxy
 
-Driven entirely by environment variables; no TOML or code surface in v1. (Spec §12.4.)
+**Not implemented in v1.** microtel connects directly to the configured
+endpoint. There is no TOML or code surface, and the environment variables below
+are **reserved names, read by nothing** — setting one changes no behaviour and
+produces no warning. Deferred; see [`microtel-roadmap.md`](../microtel-roadmap.md)
+and [`compatibility-matrix.md`](compatibility-matrix.md) §3. (Spec §12.4.)
 
-| Variable | Effect |
-|---|---|
-| `https_proxy` / `HTTPS_PROXY` | Honoured for `https://` endpoints. |
-| `http_proxy` / `HTTP_PROXY` | Honoured for `http://` endpoints (only meaningful with `insecure=true`). |
-| `no_proxy` / `NO_PROXY` | Honoured; standard comma-separated host list with leading-dot subdomain matching. |
+| Variable | Effect in v1 | Intended effect |
+|---|---|---|
+| `https_proxy` / `HTTPS_PROXY` | none | proxy `https://` endpoints via `CONNECT` |
+| `http_proxy` / `HTTP_PROXY` | none | proxy `http://` endpoints |
+| `no_proxy` / `NO_PROXY` | none | comma-separated bypass list, leading-dot subdomain matching |
 
 ### 3.7 Batch span processor
 

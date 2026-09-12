@@ -103,7 +103,9 @@ I/O Thread           DNS               Peer
   | or successful resolution               |
 ```
 
-DNS failure, TCP refusal, TLS handshake failure, and ALPN mismatch all map to the same recovery path: increment `connect_failure`, sleep with exponential backoff and jitter, retry up to the `connect` timeout. On final failure, `Transport::Connect` returns `Error::Kind::Network` and the I/O thread terminates.
+DNS failure, TCP refusal, and TLS handshake failure all map to the same recovery path: increment `connect_failure`, sleep with exponential backoff and jitter, retry up to the `connect` timeout. On final failure, `Transport::Connect` returns `Error::Kind::Network` and the I/O thread terminates.
+
+**Protocol mismatch is the exception, and is not retried.** An ALPN answer that is not `h2`, or an HTTP/1.1 response to the plaintext connection preface, means the endpoint cannot ever carry this session: `Connect` returns `Error::Kind::Protocol` with a message naming the working alternatives, and the wire codecs mark the result non-retryable. See `docs/compatibility-matrix.md` §4 and issue #166.
 
 `Build()` and `Provider::Connect` propagate this as `microtel::Expected<void, Error>` (alias — see ICP 0002). The application can react (retry with different config, exit with diagnostic, etc.).
 
@@ -111,10 +113,15 @@ DNS failure, TCP refusal, TLS handshake failure, and ALPN mismatch all map to th
 
 ## Edge cases captured by tests
 
+Covered, in `tests/integration/transport/` (`http2_connect_test.cpp`, `http2_tls_connect_test.cpp`):
+
+- Endpoint accepts TCP but the certificate is untrusted, or issued to another name.
+- ALPN produces no agreement, or an answer microtel never offered.
+- The plaintext peer answers the preface with an HTTP/1.1 response.
+- The peer disappears under an established connection (`Reconnecting`), and the reconnect that follows.
+
+Named in M0 and still uncovered:
+
 - Endpoint hostname has no A/AAAA record.
-- Endpoint accepts TCP but RST during TLS.
-- ALPN returns `http/1.1` instead of `h2`.
 - Peer SETTINGS frame includes `MAX_CONCURRENT_STREAMS=0`.
 - Peer sends GOAWAY immediately after SETTINGS (mismatched expectations).
-
-These live in `tests/integration/transport_connect/` (M3+).

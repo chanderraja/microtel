@@ -146,10 +146,7 @@ void ExponentialHistogramStorage<T>::Record(T value, AttributeSpan attrs)
     const auto observation = static_cast<double>(value);
     if (!std::isfinite(observation))
     {
-        if (m_diag != nullptr)
-        {
-            m_diag->RecordDrop(DropReason::NonFiniteValue);
-        }
+        RecordNonFinite();
         return;
     }
     std::optional<internal::Exemplar> exemplar;

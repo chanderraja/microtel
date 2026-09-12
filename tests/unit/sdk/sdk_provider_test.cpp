@@ -217,7 +217,7 @@ TEST(SdkProviderTest, ForceFlush_ExporterTimedOut_ReturnTimedOut)
 // two or three drops for one timed-out call.
 // ---------------------------------------------------------------------------
 
-std::uint64_t DropCount(const mt::HealthSnapshot& health, mt::DropReason reason)
+static std::uint64_t DropCount(const mt::HealthSnapshot& health, mt::DropReason reason)
 {
     return health.drop_counters.at(static_cast<std::size_t>(reason));
 }

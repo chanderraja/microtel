@@ -14,6 +14,7 @@
 #include "microtel/expected.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/internal/transport.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
@@ -23,6 +24,7 @@
 #include "common/config/config_validator.hpp"
 #include "common/config/env_resolver.hpp"
 #include "common/config/toml_loader.hpp"
+#include "common/internal_log.hpp"
 #include "exporter/otlp_exporter.hpp"
 #include "exporter/otlp_log_exporter.hpp"
 #include "exporter/otlp_metric_exporter.hpp"
@@ -220,6 +222,43 @@ SdkBuilder& SdkBuilder::WithView(ViewConfig view)
 
 namespace
 {
+
+/// @brief Emit the warnings for configurations that are legal but very likely
+///        wrong.
+///
+/// Neither case is rejected. Plaintext OTLP/HTTP is legitimate in front of an
+/// h2c-capable proxy (and the bench harness's own sink), and spec §12.3
+/// permits `insecure = true` outright — a hard ban is what
+/// `MICROTEL_FORBID_INSECURE_TLS=ON` is for. Both are, however, overwhelmingly
+/// likely to be a mistake, and `config::Validate` returns
+/// `Expected<void, ConfigError>`: it can reject a configuration but it cannot
+/// warn about one.
+///
+/// @param cfg Borrowed; read only. `cfg.endpoint.scheme` is post-normalisation,
+///            so `grpc://` has already collapsed to `http`.
+void WarnOnRiskyConfig(const config::Config& cfg) noexcept
+{
+    // h2c with prior knowledge: microtel has no HTTP/1.1 mode, and a stock
+    // OpenTelemetry Collector's plaintext OTLP/HTTP receiver has no h2c. See
+    // issue #166. OTLP/gRPC over the same scheme is unaffected — gRPC is h2c
+    // by definition — so the protocol is part of the condition.
+    if (cfg.protocol == Protocol::Http && cfg.endpoint.scheme == "http")
+    {
+        internal::LogImpl(
+            LogLevel::Warn,
+            "plaintext OTLP/HTTP (http:// with protocol=http) is HTTP/2 with prior knowledge "
+            "and cannot reach an HTTP/1.1-only OTLP receiver such as a stock OpenTelemetry "
+            "Collector - use https:// or OTLP/gRPC; see docs/compatibility-matrix.md");
+    }
+
+    if (cfg.tls.insecure)
+    {
+        internal::LogImpl(LogLevel::Warn,
+                          "exporter.tls.insecure = true - TLS certificate verification is "
+                          "disabled and any certificate will be accepted, including an "
+                          "attacker's. Not for production; see docs/compatibility-matrix.md");
+    }
+}
 
 /// @brief Parse `MICROTEL_METRIC_CARDINALITY_LIMIT` from the environment.
 ///
@@ -574,6 +613,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         return make_unexpected(cfg_result.error());
     }
     const config::Config cfg = std::move(*cfg_result);
+    WarnOnRiskyConfig(cfg);
 
     // --- Step 3: resource ---------------------------------------------------
     auto resource = BuildResource(cfg);

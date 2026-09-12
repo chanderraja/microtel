@@ -37,9 +37,9 @@ Compatibility is defined in tiers so the promise is testable, not aspirational:
 
 | Tier | Promise | v1 status |
 |---|---|---|
-| **Tier 1: OTLP wire compatibility** | Exported payloads are accepted by receivers implementing the pinned OTLP specification version, over both OTLP/HTTP-protobuf and OTLP/gRPC. The client correctly parses success, failure, retryable failure, and partial-success responses. Compatibility is measured against a pinned `opentelemetry-proto` tag and an interop matrix of collector and backend versions (§14). | ✅ for traces |
+| **Tier 1: OTLP wire compatibility** | Exported payloads are accepted by receivers implementing the pinned OTLP specification version, over both OTLP/HTTP-protobuf and OTLP/gRPC. The client correctly parses success, failure, retryable failure, and partial-success responses. Compatibility is measured against a pinned `opentelemetry-proto` tag and an interop matrix of collector and backend versions (§15). | ✅ for traces — over OTLP/gRPC, and over OTLP/HTTP **with TLS**. Plaintext OTLP/HTTP is h2c with prior knowledge and does not reach an HTTP/1.1-only receiver; see §7.1 and `docs/compatibility-matrix.md` §4. |
 | **Tier 2: OpenTelemetry data-model compatibility** | Traces, attributes, resources, and instrumentation scope map to the OpenTelemetry protobuf schemas. | ✅ for traces |
-| **Tier 3: API-adapter compatibility** | Optional shims support common `opentelemetry-cpp` and `opentelemetry-python` use cases. The supported subset is documented in §14. | experimental for traces |
+| **Tier 3: API-adapter compatibility** | Optional shims support common `opentelemetry-cpp` and `opentelemetry-python` use cases. The supported subset is documented in §15 and `docs/compatibility-matrix.md`. | experimental for traces |
 | **Tier 4: Full SDK conformance** | Every requirement in the OpenTelemetry SDK specification is met. | explicitly out of scope for v1 |
 
 ## 3. Non-Goals
@@ -290,6 +290,7 @@ No long-running Unix socket server, no `microtelctl`, no JSON wire protocol, no 
 
 ### 7.1 OTLP/HTTP (protobuf)
 
+- **Transport:** HTTP/2 only. Over TLS that means ALPN `h2`; over a plaintext `http://` endpoint it means **h2c with prior knowledge**, and microtel has no HTTP/1.1 mode to fall back to. A receiver that serves OTLP/HTTP over HTTP/1.1 only — which includes the OpenTelemetry Collector's plaintext `:4318` receiver — is therefore unreachable over plaintext. `Build()` warns, `Connect()` fails with a message naming the working alternatives, and the failure is not retried. See `docs/compatibility-matrix.md` §4 and `docs/interop-matrix.md` §4.
 - **Endpoint paths** (per OTLP/HTTP spec): `POST /v1/traces`. (`/v1/metrics`, `/v1/logs` are protocol-supported but unused in v1.)
 - **Default port:** 4318.
 - **Content-Type:** `application/x-protobuf`.
@@ -568,6 +569,8 @@ auto provider = microtel::SdkBuilder()
 
 Aligns with OTel exporter conventions. `grpc://` and `grpcs://` schemes are accepted as microtel-specific shorthand but the canonical form uses `https://` plus an explicit `protocol` field.
 
+**A plaintext `http://` endpoint is only usable with `protocol = "grpc"`, or against a receiver that speaks h2c.** Not a style preference: §7.1 explains why. `http://collector:4317` + `grpc` is the plaintext configuration that works; `http://collector:4318` + `http` is the one that cannot reach a stock collector.
+
 **Path semantics:**
 
 - For OTLP/HTTP using the generic `[exporter].endpoint`: an empty path or `/` causes microtel to append `/v1/traces`. A non-empty path is treated as a base path and `/v1/traces` is appended (so `https://collector:4318/foo` becomes `https://collector:4318/foo/v1/traces`). Per-signal endpoints — when introduced — are used exactly as provided with no append.
@@ -585,10 +588,15 @@ Aligns with OTel exporter conventions. `grpc://` and `grpcs://` schemes are acce
 
 ### 12.4 Proxy
 
-- `https_proxy` honored from environment.
-- `no_proxy` honored.
+**Not implemented in v1.** microtel connects directly to the configured endpoint; no proxy variable is read and no `CONNECT` tunnel is established. Deferred — see `microtel-roadmap.md`, and `docs/compatibility-matrix.md` §3 for the standing ledger.
+
+The following names are **reserved** for that work and have no effect today:
+
+- `https_proxy` / `http_proxy` from the environment.
+- `no_proxy`.
 - HTTP `CONNECT` for proxied HTTPS endpoints.
-- TLS interception by intermediate proxies is the operator's problem to resolve via custom `ca_bundle`.
+
+When proxy support lands, TLS interception by intermediate proxies remains the operator's problem to resolve via custom `ca_bundle`.
 
 ### 12.5 Auth
 
@@ -867,10 +875,12 @@ CI runs static analysis on every PR. The configuration aligns with SonarQube's C
 
 ### 15.1 OTel API/SDK compatibility (Tier 3)
 
+`docs/compatibility-matrix.md` is this table in operational form, with the evidence for each row and the unsupported ledger §13.5 refers to; where the two disagree, that file is the measured one.
+
 | Area | v1 status | Test method |
 |---|---|---|
-| OTLP/HTTP traces | Supported | collector integration test |
-| OTLP/gRPC traces | Supported | collector integration test |
+| OTLP/HTTP traces | Supported over TLS; not over plaintext against an HTTP/1.1-only receiver (§7.1) | collector integration test |
+| OTLP/gRPC traces | Supported, plaintext and TLS | collector integration test |
 | OTLP/HTTP metrics | Planned | conformance TBD |
 | OTLP/gRPC metrics | Planned | conformance TBD |
 | OTLP/HTTP logs | Planned | conformance TBD |
@@ -902,7 +912,7 @@ The compatibility matrix is the source of truth — claims of "drop-in" beyond w
 - **Footprint targets too aggressive.** The `< 800 KB` exporter and `< 3 MB` closure targets are stretch pending prototype measurement. Mitigation: explicitly labeled as stretch in §10.5; component-separated; realistic floors set after M2 and M6.
 - **nghttp2 API churn.** Low risk historically. Pin minimum version; isolate behind the `Transport` abstraction.
 - **Adoption.** "Yet another OTel client" needs a clear pitch. Mitigation: lead with binary-size, footprint, and CPU numbers from M6's reproducible benchmarks; target embedded / edge / CNF audiences first.
-- **Compat-shim scope creep.** Even labeled experimental, users may rely on shims and report bugs that pull v1 toward broader API conformance. Mitigation: §6.3 makes the experimental status explicit; the compatibility matrix (§14) records exactly what's covered; shims ship as separate packages with their own version cadence.
+- **Compat-shim scope creep.** Even labeled experimental, users may rely on shims and report bugs that pull v1 toward broader API conformance. Mitigation: §6.3 makes the experimental status explicit; the compatibility matrix (§15, and `docs/compatibility-matrix.md`) records exactly what's covered; shims ship as separate packages with their own version cadence.
 
 ---
 

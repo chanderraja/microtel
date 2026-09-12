@@ -21,21 +21,29 @@ and all runtime link dependencies (nghttp2, OpenSSL, zlib).
 ### `basic_trace/`
 
 The smallest end-to-end trace flow: build a `Provider` with `SdkBuilder`, open
-the OTLP/HTTP-protobuf connection, emit one request trace (a `Server` parent span
-with two child spans, attributes, an event, and a status), `ForceFlush`, print
+the OTLP/gRPC connection, emit one request trace (a `Server` parent span with
+two child spans, attributes, an event, and a status), `ForceFlush`, print
 `GetExporterHealth()`, and `Shutdown`.
 
-Run it against a local OTLP/HTTP collector (default endpoint
-`http://localhost:4318`):
+Run it against a local OTLP/gRPC collector (default endpoint
+`http://localhost:4317`):
 
 ```bash
-# Start a collector on :4318 first, e.g.
-docker run --rm -p 4318:4318 otel/opentelemetry-collector
+# Start a collector on :4317 first, e.g.
+docker run --rm -p 4317:4317 otel/opentelemetry-collector
 
 ./build/examples/microtel_example_basic_trace
 # or point at a specific endpoint:
-./build/examples/microtel_example_basic_trace http://collector.internal:4318
+./build/examples/microtel_example_basic_trace http://collector.internal:4317
 ```
+
+OTLP/gRPC, not OTLP/HTTP, because microtel is HTTP/2-only: a plaintext
+`http://` endpoint means HTTP/2 with prior knowledge, and a stock collector's
+OTLP/HTTP receiver on `:4318` serves HTTP/1.1 only, so nothing can be
+delivered. gRPC is h2c by definition and is unaffected. To use OTLP/HTTP,
+point the example at an `https://` endpoint and change the `WithProtocol` call
+to `microtel::Protocol::Http`. See
+[`compatibility-matrix.md`](../docs/compatibility-matrix.md).
 
 If no collector is reachable, the program still runs the full lifecycle and
 reports the failure through `ForceFlush`'s status and `GetExporterHealth()`.

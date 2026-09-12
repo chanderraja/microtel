@@ -744,14 +744,20 @@ std::optional<internal::WireResult> GrpcWireCodec::EnsureConnected()
     if (!connected)
     {
         // Same reasoning as HttpWireCodec::EnsureConnected: the transport owns
-        // no sink, so the codec records what it observed.
+        // no sink, so the codec records what it observed. Recorded for every
+        // kind, retryable or not — the loss is the same to an operator.
         if (m_diag != nullptr)
         {
             m_diag->RecordDrop(DropReason::ConnectFailure);
         }
+        // A `Protocol` connect failure is a permanent mismatch — a TLS
+        // endpoint that would not negotiate h2 (issue #166). No backoff
+        // outlasts a misconfiguration, so retrying one spends the whole budget
+        // and buries the message that names the fix. Everything else the
+        // transport reports (Network, Cancelled) is worth another attempt.
         return internal::WireResult{
             .success = false,
-            .retryable = true,  // failed connect: same shape as any other transport failure
+            .retryable = connected.error().kind != microtel::Error::Kind::Protocol,
             .retry_after = {},
             .partial_success_rejected = 0,
             .error = connected.error(),

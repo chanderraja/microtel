@@ -535,6 +535,29 @@ TEST(HttpWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWit
     EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
 }
 
+// A connect that failed because the peer speaks the wrong protocol — an
+// HTTP/1.1-only receiver, or a TLS endpoint that would not negotiate h2
+// (issue #166) — will fail the next attempt identically. Retrying it burns the
+// whole retry budget on a misconfiguration no backoff can outlast, and buries
+// the one error message that says what to change.
+TEST(HttpWireCodecTest, Send_WhenConnectFailsWithProtocolError_IsNotRetryable)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result = mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::Protocol, .message = "endpoint is HTTP/1.1-only"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "endpoint is HTTP/1.1-only");
+    EXPECT_EQ(transport.sent_specs.size(), 0U);
+}
+
 // ---------------------------------------------------------------------------
 // Drop accounting — issue #169. connect_failure was documented as owned by
 // "transport", which owns no diagnostics sink; the codec is where the failed
@@ -558,6 +581,24 @@ TEST(HttpWireCodecTest, Diagnostics_ConnectFails_CountsConnectFailure)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
 
     EXPECT_FALSE(result.success);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 1U);
+}
+
+// A Protocol connect failure is not retried, but it is still a lost batch:
+// the counter must move for every kind the transport reports, not just the
+// retryable ones.
+TEST(HttpWireCodecTest, Diagnostics_ProtocolConnectFailure_StillCountsConnectFailure)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result = mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::Protocol, .message = "endpoint is HTTP/1.1-only"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_FALSE(result.retryable);
     EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 1U);
 }
 

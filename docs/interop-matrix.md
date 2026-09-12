@@ -136,9 +136,17 @@ Consequences:
 - `bench/sink/blackhole` already wraps its handler in `h2c.NewHandler` for this
   reason, so the bench harness does not see the gap.
 
+Since this was found, the gap names itself rather than arriving as a generic
+nghttp2 failure: `Build()` warns, `Connect()` returns an `Error::Kind::Protocol`
+naming the two configurations that do work, and the codecs do not retry it.
+[`compatibility-matrix.md`](compatibility-matrix.md) §4 is the operational
+version — what to use instead, and what each surface says.
+
 Whether microtel should gain an HTTP/1.1 fallback — the OTLP specification
-permits HTTP/1.1 for OTLP/HTTP — is an open question for an ICP, not something
-this file decides.
+permits HTTP/1.1 for OTLP/HTTP — is not something this file decides. It is
+parked as open roadmap question 6 in
+[`microtel-roadmap.md`](../microtel-roadmap.md) §12, and would need an ICP.
+Issue #166 tracks it.
 
 ---
 

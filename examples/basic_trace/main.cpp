@@ -3,16 +3,23 @@
 //
 // basic_trace — a minimal, standalone example of the microtel public API.
 //
-// Builds an SDK provider, opens the OTLP/HTTP-protobuf connection, emits one
-// request trace (a server parent span with two child spans), flushes, prints
-// exporter health, and shuts down cleanly.
+// Builds an SDK provider, opens the OTLP/gRPC connection, emits one request
+// trace (a server parent span with two child spans), flushes, prints exporter
+// health, and shuts down cleanly.
 //
 // Usage:
 //   basic_trace [endpoint]
 //
-// where [endpoint] defaults to http://localhost:4318 — an OTLP/HTTP-protobuf
-// collector. Start one first, e.g.:
-//   docker run --rm -p 4318:4318 otel/opentelemetry-collector
+// where [endpoint] defaults to http://localhost:4317 — the OTLP/gRPC receiver
+// of a collector started with:
+//   docker run --rm -p 4317:4317 otel/opentelemetry-collector
+//
+// OTLP/gRPC rather than OTLP/HTTP because a plaintext `http://` endpoint means
+// HTTP/2 with prior knowledge, and a stock collector's OTLP/HTTP receiver on
+// :4318 serves HTTP/1.1 only — so the obvious quick-start configuration cannot
+// deliver anything. gRPC is h2c by definition and is unaffected. For OTLP/HTTP,
+// point this at an `https://` endpoint and add `.WithProtocol(Protocol::Http)`.
+// See docs/compatibility-matrix.md and issue #166.
 
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
@@ -31,7 +38,7 @@ namespace
 constexpr std::chrono::seconds kFlushTimeout{5};
 constexpr std::chrono::seconds kShutdownTimeout{5};
 constexpr std::int64_t kHttpStatusOk{200};
-constexpr const char* kDefaultEndpoint{"http://localhost:4318"};
+constexpr const char* kDefaultEndpoint{"http://localhost:4317"};
 
 const char* StatusToString(microtel::Status status) noexcept
 {
@@ -102,7 +109,7 @@ int main(int argc, char** argv)
 
     auto built = microtel::SdkBuilder{}
                      .WithEndpoint(endpoint)
-                     .WithProtocol(microtel::Protocol::Http)
+                     .WithProtocol(microtel::Protocol::Grpc)
                      .WithServiceName("microtel-basic-example")
                      .WithServiceVersion("1.0.0")
                      .Build();
@@ -122,7 +129,7 @@ int main(int argc, char** argv)
     {
         std::cerr << "warning: Connect() to " << endpoint
                   << " failed: " << connected.error().message
-                  << "\n         is an OTLP/HTTP collector listening there? "
+                  << "\n         is an OTLP/gRPC collector listening there? "
                      "continuing — export will be retried on flush.\n";
     }
 

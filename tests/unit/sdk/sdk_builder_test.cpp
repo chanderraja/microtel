@@ -7,6 +7,7 @@
 
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sampler.hpp"
@@ -14,11 +15,16 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // Build — validation / consumed guard
@@ -344,4 +350,124 @@ TEST(SdkBuilderTest, EndToEnd_ConnectFailureReachesGetExporterHealth)
     ASSERT_FALSE((*result)->Connect().has_value());
 
     EXPECT_EQ(DropCount((*result)->GetExporterHealth(), microtel::DropReason::ConnectFailure), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Build()-time warnings
+//
+// Neither configuration below is rejected: an h2c-capable proxy and the bench
+// harness's own blackhole sink both make plaintext OTLP/HTTP legitimate, and
+// `insecure = true` is permitted by spec §12.3. Both are, however, very likely
+// to be a mistake, and `config::Validate` returns `Expected<void, ConfigError>`
+// — it can reject but it cannot warn. These are the first production callers
+// of the internal log channel.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Captures microtel's internal log emissions for the duration of a scope, and
+/// restores the default routing on the way out.
+class LogCapture
+{
+public:
+    LogCapture()
+    {
+        microtel::SetLogSink([this](microtel::LogLevel level, std::string_view message)
+                             { m_entries.emplace_back(level, std::string{message}); });
+    }
+
+    ~LogCapture()
+    {
+        microtel::ResetLogSink();
+    }
+
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    LogCapture(LogCapture&&) = delete;
+    LogCapture& operator=(LogCapture&&) = delete;
+
+    [[nodiscard]] bool WarnedAbout(std::string_view needle) const
+    {
+        return std::ranges::any_of(m_entries,
+                                   [needle](const auto& entry)
+                                   {
+                                       return entry.first == microtel::LogLevel::Warn &&
+                                              entry.second.find(needle) != std::string::npos;
+                                   });
+    }
+
+private:
+    std::vector<std::pair<microtel::LogLevel, std::string>> m_entries;
+};
+
+constexpr std::string_view kPlaintextNeedle = "plaintext OTLP/HTTP";
+constexpr std::string_view kInsecureNeedle = "insecure";
+
+}  // namespace
+
+TEST(SdkBuilderTest, Build_PlaintextHttpEndpoint_WarnsWithoutRejecting)
+{
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("http://localhost:4318")
+                            .WithProtocol(microtel::Protocol::Http)
+                            .Build();
+
+    ASSERT_TRUE(result.has_value()) << "h2c-capable receivers exist; this must not be rejected";
+    EXPECT_TRUE(capture.WarnedAbout(kPlaintextNeedle));
+    EXPECT_TRUE(capture.WarnedAbout("compatibility-matrix"))
+        << "the warning must point somewhere the reader can act on";
+}
+
+TEST(SdkBuilderTest, Build_PlaintextGrpcEndpoint_DoesNotWarn)
+{
+    // gRPC is h2c by definition and the collector's gRPC receiver speaks it —
+    // the whole gRPC conformance suite runs over `http://`.
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("http://localhost:4317")
+                            .WithProtocol(microtel::Protocol::Grpc)
+                            .Build();
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));
+}
+
+TEST(SdkBuilderTest, Build_HttpsEndpoint_DoesNotWarnAboutPlaintext)
+{
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithProtocol(microtel::Protocol::Http)
+                            .Build();
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));
+}
+
+TEST(SdkBuilderTest, Build_InsecureTls_Warns)
+{
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithTls(microtel::TlsOptions{.insecure = true,
+                                                          .ca_bundle = {},
+                                                          .client_cert = {},
+                                                          .client_key = {},
+                                                          .sni_override = {}})
+                            .Build();
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(capture.WarnedAbout(kInsecureNeedle))
+        << "spec §12.3 promises a prominent runtime warning for insecure = true";
+}
+
+TEST(SdkBuilderTest, Build_VerifiedTls_DoesNotWarnAboutInsecure)
+{
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder().WithEndpoint("https://localhost:4318").Build();
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(capture.WarnedAbout(kInsecureNeedle));
 }

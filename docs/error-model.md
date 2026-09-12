@@ -123,7 +123,7 @@ public:
     {
         Unspecified           = 0,
         Network               = 1,   // socket / TLS / nghttp2 transport error
-        Protocol              = 2,   // OTLP wire failure (status interpretation)
+        Protocol              = 2,   // wire/protocol mismatch: OTLP status, or a peer that is not h2
         ResourceExhausted     = 3,   // peer signalled overload; retryable depending on RetryInfo
         Cancelled             = 4,   // local cancel (timeout, shutdown)
         Malformed             = 5,   // unparseable response or trailer

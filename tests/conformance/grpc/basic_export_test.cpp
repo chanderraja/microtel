@@ -103,6 +103,12 @@ constexpr const char* kEventNameJson = R"("name":"conformance.event")";
 constexpr const char* kEventAttrJson =
     R"({"key":"conformance.event.attr","value":{"stringValue":"event-value"}})";
 constexpr const char* kStatusJson = R"("status":{"message":"conformance-error","code":2})";
+// The instrumentation scope: kScopeName / kScopeVersion as handed to
+// GetTracer, not the service name. Asserting it is what issue #167 was open
+// for — the collector used to decode `"scope":{"name":"microtel-conformance"}`
+// here, with no version at all (ICP 0023).
+constexpr const char* kScopeJson =
+    R"("scope":{"name":"microtel.conformance.grpc","version":"1.0"})";
 
 /// @brief Builds a provider aimed at the collector's plaintext OTLP/gRPC receiver.
 ///
@@ -226,8 +232,9 @@ TEST(GrpcConformance, BasicExportRoundTrip)
     ExpectLineContains(exported, trace_id_json);
     ExpectLineContains(exported, span_id_json);
 
-    // Payload: resource, every attribute type, the event, and the status.
+    // Payload: resource, scope, every attribute type, the event, and the status.
     ExpectLineContains(exported, kServiceNameJson);
+    ExpectLineContains(exported, kScopeJson);
     ExpectLineContains(exported, kStringAttrJson);
     ExpectLineContains(exported, kInt64AttrJson);
     ExpectLineContains(exported, kDoubleAttrJson);

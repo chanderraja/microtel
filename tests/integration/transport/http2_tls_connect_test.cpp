@@ -8,6 +8,8 @@
 // it under four trust configurations.  Everything is generated in-process:
 // there is no checked-in key material and nothing shells out to `openssl`.
 
+#include "microtel/error.hpp"
+
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
 
@@ -19,6 +21,7 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -249,15 +252,37 @@ int SrvTlsOnFrameRecv(nghttp2_session* /*s*/, const nghttp2_frame* frame, void* 
     return 0;
 }
 
-/// Answer the client's ALPN offer with "h2" — the only protocol this server
-/// speaks, and the one `Http2Transport` advertises.
+/// What this server answers the client's ALPN offer with.
+///
+/// `Http2Transport` advertises only `h2`; a receiver that answers anything
+/// else — or ignores ALPN entirely, which is what a stock HTTP/1.1-only TLS
+/// endpoint does — cannot carry an HTTP/2 session (issue #166).
+enum class ServerAlpn : std::uint8_t
+{
+    H2,      ///< "h2": the protocol Http2Transport requires
+    Http11,  ///< "http/1.1": an HTTP/1.1-only receiver that does speak ALPN
+    None,    ///< no ALPN callback at all: no protocol in the ServerHello
+};
+
+/// The wire bytes of "http/1.1", without ALPN's length prefix. Static storage:
+/// OpenSSL keeps the pointer the select callback hands back.
+constexpr std::array<unsigned char, 8> kHttp11Wire{'h', 't', 't', 'p', '/', '1', '.', '1'};
+
+/// Answer the client's ALPN offer per the `ServerAlpn` mode in @p arg.
 int SrvAlpnSelect(SSL* /*ssl*/,
                   const unsigned char** out,
                   unsigned char* outlen,
                   const unsigned char* in,
                   unsigned int inlen,
-                  void* /*arg*/) noexcept
+                  void* arg) noexcept
 {
+    if (*static_cast<const ServerAlpn*>(arg) == ServerAlpn::Http11)
+    {
+        *out = kHttp11Wire.data();
+        *outlen = static_cast<unsigned char>(kHttp11Wire.size());
+        return SSL_TLSEXT_ERR_OK;
+    }
+
     constexpr unsigned int kH2Len = 2;
     unsigned int i = 0;
     while (i < inlen)
@@ -276,7 +301,9 @@ int SrvAlpnSelect(SSL* /*ssl*/,
     return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
-SslCtxPtr MakeServerCtx(const Credential& cred)
+/// @param alpn Borrowed; must outlive every connection made on the returned
+///             context, since OpenSSL passes it to the select callback.
+SslCtxPtr MakeServerCtx(const Credential& cred, const ServerAlpn* alpn)
 {
     SslCtxPtr ctx{::SSL_CTX_new(::TLS_server_method())};
     if (!ctx)
@@ -288,7 +315,16 @@ SslCtxPtr MakeServerCtx(const Credential& cred)
     {
         return SslCtxPtr{};
     }
-    ::SSL_CTX_set_alpn_select_cb(ctx.get(), SrvAlpnSelect, nullptr);
+    // No TLS 1.3 session tickets. A client that hangs up the instant the
+    // handshake completes — which is exactly what the ALPN tests below make it
+    // do — leaves the server writing NewSessionTicket into a closed socket,
+    // and the EPIPE from that raises SIGPIPE in this single-process test.
+    ::SSL_CTX_set_num_tickets(ctx.get(), 0);
+    if (*alpn != ServerAlpn::None)
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        ::SSL_CTX_set_alpn_select_cb(ctx.get(), SrvAlpnSelect, const_cast<ServerAlpn*>(alpn));
+    }
     return ctx;
 }
 
@@ -309,9 +345,10 @@ public:
 
     /// Bind 127.0.0.1:0, listen, start the accept thread.  Returns the
     /// assigned port, or -1.
-    int Start(const Credential& cred)
+    int Start(const Credential& cred, ServerAlpn alpn = ServerAlpn::H2)
     {
-        m_ctx = MakeServerCtx(cred);
+        m_alpn = alpn;
+        m_ctx = MakeServerCtx(cred, &m_alpn);
         if (!m_ctx)
         {
             return -1;
@@ -415,7 +452,13 @@ private:
         }
 
         SetNonBlocking(fd);
-        RunHttp2(ssl.get(), fd);
+        if (m_alpn == ServerAlpn::H2)
+        {
+            // A receiver that did not agree to h2 would not run an HTTP/2
+            // session either — and the client hangs up as soon as it reads
+            // the ALPN answer, so there would be nobody to talk to.
+            RunHttp2(ssl.get(), fd);
+        }
         m_handshake_done.store(true, std::memory_order_release);
 
         // Hold the connection open until Stop(): closing straight after the
@@ -471,6 +514,7 @@ private:
     }
 
     SslCtxPtr m_ctx;
+    ServerAlpn m_alpn = ServerAlpn::H2;
     int m_listen_fd = -1;
     int m_port = 0;
     std::thread m_thread;
@@ -487,6 +531,7 @@ constexpr auto kConnectTimeout = std::chrono::milliseconds(5000);
 struct ConnectOutcome
 {
     bool connected = false;
+    microtel::Error::Kind kind = microtel::Error::Kind::Unspecified;
     std::string message;
 };
 
@@ -496,12 +541,16 @@ ConnectOutcome ConnectOnce(const mti::ConnectOptions& opts)
     auto reactor_result = mtt::EpollReactor::Create();
     if (!reactor_result)
     {
-        return ConnectOutcome{.connected = false, .message = "EpollReactor::Create failed"};
+        return ConnectOutcome{.connected = false,
+                              .kind = microtel::Error::Kind::InternalFailure,
+                              .message = "EpollReactor::Create failed"};
     }
     auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
     if (!transport_result)
     {
-        return ConnectOutcome{.connected = false, .message = "Http2Transport::Create failed"};
+        return ConnectOutcome{.connected = false,
+                              .kind = microtel::Error::Kind::InternalFailure,
+                              .message = "Http2Transport::Create failed"};
     }
     auto& transport = *transport_result;
 
@@ -510,6 +559,7 @@ ConnectOutcome ConnectOnce(const mti::ConnectOptions& opts)
     outcome.connected = result.has_value();
     if (!result)
     {
+        outcome.kind = result.error().kind;
         outcome.message = result.error().message;
     }
     (void)transport->Close(std::chrono::milliseconds(1000));
@@ -626,4 +676,57 @@ TEST(Http2TlsConnectTest, HostnameMismatch_ConnectFails)
         << "a certificate issued to another name must not be accepted for this endpoint";
     EXPECT_NE(outcome.message.find("certificate verification failed"), std::string::npos)
         << "error was: " << outcome.message;
+}
+
+// ---------------------------------------------------------------------------
+// ALPN (issue #166)
+//
+// `Http2Transport` advertises only `h2` and has no HTTP/1.1 mode, so a TLS
+// endpoint that answers with anything else — or ignores ALPN entirely, which
+// is what an HTTP/1.1-only TLS receiver does — cannot carry a session. Nothing
+// checked the negotiated protocol before these tests: the connection went on
+// to the HTTP/2 preface and died there as a generic nghttp2 recv failure,
+// which named neither ALPN nor the endpoint's actual protocol.
+// ---------------------------------------------------------------------------
+
+// Where the boundary actually falls. microtel offers only `h2`, and OpenSSL's
+// client enforces RFC 7301 itself: a ServerHello naming a protocol the client
+// never offered aborts the handshake before any microtel code runs, so this
+// case never reaches the ALPN check below. Pinned so that the check is not
+// "fixed" to cover a case it cannot see — and so that the generic message this
+// path produces is a known quantity rather than a surprise.
+TEST(Http2TlsConnectTest, AlpnAnswersUnofferedProtocol_OpenSslRejectsHandshake)
+{
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+
+    TlsHttp2Server server;
+    const int port = server.Start(server_cred, ServerAlpn::Http11);
+    ASSERT_GT(port, 0);
+
+    auto opts = MakeOptions(port);
+    opts.insecure = true;  // the certificate is not what this test is about
+
+    const auto outcome = ConnectOnce(opts);
+    EXPECT_FALSE(outcome.connected) << "a peer that answered http/1.1 cannot speak HTTP/2";
+    EXPECT_EQ(outcome.kind, microtel::Error::Kind::Network)
+        << "OpenSSL fails the handshake, so this is a TLS error, not microtel's ALPN check";
+}
+
+TEST(Http2TlsConnectTest, AlpnNotNegotiated_ConnectFailsWithProtocolError)
+{
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+
+    TlsHttp2Server server;
+    const int port = server.Start(server_cred, ServerAlpn::None);
+    ASSERT_GT(port, 0);
+
+    auto opts = MakeOptions(port);
+    opts.insecure = true;
+
+    const auto outcome = ConnectOnce(opts);
+    EXPECT_FALSE(outcome.connected) << "no ALPN answer means no agreement to speak h2";
+    EXPECT_EQ(outcome.kind, microtel::Error::Kind::Protocol);
+    EXPECT_NE(outcome.message.find("none"), std::string::npos) << "error was: " << outcome.message;
 }

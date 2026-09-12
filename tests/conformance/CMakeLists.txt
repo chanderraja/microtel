@@ -42,3 +42,4 @@ function(microtel_add_conformance_test)
 endfunction()
 
 add_subdirectory(http)
+add_subdirectory(grpc)

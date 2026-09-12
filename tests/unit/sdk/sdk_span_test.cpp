@@ -55,7 +55,7 @@ static std::unique_ptr<mt::sdk::SdkSpan> MakeSpan(
         std::chrono::system_clock::now(),
         &proc,
         resource,
-        mti::InstrumentationScope{.name = "test", .version = ""},
+        mti::InstrumentationScope{.name = "span.scope", .version = "4.2"},
         limits);
 }
 
@@ -84,6 +84,18 @@ TEST(SdkSpanTest, End_CallsOnEnd)
     span->End();
     ASSERT_EQ(proc.received_spans.size(), 1U);
     EXPECT_EQ(proc.received_spans[0].name, "test-op");
+}
+
+// The span's scope is the tracer's, and it must reach the processor — before
+// ICP 0023 SdkSpan stored it and never read it (issue #167).
+TEST(SdkSpanTest, End_PassesTracerScopeToProcessor)
+{
+    mtfk::FakeSpanProcessor proc;
+    auto span = MakeSpan(proc);
+    span->End();
+    ASSERT_EQ(proc.received_scopes.size(), 1U);
+    EXPECT_EQ(proc.received_scopes[0].name, "span.scope");
+    EXPECT_EQ(proc.received_scopes[0].version, "4.2");
 }
 
 TEST(SdkSpanTest, End_IsIdempotent)

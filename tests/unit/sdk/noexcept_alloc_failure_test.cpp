@@ -258,14 +258,13 @@ TEST(NoexceptAllocFailureTest, SpanRemainsUsableAfterADroppedField)
 TEST(NoexceptAllocFailureTest, SimpleSpanProcessorOnEndSurvivesAllocationFailure)
 {
     mtmk::MockExporter exporter;
-    mti::SimpleSpanProcessor processor{&exporter,
-                                       std::make_shared<mt::Resource>(),
-                                       mti::InstrumentationScope{.name = "s", .version = "1"}};
+    mti::SimpleSpanProcessor processor{&exporter, std::make_shared<mt::Resource>()};
     mti::SpanRecord record;
+    const mti::InstrumentationScope scope{.name = "s", .version = "1"};
 
     {
         const ScopedAllocFailure fail;
-        processor.OnEnd(std::move(record));
+        processor.OnEnd(std::move(record), scope);
     }
     SUCCEED();
 }

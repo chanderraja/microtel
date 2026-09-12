@@ -594,12 +594,11 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
 
     // --- Step 10: processor -------------------------------------------------
-    internal::InstrumentationScope scope{
-        .name = cfg.service_name,
-        .version = cfg.service_version,
-    };
-    auto processor = std::make_unique<sdk::BatchSpanProcessor>(
-        exporters.exporter.get(), resource, std::move(scope), cfg.batch);
+    // No scope here: the processor stamps each batch with the scope that
+    // arrived with the span, i.e. the one `GetTracer` was called with
+    // (ICP 0023). The service identity reaches the wire through the Resource.
+    auto processor =
+        std::make_unique<sdk::BatchSpanProcessor>(exporters.exporter.get(), resource, cfg.batch);
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);

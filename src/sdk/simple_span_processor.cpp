@@ -10,10 +10,9 @@
 namespace microtel::internal
 {
 
-SimpleSpanProcessor::SimpleSpanProcessor(IExporter* exporter,
-                                         std::shared_ptr<const microtel::Resource> resource,
-                                         InstrumentationScope scope) noexcept
-    : m_exporter(exporter), m_resource(std::move(resource)), m_scope(std::move(scope))
+SimpleSpanProcessor::SimpleSpanProcessor(
+    IExporter* exporter, std::shared_ptr<const microtel::Resource> resource) noexcept
+    : m_exporter(exporter), m_resource(std::move(resource))
 {
 }
 
@@ -23,7 +22,7 @@ void SimpleSpanProcessor::OnStart(microtel::Span& /*span*/,
     // No-op. v1 has no in-process span enrichment hooks.
 }
 
-void SimpleSpanProcessor::OnEnd(SpanRecord&& record) noexcept
+void SimpleSpanProcessor::OnEnd(SpanRecord&& record, const InstrumentationScope& scope) noexcept
 {
     // ISpanProcessor::OnEnd is noexcept, but building the one-record batch
     // allocates. Without this guard a std::bad_alloc here terminates the host
@@ -36,7 +35,7 @@ void SimpleSpanProcessor::OnEnd(SpanRecord&& record) noexcept
         records.reserve(1);
         records.push_back(std::move(record));
 
-        BatchHandle batch{std::move(records), m_resource, m_scope};
+        BatchHandle batch{std::move(records), m_resource, scope};
         (void)m_exporter->Export(std::move(batch));
     }
     // Dropping the span IS the documented behaviour (error-model.md §2.2);

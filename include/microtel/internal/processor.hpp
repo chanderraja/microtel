@@ -24,7 +24,12 @@ namespace microtel::internal
 ///
 /// `OnStart` and `OnEnd` are callable from any caller thread; thread-safe;
 /// `noexcept`. `OnEnd` is called exactly once per `Span`, on the caller thread
-/// that ended the span.
+/// that ended the span. The `scope` identifies the instrumentation scope of the
+/// `Tracer` that started the span — the `name` / `version` pair passed to
+/// `Provider::GetTracer`. It is borrowed for the duration of the call; a
+/// processor that outlives the call copies it. The processor groups records by
+/// `(Resource, InstrumentationScope)` when it forms a `BatchHandle`
+/// (ICP 0023).
 ///
 /// @threadsafety Thread-safe.
 /// @noexcept All methods.
@@ -36,7 +41,7 @@ public:
 
     virtual void OnStart(microtel::Span& span, const microtel::Context& parent) noexcept = 0;
 
-    virtual void OnEnd(SpanRecord&& record) noexcept = 0;
+    virtual void OnEnd(SpanRecord&& record, const InstrumentationScope& scope) noexcept = 0;
 
     [[nodiscard]] virtual microtel::Status ForceFlush(
         std::chrono::milliseconds timeout) noexcept = 0;

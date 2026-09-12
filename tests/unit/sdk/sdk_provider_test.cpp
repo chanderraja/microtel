@@ -9,13 +9,18 @@
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
+#include "microtel/sdk_builder.hpp"
+#include "microtel/span.hpp"
 #include "microtel/status.hpp"
+#include "microtel/tracer.hpp"
 
+#include "fakes/fake_exporter.hpp"
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_log_exporter.hpp"
 #include "mocks/mock_metric_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
+#include "sdk/batch_span_processor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -345,6 +350,51 @@ TEST(SdkProviderTest, GetLoggerBeforeShutdown_StillBuildsThePipeline)
     EXPECT_NE(logger, nullptr);
     // The processor's worker thread is expected here.
     EXPECT_GT(LiveThreadCount(), before);
+}
+
+// ---------------------------------------------------------------------------
+// Instrumentation scope round-trip (issue #167 / ICP 0023)
+// ---------------------------------------------------------------------------
+
+// End-to-end inside the SDK: Provider::GetTracer -> SdkTracer -> SdkSpan ->
+// a real BatchSpanProcessor -> a capturing exporter. Before ICP 0023 the
+// exported batch carried the scope the processor was constructed with -- in
+// production, the service name out of builder config -- and the name and
+// version passed to GetTracer reached nothing.
+TEST(SdkProviderTest, ExportedBatchCarriesTheTracerScope)
+{
+    auto exporter = std::make_unique<mtm::FakeExporter>();
+    auto* const captured = exporter.get();
+
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);  // only ForceFlush drains
+
+    auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::make_unique<mtm::MockTransport>(),
+        .codec = nullptr,
+        .exporter = std::move(exporter),
+        .processor = std::make_unique<mts::BatchSpanProcessor>(
+            captured, std::make_shared<const mt::Resource>(), opts),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+    });
+
+    {
+        const auto tracer = provider->GetTracer("scope.x", "1.2");
+        auto span = tracer->StartSpan("op");
+        span->End();
+    }
+
+    ASSERT_EQ(provider->ForceFlush(kTimeout), mt::Status::Completed);
+
+    ASSERT_EQ(captured->received_batches.size(), std::size_t{1});
+    EXPECT_EQ(captured->received_batches[0].Scope().name, "scope.x");
+    EXPECT_EQ(captured->received_batches[0].Scope().version, "1.2");
 }
 
 // NOLINTEND(misc-const-correctness)

@@ -120,10 +120,13 @@ TEST(FakeSpanProcessor, RecordsEndedSpans)
     mt::testing::FakeSpanProcessor proc;
     mt::internal::SpanRecord r1{};
     r1.name = "first";
-    proc.OnEnd(std::move(r1));
+    proc.OnEnd(std::move(r1), mt::internal::InstrumentationScope{.name = "lib", .version = "1"});
 
     EXPECT_EQ(proc.received_spans.size(), std::size_t{1});
     EXPECT_EQ(proc.received_spans[0].name, "first");
+    ASSERT_EQ(proc.received_scopes.size(), std::size_t{1});
+    EXPECT_EQ(proc.received_scopes[0].name, "lib");
+    EXPECT_EQ(proc.received_scopes[0].version, "1");
 }
 
 TEST(FakeExporter, RecordsBatches)

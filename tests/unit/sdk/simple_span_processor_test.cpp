@@ -47,25 +47,27 @@ protected:
 
 TEST_F(SimpleSpanProcessorTest, OnEndForwardsSingleSpanBatchToExporter)
 {
-    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource, m_scope};
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
 
-    proc.OnEnd(MakeSpanRecord("first"));
+    proc.OnEnd(MakeSpanRecord("first"), m_scope);
 
     ASSERT_EQ(m_exporter.received_batches.size(), std::size_t{1});
     const auto& batch = m_exporter.received_batches[0];
     ASSERT_EQ(batch.Spans().size(), std::size_t{1});
     EXPECT_EQ(batch.Spans()[0].name, "first");
+    // The scope on the batch is the one this OnEnd call carried, not one the
+    // processor was constructed with — it no longer holds one (ICP 0023).
     EXPECT_EQ(batch.Scope().name, "test.scope");
     EXPECT_EQ(batch.Scope().version, "1");
 }
 
 TEST_F(SimpleSpanProcessorTest, EachOnEndProducesSeparateBatch)
 {
-    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource, m_scope};
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
 
-    proc.OnEnd(MakeSpanRecord("a"));
-    proc.OnEnd(MakeSpanRecord("b"));
-    proc.OnEnd(MakeSpanRecord("c"));
+    proc.OnEnd(MakeSpanRecord("a"), m_scope);
+    proc.OnEnd(MakeSpanRecord("b"), m_scope);
+    proc.OnEnd(MakeSpanRecord("c"), m_scope);
 
     ASSERT_EQ(m_exporter.received_batches.size(), std::size_t{3});
     EXPECT_EQ(m_exporter.received_batches[0].Spans()[0].name, "a");
@@ -73,9 +75,27 @@ TEST_F(SimpleSpanProcessorTest, EachOnEndProducesSeparateBatch)
     EXPECT_EQ(m_exporter.received_batches[2].Spans()[0].name, "c");
 }
 
+// The defect this guards (issue #167) is a processor that stamps batches with a
+// scope fixed at construction: with one processor and two callers, both batches
+// would carry the same scope.
+TEST_F(SimpleSpanProcessorTest, EachBatchCarriesTheScopeItsOnEndWasGiven)
+{
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
+
+    const mt::internal::InstrumentationScope other{.name = "other.scope", .version = "2"};
+    proc.OnEnd(MakeSpanRecord("a"), m_scope);
+    proc.OnEnd(MakeSpanRecord("b"), other);
+
+    ASSERT_EQ(m_exporter.received_batches.size(), std::size_t{2});
+    EXPECT_EQ(m_exporter.received_batches[0].Scope().name, "test.scope");
+    EXPECT_EQ(m_exporter.received_batches[0].Scope().version, "1");
+    EXPECT_EQ(m_exporter.received_batches[1].Scope().name, "other.scope");
+    EXPECT_EQ(m_exporter.received_batches[1].Scope().version, "2");
+}
+
 TEST_F(SimpleSpanProcessorTest, ForceFlushReturnsCompletedWithoutEngagingExporter)
 {
-    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource, m_scope};
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
 
     const auto rc = proc.ForceFlush(std::chrono::seconds{5});
     EXPECT_EQ(rc, mt::Status::Completed);
@@ -84,7 +104,7 @@ TEST_F(SimpleSpanProcessorTest, ForceFlushReturnsCompletedWithoutEngagingExporte
 
 TEST_F(SimpleSpanProcessorTest, ShutdownDelegatesToExporter)
 {
-    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource, m_scope};
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
     m_exporter.shutdown_result = mt::Status::TimedOut;
 
     const auto rc = proc.Shutdown(std::chrono::seconds{5});
@@ -94,7 +114,7 @@ TEST_F(SimpleSpanProcessorTest, ShutdownDelegatesToExporter)
 
 TEST_F(SimpleSpanProcessorTest, ShutdownIsIdempotentByDelegating)
 {
-    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource, m_scope};
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
     m_exporter.shutdown_result = mt::Status::Completed;
 
     EXPECT_EQ(proc.Shutdown(std::chrono::seconds{1}), mt::Status::Completed);

@@ -1,7 +1,11 @@
 schema_version: 1
-# Single source of truth for all externally pinned versions in the bench harness.
-# Update one value here and open a PR — bench.sh reads this file and passes
-# --build-arg to every docker build call, so Dockerfiles never need editing.
+# Documentation-only registry of the externally pinned versions in the bench
+# harness. Nothing reads this file — not bench.sh, not any Dockerfile, not CI.
+# The real pins live in the Dockerfiles; the values here are a human-readable
+# index of them, so changing one here alone changes nothing. Update both.
+#
+# (An earlier version of this comment claimed bench.sh read the file and passed
+# --build-arg from it. It does not, and never has.)
 
 # OS base image used by all SUT stages.
 ubuntu_image: "ubuntu:24.04"
@@ -18,4 +22,6 @@ otelcpp_version: "v1.19.0"
 go_version: "1.25"
 
 # otel-collector image for sink/collector mode (B2+; not used in B0).
-otelcol_image: "otel/opentelemetry-collector-contrib:0.125.0"
+# Kept in step with ci/scripts/conformance.sh and docs/interop-matrix.md so the
+# bench and the conformance gate measure the same receiver.
+otelcol_image: "otel/opentelemetry-collector-contrib:0.160.0"

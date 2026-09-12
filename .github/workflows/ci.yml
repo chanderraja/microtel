@@ -272,6 +272,37 @@ jobs:
       - name: Assert the shim does not alter the dependency closure
         run: ci/scripts/symbol-scan.sh build
 
+  conformance:
+    runs-on: ubuntu-latest
+    name: conformance
+    # Pulling the collector image dominates; the tests themselves are seconds.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build \
+            libssl-dev libnghttp2-dev zlib1g-dev
+      - name: Configure
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DMICROTEL_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build
+      # Docker is preinstalled on the runner; conformance.sh detects podman
+      # first and falls back to it. The script starts the pinned collector
+      # (docs/interop-matrix.md), waits on its health extension, and fails the
+      # job if no test carries the `conformance` label.
+      - name: Run conformance gate
+        run: ci/scripts/conformance.sh build
+
   coverage:
     runs-on: ubuntu-latest
     name: coverage

@@ -1,0 +1,102 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Collector configuration for the conformance tier. Started by
+# ci/scripts/conformance.sh; the pinned image is recorded in
+# docs/interop-matrix.md.
+#
+# Four named otlp receivers rather than one, each on its own port pair, so a
+# test selects a transport-security posture by picking an endpoint instead of
+# by restarting the collector with a different config. They all feed the same
+# traces pipeline, so a test asserts on one output file whichever port it used.
+#
+# Port convention: <base><variant>, base 431x/432x for grpc/http,
+#   plain 4317/4318 | tls 4327/4328 | mtls 4337/4338 | auth 4347/4348
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  bearertokenauth:
+    scheme: "Bearer"
+    token: "microtel-conformance-token"
+
+receivers:
+  otlp/plain:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+  otlp/tls:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4327"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+      http:
+        endpoint: "0.0.0.0:4328"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+
+  # Same material as otlp/tls plus a client CA, so a handshake here fails
+  # unless the client presents a cert this CA signed.
+  otlp/mtls:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4337"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+          client_ca_file: /certs/ca.crt
+      http:
+        endpoint: "0.0.0.0:4338"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+          client_ca_file: /certs/ca.crt
+
+  # Plaintext on purpose: this pair isolates the Authorization header from TLS
+  # so an auth failure cannot be confused with a handshake failure.
+  otlp/auth:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4347"
+        auth:
+          authenticator: bearertokenauth
+      http:
+        endpoint: "0.0.0.0:4348"
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 100ms
+
+exporters:
+  # The observable surface for round-trip assertions: one compact protojson
+  # object per batch, appended to a bind-mounted file the test reads back.
+  file:
+    path: /out/traces.jsonl
+    flush_interval: 100ms
+  debug:
+    verbosity: basic
+
+service:
+  extensions: [health_check, bearertokenauth]
+  pipelines:
+    traces:
+      receivers: [otlp/plain, otlp/tls, otlp/mtls, otlp/auth]
+      processors: [batch]
+      exporters: [file, debug]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888

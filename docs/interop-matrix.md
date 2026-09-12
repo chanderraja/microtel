@@ -62,10 +62,24 @@ accept what microtel emits, and is what it decodes what microtel meant?
 |---|---|
 | Acceptance (connect, export, `ForceFlush`) | OTLP/HTTP ✅ |
 | Content round-trip (ids, attribute types, events, status) | OTLP/HTTP ✅ |
-| gzip request compression | planned |
-| TLS, mTLS, CA pinning | receivers configured; tests planned |
-| Bearer-token auth | receiver configured; tests planned |
+| Multi-batch delivery, exactly-once, large multi-DATA-frame bodies | OTLP/HTTP ✅ |
+| gzip request compression | OTLP/HTTP ✅ |
+| TLS, mTLS, CA pinning, SNI override | OTLP/HTTP ✅ |
+| Bearer-token auth (static header, callback, 401 rejection) | OTLP/HTTP ✅ |
+| Plaintext h2c gap, pinned as a negative test | OTLP/HTTP ✅ |
 | OTLP/gRPC, all of the above | planned |
+
+Two caveats behind those ticks:
+
+- **`drop_counters` is not yet evidence.** The negative tests assert
+  `batches_failed` and the collector's output file, not the `DropReason`
+  counters `docs/error-model.md` §7.1 names, because only two of the 24
+  counters are ever incremented (issue #169). The 401 assertion is parked as
+  `DISABLED_WrongTokenIncrementsNonRetryableDropCounter` in
+  `tests/conformance/http/auth_test.cpp` until they are wired.
+- **Instrumentation scope is not asserted.** `ScopeSpans.scope` currently
+  carries the service name rather than the `GetTracer(name, version)` scope
+  (issue #167), so no test here asserts on it — that would enshrine the bug.
 
 **Weekly interop** — [`interop.yml`](../.github/workflows/interop.yml).
 Behaviour at volume against collector and Jaeger: delivery rate and
@@ -86,8 +100,16 @@ finding was confirmed against the pinned image.
 Consequences:
 
 - The HTTP conformance tests use the **TLS** receiver, where the same collector
-  negotiates `h2` through ALPN. The plaintext endpoint stays in the runner's
-  environment contract for a future test that pins the failure deliberately.
+  negotiates `h2` through ALPN.
+- The gap is pinned deliberately by
+  `tests/conformance/http/plaintext_gap_test.cpp`, which asserts that
+  `Connect()` to the plaintext receiver **fails**. When microtel gains an
+  HTTP/1.1 fallback, or the collector gains h2c, that test fails and is to be
+  inverted into a positive delivery test rather than deleted.
+- The collector's bearer-auth **http** receiver (`:4348`) carries server TLS
+  material for the same reason, even though the point of that receiver is to
+  isolate the `Authorization` header. Its **grpc** twin (`:4347`) stays
+  plaintext.
 - OTLP/**gRPC** over plaintext is unaffected: gRPC is h2c by definition and the
   collector's gRPC receiver speaks it.
 - `bench/sink/blackhole` already wraps its handler in `h2c.NewHandler` for this

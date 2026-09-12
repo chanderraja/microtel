@@ -69,34 +69,41 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 
 | Reason (counter name) | Where incremented | Triggered by |
 |---|---|---|
-| `queue_full` | `BatchSpanProcessor`, on `End()` enqueue | span queue at capacity (default `drop_newest`) |
-| `record_too_large` | `BatchSpanProcessor`, on `End()` enqueue | record's encoded-size estimate exceeds `max_record_bytes` |
+| `queue_full` | `BatchSpanProcessor` / `BatchLogRecordProcessor` on enqueue, and each exporter's `Export` | queue at capacity. Counted in records, not batches: a batch the exporter refuses costs every record in it. Both drop policies lose one record per rejection — the policy picks which one |
+| `record_too_large` | *(not yet produced)* | record's encoded-size estimate exceeds `max_record_bytes` — awaiting the §13.5 limits gate |
 | `span_attribute_limit` | API layer, in `SetAttribute` | per-span `attribute_count_limit` reached |
 | `span_event_limit` | API layer, in `AddEvent` | per-span `event_count_limit` reached |
 | `span_link_limit` | API layer, in `AddLink` | per-span `link_count_limit` reached |
-| `event_attribute_limit` | API layer, in `AddEvent` (per-event attributes) | per-event `event_attribute_count_limit` reached |
-| `link_attribute_limit` | API layer, in `AddLink` (per-link attributes) | per-link `link_attribute_count_limit` reached |
-| `attribute_value_truncated` | API layer, on attribute set | string value exceeded `attribute_value_length_limit`; truncation, not a full drop, but counted here |
-| `post_shutdown` | API layer (caller path) and `BatchSpanProcessor` | call after `Shutdown` returned |
-| `response_too_large` | wire codec | response body exceeded `max_response_bytes` |
-| `decompression_too_large` | wire codec | decompressed body exceeded `max_decompressed_bytes` |
-| `malformed_response` | wire codec | response could not be parsed (missing trailers, bad framing, unparseable proto) |
-| `partial_success_rejection` | wire codec, on partial-success parse | rejected items count from the response — see §6 |
-| `non_retryable_failure` | wire codec | request returned a non-retryable status (415, gRPC `INVALID_ARGUMENT`, etc.) |
+| `event_attribute_limit` | API layer, in `AddEvent` (per-event attributes) | per-event `event_attribute_count_limit` reached; counts the surplus attributes, the event itself is kept |
+| `link_attribute_limit` | API layer, in `AddLink` (per-link attributes) | per-link `link_attribute_count_limit` reached; counts the surplus attributes, the link itself is kept |
+| `attribute_value_truncated` | *(not yet produced)* | string value exceeded `attribute_value_length_limit` — awaiting the §13.5 limits gate |
+| `post_shutdown` | `BatchSpanProcessor` / `BatchLogRecordProcessor`, and each exporter's `Export` | call after `Shutdown` returned. Counted in records, as `queue_full` is |
+| `response_too_large` | *(not yet produced)* | response body exceeded `max_response_bytes` — awaiting the §13.5 limits gate |
+| `decompression_too_large` | *(not yet produced)* | decompressed body exceeded `max_decompressed_bytes` — awaiting the §13.5 limits gate |
+| `malformed_response` | wire codec, per observed malformed response | response could not be parsed (missing trailers, bad framing, unparseable proto). **Gap:** `ParseRejectedSpans` returns 0 for an unparseable body exactly as it does for an absent one, so a partial-success body that fails to parse is not yet distinguishable and is not counted |
+| `partial_success_rejection` | exporter, in the final-outcome funnel | rejected items count from the response — see §6. The codec parses the count; the exporter records it, so one batch yields one accounting whatever the retry path did |
+| `non_retryable_failure` | exporter, in the final-outcome funnel | the batch's terminal outcome was a non-retryable failure (415, gRPC `INVALID_ARGUMENT`, etc.). Classification stays in the codec (§7); only the counting moved, so intermediate attempts cannot double-count |
 | `retryable_failure_recovered` | exporter | a retryable failure that subsequently succeeded — counted for visibility, not a drop |
-| `retry_budget_exhausted` | exporter | retry-budget elapsed before success |
-| `transport_busy` | wire codec, propagated | transport request queue full (§3.2 of `threading-model.md`) |
-| `connect_failure` | transport | TCP / TLS / ALPN handshake failed during initial connect or reconnect |
-| `force_flush_timeout` | exporter | `ForceFlush` deadline elapsed with records still queued |
-| `shutdown_timeout` | exporter / transport | `Shutdown` deadline elapsed with in-flight work |
+| `retry_budget_exhausted` | exporter, in the final-outcome funnel | the batch was retried and still lost. Covers budget exhaustion *and* running out of `max_attempts`: both are "retried, still gone" to an operator, and one exit is taken per batch |
+| `transport_busy` | *(not yet produced)* | transport request queue full (§3.2 of `threading-model.md`) — awaiting a bounded transport request queue |
+| `connect_failure` | wire codec `EnsureConnected` (lazy path) and `Provider::Connect` (eager path) | TCP / TLS / ALPN handshake failed during initial connect or reconnect. The transport owns no diagnostics sink, so its callers record what they observe; a given attempt runs through exactly one of the two paths. One failed connect is one increment however many batches were waiting behind it |
+| `force_flush_timeout` | `Provider::ForceFlush` | `ForceFlush` deadline elapsed with records still queued. Recorded at the Provider and nowhere else: it drives several components that can each time out, and one user call must produce one drop |
+| `shutdown_timeout` | `Provider::Shutdown` | `Shutdown` deadline elapsed with in-flight work. Recorded at the Provider only, same reasoning as `force_flush_timeout` |
 | `cardinality_overflow` | SDK, metric aggregation store | attribute set exceeded the per-instrument cardinality limit; the measurement is folded into the `otel.metric.overflow` series, not lost (ICP 0008, `metrics-design.md` §2) |
-| `metric_callback_timeout` | SDK, metric collection | async instrument callback exceeded the per-collection deadline; its measurements were dropped for that cycle (ICP 0008, `metrics-design.md` §4) |
+| `metric_callback_timeout` | *(not yet produced)* | async instrument callback exceeded the per-collection deadline (ICP 0008, `metrics-design.md` §4) — awaiting a per-collection callback deadline |
 | `non_finite_value` | SDK, instrument record path | NaN / ±Inf measurement dropped, as the OTel spec requires (ICP 0008) |
 | `log_attribute_limit` | SDK, `SdkLogger::Emit` | a `LogRecord`'s attribute set exceeded the per-record attribute limit; surplus attributes dropped and `dropped_attributes_count` incremented (ICP 0011, `logs-design.md` §5) |
 
-**Counters are `std::atomic<uint64_t>`** (LOCKED). The increment path is lock-free and fits the leaf-lock rule in `threading-model.md` §4.
+**Counters are `std::atomic<uint64_t>`** (LOCKED). The increment path is lock-free and fits the leaf-lock rule in `threading-model.md` §4, so a counter may be moved while a mutex is held, and is always moved on the thread that detected the drop (`threading-model.md` §8.6).
 
-**Adding a new counter is an ICP** because every counter is part of `GetExporterHealth()`'s public surface. Renaming a counter is an ICP.
+**Ownership rule.** Two kinds of counter sit in this table, and they are placed differently:
+
+- **Final-outcome counters** (`partial_success_rejection`, `non_retryable_failure`, `retry_budget_exhausted`, `retryable_failure_recovered`) are recorded by the *exporter*, once per batch, after every retry has resolved. The wire codec still owns the classification (§7, ICP 0001) — the exporter reads `WireResult` without reinterpreting it. Recording in the codec instead would count every retry attempt as a separate outcome.
+- **Observation counters** (everything else) are recorded at the site that detects the drop.
+
+**Six counters have no producer yet** and are marked *(not yet produced)* above. Each is enumerated because `DropReason`'s order is a locked part of the public health surface; each awaits the feature whose limit it reports, not a wiring fix.
+
+**Adding a new counter is an ICP** because every counter is part of `GetExporterHealth()`'s public surface. Renaming a counter is an ICP. Re-attributing an existing counter to a different layer is not — the counter's meaning is what is locked, not which file writes it.
 
 ---
 
@@ -220,6 +227,8 @@ The wire codec — not the exporter — owns retry classification (per ICP 0001 
 | Decompressed body > `max_decompressed_bytes` | false | false | n/a | `decompression_too_large` |
 | Body unparseable as protobuf | false | false | n/a | `malformed_response` |
 
+The last row is the §3 parse-failure gap seen from the classification side: `ParseRejectedSpans` returns 0 for an unparseable body exactly as for an absent one, so such a response is currently classified as a clean success rather than reaching this row.
+
 ### 7.2 OTLP/gRPC
 
 Every row below is keyed on `grpc-status`, which presupposes that a response
@@ -293,6 +302,8 @@ Returns a structured snapshot. The shape is locked in `interfaces.md` against th
 - Connection state (one of `Disconnected`, `Connecting`, `Connected`, `Reconnecting`, `Closed`).
 
 The snapshot is consistent at a moment in time but not transactionally consistent across counters — it is a read of `std::atomic<uint64_t>` values and a borrowed view into the last-error slot.
+
+**One sink serves all three signals.** `SdkBuilder` hands the same `IDiagnosticsSink` to the trace, metric and log pipelines, so every counter here — `batches_sent` and `batches_failed` included — is a **cross-signal aggregate**. A failed metric export and a failed trace export both increment `batches_failed`; the snapshot does not say which signal lost a batch. Per-signal breakdown would need one counter set per signal, which is an ICP against `HealthSnapshot`. `last_error_message` is likewise last-writer-wins across signals.
 
 ### 9.2 Internal diagnostic log
 

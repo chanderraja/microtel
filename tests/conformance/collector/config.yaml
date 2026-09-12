@@ -58,8 +58,16 @@ receivers:
           key_file: /certs/server.key
           client_ca_file: /certs/ca.crt
 
-  # Plaintext on purpose: this pair isolates the Authorization header from TLS
-  # so an auth failure cannot be confused with a handshake failure.
+  # grpc is plaintext on purpose: it isolates the Authorization header from TLS
+  # so an auth failure cannot be confused with a handshake failure, and h2c
+  # works there because gRPC is h2c by definition.
+  #
+  # http cannot have that luxury. microtel speaks HTTP/2 only, and the
+  # collector's plaintext OTLP/HTTP receiver is HTTP/1.1-only (issue #166), so a
+  # plaintext auth port is simply unreachable for the client under test. It
+  # therefore carries the same server TLS material as otlp/tls; the auth tests
+  # pin the correct-CA trust first so a 401 stays distinguishable from a
+  # handshake failure.
   otlp/auth:
     protocols:
       grpc:
@@ -70,6 +78,9 @@ receivers:
         endpoint: "0.0.0.0:4348"
         auth:
           authenticator: bearertokenauth
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
 
 processors:
   batch:

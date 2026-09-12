@@ -46,13 +46,18 @@ OtlpExporter::~OtlpExporter() noexcept
 
 internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexcept
 {
+    // Read before the move: a rejected batch is still counted in spans, and
+    // after `push_back` consumes it there is nothing left to count.
+    const auto span_count = static_cast<std::uint64_t>(batch.Spans().size());
     const std::scoped_lock lock{m_mu};
     if (m_shutdown.load(std::memory_order_relaxed))
     {
+        RecordDropped(DropReason::PostShutdown, span_count);
         return internal::ExportResult::AlreadyShutDown;
     }
     if (m_queue.size() >= m_config.max_queue_size)
     {
+        RecordDropped(DropReason::QueueFull, span_count);
         return internal::ExportResult::Dropped;
     }
     try
@@ -65,6 +70,9 @@ internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexc
     // terminates the host process rather than dropping one batch.
     catch (const std::exception&)
     {
+        // Same loss as a full queue from the caller's side: the batch never
+        // entered the pipeline because it would not fit.
+        RecordDropped(DropReason::QueueFull, span_count);
         return internal::ExportResult::Dropped;
     }
     m_cv.notify_one();
@@ -161,6 +169,12 @@ internal::WireResult OtlpExporter::ResolveOutcome(const internal::WireResult& fi
     auto retried = RunRetryLoop(batch, 1U);
     if (retried.has_value())
     {
+        if (retried->success)
+        {
+            // Not a loss — the batch was delivered — but the export path is
+            // unhealthy, and this counter is the only place that shows it.
+            RecordDropped(DropReason::RetryableFailureRecovered, 1U);
+        }
         return std::move(*retried);
     }
     // nullopt: the retry budget was already spent on entry, so no further
@@ -176,14 +190,35 @@ void OtlpExporter::RecordOutcome(const internal::WireResult& result) noexcept
     }
     if (result.success)
     {
+        if (result.partial_success_rejected > 0)
+        {
+            // Delivered, but the collector kept only some of it. Never
+            // retried (error-model.md §6), so this is the only account of it.
+            m_diag->RecordDrop(DropReason::PartialSuccessRejection,
+                               result.partial_success_rejected);
+        }
         m_diag->RecordBatchSent();
         return;
     }
+    // This funnel runs exactly once per batch, after every retry has been
+    // resolved, so `retryable` here means "retried and still lost" rather
+    // than "will be retried". Attempt exhaustion and budget exhaustion are
+    // the same outcome to an operator and share one counter.
+    m_diag->RecordDrop(result.retryable ? DropReason::RetryBudgetExhausted
+                                        : DropReason::NonRetryableFailure);
     // A codec may report failure without populating `error`. Recording an
     // empty message would leave GetExporterHealth() saying a batch failed and
     // refusing to say why, so name the stage instead.
     m_diag->RecordBatchFailed(result.error.value_or(
         Error{.kind = Error::Kind::Network, .message = "export failed at wire codec"}));
+}
+
+void OtlpExporter::RecordDropped(DropReason reason, std::uint64_t n) noexcept
+{
+    if (m_diag != nullptr)
+    {
+        m_diag->RecordDrop(reason, n);
+    }
 }
 
 void OtlpExporter::PublishQueueDepth() noexcept

@@ -34,6 +34,7 @@ function(microtel_add_test)
     target_compile_options(${MT_NAME} PRIVATE
         -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
+    set_tests_properties(${MT_NAME} PROPERTIES LABELS "unit")
 endfunction()
 
 add_subdirectory(unit)

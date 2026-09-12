@@ -17,3 +17,8 @@ microtel_add_conformance_test(
     NAME    conformance_http_batching_test
     SOURCES batching_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_conformance_test(
+    NAME    conformance_http_tls_test
+    SOURCES tls_test.cpp
+    LIBS    microtel_sdk)

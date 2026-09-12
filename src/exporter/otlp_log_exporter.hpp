@@ -3,10 +3,12 @@
 
 #pragma once
 
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/log_batch.hpp"
 #include "microtel/internal/log_encoder.hpp"
 #include "microtel/internal/log_exporter.hpp"
 #include "microtel/internal/wire_codec.hpp"
+#include "microtel/provider.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -52,9 +54,12 @@ struct OtlpLogExporterConfig
 class OtlpLogExporter final : public internal::ILogExporter
 {
 public:
+    /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
+    ///        and batch accounting. Borrowed for the exporter's lifetime.
     explicit OtlpLogExporter(internal::ILogEncoder* encoder,
                              internal::IWireCodec* codec,
-                             OtlpLogExporterConfig config = {}) noexcept;
+                             OtlpLogExporterConfig config = {},
+                             internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~OtlpLogExporter() noexcept override;
 
@@ -77,10 +82,20 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void ProcessBatches(std::vector<internal::LogBatchHandle>& batches);
+    /// @brief Report one batch's outcome. No-op without a sink.
+    /// @note No retry loop here, so a failure is one attempt rather than a
+    ///       resolved outcome — only the batch counters move, and the
+    ///       delivery `DropReason`s stay with the trace exporter until logs
+    ///       get retries of their own.
+    void RecordOutcome(const internal::WireResult& result) noexcept;
+    /// @brief Add `n` to the counter for `reason`. No-op without a sink.
+    ///        Lock-free, so it is safe under `m_mu`.
+    void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
 
     internal::ILogEncoder* m_encoder;
     internal::IWireCodec* m_codec;
     OtlpLogExporterConfig m_config;
+    internal::IDiagnosticsSink* m_diag;
 
     std::deque<internal::LogBatchHandle> m_queue;
     std::mutex m_mu;

@@ -50,6 +50,14 @@ std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
     return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
+std::uint64_t NonFiniteDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::NonFiniteValue)];
+}
+
+/// The storage default, spelled out so the sink can be passed positionally.
+constexpr std::size_t kDefaultCap = mts::kDefaultMaxCardinality;
+
 // Find the point whose first attribute key/value matches, returning its value
 // as T. Tests use single-attribute sets so the first pair identifies the set.
 template <typename T>
@@ -444,7 +452,8 @@ TEST(SumStorageTest, DeltaCollectReclaimsCardinalitySlots)
 
 TEST(SumStorageTest, NonFiniteValueIsDropped)
 {
-    mts::SumStorage<double> storage{true};
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::SumStorage<double> storage{true, kDefaultCap, nullptr, &sink};
     const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
     storage.Add(1.0, mt::AttributeSpan{attrs});
     storage.Add(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
@@ -452,6 +461,26 @@ TEST(SumStorageTest, NonFiniteValueIsDropped)
     const mti::SumData data = storage.Collect();
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].value), 1.0);
+    // The drop was already silent-by-design; issue #169 is that it was also
+    // uncounted, so a NaN-producing instrument looked identical to an idle one.
+    EXPECT_EQ(NonFiniteDrops(sink), 2U);
+}
+
+TEST(SumStorageTest, FiniteValueRecordsNoNonFiniteDrop)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::SumStorage<double> storage{true, kDefaultCap, nullptr, &sink};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Add(1.0, mt::AttributeSpan{attrs});
+    EXPECT_EQ(NonFiniteDrops(sink), 0U);
+}
+
+TEST(SumStorageTest, NonFiniteValueWithNullSinkIsNotDereferenced)
+{
+    mts::SumStorage<double> storage{true};  // no sink
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Add(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(SumStorageTest, ConcurrentAddsConserveTotal)

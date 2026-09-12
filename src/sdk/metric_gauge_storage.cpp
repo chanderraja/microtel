@@ -18,6 +18,10 @@ void GaugeStorage<T>::Record(T value, AttributeSpan attrs)
 {
     if (!std::isfinite(static_cast<double>(value)))
     {
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::NonFiniteValue);
+        }
         return;
     }
     std::optional<internal::Exemplar> exemplar;

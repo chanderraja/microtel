@@ -49,6 +49,11 @@ std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
     return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
+std::uint64_t NonFiniteDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::NonFiniteValue)];
+}
+
 template <typename T>
 T PointValue(const mti::GaugeData& data, std::size_t index)
 {
@@ -365,13 +370,32 @@ TEST(GaugeStorageTest, EveryMeasurementReflectedInExactlyOneSeries)
 
 TEST(GaugeStorageTest, NonFiniteValueIsDropped)
 {
-    mts::GaugeStorage<double> storage;
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::GaugeStorage<double> storage{mts::kDefaultMaxCardinality, nullptr, &sink};
     const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
     storage.Record(5.0, mt::AttributeSpan{attrs});
     storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
     const mti::GaugeData data = storage.Collect();
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_DOUBLE_EQ(std::get<double>(data.points[0].value), 5.0);
+    EXPECT_EQ(NonFiniteDrops(sink), 1U);
+}
+
+TEST(GaugeStorageTest, FiniteValueRecordsNoNonFiniteDrop)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::GaugeStorage<double> storage{mts::kDefaultMaxCardinality, nullptr, &sink};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(5.0, mt::AttributeSpan{attrs});
+    EXPECT_EQ(NonFiniteDrops(sink), 0U);
+}
+
+TEST(GaugeStorageTest, NonFiniteValueWithNullSinkIsNotDereferenced)
+{
+    mts::GaugeStorage<double> storage;  // no sink
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(GaugeStorageTest, ConcurrentRecordsAreSafe)

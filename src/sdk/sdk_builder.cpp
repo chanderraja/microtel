@@ -435,14 +435,18 @@ struct ExporterPack
 
     const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
+    // One sink across all three signals: batches_sent / batches_failed are
+    // therefore cross-signal aggregates (see docs/error-model.md §3).
     auto metric_exp = std::make_unique<exporter::OtlpMetricExporter>(
         encoder,
         metric_codec.get(),
-        exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export});
+        exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export},
+        diag);
     auto log_exp = std::make_unique<exporter::OtlpLogExporter>(
         encoder,
         log_codec.get(),
-        exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export});
+        exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export},
+        diag);
 
     return ExporterPack{
         .codec = std::move(codec),

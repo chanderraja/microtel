@@ -50,6 +50,11 @@ std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
     return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
+std::uint64_t NonFiniteDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::NonFiniteValue)];
+}
+
 std::uint64_t Sum(const std::vector<std::uint64_t>& counts)
 {
     return std::accumulate(counts.begin(), counts.end(), std::uint64_t{0});
@@ -430,13 +435,34 @@ TEST(ExpHistogramStorageTest, OverflowSeriesMergesBucketStateAcrossFoldedMeasure
 
 TEST(ExpHistogramStorageTest, NonFiniteValueIsDropped)
 {
-    mts::ExponentialHistogramStorage<double> storage{20, 160};
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::ExponentialHistogramStorage<double> storage{
+        20, 160, mts::kDefaultMaxCardinality, nullptr, &sink};
     const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
     storage.Record(2.0, mt::AttributeSpan{attrs});
     storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
     const mti::ExponentialHistogramData data = storage.Collect();
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_EQ(data.points[0].count, 1U);
+    EXPECT_EQ(NonFiniteDrops(sink), 1U);
+}
+
+TEST(ExpHistogramStorageTest, FiniteValueRecordsNoNonFiniteDrop)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::ExponentialHistogramStorage<double> storage{
+        20, 160, mts::kDefaultMaxCardinality, nullptr, &sink};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(2.0, mt::AttributeSpan{attrs});
+    EXPECT_EQ(NonFiniteDrops(sink), 0U);
+}
+
+TEST(ExpHistogramStorageTest, NonFiniteValueWithNullSinkIsNotDereferenced)
+{
+    mts::ExponentialHistogramStorage<double> storage{20, 160};  // no sink
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(ExpHistogramStorageTest, ExemplarCapturedWhenSampledSpanActive)

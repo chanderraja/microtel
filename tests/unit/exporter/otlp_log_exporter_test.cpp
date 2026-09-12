@@ -8,15 +8,19 @@
 
 #include "microtel/internal/exporter.hpp"
 #include "microtel/internal/log_batch.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/status.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "mocks/mock_log_encoder.hpp"
 #include "mocks/mock_wire_codec.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -28,13 +32,23 @@ namespace mte = microtel::exporter;
 namespace
 {
 
-mti::LogBatchHandle MakeBatch()
+mti::LogBatchHandle MakeBatchOf(std::size_t record_count)
 {
     return mti::LogBatchHandle{
-        std::vector<mt::LogRecord>{},
+        std::vector<mt::LogRecord>(record_count),
         std::make_shared<mt::Resource>(),
         mti::InstrumentationScope{.name = "test", .version = "0.1"},
     };
+}
+
+mti::LogBatchHandle MakeBatch()
+{
+    return MakeBatchOf(0);
+}
+
+std::uint64_t DropCount(const mtmk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
 }
 
 constexpr auto kFlushTimeout = std::chrono::milliseconds(500);
@@ -116,6 +130,83 @@ TEST(OtlpLogExporterTest, ForceFlushEmptyQueueReturnsCompleted)
     mtmk::MockWireCodec codec;
     mte::OtlpLogExporter exporter{&encoder, &codec};
 
+    EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics — issue #169. This exporter had no sink at all: a log pipeline
+// could drop every batch it was given and GetExporterHealth() showed nothing.
+// ---------------------------------------------------------------------------
+
+TEST(OtlpLogExporterTest, DiagnosticsSuccessfulExportRecordsBatchSent)
+{
+    mtmk::MockLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.result_to_return.success = true;
+    mte::OtlpLogExporter exporter{&encoder, &codec, {}, &sink};
+
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_sent, 1U);
+    EXPECT_EQ(sink.batches_failed, 0U);
+}
+
+TEST(OtlpLogExporterTest, DiagnosticsFailedExportRecordsBatchFailedAndMessage)
+{
+    mtmk::MockLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.result_to_return = mti::WireResult{
+        .success = false,
+        .retryable = false,
+        .error = mt::Error{.kind = mt::Error::Kind::Network, .message = "HTTP 401"},
+    };
+    mte::OtlpLogExporter exporter{&encoder, &codec, {}, &sink};
+
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_failed, 1U);
+    EXPECT_EQ(sink.last_error_message, "HTTP 401");
+}
+
+TEST(OtlpLogExporterTest, DiagnosticsQueueFullCountsEveryRecordInTheRejectedBatch)
+{
+    mtmk::MockLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpLogExporterConfig cfg;
+    cfg.max_queue_size = 0;
+    mte::OtlpLogExporter exporter{&encoder, &codec, cfg, &sink};
+
+    EXPECT_EQ(exporter.Export(MakeBatchOf(3)), mti::ExportResult::Dropped);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 3U);
+}
+
+TEST(OtlpLogExporterTest, DiagnosticsExportAfterShutdownCountsPostShutdown)
+{
+    mtmk::MockLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpLogExporter exporter{&encoder, &codec, {}, &sink};
+
+    ASSERT_EQ(exporter.Shutdown(kFlushTimeout), mt::Status::Completed);
+    EXPECT_EQ(exporter.Export(MakeBatchOf(2)), mti::ExportResult::AlreadyShutDown);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 2U);
+}
+
+TEST(OtlpLogExporterTest, DiagnosticsNullSinkIsNotDereferenced)
+{
+    mtmk::MockLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    codec.result_to_return.success = true;
+    mte::OtlpLogExporter exporter{&encoder, &codec};  // no sink
+
+    (void)exporter.Export(MakeBatch());
     EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
 }
 

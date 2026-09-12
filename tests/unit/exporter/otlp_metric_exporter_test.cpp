@@ -7,15 +7,19 @@
 
 #include "microtel/internal/exporter.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/status.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "mocks/mock_metric_encoder.hpp"
 #include "mocks/mock_wire_codec.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -28,13 +32,23 @@ namespace mte = microtel::exporter;
 // Helpers
 // ---------------------------------------------------------------------------
 
-static mti::MetricBatchHandle MakeBatch()
+static mti::MetricBatchHandle MakeBatchOf(std::size_t metric_count)
 {
     return mti::MetricBatchHandle{
-        std::vector<mti::MetricRecord>{},
+        std::vector<mti::MetricRecord>(metric_count),
         std::make_shared<mt::Resource>(),
         mti::InstrumentationScope{.name = "test", .version = "0.1"},
     };
+}
+
+static mti::MetricBatchHandle MakeBatch()
+{
+    return MakeBatchOf(0);
+}
+
+static std::uint64_t DropCount(const mtmk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
 }
 
 static constexpr auto kFlushTimeout = std::chrono::milliseconds(500);
@@ -133,5 +147,82 @@ TEST(OtlpMetricExporterTest, ForceFlush_EmptyQueue_ReturnsCompleted)
     mtmk::MockWireCodec codec;
     mte::OtlpMetricExporter exporter{&encoder, &codec};
 
+    EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics — issue #169. This exporter had no sink at all: a metric
+// pipeline could drop every batch and GetExporterHealth() showed nothing.
+// ---------------------------------------------------------------------------
+
+TEST(OtlpMetricExporterTest, Diagnostics_SuccessfulExport_RecordsBatchSent)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.result_to_return.success = true;
+    mte::OtlpMetricExporter exporter{&encoder, &codec, {}, &sink};
+
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_sent, 1U);
+    EXPECT_EQ(sink.batches_failed, 0U);
+}
+
+TEST(OtlpMetricExporterTest, Diagnostics_FailedExport_RecordsBatchFailedAndMessage)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.result_to_return = mti::WireResult{
+        .success = false,
+        .retryable = false,
+        .error = mt::Error{.kind = mt::Error::Kind::Network, .message = "HTTP 401"},
+    };
+    mte::OtlpMetricExporter exporter{&encoder, &codec, {}, &sink};
+
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_failed, 1U);
+    EXPECT_EQ(sink.last_error_message, "HTTP 401");
+}
+
+TEST(OtlpMetricExporterTest, Diagnostics_QueueFull_CountsEveryMetricInTheRejectedBatch)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpMetricExporterConfig cfg;
+    cfg.max_queue_size = 0;
+    mte::OtlpMetricExporter exporter{&encoder, &codec, cfg, &sink};
+
+    EXPECT_EQ(exporter.Export(MakeBatchOf(3)), mti::ExportResult::Dropped);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 3U);
+}
+
+TEST(OtlpMetricExporterTest, Diagnostics_ExportAfterShutdown_CountsPostShutdown)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpMetricExporter exporter{&encoder, &codec, {}, &sink};
+
+    ASSERT_EQ(exporter.Shutdown(kFlushTimeout), mt::Status::Completed);
+    EXPECT_EQ(exporter.Export(MakeBatchOf(2)), mti::ExportResult::AlreadyShutDown);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 2U);
+}
+
+TEST(OtlpMetricExporterTest, Diagnostics_NullSink_IsNotDereferenced)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    codec.result_to_return.success = true;
+    mte::OtlpMetricExporter exporter{&encoder, &codec};  // no sink
+
+    (void)exporter.Export(MakeBatch());
     EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
 }

@@ -27,3 +27,8 @@ microtel_add_conformance_test(
     NAME    conformance_grpc_tls_test
     SOURCES tls_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_conformance_test(
+    NAME    conformance_grpc_auth_test
+    SOURCES auth_test.cpp
+    LIBS    microtel_sdk)

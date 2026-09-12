@@ -23,10 +23,10 @@ namespace microtel::internal
 
 /// @brief Synchronous, non-batching span processor (spec §8: "for tests/debug").
 ///
-/// Each `OnEnd` builds a single-span `BatchHandle` (Resource + Scope from
-/// construction) and hands it directly to the configured exporter. No
-/// queue, no worker thread. `ForceFlush` is a no-op since nothing is
-/// buffered; `Shutdown` delegates to the exporter.
+/// Each `OnEnd` builds a single-span `BatchHandle` (Resource from
+/// construction, `InstrumentationScope` from the call) and hands it directly to
+/// the configured exporter. No queue, no worker thread. `ForceFlush` is a no-op
+/// since nothing is buffered; `Shutdown` delegates to the exporter.
 ///
 /// `OnStart` is a no-op — v1 has no in-process span enrichment hooks
 /// (those land in v1.4 per the roadmap).
@@ -42,8 +42,7 @@ class SimpleSpanProcessor final : public ISpanProcessor
 {
 public:
     SimpleSpanProcessor(IExporter* exporter,
-                        std::shared_ptr<const microtel::Resource> resource,
-                        InstrumentationScope scope) noexcept;
+                        std::shared_ptr<const microtel::Resource> resource) noexcept;
 
     ~SimpleSpanProcessor() noexcept override = default;
 
@@ -53,7 +52,7 @@ public:
     SimpleSpanProcessor& operator=(SimpleSpanProcessor&&) = delete;
 
     void OnStart(microtel::Span& span, const microtel::Context& parent) noexcept override;
-    void OnEnd(SpanRecord&& record) noexcept override;
+    void OnEnd(SpanRecord&& record, const InstrumentationScope& scope) noexcept override;
 
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
 
@@ -62,7 +61,6 @@ public:
 private:
     IExporter* m_exporter;
     std::shared_ptr<const microtel::Resource> m_resource;
-    InstrumentationScope m_scope;
 };
 
 }  // namespace microtel::internal

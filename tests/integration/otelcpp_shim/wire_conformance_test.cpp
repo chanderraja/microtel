@@ -516,6 +516,12 @@ TEST_F(OtelCppWireConformanceTest, AllThreeSignalsProduceCorrectOtlpHttpBytes)
         const auto* const* ss =
             opentelemetry_proto_trace_v1_ResourceSpans_scope_spans(rs[0], &ss_count);
         ASSERT_GT(ss_count, 0U);
+        // The scope is the name the adapter's GetTracer call carried, not the
+        // service name — the shim path has to get this right too (ICP 0023).
+        const auto* const scope = opentelemetry_proto_trace_v1_ScopeSpans_scope(ss[0]);
+        ASSERT_NE(scope, nullptr);
+        EXPECT_EQ(SvStr(opentelemetry_proto_common_v1_InstrumentationScope_name(scope)),
+                  "wire.conformance");
         std::size_t span_count = 0;
         const auto* const* spans =
             opentelemetry_proto_trace_v1_ScopeSpans_spans(ss[0], &span_count);

@@ -31,6 +31,10 @@ class FakeSpanProcessor : public internal::ISpanProcessor
 public:
     std::vector<internal::SpanRecord> received_spans;
 
+    /// Scope of the tracer each span arrived with, index-aligned with
+    /// @ref received_spans — both are appended by the same `OnEnd` call.
+    std::vector<internal::InstrumentationScope> received_scopes;
+
     microtel::Status force_flush_result = microtel::Status::Completed;
     microtel::Status shutdown_result = microtel::Status::Completed;
 
@@ -43,9 +47,11 @@ public:
         ++on_start_call_count;
     }
 
-    void OnEnd(internal::SpanRecord&& record) noexcept override
+    void OnEnd(internal::SpanRecord&& record,
+               const internal::InstrumentationScope& scope) noexcept override
     {
         received_spans.push_back(std::move(record));
+        received_scopes.push_back(scope);
     }
 
     [[nodiscard]] microtel::Status ForceFlush(

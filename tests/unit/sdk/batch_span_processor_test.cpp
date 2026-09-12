@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
 
 namespace mt = microtel;
@@ -72,8 +73,17 @@ static std::unique_ptr<mt::sdk::BatchSpanProcessor> MakeBsp(
     mtfk::FakeExporter& exp, mt::BatchOptions opts = mt::BatchOptions{})
 {
     auto resource = std::make_shared<const mt::Resource>();
-    return std::make_unique<mt::sdk::BatchSpanProcessor>(
-        &exp, std::move(resource), mti::InstrumentationScope{.name = "test", .version = ""}, opts);
+    return std::make_unique<mt::sdk::BatchSpanProcessor>(&exp, std::move(resource), opts);
+}
+
+// Ends one span on @p bsp as the tracer named @p scope_name would have.
+static void EndSpan(mt::sdk::BatchSpanProcessor& bsp,
+                    const std::string& name,
+                    const std::string& scope_name = "test",
+                    const std::string& scope_version = "")
+{
+    bsp.OnEnd(MakeRecord(name),
+              mti::InstrumentationScope{.name = scope_name, .version = scope_version});
 }
 
 // ---------------------------------------------------------------------------
@@ -137,8 +147,8 @@ TEST(BatchSpanProcessorTest, ForceFlush_ExportsQueuedRecords)
     mtfk::FakeExporter exp;
     auto bsp = MakeBsp(exp, opts);
 
-    bsp->OnEnd(MakeRecord("span1"));
-    bsp->OnEnd(MakeRecord("span2"));
+    EndSpan(*bsp, "span1");
+    EndSpan(*bsp, "span2");
 
     const mt::Status s = bsp->ForceFlush(std::chrono::milliseconds(2000));
     EXPECT_EQ(s, mt::Status::Completed);
@@ -178,7 +188,7 @@ TEST(BatchSpanProcessorTest, Shutdown_ExportsAllPendingRecords)
     constexpr int kN = 5;
     for (int i = 0; i < kN; ++i)
     {
-        bsp->OnEnd(MakeRecord("s" + std::to_string(i)));
+        EndSpan(*bsp, "s" + std::to_string(i));
     }
 
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));
@@ -201,9 +211,9 @@ TEST(BatchSpanProcessorTest, BatchSize_TriggersMidSchedule)
     auto bsp = MakeBsp(exp, opts);
 
     // Enqueue 3 — should trigger an automatic export.
-    bsp->OnEnd(MakeRecord("a"));
-    bsp->OnEnd(MakeRecord("b"));
-    bsp->OnEnd(MakeRecord("c"));
+    EndSpan(*bsp, "a");
+    EndSpan(*bsp, "b");
+    EndSpan(*bsp, "c");
 
     const mt::Status flush = bsp->ForceFlush(std::chrono::milliseconds(2000));
     EXPECT_EQ(flush, mt::Status::Completed);
@@ -226,9 +236,9 @@ TEST(BatchSpanProcessorTest, DropNewest_DropsIncoming_WhenQueueFull)
     mtfk::FakeExporter exp;
     auto bsp = MakeBsp(exp, opts);
 
-    bsp->OnEnd(MakeRecord("keep1"));
-    bsp->OnEnd(MakeRecord("keep2"));
-    bsp->OnEnd(MakeRecord("dropped"));  // dropped
+    EndSpan(*bsp, "keep1");
+    EndSpan(*bsp, "keep2");
+    EndSpan(*bsp, "dropped");  // dropped
 
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));
 
@@ -255,9 +265,9 @@ TEST(BatchSpanProcessorTest, DropOldest_EvictsOldest_WhenQueueFull)
     mtfk::FakeExporter exp;
     auto bsp = MakeBsp(exp, opts);
 
-    bsp->OnEnd(MakeRecord("evicted"));  // evicted when "new3" arrives
-    bsp->OnEnd(MakeRecord("keep1"));
-    bsp->OnEnd(MakeRecord("new3"));  // evicts "evicted"
+    EndSpan(*bsp, "evicted");  // evicted when "new3" arrives
+    EndSpan(*bsp, "keep1");
+    EndSpan(*bsp, "new3");  // evicts "evicted"
 
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));
 
@@ -267,4 +277,63 @@ TEST(BatchSpanProcessorTest, DropOldest_EvictsOldest_WhenQueueFull)
         total += batch.Spans().size();
     }
     EXPECT_EQ(total, 2U);
+}
+
+// ---------------------------------------------------------------------------
+// Per-scope grouping (issue #167 / ICP 0023)
+// ---------------------------------------------------------------------------
+
+TEST(BatchSpanProcessorTest, Drain_GroupsSpansByScope)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.max_export_batch_size = 512;
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts);
+
+    // Interleaved on purpose: grouping must survive a span of another scope
+    // arriving between two spans of the first.
+    EndSpan(*bsp, "a1", "scope.a", "1.0");
+    EndSpan(*bsp, "b1", "scope.b", "2.0");
+    EndSpan(*bsp, "a2", "scope.a", "1.0");
+
+    ASSERT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+
+    ASSERT_EQ(exp.received_batches.size(), std::size_t{2});
+
+    // First-seen order: scope.a was queued first, so its batch goes out first.
+    EXPECT_EQ(exp.received_batches[0].Scope().name, "scope.a");
+    EXPECT_EQ(exp.received_batches[0].Scope().version, "1.0");
+    ASSERT_EQ(exp.received_batches[0].Spans().size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[0].Spans()[0].name, "a1");
+    EXPECT_EQ(exp.received_batches[0].Spans()[1].name, "a2");
+
+    EXPECT_EQ(exp.received_batches[1].Scope().name, "scope.b");
+    EXPECT_EQ(exp.received_batches[1].Scope().version, "2.0");
+    ASSERT_EQ(exp.received_batches[1].Spans().size(), std::size_t{1});
+    EXPECT_EQ(exp.received_batches[1].Spans()[0].name, "b1");
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}
+
+TEST(BatchSpanProcessorTest, Drain_SeparatesScopesDifferingOnlyInVersion)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.max_export_batch_size = 512;
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts);
+
+    EndSpan(*bsp, "old", "scope.a", "1.0");
+    EndSpan(*bsp, "new", "scope.a", "2.0");
+
+    ASSERT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+
+    ASSERT_EQ(exp.received_batches.size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[0].Scope().version, "1.0");
+    EXPECT_EQ(exp.received_batches[1].Scope().version, "2.0");
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
 }

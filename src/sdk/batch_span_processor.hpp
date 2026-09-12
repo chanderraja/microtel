@@ -38,6 +38,11 @@ namespace microtel::sdk
 ///   - the queue reaching `max_export_batch_size` (immediate wake), or
 ///   - `ForceFlush` / `Shutdown` (explicit signal).
 ///
+/// On drain, the collected records are grouped by `(Resource,
+/// InstrumentationScope)` into one `BatchHandle` per scope (ICP 0023), each
+/// handed to the exporter, so spans from different tracers never share a
+/// `ScopeSpans` entry on the wire.
+///
 /// `OnStart` is a no-op (v1 has no enrichment hooks).
 ///
 /// **Lifetime.** The exporter and resource pointers are non-owning; the
@@ -50,7 +55,6 @@ class BatchSpanProcessor final : public internal::ISpanProcessor
 public:
     BatchSpanProcessor(internal::IExporter* exporter,
                        std::shared_ptr<const Resource> resource,
-                       internal::InstrumentationScope scope,
                        BatchOptions opts) noexcept;
 
     ~BatchSpanProcessor() noexcept override;
@@ -61,15 +65,23 @@ public:
     BatchSpanProcessor& operator=(BatchSpanProcessor&&) = delete;
 
     void OnStart(microtel::Span& span, const microtel::Context& parent) noexcept override;
-    void OnEnd(internal::SpanRecord&& record) noexcept override;
+    void OnEnd(internal::SpanRecord&& record,
+               const internal::InstrumentationScope& scope) noexcept override;
 
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
 private:
+    /// A queued record paired with the scope of the tracer that produced it.
+    struct QueuedSpan
+    {
+        internal::SpanRecord record;
+        internal::InstrumentationScope scope;
+    };
+
     struct WakeResult
     {
-        std::vector<internal::SpanRecord> batch;
+        std::vector<QueuedSpan> batch;
         bool done = false;
         std::size_t pending_flush_seq{0};
     };
@@ -77,16 +89,15 @@ private:
     WakeResult WaitAndCollect() noexcept;
     [[nodiscard]] bool JoinWithTimeout(std::chrono::milliseconds timeout) noexcept;
     void WorkerLoop() noexcept;
-    void ExportBatch(std::vector<internal::SpanRecord> batch) noexcept;
+    void ExportBatch(std::vector<QueuedSpan> batch) noexcept;
 
     internal::IExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
-    internal::InstrumentationScope m_scope;
     BatchOptions m_opts;
 
     std::mutex m_mu;
     std::condition_variable m_cv;
-    std::deque<internal::SpanRecord> m_queue;
+    std::deque<QueuedSpan> m_queue;
     bool m_shutdown{false};
     std::size_t m_flush_seq{0};
     std::size_t m_flush_done_seq{0};

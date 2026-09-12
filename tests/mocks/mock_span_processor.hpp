@@ -43,7 +43,8 @@ public:
         ++on_start_call_count;
     }
 
-    void OnEnd(internal::SpanRecord&& /*record*/) noexcept override
+    void OnEnd(internal::SpanRecord&& /*record*/,
+               const internal::InstrumentationScope& /*scope*/) noexcept override
     {
         ++on_end_call_count;
     }

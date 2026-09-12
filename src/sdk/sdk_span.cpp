@@ -232,7 +232,7 @@ void SdkSpan::End(std::chrono::system_clock::time_point end_time) noexcept
     m_record.end_time = (end_time == std::chrono::system_clock::time_point{})
                             ? std::chrono::system_clock::now()
                             : end_time;
-    m_processor->OnEnd(std::move(m_record));
+    m_processor->OnEnd(std::move(m_record), m_scope);
 }
 
 }  // namespace microtel::sdk

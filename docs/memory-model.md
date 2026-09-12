@@ -364,6 +364,7 @@ The sampled path may allocate but does so within bounds:
 - A single allocation for the `Span` record (or pulled from a per-thread freelist; freelist is an optimisation, not a requirement, in v1).
 - Attributes, events, and links allocate when they are added. Each allocation is bounded by `attribute_value_length_limit` for strings and the count limits in §7 for structures.
 - No allocation occurs on `End()` beyond the queue-push path. The MPSC queue uses pre-allocated nodes or a lock-free linked structure with bounded growth (chosen in `threading-model.md`).
+- The queued element pairs the record with the tracer's `InstrumentationScope` ([ICP 0023](icps/0023-span-processor-scope.md)), so the push copies two short strings — normally within `std::string`'s SSO buffer, and bounded by `max_queue_size` in the worst case. The logs pipeline's `QueuedLog` has the same shape.
 
 ### 8.3 Encoder
 

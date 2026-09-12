@@ -523,7 +523,7 @@ public:
 
     virtual void OnStart(Span& span, const Context& parent) noexcept = 0;
 
-    virtual void OnEnd(SpanRecord&& record) noexcept = 0;
+    virtual void OnEnd(SpanRecord&& record, const InstrumentationScope& scope) noexcept = 0;
 
     [[nodiscard]] virtual Status ForceFlush(Duration timeout) noexcept = 0;
 
@@ -531,9 +531,9 @@ public:
 };
 ```
 
-**Preconditions.** `OnEnd` is called exactly once per `Span`, on the caller thread that ended the span.
+**Preconditions.** `OnEnd` is called exactly once per `Span`, on the caller thread that ended the span. `scope` is the `InstrumentationScope` of the `Tracer` that started the span — the `name` / `version` pair passed to `Provider::GetTracer` ([ICP 0023](icps/0023-span-processor-scope.md)). It is borrowed for the duration of the call; an implementation that outlives the call copies it.
 
-**Postconditions.** `OnEnd` either accepts the record into its pipeline or drops with the appropriate reason (`queue_full`, `record_too_large`, `post_shutdown`).
+**Postconditions.** `OnEnd` either accepts the record into its pipeline or drops with the appropriate reason (`queue_full`, `record_too_large`, `post_shutdown`). A record accepted into the pipeline is exported in a `BatchHandle` whose `Scope()` is the `scope` it arrived with — spans from different tracers never share a batch (§3.3).
 
 **Invariants.** `OnStart` and `OnEnd` are pair-balanced per span.
 
@@ -554,7 +554,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. `Shutdown` is invoked
 #### Allocation behavior
 
 - `OnStart`: typically zero work in v1 (no in-process span enrichment hooks until v1.4). Implementations may keep it as a no-op.
-- `OnEnd`: queue push only (`memory-model.md` §8.2).
+- `OnEnd`: queue push only (`memory-model.md` §8.2), plus one `InstrumentationScope` copy taken on the caller thread so the queued record keeps its scope ([ICP 0023](icps/0023-span-processor-scope.md)).
 
 #### Mock and fake
 
@@ -931,7 +931,7 @@ column records the M0 sign-off date.
 | `IWireCodec` | Chander Raja | 2026-05-04 | Accepted | One interface, two impls per [ICP 0001](icps/0001-m0-deliverables-clarification.md). |
 | `IExporter` | Chander Raja | 2026-05-04 | Accepted | — |
 | `ISampler` | Chander Raja | 2026-05-04 | Accepted | Hot-path `noexcept`, no allocation on default path. |
-| `ISpanProcessor` | Chander Raja | 2026-05-04 | Accepted | — |
+| `ISpanProcessor` | Chander Raja | 2026-05-04 | Accepted | `OnEnd` carries the tracer's `InstrumentationScope` per [ICP 0023](icps/0023-span-processor-scope.md). |
 | `IClock` / `ISteadyClock` | Chander Raja | 2026-05-04 | Accepted | — |
 | `IReactor` | Chander Raja | 2026-05-04 | Accepted | — |
 | `IAuthProvider` | Chander Raja | 2026-05-04 | Accepted | User callback may run on exporter worker (LOCKED). |

@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <iterator>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -17,11 +19,9 @@ namespace microtel::sdk
 
 BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
                                        std::shared_ptr<const Resource> resource,
-                                       internal::InstrumentationScope scope,
                                        BatchOptions opts) noexcept
     : m_exporter(exporter),
       m_resource(std::move(resource)),
-      m_scope(std::move(scope)),
       m_opts(opts),
       m_worker([this] { WorkerLoop(); })
 {
@@ -44,7 +44,8 @@ void BatchSpanProcessor::OnStart(microtel::Span& /*span*/,
     // No-op — v1 has no in-process span enrichment hooks.
 }
 
-void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record) noexcept
+void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
+                               const internal::InstrumentationScope& scope) noexcept
 {
     const std::scoped_lock lock{m_mu};
     if (m_shutdown)
@@ -62,7 +63,7 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record) noexcept
             return;  // DropNewest: discard incoming record
         }
     }
-    m_queue.push_back(std::move(record));
+    m_queue.push_back(QueuedSpan{.record = std::move(record), .scope = scope});
     if (m_queue.size() >= m_opts.max_export_batch_size)
     {
         m_cv.notify_one();
@@ -124,7 +125,7 @@ BatchSpanProcessor::WakeResult BatchSpanProcessor::WaitAndCollect() noexcept
 
     const std::size_t count =
         std::min(m_queue.size(), static_cast<std::size_t>(m_opts.max_export_batch_size));
-    std::vector<internal::SpanRecord> batch;
+    std::vector<QueuedSpan> batch;
     batch.reserve(count);
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -167,10 +168,31 @@ void BatchSpanProcessor::WorkerLoop() noexcept
     }
 }
 
-void BatchSpanProcessor::ExportBatch(std::vector<internal::SpanRecord> batch) noexcept
+void BatchSpanProcessor::ExportBatch(std::vector<QueuedSpan> batch) noexcept
 {
-    internal::BatchHandle handle{std::move(batch), m_resource, m_scope};
-    (void)m_exporter->Export(std::move(handle));
+    // Group records by scope, preserving first-seen order, into one
+    // BatchHandle per (Resource, InstrumentationScope) — ICP 0023.
+    std::vector<std::pair<internal::InstrumentationScope, std::vector<internal::SpanRecord>>>
+        groups;
+    for (auto& item : batch)
+    {
+        const auto same_scope = [&item](const auto& group) {
+            return group.first.name == item.scope.name && group.first.version == item.scope.version;
+        };
+        auto it = std::ranges::find_if(groups, same_scope);
+        if (it == groups.end())
+        {
+            groups.emplace_back(std::move(item.scope), std::vector<internal::SpanRecord>{});
+            it = std::prev(groups.end());
+        }
+        it->second.push_back(std::move(item.record));
+    }
+
+    for (auto& group : groups)
+    {
+        internal::BatchHandle handle{std::move(group.second), m_resource, std::move(group.first)};
+        (void)m_exporter->Export(std::move(handle));
+    }
 }
 
 }  // namespace microtel::sdk

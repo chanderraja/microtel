@@ -17,3 +17,8 @@ microtel_add_conformance_test(
     NAME    conformance_grpc_basic_test
     SOURCES basic_export_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_conformance_test(
+    NAME    conformance_grpc_batching_test
+    SOURCES batching_test.cpp
+    LIBS    microtel_sdk)

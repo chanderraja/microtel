@@ -83,14 +83,20 @@ TEST(HttpPlaintextGapConformance, PlaintextHttpUnreachable)
     ASSERT_TRUE(result.has_value()) << result.error().message;
     const std::shared_ptr<microtel::Provider> provider = std::move(*result);
 
-    // Observed against the pinned collector: "nghttp2 recv failed during
-    // SETTINGS exchange" — the receiver's HTTP/1.1 response to our HTTP/2
-    // preface is not a frame nghttp2 can parse. The message is not asserted;
-    // the unreachability is.
+    // The receiver's HTTP/1.1 response to our HTTP/2 preface is not a frame
+    // nghttp2 can parse, and the transport sniffs exactly that case so the
+    // failure names itself instead of arriving as a generic nghttp2 error.
+    // Both halves are asserted: that the endpoint is unreachable, and that the
+    // one thing an operator gets — the error message — says why and what to do
+    // instead.
     const auto connected = provider->Connect();
     ASSERT_FALSE(connected.has_value())
         << "plaintext OTLP/HTTP reached the collector — issue #166 is fixed, so invert this test "
            "into a positive delivery test rather than deleting it";
+    EXPECT_NE(connected.error().message.find("HTTP/1.1-only"), std::string::npos)
+        << "the plaintext gap must surface as its own diagnostic, not a generic transport "
+           "failure; message was: "
+        << connected.error().message;
 
     EXPECT_NE(provider->GetExporterHealth().connection_state, microtel::ConnectionState::Connected);
 }

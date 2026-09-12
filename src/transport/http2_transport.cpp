@@ -8,6 +8,7 @@
 
 #include <nghttp2/nghttp2.h>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -225,6 +226,15 @@ microtel::Expected<void, microtel::Error> LoadSslCtxCredentials(
         ::SSL_CTX_set_default_verify_paths(ctx);
     }
 
+    // An OpenSSL client defaults to SSL_VERIFY_NONE: without this the trust
+    // store above is never consulted and any certificate is accepted, which
+    // makes a configured `ca_bundle` look like it is doing something while it
+    // does nothing at all.  See ICP 0022.
+    if (!opts.insecure)
+    {
+        ::SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+    }
+
     if (!opts.client_cert.empty())
     {
         if (::SSL_CTX_use_certificate_file(
@@ -243,6 +253,18 @@ microtel::Expected<void, microtel::Error> LoadSslCtxCredentials(
     return {};
 }
 
+// A failed handshake is reported differently depending on whether the peer's
+// certificate was the reason: "the certificate is not acceptable" and "the peer
+// hung up mid-handshake" are different operational problems, and this message
+// is what reaches `HealthSnapshot::last_error_message`.
+std::string TlsFailureMessage(const SSL* ssl)
+{
+    const long verify = ::SSL_get_verify_result(ssl);
+    return (verify == X509_V_OK) ? std::string{"TLS handshake failed"}
+                                 : "TLS certificate verification failed: " +
+                                       std::string{::X509_verify_cert_error_string(verify)};
+}
+
 microtel::Expected<void, microtel::Error> SslConnectLoop(
     SSL* ssl, int fd, std::chrono::steady_clock::time_point deadline)
 {
@@ -259,7 +281,7 @@ microtel::Expected<void, microtel::Error> SslConnectLoop(
         if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
         {
             return microtel::Unexpected<microtel::Error>{
-                {.kind = microtel::Error::Kind::Network, .message = "TLS handshake failed"}};
+                {.kind = microtel::Error::Kind::Network, .message = TlsFailureMessage(ssl)}};
         }
 
         const auto now = std::chrono::steady_clock::now();
@@ -853,6 +875,18 @@ Http2Transport::TlsHandshake(const internal::ConnectOptions& opts, const std::st
     const std::string& sni = opts.sni_override.empty() ? host : opts.sni_override;
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     ::SSL_set_tlsext_host_name(ssl.Get(), reinterpret_cast<const void*>(sni.c_str()));
+
+    // The certificate is checked against the same name that goes into SNI, so
+    // a deliberate `sni_override` also moves the name the certificate must
+    // carry -- that is what makes a cert issued to "localhost" usable when
+    // connecting to 127.0.0.1. SSL_set1_host folds the check into chain
+    // verification, so a mismatch fails SSL_connect rather than needing a
+    // separate post-handshake test that a later edit could drop. See ICP 0022.
+    if (!opts.insecure && ::SSL_set1_host(ssl.Get(), sni.c_str()) != 1)
+    {
+        return microtel::Unexpected<microtel::Error>{
+            {.kind = microtel::Error::Kind::Network, .message = "TLS verify hostname rejected"}};
+    }
 
     const auto deadline = std::chrono::steady_clock::now() + opts.tls_handshake_timeout;
     auto conn = SslConnectLoop(ssl.Get(), m_socket.Get(), deadline);

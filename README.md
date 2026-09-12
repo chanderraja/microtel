@@ -11,7 +11,7 @@
 
 microtel is a small, focused **OTel SDK and OTLP exporter** for C++ applications that need to participate in OpenTelemetry without paying the cost of the full `opentelemetry-cpp` dependency closure.
 
-It speaks both **OTLP/HTTP-protobuf** and **OTLP/gRPC** on the wire — without linking the gRPC library. The gRPC path is a thin unary-RPC protocol layer over the same `nghttp2` transport used for OTLP/HTTP, so the binary cost is the same regardless of which protocol you pick.
+It speaks both **OTLP/HTTP-protobuf** and **OTLP/gRPC** on the wire — without linking the gRPC library. The gRPC path is a thin unary-RPC protocol layer over the same `nghttp2` transport used for OTLP/HTTP, so the binary cost is the same regardless of which protocol you pick. Being HTTP/2-only has one consequence worth knowing before you pick: plaintext OTLP/HTTP cannot reach an HTTP/1.1-only receiver such as a stock collector's `:4318` — use `https://`, or OTLP/gRPC ([compatibility matrix](docs/compatibility-matrix.md)).
 
 **Runtime dependency closure:**
 
@@ -37,7 +37,7 @@ gRPC at the wire level is a thin protocol on top of HTTP/2 — a 5-byte length-p
 
 | Signal | Status |
 |---|---|
-| Traces | Complete — Tracer, Span, W3C propagation, batch processor, OTLP/HTTP + OTLP/gRPC |
+| Traces | Complete — Tracer, Span, W3C propagation, batch processor, OTLP/gRPC + OTLP/HTTP (the latter over TLS; see the [compatibility matrix](docs/compatibility-matrix.md)) |
 | Metrics | In progress (v1.2) — all 7 instruments, OTLP encoder, periodic reader, cardinality limits, temporality |
 | Logs | Planned v1.3 |
 

@@ -65,9 +65,9 @@ extern "C" void ForkChildHandler() noexcept
 ///
 /// No prepare or parent handler. §7 asks the parent handler to "record a
 /// diagnostic that fork was observed", but there is nothing to record it to:
-/// `LogImpl` has no production call sites and is not async-signal-safe, and no
-/// `DropReason` covers it. Registering an empty handler would only obscure
-/// that. See the PR notes.
+/// `LogImpl` is not async-signal-safe (it takes a mutex and may call an
+/// application sink), and no `DropReason` covers it. Registering an empty
+/// handler would only obscure that. See the PR notes.
 void InstallForkHandlersOnce() noexcept
 {
     try

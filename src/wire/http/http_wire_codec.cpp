@@ -223,9 +223,15 @@ std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
     auto connected = m_transport->Connect(m_connect_opts);
     if (!connected)
     {
+        // A `Protocol` connect failure is a permanent mismatch — an
+        // HTTP/1.1-only receiver, or a TLS endpoint that would not negotiate
+        // h2 (issue #166). No backoff outlasts a misconfiguration, so retrying
+        // one spends the whole budget and buries the message that names the
+        // fix. Everything else the transport reports (Network, Cancelled) is
+        // worth another attempt.
         return internal::WireResult{
             .success = false,
-            .retryable = true,  // failed connect: same shape as any other transport failure
+            .retryable = connected.error().kind != Error::Kind::Protocol,
             .retry_after = {},
             .error = connected.error(),
             .response_excerpt = {},

@@ -174,8 +174,16 @@ deployment already sets `OTEL_EXPORTER_OTLP_ENDPOINT`,
 them with no changes on your part, precedence: code > env > `microtel.toml` >
 defaults (`configuration.md` §1).
 
-Two things worth knowing:
+Three things worth knowing:
 
+- **`OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318` does not carry over**,
+  even though microtel reads the variable. microtel is HTTP/2-only, so a
+  plaintext endpoint means h2c with prior knowledge, and the receiver on
+  `:4318` that opentelemetry-cpp was talking to over HTTP/1.1 does not speak
+  it. `Build()` warns and the first export fails with a message saying so.
+  Switch that deployment to `http://collector:4317` with
+  `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or to `https://collector:4318`. See
+  [`compatibility-matrix.md`](compatibility-matrix.md) §4.
 - Per-signal env vars for signals v1 doesn't yet resolve independently (e.g.
   `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` as distinct from the unsigned
   `OTEL_EXPORTER_OTLP_ENDPOINT`) are **ignored, not rejected**

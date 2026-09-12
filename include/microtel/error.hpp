@@ -24,8 +24,13 @@ public:
     enum class Kind : std::uint8_t
     {
         Unspecified = 0,
-        Network = 1,            ///< socket / TLS / nghttp2 transport error
-        Protocol = 2,           ///< OTLP wire failure (status interpretation)
+        Network = 1,  ///< socket / TLS / nghttp2 transport error
+        /// Wire/protocol mismatch: an OTLP status the peer returned, or a peer
+        /// that cannot speak HTTP/2 at all (an HTTP/1.1 response to the
+        /// connection preface, ALPN that did not select `h2`). From `Connect`
+        /// it is permanent and the exporter does not retry it; from a response
+        /// status, retryability follows the status.
+        Protocol = 2,
         ResourceExhausted = 3,  ///< peer signalled overload; retryable per RetryInfo
         Cancelled = 4,          ///< local cancel (timeout, shutdown)
         Malformed = 5,          ///< unparseable response or trailer

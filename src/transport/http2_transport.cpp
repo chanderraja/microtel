@@ -42,6 +42,46 @@ namespace microtel::transport
 namespace
 {
 
+/// What a plaintext endpoint that turns out to speak HTTP/1.1 reports.
+///
+/// A plaintext microtel endpoint is h2c with prior knowledge, and the common
+/// case on the other end — the OpenTelemetry Collector's `:4318` receiver —
+/// serves HTTP/1.1 only. There is no fallback to offer, so the error names the
+/// two configurations that do work. See issue #166.
+constexpr const char* kHttp1PeerMessage =
+    "peer answered the HTTP/2 preface with an HTTP/1.1 response - endpoint appears to be "
+    "HTTP/1.1-only; use https:// (ALPN h2) or OTLP/gRPC; see docs/compatibility-matrix.md";
+
+/// The only ALPN protocol microtel offers, and the only one it can use.
+constexpr std::string_view kAlpnH2{"h2"};
+
+/// @param ssl Borrowed; not retained.
+/// @return The protocol the TLS peer selected, borrowed from the session and
+///         valid for its lifetime; empty if ALPN produced no agreement.
+std::string_view SelectedAlpn(const SSL* ssl) noexcept
+{
+    const unsigned char* proto = nullptr;
+    unsigned int proto_len = 0;
+    ::SSL_get0_alpn_selected(ssl, &proto, &proto_len);
+    if (proto == nullptr || proto_len == 0)
+    {
+        return {};
+    }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return std::string_view{reinterpret_cast<const char*>(proto), proto_len};
+}
+
+microtel::Error AlpnMismatchError(std::string_view selected)
+{
+    const std::string_view negotiated = selected.empty() ? std::string_view{"none"} : selected;
+    return microtel::Error{
+        .kind = microtel::Error::Kind::Protocol,
+        .message =
+            "TLS peer did not negotiate h2 via ALPN (negotiated: " + std::string{negotiated} +
+            ") - this endpoint is not an HTTP/2 receiver; use OTLP/gRPC or an h2-capable "
+            "OTLP/HTTP endpoint; see docs/compatibility-matrix.md"};
+}
+
 struct EndpointInfo
 {
     std::string host;
@@ -895,6 +935,16 @@ Http2Transport::TlsHandshake(const internal::ConnectOptions& opts, const std::st
         return microtel::Unexpected<microtel::Error>{conn.error()};
     }
 
+    // Advertising h2 is not the same as getting it. A TLS receiver that serves
+    // HTTP/1.1 only typically ignores ALPN altogether, and without this check
+    // the connection went on to the HTTP/2 preface and died there as a generic
+    // nghttp2 failure naming neither ALPN nor the endpoint's real protocol.
+    const std::string_view alpn = SelectedAlpn(ssl.Get());
+    if (alpn != kAlpnH2)
+    {
+        return microtel::Unexpected<microtel::Error>{AlpnMismatchError(alpn)};
+    }
+
     return std::make_pair(std::move(ssl_ctx), std::move(ssl));
 }
 
@@ -905,6 +955,13 @@ Http2Transport::TlsHandshake(const internal::ConnectOptions& opts, const std::st
 microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport::Http2Handshake(
     const internal::ConnectOptions& opts)
 {
+    // Per-attempt detection state, reset before anything can read from the
+    // socket. Reconnect is a first-class path (ICP 0018 §3) and this is the
+    // only reader of both flags, so clearing them here — rather than once at
+    // construction — is what stops one peer's diagnosis reaching the next.
+    m_first_plaintext_recv.store(true, std::memory_order_release);
+    m_peer_spoke_http1.store(false, std::memory_order_release);
+
     nghttp2_session_callbacks* cbs = nullptr;
     ::nghttp2_session_callbacks_new(&cbs);
     ::nghttp2_session_callbacks_set_send_callback(cbs, NgHttp2SendCb);
@@ -957,14 +1014,23 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
         if (!m_settings_ack_received.load(std::memory_order_acquire) && rv != 0 &&
             rv != NGHTTP2_ERR_WOULDBLOCK)
         {
-            return microtel::Unexpected<microtel::Error>{
-                {.kind = microtel::Error::Kind::Network,
-                 .message = "nghttp2 recv failed during SETTINGS exchange"}};
+            return microtel::Unexpected<microtel::Error>{Http2HandshakeFailure()};
         }
         ::nghttp2_session_send(session.Get());
     }
 
     return session;
+}
+
+microtel::Error Http2Transport::Http2HandshakeFailure() const
+{
+    if (m_peer_spoke_http1.load(std::memory_order_acquire))
+    {
+        return microtel::Error{.kind = microtel::Error::Kind::Protocol,
+                               .message = kHttp1PeerMessage};
+    }
+    return microtel::Error{.kind = microtel::Error::Kind::Network,
+                           .message = "nghttp2 recv failed during SETTINGS exchange"};
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1080,30 @@ std::ptrdiff_t Http2Transport::NgHttp2DoRecv(std::uint8_t* buf, std::size_t len)
         return (errno == EAGAIN || errno == EWOULDBLOCK) ? NGHTTP2_ERR_WOULDBLOCK
                                                          : NGHTTP2_ERR_CALLBACK_FAILURE;
     }
+    if (SniffHttp1Response(buf, static_cast<std::size_t>(n)))
+    {
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
+    }
     return static_cast<std::ptrdiff_t>(n);
+}
+
+bool Http2Transport::SniffHttp1Response(const std::uint8_t* buf, std::size_t len) noexcept
+{
+    if (!m_first_plaintext_recv.exchange(false, std::memory_order_acq_rel))
+    {
+        return false;
+    }
+    constexpr std::string_view kHttp1Prefix{"HTTP/1."};
+    if (len < kHttp1Prefix.size() ||
+        std::memcmp(buf, kHttp1Prefix.data(), kHttp1Prefix.size()) != 0)
+    {
+        return false;
+    }
+    // Left for Http2Handshake to turn into an error: this callback can only
+    // report "the read failed", and losing the reason here is what left the
+    // whole class of failures wearing a generic nghttp2 message (issue #166).
+    m_peer_spoke_http1.store(true, std::memory_order_release);
+    return true;
 }
 
 void Http2Transport::OnSettingsAck() noexcept

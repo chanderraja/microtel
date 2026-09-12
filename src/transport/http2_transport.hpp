@@ -144,6 +144,26 @@ private:
     [[nodiscard]] microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Handshake(
         const internal::ConnectOptions& opts);
 
+    /// @brief Classify a failed SETTINGS exchange.
+    ///
+    /// Returns the targeted HTTP/1.1-peer error if the first plaintext read of
+    /// this connection was an HTTP/1.1 response, and the generic nghttp2
+    /// failure otherwise. See issue #166.
+    [[nodiscard]] microtel::Error Http2HandshakeFailure() const;
+
+    /// @brief Inspect the first plaintext read of a connection for an HTTP/1.1
+    ///        status line.
+    ///
+    /// A plaintext microtel endpoint is h2c with prior knowledge; an
+    /// HTTP/1.1-only receiver answers the connection preface with a response
+    /// nghttp2 cannot parse. Only the first read is eligible — later bytes are
+    /// DATA-frame payload that may legitimately start with anything.
+    ///
+    /// @param buf Borrowed; the bytes just read. Not retained.
+    /// @return true if the peer answered with HTTP/1.1, in which case
+    ///         `m_peer_spoke_http1` is set for `Http2HandshakeFailure`.
+    [[nodiscard]] bool SniffHttp1Response(const std::uint8_t* buf, std::size_t len) noexcept;
+
     std::unique_ptr<internal::IReactor> m_reactor;
     std::atomic<microtel::ConnectionState> m_state{microtel::ConnectionState::Disconnected};
     std::atomic<bool> m_stop{false};
@@ -166,6 +186,14 @@ private:
     common::raii::SslSession m_ssl_session;
     common::raii::Nghttp2Session m_nghttp2_session;
     std::atomic<bool> m_settings_ack_received{false};
+    /// True while the next successful plaintext read is still the first of the
+    /// connection. Reset by every `Http2Handshake`, cleared by the read that
+    /// claims it. Atomic because `Connect` writes it on the caller thread while
+    /// the I/O thread may be in a recv callback.
+    std::atomic<bool> m_first_plaintext_recv{false};
+    /// Set when that first read turned out to be an HTTP/1.1 response.
+    /// Reset by every `Http2Handshake`, so a later reconnect cannot inherit it.
+    std::atomic<bool> m_peer_spoke_http1{false};
 
     // Send queues — caller-thread writes, I/O thread drains.
     std::mutex m_pending_mu;

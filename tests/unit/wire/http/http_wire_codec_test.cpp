@@ -533,6 +533,29 @@ TEST(HttpWireCodecTest, Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWit
     EXPECT_EQ(transport.sent_specs.size(), 0U);  // never got to the actual send
 }
 
+// A connect that failed because the peer speaks the wrong protocol — an
+// HTTP/1.1-only receiver, or a TLS endpoint that would not negotiate h2
+// (issue #166) — will fail the next attempt identically. Retrying it burns the
+// whole retry budget on a misconfiguration no backoff can outlast, and buries
+// the one error message that says what to change.
+TEST(HttpWireCodecTest, Send_WhenConnectFailsWithProtocolError_IsNotRetryable)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result = mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::Protocol, .message = "endpoint is HTTP/1.1-only"});
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "endpoint is HTTP/1.1-only");
+    EXPECT_EQ(transport.sent_specs.size(), 0U);
+}
+
 TEST(HttpWireCodecTest, SendAll_WhenDisconnected_ConnectsOnceThenSendsAll)
 {
     mtfk::FakeTransport transport;

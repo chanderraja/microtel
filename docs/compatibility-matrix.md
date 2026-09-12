@@ -137,6 +137,10 @@ open at the time of writing.
 - **gRPC response decompression is specified but not implemented** (issue
   #161). A collector that compresses its response body is not interoperable on
   the gRPC path today.
+- **The send path is not `SIGPIPE`-safe** (issue #177). A peer that closes the
+  connection under an in-flight write can terminate the *host application*, not
+  just the export. Until that is fixed, an application embedding microtel
+  should ignore `SIGPIPE` itself.
 
 ---
 

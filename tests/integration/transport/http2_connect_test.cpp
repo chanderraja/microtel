@@ -14,8 +14,10 @@
 #include <gtest/gtest.h>
 #include <nghttp2/nghttp2.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -248,35 +250,49 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// A stock HTTP/1.1-only receiver, scripted (issue #166)
+// A plaintext peer that never speaks HTTP/2, scripted
 //
-// The OpenTelemetry Collector's plaintext OTLP/HTTP receiver does not wrap its
-// handler in `h2c`, so it answers microtel's HTTP/2 connection preface with an
-// HTTP/1.1 error response. This server reproduces exactly that: accept, write
-// one HTTP/1.1 status line, and never speak HTTP/2.
+// `Http1Response` is the stock collector (issue #166): its plaintext OTLP/HTTP
+// receiver does not wrap its handler in `h2c`, so it answers microtel's HTTP/2
+// connection preface with an HTTP/1.1 error response. `FinBeforeSettings`
+// stands in for every other way a peer can fail the SETTINGS exchange, and is
+// here as the control: the two must not produce the same diagnosis.
+//
+// `FinBeforeSettings` half-closes rather than closing: it sends FIN and keeps
+// reading. A full close makes the peer RST our in-flight preface, and the
+// transport's next `::write` then raises SIGPIPE in the host process — issue
+// #177, which is not this test's subject and which would kill the binary
+// before the assertions run.
 // ---------------------------------------------------------------------------
+
+enum class PlaintextReply : std::uint8_t
+{
+    Http1Response,
+    FinBeforeSettings,
+};
 
 constexpr std::string_view kHttp1Response =
     "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
-class Http1OnlyServer
+class ScriptedPlaintextServer
 {
 public:
-    Http1OnlyServer() = default;
-    ~Http1OnlyServer()
+    ScriptedPlaintextServer() = default;
+    ~ScriptedPlaintextServer()
     {
         Stop();
     }
 
-    Http1OnlyServer(const Http1OnlyServer&) = delete;
-    Http1OnlyServer& operator=(const Http1OnlyServer&) = delete;
-    Http1OnlyServer(Http1OnlyServer&&) = delete;
-    Http1OnlyServer& operator=(Http1OnlyServer&&) = delete;
+    ScriptedPlaintextServer(const ScriptedPlaintextServer&) = delete;
+    ScriptedPlaintextServer& operator=(const ScriptedPlaintextServer&) = delete;
+    ScriptedPlaintextServer(ScriptedPlaintextServer&&) = delete;
+    ScriptedPlaintextServer& operator=(ScriptedPlaintextServer&&) = delete;
 
     /// Bind 127.0.0.1:0, listen, start the accept thread. Returns the assigned
     /// port, or -1.
-    int Start()
+    int Start(PlaintextReply reply)
     {
+        m_reply = reply;
         m_listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (m_listen_fd < 0)
         {
@@ -331,6 +347,13 @@ private:
         {
             return;
         }
+        if (m_reply == PlaintextReply::FinBeforeSettings)
+        {
+            ::shutdown(client_fd, SHUT_WR);
+            DrainUntilStop(client_fd);
+            ::close(client_fd);
+            return;
+        }
         // The collector answers after reading the preface; writing immediately
         // is indistinguishable from the client's side and races nothing, since
         // the client sends its preface before it ever polls for readability.
@@ -342,7 +365,25 @@ private:
         ::close(client_fd);
     }
 
-    int m_listen_fd = -1;
+    /// Keep reading and discarding so the client's writes keep succeeding:
+    /// an unread socket eventually RSTs, which is the SIGPIPE path above.
+    void DrainUntilStop(int fd) const
+    {
+        std::array<char, 256> scratch{};
+        while (!m_stop.load(std::memory_order_acquire))
+        {
+            pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
+            if (::poll(&pfd, 1, 5) > 0 && ::read(fd, scratch.data(), scratch.size()) <= 0)
+            {
+                return;
+            }
+        }
+    }
+
+    PlaintextReply m_reply = PlaintextReply::Http1Response;
+    /// Atomic because `Stop()` clears it on the caller thread while the accept
+    /// thread may still be reading it — TSAN sees that as the race it is.
+    std::atomic<int> m_listen_fd{-1};
     int m_port = 0;
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
@@ -509,8 +550,8 @@ TEST(Http2TransportIntegrationTest, ConnectSucceedsFromReconnecting)
 
 TEST(Http2TransportIntegrationTest, Connect_PlaintextPeerSpeaksHttp1_ReportsTargetedError)
 {
-    Http1OnlyServer server;
-    const int port = server.Start();
+    ScriptedPlaintextServer server;
+    const int port = server.Start(PlaintextReply::Http1Response);
     ASSERT_GT(port, 0);
 
     auto reactor_result = mtt::EpollReactor::Create();
@@ -540,8 +581,8 @@ TEST(Http2TransportIntegrationTest, Connect_PlaintextPeerSpeaksHttp1_ReportsTarg
 // is a first-class path since ICP 0018, so this is not hypothetical.
 TEST(Http2TransportIntegrationTest, Connect_AfterHttp1Peer_ReconnectToHealthyServerSucceeds)
 {
-    Http1OnlyServer http1;
-    const int http1_port = http1.Start();
+    ScriptedPlaintextServer http1;
+    const int http1_port = http1.Start(PlaintextReply::Http1Response);
     ASSERT_GT(http1_port, 0);
 
     auto reactor_result = mtt::EpollReactor::Create();
@@ -569,4 +610,35 @@ TEST(Http2TransportIntegrationTest, Connect_AfterHttp1Peer_ReconnectToHealthySer
 
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     healthy.Stop();
+}
+
+// The control for the sniff: a peer that fails the SETTINGS exchange for any
+// other reason must keep the generic message. A detector that fired on
+// everything would be worse than none — it would send operators looking for an
+// HTTP/1.1 receiver that is not there.
+TEST(Http2TransportIntegrationTest, Connect_PeerHangsUpBeforeSettings_ReportsGenericError)
+{
+    ScriptedPlaintextServer server;
+    const int port = server.Start(PlaintextReply::FinBeforeSettings);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+
+    const auto result = t->Connect(opts);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, microtel::Error::Kind::Network);
+    EXPECT_EQ(result.error().message.find("HTTP/1.1-only"), std::string::npos)
+        << "message was: " << result.error().message;
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
 }

@@ -218,10 +218,14 @@ file is the only place a test can observe what the collector
   of passing quietly.
 - **Negative assertions** read `Provider::GetExporterHealth()` —
   `connection_state`, `batches_failed`, `last_error_message` — and then
-  assert the marker never appears in the output file at all. The two
-  suites' expected protojson constants are character-identical, and
-  that was measured rather than assumed
-  ([`docs/interop-matrix.md`](../../docs/interop-matrix.md) §3).
+  assert the marker never appears in the output file at all.
+
+The two suites share one set of fragment constants because encoding is
+protocol-independent, and that was measured rather than assumed: the
+collector's output line for the OTLP/HTTP basic-export span and the one
+for its OTLP/gRPC twin are byte-identical once ids, timestamps and the
+per-run marker are normalised
+([`docs/interop-matrix.md`](../../docs/interop-matrix.md) §3).
 
 ## Deliberately excluded
 

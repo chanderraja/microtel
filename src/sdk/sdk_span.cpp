@@ -45,7 +45,8 @@ namespace
 [[nodiscard]] internal::SpanEvent BuildEvent(std::string_view name,
                                              AttributeSpan attributes,
                                              std::chrono::system_clock::time_point timestamp,
-                                             std::size_t attribute_limit)
+                                             std::size_t attribute_limit,
+                                             internal::IDiagnosticsSink* diag)
 {
     internal::SpanEvent ev;
     ev.name = std::string{name};
@@ -60,13 +61,20 @@ namespace
         }
         ev.attributes.push_back(kv);
     }
+    // Counted after the fact rather than inside the loop: the event is kept,
+    // so the loss is the surplus attributes, not the event.
+    if (attributes.size() > ev.attributes.size() && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::EventAttributeLimit, attributes.size() - ev.attributes.size());
+    }
     return ev;
 }
 
 /// @brief Build one link. May throw; callers run it inside `DropOnBadAlloc`.
 [[nodiscard]] internal::SpanLink BuildLink(const SpanContext& linked_context,
                                            AttributeSpan attributes,
-                                           std::size_t attribute_limit)
+                                           std::size_t attribute_limit,
+                                           internal::IDiagnosticsSink* diag)
 {
     internal::SpanLink lk;
     lk.linked_context = linked_context;
@@ -77,6 +85,10 @@ namespace
             break;
         }
         lk.attributes.push_back(kv);
+    }
+    if (attributes.size() > lk.attributes.size() && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::LinkAttributeLimit, attributes.size() - lk.attributes.size());
     }
     return lk;
 }
@@ -100,7 +112,7 @@ void DropOnBadAlloc(Mutate mutate) noexcept
 }  // namespace
 
 
-// NOLINTNEXTLINE(readability-function-size) — 9-param constructor imposed by SdkSpan API contract
+// NOLINTNEXTLINE(readability-function-size) — 10-param constructor imposed by SdkSpan API contract
 SdkSpan::SdkSpan(SpanContext context,
                  SpanContext parent_context,
                  std::string_view name,
@@ -109,11 +121,13 @@ SdkSpan::SdkSpan(SpanContext context,
                  internal::ISpanProcessor* processor,
                  std::shared_ptr<const Resource> resource,
                  internal::InstrumentationScope scope,
-                 SpanLimitOptions limits) noexcept
+                 SpanLimitOptions limits,
+                 internal::IDiagnosticsSink* diagnostics) noexcept
     : m_processor(processor),
       m_resource(std::move(resource)),
       m_scope(std::move(scope)),
-      m_limits(limits)
+      m_limits(limits),
+      m_diagnostics(diagnostics)
 {
     m_record.context = context;
     m_record.parent_context = parent_context;
@@ -127,6 +141,14 @@ SdkSpan::SdkSpan(SpanContext context,
 SdkSpan::~SdkSpan() noexcept
 {
     End();
+}
+
+void SdkSpan::RecordDropped(DropReason reason, std::uint64_t n) const noexcept
+{
+    if (m_diagnostics != nullptr)
+    {
+        m_diagnostics->RecordDrop(reason, n);
+    }
 }
 
 SpanContext SdkSpan::GetContext() const noexcept
@@ -147,6 +169,7 @@ void SdkSpan::SetAttribute(std::string_view key, AttributeValue value) noexcept
     }
     if (m_record.attributes.size() >= m_limits.attribute_count_limit)
     {
+        RecordDropped(DropReason::SpanAttributeLimit);
         return;
     }
     DropOnBadAlloc(
@@ -164,6 +187,7 @@ void SdkSpan::AddEvent(std::string_view name,
     }
     if (m_record.events.size() >= m_limits.event_count_limit)
     {
+        RecordDropped(DropReason::SpanEventLimit);
         return;
     }
     // All-or-nothing: BuildEvent's local is discarded if it cannot be
@@ -171,8 +195,8 @@ void SdkSpan::AddEvent(std::string_view name,
     DropOnBadAlloc(
         [&]
         {
-            m_record.events.push_back(
-                BuildEvent(name, attributes, timestamp, m_limits.event_attribute_count_limit));
+            m_record.events.push_back(BuildEvent(
+                name, attributes, timestamp, m_limits.event_attribute_count_limit, m_diagnostics));
         });
 }
 
@@ -184,14 +208,15 @@ void SdkSpan::AddLink(const SpanContext& linked_context, AttributeSpan attribute
     }
     if (m_record.links.size() >= m_limits.link_count_limit)
     {
+        RecordDropped(DropReason::SpanLinkLimit);
         return;
     }
     // All-or-nothing, same reasoning as AddEvent.
     DropOnBadAlloc(
         [&]
         {
-            m_record.links.push_back(
-                BuildLink(linked_context, attributes, m_limits.link_attribute_count_limit));
+            m_record.links.push_back(BuildLink(
+                linked_context, attributes, m_limits.link_attribute_count_limit, m_diagnostics));
         });
 }
 

@@ -5,7 +5,9 @@
 
 #include "microtel/attribute.hpp"
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/processor.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
@@ -35,6 +37,8 @@ namespace microtel::sdk
 class SdkSpan final : public microtel::Span
 {
 public:
+    /// @param diagnostics non-owning diagnostics sink, or `nullptr` to
+    ///        disable drop accounting. Borrowed for the span's lifetime.
     SdkSpan(SpanContext context,
             SpanContext parent_context,
             std::string_view name,
@@ -43,7 +47,8 @@ public:
             internal::ISpanProcessor* processor,
             std::shared_ptr<const Resource> resource,
             internal::InstrumentationScope scope,
-            SpanLimitOptions limits) noexcept;
+            SpanLimitOptions limits,
+            internal::IDiagnosticsSink* diagnostics = nullptr) noexcept;
 
     ~SdkSpan() noexcept override;
 
@@ -66,10 +71,14 @@ public:
     void End(std::chrono::system_clock::time_point end_time = {}) noexcept override;
 
 private:
+    /// @brief Count `n` dropped items against `reason`. No-op without a sink.
+    void RecordDropped(DropReason reason, std::uint64_t n = 1) const noexcept;
+
     internal::ISpanProcessor* m_processor;
     std::shared_ptr<const Resource> m_resource;
     internal::InstrumentationScope m_scope;
     SpanLimitOptions m_limits;
+    internal::IDiagnosticsSink* m_diagnostics;
     internal::SpanRecord m_record;
     std::atomic<bool> m_ended{false};
 };

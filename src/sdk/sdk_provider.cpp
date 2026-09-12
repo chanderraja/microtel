@@ -155,7 +155,8 @@ std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::strin
         m_processor.get(),
         m_resource,
         internal::InstrumentationScope{.name = std::string{name}, .version = std::string{version}},
-        m_span_limits);
+        m_span_limits,
+        m_diagnostics.get());
 }
 
 Expected<void, Error> SdkProvider::Connect()

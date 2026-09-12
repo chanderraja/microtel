@@ -27,3 +27,8 @@ microtel_add_conformance_test(
     NAME    conformance_http_auth_test
     SOURCES auth_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_conformance_test(
+    NAME    conformance_http_plaintext_gap_test
+    SOURCES plaintext_gap_test.cpp
+    LIBS    microtel_sdk)

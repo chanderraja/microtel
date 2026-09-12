@@ -354,7 +354,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     if (!m_log_processor)
     {
         m_log_processor = std::make_unique<BatchLogRecordProcessor>(
-            m_log_exporter.get(), m_resource, m_log_batch_opts);
+            m_log_exporter.get(), m_resource, m_log_batch_opts, m_diagnostics.get());
     }
     std::string key;
     key.reserve(name.size() + 1 + version.size());

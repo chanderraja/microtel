@@ -9,16 +9,19 @@
 
 #include "microtel/internal/batch.hpp"
 #include "microtel/log_record.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/status.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_log_exporter.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
@@ -34,10 +37,16 @@ namespace
 {
 
 std::unique_ptr<mts::BatchLogRecordProcessor> MakeBlp(mtfk::FakeLogExporter& exp,
-                                                      mt::BatchOptions opts = mt::BatchOptions{})
+                                                      mt::BatchOptions opts = mt::BatchOptions{},
+                                                      mtfk::FakeDiagnosticsSink* sink = nullptr)
 {
     auto resource = std::make_shared<const mt::Resource>();
-    return std::make_unique<mts::BatchLogRecordProcessor>(&exp, std::move(resource), opts);
+    return std::make_unique<mts::BatchLogRecordProcessor>(&exp, std::move(resource), opts, sink);
+}
+
+std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
 }
 
 void Emit(mts::BatchLogRecordProcessor& blp, std::string scope_name = "logger")
@@ -221,6 +230,75 @@ TEST(BatchLogRecordProcessorTest, DropOldestEvictsOldestWhenQueueFull)
 
     (void)blp->Shutdown(kTimeout);
     EXPECT_EQ(TotalRecords(exp), 2U);
+}
+
+// ---------------------------------------------------------------------------
+// Drop accounting — issue #169. OnEmit runs on the caller's thread, which is
+// this test's thread, so the non-atomic FakeDiagnosticsSink is safe to read.
+// ---------------------------------------------------------------------------
+
+TEST(BatchLogRecordProcessorTest, DiagnosticsDropNewestCountsQueueFull)
+{
+    mt::BatchOptions opts = ManualDrainOpts();
+    opts.max_queue_size = 2;
+    opts.drop_policy = mt::DropPolicy::DropNewest;
+
+    mtfk::FakeLogExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto blp = MakeBlp(exp, opts, &sink);
+
+    Emit(*blp);
+    Emit(*blp);
+    Emit(*blp);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 0U);
+    (void)blp->Shutdown(kTimeout);
+}
+
+TEST(BatchLogRecordProcessorTest, DiagnosticsDropOldestCountsQueueFull)
+{
+    mt::BatchOptions opts = ManualDrainOpts();
+    opts.max_queue_size = 2;
+    opts.drop_policy = mt::DropPolicy::DropOldest;
+
+    mtfk::FakeLogExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto blp = MakeBlp(exp, opts, &sink);
+
+    Emit(*blp);
+    Emit(*blp);
+    Emit(*blp);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    (void)blp->Shutdown(kTimeout);
+}
+
+TEST(BatchLogRecordProcessorTest, DiagnosticsOnEmitAfterShutdownCountsPostShutdown)
+{
+    mtfk::FakeLogExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto blp = MakeBlp(exp, mt::BatchOptions{}, &sink);
+
+    ASSERT_EQ(blp->Shutdown(kTimeout), mt::Status::Completed);
+    Emit(*blp);
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 0U);
+}
+
+TEST(BatchLogRecordProcessorTest, DiagnosticsNullSinkIsNotDereferenced)
+{
+    mt::BatchOptions opts = ManualDrainOpts();
+    opts.max_queue_size = 1;
+
+    mtfk::FakeLogExporter exp;
+    auto blp = MakeBlp(exp, opts);  // no sink
+
+    Emit(*blp);
+    Emit(*blp);
+    (void)blp->Shutdown(kTimeout);
+    Emit(*blp);
 }
 
 TEST(BatchLogRecordProcessorTest, ConcurrentOnEmitExportsEveryRecord)

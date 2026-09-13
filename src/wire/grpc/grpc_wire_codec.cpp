@@ -8,6 +8,8 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "common/internal_log.hpp"
+#include "wire/grpc/grpc_status.hpp"
 #include "wire/gzip.hpp"
 #include "wire/otlp_response.hpp"
 
@@ -601,11 +603,71 @@ enum class FrameError : std::uint8_t
 }
 
 // ---------------------------------------------------------------------------
+// grpc-message (§4.4)
+// ---------------------------------------------------------------------------
+
+/// @brief Find and percent-decode `grpc-message`.
+///
+/// Trailers first, then the initial HEADERS — the same fallback the
+/// `grpc-status` lookup uses, because a trailer-only response (§2.5) carries
+/// both in the first frame.
+///
+/// @return the decoded text, or empty when the trailer is absent or empty.
+[[nodiscard]] std::string DecodeGrpcMessage(const internal::TransportResult& tr)
+{
+    auto raw = FindHeaderValue(tr.response_trailers, "grpc-message");
+    if (!raw.has_value())
+    {
+        raw = FindHeaderValue(tr.response_headers, "grpc-message");
+    }
+    if (!raw.has_value() || raw->empty())
+    {
+        return {};
+    }
+    return PercentDecode(*raw);
+}
+
+/// @brief Truncate @p message for `WireResult::response_excerpt`.
+///
+/// Mirrors `HttpWireCodec::BuildExcerpt`: a diagnostics field, bounded, never
+/// the authoritative copy of anything.
+[[nodiscard]] std::string BuildExcerpt(const std::string& message)
+{
+    if (message.size() <= kMaxGrpcMessageChars)
+    {
+        return message;
+    }
+    return message.substr(0, kMaxGrpcMessageChars);
+}
+
+// ---------------------------------------------------------------------------
 // gRPC status classification
 // ---------------------------------------------------------------------------
 
+/// @brief §4.2 warn, emitted once per connection.
+///
+/// A proxy that terminates gRPC streams without trailers does it to every
+/// export, so warning per batch would bury the very signal it raises. The flag
+/// lives on the codec and resets when a new connection is established, which
+/// is the unit §4.2 names.
+void WarnMissingGrpcStatusOnce(int http_status, bool& already_warned)
+{
+    if (already_warned)
+    {
+        return;
+    }
+    already_warned = true;
+    internal::LogImpl(LogLevel::Warn,
+                      "gRPC response carried no grpc-status trailer (HTTP " +
+                          std::to_string(http_status) +
+                          ") - an intermediary is terminating gRPC streams without trailers; "
+                          "see docs/grpc-wire-protocol.md 4.2");
+}
+
 [[nodiscard]] internal::WireResult ClassifyMissingGrpcStatus(
-    const std::vector<internal::HeaderField>& headers, internal::IDiagnosticsSink* diag)
+    const std::vector<internal::HeaderField>& headers,
+    internal::IDiagnosticsSink* diag,
+    bool& already_warned)
 {
     const int http_status = ParseHttpStatus(headers);
     const bool retryable =
@@ -617,14 +679,45 @@ enum class FrameError : std::uint8_t
     {
         diag->RecordDrop(DropReason::MalformedResponse);
     }
+    // Warned either way: retryable or not, the peer is not speaking gRPC and
+    // that is what the operator needs to know.
+    WarnMissingGrpcStatusOnce(http_status, already_warned);
     return internal::WireResult{
         .success = false,
         .retryable = retryable,
         .retry_after = {},
         .partial_success_rejected = 0,
+        // Naming the HTTP status is the whole point: "missing grpc-status"
+        // alone cannot tell a 404 endpoint from a 502 proxy.
         .error = microtel::Error{.kind = microtel::Error::Kind::Protocol,
-                                 .message = "missing grpc-status"},
+                                 .message = "missing grpc-status (HTTP " +
+                                            std::to_string(http_status) + ")"},
         .response_excerpt = {},
+    };
+}
+
+/// @brief The terminal half of RESOURCE_EXHAUSTED: overloaded, no RetryInfo.
+///
+/// Reached both when `grpc-status-details-bin` is absent and when it is present
+/// but carries no decodable `RetryInfo` — indistinguishable to the caller, and
+/// error-model.md §7.2 treats them as one row.
+[[nodiscard]] internal::WireResult ResourceExhaustedWithoutRetryInfo(
+    const internal::TransportResult& tr)
+{
+    constexpr int kResourceExhausted = 8;
+    const std::string decoded = DecodeGrpcMessage(tr);
+    std::string message = FormatGrpcError(kResourceExhausted, decoded);
+    // The absent RetryInfo is why this is terminal rather than backed off, so
+    // it belongs in the message even when the server said nothing else.
+    message.append(" - no RetryInfo, not retried");
+    return internal::WireResult{
+        .success = false,
+        .retryable = false,
+        .retry_after = {},
+        .partial_success_rejected = 0,
+        .error =
+            microtel::Error{.kind = microtel::Error::Kind::Protocol, .message = std::move(message)},
+        .response_excerpt = BuildExcerpt(decoded),
     };
 }
 
@@ -637,28 +730,12 @@ enum class FrameError : std::uint8_t
     }
     if (!details.has_value())
     {
-        return internal::WireResult{
-            .success = false,
-            .retryable = false,
-            .retry_after = {},
-            .partial_success_rejected = 0,
-            .error = microtel::Error{.kind = microtel::Error::Kind::Protocol,
-                                     .message = "RESOURCE_EXHAUSTED without RetryInfo"},
-            .response_excerpt = {},
-        };
+        return ResourceExhaustedWithoutRetryInfo(tr);
     }
     const auto delay = TryDecodeRetryDelay(*details);
     if (!delay.has_value())
     {
-        return internal::WireResult{
-            .success = false,
-            .retryable = false,
-            .retry_after = {},
-            .partial_success_rejected = 0,
-            .error = microtel::Error{.kind = microtel::Error::Kind::Protocol,
-                                     .message = "RESOURCE_EXHAUSTED without RetryInfo"},
-            .response_excerpt = {},
-        };
+        return ResourceExhaustedWithoutRetryInfo(tr);
     }
     return internal::WireResult{
         .success = false,
@@ -701,32 +778,34 @@ enum class FrameError : std::uint8_t
     {
         return ClassifyGrpcSuccess(tr, max_decompressed, diag);
     }
-    constexpr int kCancelled = 1;
-    constexpr int kDeadlineExceeded = 4;
     constexpr int kResourceExhausted = 8;
-    constexpr int kAborted = 10;
-    constexpr int kOutOfRange = 11;
-    constexpr int kUnavailable = 14;
-    constexpr int kDataLoss = 15;
     if (code == kResourceExhausted)
     {
+        // The one status whose retryability the table cannot answer on its own.
         return ClassifyResourceExhausted(tr);
     }
-    const bool retryable = (code == kCancelled || code == kDeadlineExceeded || code == kAborted ||
-                            code == kOutOfRange || code == kUnavailable || code == kDataLoss);
+    // Retryability comes from the §7.2 table rather than a row of loose
+    // comparisons, so the matrix and the code cannot drift. A code outside the
+    // canonical range has no entry and is terminal: we cannot classify what we
+    // do not recognise.
+    const auto info = LookupGrpcStatus(code);
+    const bool retryable = info.has_value() && info->retryable;
+    const std::string decoded = DecodeGrpcMessage(tr);
     return internal::WireResult{
         .success = false,
         .retryable = retryable,
         .retry_after = {},
         .partial_success_rejected = 0,
-        .error = microtel::Error{.kind = microtel::Error::Kind::Protocol, .message = "grpc error"},
-        .response_excerpt = {},
+        .error = microtel::Error{.kind = microtel::Error::Kind::Protocol,
+                                 .message = FormatGrpcError(code, decoded)},
+        .response_excerpt = BuildExcerpt(decoded),
     };
 }
 
 [[nodiscard]] internal::WireResult ClassifyResponse(const internal::TransportResult& tr,
                                                     std::size_t max_decompressed,
-                                                    internal::IDiagnosticsSink* diag)
+                                                    internal::IDiagnosticsSink* diag,
+                                                    bool& already_warned)
 {
     if (tr.error.has_value())
     {
@@ -752,7 +831,7 @@ enum class FrameError : std::uint8_t
     }
     if (!status_sv.has_value())
     {
-        return ClassifyMissingGrpcStatus(tr.response_headers, diag);
+        return ClassifyMissingGrpcStatus(tr.response_headers, diag, already_warned);
     }
     int code = kGrpcStatusUnparsed;
     const auto* const p = status_sv->data();
@@ -879,6 +958,9 @@ std::optional<internal::WireResult> GrpcWireCodec::EnsureConnected()
             .response_excerpt = {},
         };
     }
+    // A new connection: the §4.2 warn is per-connection, so the next malformed
+    // response on this one is a first occurrence again.
+    m_warned_missing_grpc_status = false;
     return std::nullopt;
 }
 
@@ -940,7 +1022,8 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     }
 
     const auto tr = fut.get();
-    return ClassifyResponse(tr, m_config.max_decompressed_bytes, m_diag);
+    return ClassifyResponse(
+        tr, m_config.max_decompressed_bytes, m_diag, m_warned_missing_grpc_status);
 }
 
 }  // namespace microtel::wire

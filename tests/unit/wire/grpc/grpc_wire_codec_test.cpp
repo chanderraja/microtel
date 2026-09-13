@@ -10,6 +10,7 @@
 
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/wire_result.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 
 #include "fakes/fake_diagnostics_sink.hpp"
@@ -19,12 +20,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mt = microtel;
@@ -224,6 +227,9 @@ TEST(GrpcWireCodecTest, Send_Cancelled_Retryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "CANCELLED (1)");
 }
 
 TEST(GrpcWireCodecTest, Send_DeadlineExceeded_Retryable)
@@ -235,6 +241,9 @@ TEST(GrpcWireCodecTest, Send_DeadlineExceeded_Retryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "DEADLINE_EXCEEDED (4)");
 }
 
 TEST(GrpcWireCodecTest, Send_Unavailable_Retryable)
@@ -246,6 +255,9 @@ TEST(GrpcWireCodecTest, Send_Unavailable_Retryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "UNAVAILABLE (14)");
 }
 
 TEST(GrpcWireCodecTest, Send_DataLoss_Retryable)
@@ -257,6 +269,9 @@ TEST(GrpcWireCodecTest, Send_DataLoss_Retryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "DATA_LOSS (15)");
 }
 
 TEST(GrpcWireCodecTest, Send_TrailerOnly_Unavailable_Retryable)
@@ -268,6 +283,9 @@ TEST(GrpcWireCodecTest, Send_TrailerOnly_Unavailable_Retryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "UNAVAILABLE (14)");
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +301,9 @@ TEST(GrpcWireCodecTest, Send_InvalidArgument_NotRetryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "INVALID_ARGUMENT (3)");
 }
 
 TEST(GrpcWireCodecTest, Send_Internal_NotRetryable)
@@ -294,6 +315,9 @@ TEST(GrpcWireCodecTest, Send_Internal_NotRetryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "INTERNAL (13)");
 }
 
 TEST(GrpcWireCodecTest, Send_Unimplemented_NotRetryable)
@@ -305,6 +329,9 @@ TEST(GrpcWireCodecTest, Send_Unimplemented_NotRetryable)
     const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "UNIMPLEMENTED (12)");
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,4 +1208,349 @@ TEST(GrpcWireCodecTest, Response_NonZeroStatus_DoesNotValidateTheFrame)
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.retryable);
     EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// grpc-message surfacing (issue #171, grpc-wire-protocol.md §4.4)
+//
+// Every non-zero status used to collapse to the literal "grpc error": the code
+// was parsed and thrown away, and grpc-message was never read anywhere in src/.
+// last_error_message is the whole operator-visible explanation, so a rejected
+// credential, a wrong path and a server bug all read identically.
+// ---------------------------------------------------------------------------
+
+/// A failure response carrying @p message in the `grpc-message` trailer.
+static mti::TransportResult GrpcStatusWithMessage(const std::string& code,
+                                                  const std::string& message)
+{
+    return mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = code},
+                              {.name = "grpc-message", .value = message}},
+        .response_body = {},
+        .error = {},
+    };
+}
+
+static std::string ErrorMessage(const mti::WireResult& result)
+{
+    return result.error.has_value() ? result.error->message : std::string{"<no error>"};
+}
+
+TEST(GrpcWireCodecTest, Send_Unauthenticated_NamesTheStatusAndCarriesTheMessage)
+{
+    // The exact exchange from issue #171, as captured from the collector's
+    // bearer-auth receiver with a wrong token.
+    mtfk::FakeTransport transport;
+    transport.default_response =
+        GrpcStatusWithMessage("16", "provided authorization does not match expected scheme");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(ErrorMessage(result),
+              "UNAUTHENTICATED (16): provided authorization does not match expected scheme");
+}
+
+TEST(GrpcWireCodecTest, Send_GrpcMessage_IsPercentDecoded)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("3", "bad%20field%3A%20name");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(ErrorMessage(result), "INVALID_ARGUMENT (3): bad field: name");
+}
+
+TEST(GrpcWireCodecTest, Send_GrpcMessage_InvalidEscapeSurvivesVerbatim)
+{
+    // A bare '%' in a human-readable sentence must not cost the whole message.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("13", "queue 100% full");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(ErrorMessage(result), "INTERNAL (13): queue 100% full");
+}
+
+TEST(GrpcWireCodecTest, Send_GrpcMessage_EmptyValueLeavesNoDanglingSeparator)
+{
+    // A present-but-empty trailer is not the same as a message; it must not
+    // produce "INTERNAL (13): " with nothing after the colon.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("13", "");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(ErrorMessage(result), "INTERNAL (13)");
+}
+
+TEST(GrpcWireCodecTest, Send_GrpcMessage_ReadFromInitialHeadersOnTrailerOnly)
+{
+    // Trailer-only responses carry the status — and the message — in the first
+    // HEADERS frame (§2.5). Same fallback the status lookup already does.
+    mtfk::FakeTransport transport;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"},
+                             {.name = "grpc-status", .value = "7"},
+                             {.name = "grpc-message", .value = "no%20access"}},
+        .response_trailers = {},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(ErrorMessage(result), "PERMISSION_DENIED (7): no access");
+}
+
+TEST(GrpcWireCodecTest, Send_UnrecognizedStatusCode_IsNamedAndNonRetryable)
+{
+    // A code outside 0..16 cannot be classified, but the number is the only
+    // lead an operator has.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("42", "from the future");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(ErrorMessage(result), "UNRECOGNIZED (42): from the future");
+}
+
+TEST(GrpcWireCodecTest, Send_UnparseableStatusValue_IsNamedAndNonRetryable)
+{
+    // `grpc-status: banana`. from_chars leaves the sentinel in place; the
+    // sentinel must not read as some real status.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("banana", "");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(ErrorMessage(result), "UNRECOGNIZED (-1)");
+}
+
+TEST(GrpcWireCodecTest, Send_Failure_PopulatesResponseExcerpt)
+{
+    // response_excerpt was left empty on every gRPC failure. It is the
+    // diagnostics field the HTTP codec fills from the body, and the decoded
+    // grpc-message is this protocol's equivalent.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("13", "disk%20on%20fire");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(result.response_excerpt, "disk on fire");
+}
+
+TEST(GrpcWireCodecTest, Send_OverlongGrpcMessage_IsTruncated)
+{
+    // Bounded by max_trailer_bytes on the wire — 64 KiB — but the health
+    // snapshot keeps 256 chars, so the codec must not assemble the rest.
+    const std::string huge(4096, 'x');
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("13", huge);
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_LT(ErrorMessage(result).size(), huge.size());
+    EXPECT_LT(result.response_excerpt.size(), huge.size());
+    EXPECT_EQ(ErrorMessage(result).rfind("INTERNAL (13): ", 0), 0U);
+}
+
+TEST(GrpcWireCodecTest, Send_Success_LeavesNoErrorOrExcerpt)
+{
+    // The new formatting must not leak onto the success path.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_FALSE(result.error.has_value());
+    EXPECT_TRUE(result.response_excerpt.empty());
+}
+
+// ---------------------------------------------------------------------------
+// RESOURCE_EXHAUSTED and missing-status messages — the siblings
+// ---------------------------------------------------------------------------
+
+TEST(GrpcWireCodecTest, Send_ResourceExhausted_WithoutRetryInfo_NamesTheStatus)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusWithMessage("8", "too%20many%20spans");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.retryable);
+    // The RetryInfo note is on the message deliberately: "not retried" is the
+    // non-obvious half of this row (error-model.md §7.2, LOCKED), and an
+    // operator seeing a dropped batch under load needs to know the server was
+    // asked and gave no delay.
+    EXPECT_EQ(ErrorMessage(result),
+              "RESOURCE_EXHAUSTED (8): too many spans - no RetryInfo, not retried");
+    EXPECT_EQ(result.response_excerpt, "too many spans");
+}
+
+TEST(GrpcWireCodecTest, Send_ResourceExhausted_UndecodableDetails_NamesTheStatus)
+{
+    // details-bin present but not a parseable RetryInfo: still terminal, and
+    // the message must say which status it was rather than describing only the
+    // missing RetryInfo.
+    mtfk::FakeTransport transport;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "8"},
+                              {.name = "grpc-status-details-bin", .value = "!!!not-base64!!!"}},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.retryable);
+    EXPECT_NE(ErrorMessage(result).find("RESOURCE_EXHAUSTED (8)"), std::string::npos)
+        << ErrorMessage(result);
+    EXPECT_NE(ErrorMessage(result).find("RetryInfo"), std::string::npos) << ErrorMessage(result);
+}
+
+TEST(GrpcWireCodecTest, Send_MissingGrpcStatus_MessageNamesTheHttpStatus)
+{
+    // "missing grpc-status" alone does not tell an operator whether a proxy
+    // returned 502 or the endpoint answered 404.
+    mtfk::FakeTransport transport;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "404"}},
+        .response_trailers = {},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.retryable);
+    EXPECT_NE(ErrorMessage(result).find("404"), std::string::npos) << ErrorMessage(result);
+    EXPECT_NE(ErrorMessage(result).find("grpc-status"), std::string::npos) << ErrorMessage(result);
+}
+
+// ---------------------------------------------------------------------------
+// Missing grpc-status — the warn diagnostic (grpc-wire-protocol.md §4.2)
+//
+// §4.2: "The codec emits a `warn`-level diagnostic on the first occurrence per
+// (connection) so operators can see 'your proxy is terminating gRPC streams
+// without trailers.'" First occurrence, not every occurrence: a proxy doing
+// this does it to every export, and a per-batch warn would bury the signal it
+// is trying to raise.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+struct CapturedLog
+{
+    mt::LogLevel level;
+    std::string message;
+};
+
+/// Installs a capturing log sink for the duration of a test and restores the
+/// default afterwards, so a leaked sink cannot affect a later suite.
+class GrpcCodecLogTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        mt::SetLogSink([this](mt::LogLevel level, std::string_view message)
+                       { m_logs.push_back({.level = level, .message = std::string{message}}); });
+    }
+
+    void TearDown() override
+    {
+        mt::ResetLogSink();
+    }
+
+    [[nodiscard]] std::size_t WarnCount() const
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            m_logs, [](const CapturedLog& e) { return e.level == mt::LogLevel::Warn; }));
+    }
+
+    std::vector<CapturedLog> m_logs;
+};
+
+mti::TransportResult MissingStatusResponse(const std::string& http_status)
+{
+    return mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = http_status}},
+        .response_trailers = {},
+        .response_body = {},
+        .error = {},
+    };
+}
+
+}  // namespace
+
+TEST_F(GrpcCodecLogTest, MissingGrpcStatus_WarnsOnce)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = MissingStatusResponse("404");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_EQ(WarnCount(), 1U) << "§4.2 says first occurrence per connection, not per batch";
+    ASSERT_FALSE(m_logs.empty());
+    EXPECT_NE(m_logs.front().message.find("grpc-status"), std::string::npos)
+        << m_logs.front().message;
+}
+
+TEST_F(GrpcCodecLogTest, MissingGrpcStatus_WarnsAgainOnANewConnection)
+{
+    // "Per connection" is the spec's unit. A codec that warned once for its
+    // whole lifetime would go silent across a reconnect, which is exactly when
+    // an operator restarting a proxy wants to see it again.
+    mtfk::FakeTransport transport;
+    transport.default_response = MissingStatusResponse("404");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(WarnCount(), 1U);
+
+    // Drop the connection; the next Send reconnects through EnsureConnected.
+    transport.state = mt::ConnectionState::Disconnected;
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(WarnCount(), 2U);
+}
+
+TEST_F(GrpcCodecLogTest, RetryableMissingGrpcStatus_AlsoWarns)
+{
+    // A 503 without trailers is still a peer that is not speaking gRPC; it is
+    // retryable, but the operator should still learn why.
+    mtfk::FakeTransport transport;
+    transport.default_response = MissingStatusResponse("503");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(WarnCount(), 1U);
+}
+
+TEST_F(GrpcCodecLogTest, OrdinaryGrpcFailure_DoesNotWarn)
+{
+    // The warn is about malformed peers, not about ordinary rejections.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcStatusResponse("13");
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_EQ(WarnCount(), 0U);
 }

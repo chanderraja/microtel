@@ -109,6 +109,12 @@ private:
     internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
     internal::ConnectOptions m_connect_opts;
+    /// @brief Whether the §4.2 "no grpc-status trailer" warn has fired on the
+    /// current connection. Reset whenever `EnsureConnected` establishes a new
+    /// one, which is the unit §4.2 names — a codec that warned once for its
+    /// whole lifetime would go quiet across the reconnect an operator is
+    /// watching for.
+    bool m_warned_missing_grpc_status{false};
 };
 
 }  // namespace microtel::wire

@@ -7,7 +7,10 @@ add_library(microtel_grpc_wire STATIC
     grpc_status.cpp
     grpc_wire_codec.cpp)
 
-target_link_libraries(microtel_grpc_wire PUBLIC microtel_headers microtel_otlp_response microtel_gzip)
+# microtel_common carries the internal log entry point the §4.2 malformed-peer
+# warn goes through.
+target_link_libraries(microtel_grpc_wire
+    PUBLIC microtel_headers microtel_otlp_response microtel_gzip microtel_common)
 
 target_include_directories(microtel_grpc_wire PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

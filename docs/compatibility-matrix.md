@@ -129,9 +129,10 @@ open at the time of writing.
   protocols identically. No conformance test asserts on `ScopeSpans.scope` —
   that would enshrine the bug.
 - **`TraceState` and `W3CTraceContextPropagator` are declared and not
-  defined**: `TraceState::FromHeader` / `ToHeader` / `Size` / `Empty` and
-  `W3CTraceContextPropagator::Inject` / `Extract` have no definition in any
-  shipped translation unit, so calling one from consumer code is a link error.
+  defined** (issue #188): `TraceState::FromHeader` / `ToHeader` / `Size` /
+  `Empty` and `W3CTraceContextPropagator::Inject` / `Extract` have no
+  definition in any shipped translation unit, so calling one from consumer
+  code is a link error.
   Same defect class as issue #168, which is fixed — `TraceId::ToHex()` and
   `SpanId::ToHex()` are now defined in `src/api/` (`microtel_api`).
 - **`HealthSnapshot::drop_counters` is nearly all dead for traces** (issue

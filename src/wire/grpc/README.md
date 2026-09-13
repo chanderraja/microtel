@@ -40,9 +40,14 @@ Track C — OTLP/gRPC wire codec.
 
 - `tests/unit/wire/grpc/` — codec state machine, every status-code row
   from `error-model.md` §7.2.
-- `tests/grpc-wire/` — the byte-level corpus from
-  `docs/grpc-wire-protocol.md` §7 (trailer-only, multi-frame, split
-  prefix, RST_STREAM, GOAWAY mid-stream, malformed responses).
+- [`tests/grpc-wire/README.md`](../../../tests/grpc-wire/) — the corpus
+  from `docs/grpc-wire-protocol.md` §7.2, as a table mapping each
+  required entry to the test that covers it. The framing entries
+  (GOAWAY, RST_STREAM, a message split across DATA frames) are not
+  reachable through `FakeTransport` — they happen below `ITransport` —
+  so they live in
+  [`tests/integration/transport/http2_send_test.cpp`](../../../tests/integration/transport/http2_send_test.cpp)
+  against a real nghttp2 peer.
 - `tests/fuzz/grpc_codec_fuzz.cpp` — libFuzzer harness over the
   response-parser entry point; required for v1.0 release per spec §13.5.
 - `tests/conformance/grpc/` — end-to-end against a real collector.

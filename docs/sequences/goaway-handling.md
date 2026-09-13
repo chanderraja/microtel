@@ -112,4 +112,20 @@ If the application calls `Provider::Shutdown` and the peer simultaneously sends 
 - Multiple GOAWAYs from the same peer (legal per HTTP/2; second one carries lower or equal `last_stream_id`) — nghttp2 handles deduplication.
 - GOAWAY with extremely high `last_stream_id` (peer being lenient) — no special handling needed.
 
-These live in `tests/grpc-wire/goaway/` and `tests/integration/transport_goaway/` (M3+).
+These live in [`tests/integration/transport/http2_send_test.cpp`](../../tests/integration/transport/http2_send_test.cpp) (`Send_PeerGoaway*`), against an in-process nghttp2 peer scripted to send the frame. The `tests/grpc-wire/goaway/` and `tests/integration/transport_goaway/` directories this line used to name were never created; [`tests/grpc-wire/README.md`](../../tests/grpc-wire/README.md) maps each corpus entry to its test.
+
+Of the list above, `last_stream_id = 0` and the error-code variants are covered. GOAWAY-then-TCP-RST, repeated GOAWAYs, and a very high `last_stream_id` are handled by the same code path with no branch of their own, and have no test of their own either.
+
+---
+
+## Implementation status (v1.0)
+
+Implemented in `Http2Transport`: the GOAWAY is read in the frame-recv callback, the error code and `last_stream_id` are formatted into the `Error` every refused request carries, streams above `last_stream_id` are completed as retryable, streams at or below it are left to finish, and the connection moves to `Reconnecting` once they have.
+
+Three points above did not survive contact with the architecture that followed this document, and are noted here rather than silently diverging:
+
+1. **Annotation 2 — "no microtel code reads the GOAWAY frame directly" — is wrong.** nghttp2 does mark the session draining and refuse new streams on its own, but nothing outside microtel changes `ConnectionState`. A transport that only relied on nghttp2 stayed in `Connected` on a session that would never carry another stream, and `Connect` refused to reconnect it because it believed it was already connected. Reading the frame is what closes that.
+2. **Annotation 3's eager reconnect is not what happens.** The I/O thread does not open a new connection; it publishes `Reconnecting` and the next export's lazy connect re-establishes (ICP 0017, ICP 0018 §3). The observable sequence — next batch waits, then proceeds on a new connection — is the one the timeline draws.
+3. **Annotation 5's backoff lives above the transport,** in the retry engine, not in an I/O-thread loop.
+
+Not implemented: the graceful-close handshake of the "GOAWAY during shutdown" variant — `Close` tears the session down without sending a GOAWAY of its own.

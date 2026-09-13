@@ -15,6 +15,7 @@
 #include "common/raii/ssl_session.hpp"
 #include "common/raii/unique_fd.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -87,6 +88,20 @@ public:
     std::ptrdiff_t NgHttp2DoSend(const std::uint8_t* data, std::size_t len) noexcept;
     std::ptrdiff_t NgHttp2DoRecv(std::uint8_t* buf, std::size_t len) noexcept;
     void OnSettingsAck() noexcept;
+
+    /// @brief Handle a peer `GOAWAY` (`docs/sequences/goaway-handling.md`).
+    ///
+    /// Records what the peer said, fulfils every stream the peer will not
+    /// serve, and retires the connection once the ones it accepted have
+    /// drained. nghttp2 marks the session draining on its own and will open no
+    /// further streams on it, so a transport that stayed `Connected` here
+    /// would refuse every later `Send` with no reconnect to recover it.
+    ///
+    /// @param last_stream_id Highest stream id the peer accepted; streams above
+    ///                       it are refused.
+    /// @param error_code     HTTP/2 error code carried by the frame.
+    void OnGoaway(std::int32_t last_stream_id, std::uint32_t error_code) noexcept;
+
     void OnStreamClose(std::int32_t stream_id, std::uint32_t error_code) noexcept;
     void OnResponseHeader(std::int32_t stream_id,
                           bool is_trailer,
@@ -108,6 +123,9 @@ public:
     };
 
 private:
+    /// Size of the formatted GOAWAY diagnostic, including its terminator.
+    static constexpr std::size_t kGoawayDetailMax = 96;
+
     /// @brief Request queued by Send(); drained by the I/O thread.
     struct PendingRequest
     {
@@ -140,6 +158,27 @@ private:
     ///        libstdc++). This can run under memory pressure, and a message
     ///        that allocates would throw out of a `noexcept` frame — see #150.
     void AbandonInFlight(const char* message) noexcept;
+
+    /// @brief Fulfil and drop every stream the peer's GOAWAY refused.
+    ///
+    /// Streams above `last_stream_id` were never processed by the peer
+    /// (`goaway-handling.md`, variant 2). nghttp2 is about to close them with
+    /// `REFUSED_STREAM`; completing them here first is what lets the error say
+    /// GOAWAY rather than the generic stream error `FulfillStream` would give.
+    /// I/O-thread-only, like the rest of `m_streams`.
+    void RefuseStreamsAbove(std::int32_t last_stream_id) noexcept;
+
+    /// @brief Move to `Reconnecting` once a GOAWAY'd connection has no streams
+    ///        left on it. No-op before a GOAWAY, or while one is still
+    ///        draining.
+    ///
+    /// I/O-thread-only, and specifically only between nghttp2 turns — never
+    /// from inside an nghttp2 callback. The state change is what releases the
+    /// caller thread to reconnect, and a reconnect closes the socket nghttp2
+    /// may still be reading.
+    ///
+    /// @return true if this call retired the connection.
+    [[nodiscard]] bool FinishGoawayDrainIfIdle() noexcept;
 
     [[nodiscard]] microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Handshake(
         const internal::ConnectOptions& opts);
@@ -201,6 +240,19 @@ private:
     /// `Http2Handshake`; written from the caller thread during the handshake
     /// and from the I/O thread afterwards, hence atomic.
     std::atomic<bool> m_peer_closed_on_send{false};
+    /// Set when the peer's GOAWAY has been seen on the current connection.
+    /// Reset by every `Http2Handshake`, so a reconnect does not inherit it.
+    /// Atomic for the same reason as its neighbours: the frame can arrive
+    /// during the caller-thread handshake as well as on the I/O thread.
+    std::atomic<bool> m_goaway_received{false};
+    /// The GOAWAY diagnostic, formatted once on receipt.
+    ///
+    /// The transport owns no diagnostics sink — "its callers record what they
+    /// observe" (`error-model.md` §5) — so what it saw reaches an operator
+    /// through the `Error` carried by every request the GOAWAY refused. A
+    /// fixed buffer because the formatting happens inside a `noexcept`
+    /// nghttp2 callback.
+    std::array<char, kGoawayDetailMax> m_goaway_detail{};
 
     // Send queues — caller-thread writes, I/O thread drains.
     std::mutex m_pending_mu;

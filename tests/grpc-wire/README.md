@@ -1,39 +1,71 @@
 # `tests/grpc-wire/`
 
-The corpus from `docs/grpc-wire-protocol.md` §7. Each fixture is a
-recorded HTTP/2 byte stream containing a gRPC payload; the codec is
-run against it; the test asserts the resulting `WireResult`.
+The gRPC response corpus from `docs/grpc-wire-protocol.md` §7.2 and spec
+§13.5. This directory holds **no fixture files**: every entry in the
+corpus is covered by a test that builds the response in code, and the
+table below says which one.
 
-This directory exists separately from [`tests/wire/`](../wire/)
-because the gRPC corpus is large and the edge cases are subtle —
-keeping it separate makes the invariants easier to read.
+That is a deliberate reading of the corpus rather than a shortfall
+against it. The corpus splits in two along the line the codec's
+interface draws:
 
-## Required corpus entries (per spec §13.5 / `docs/grpc-wire-protocol.md` §7.2)
+- **Response *content*** — statuses, trailers, `RetryInfo`, the
+  partial-success body. `FakeTransport` hands the codec an exact
+  `TransportResult`, which is a byte-stable fixture expressed in C++
+  rather than in a file, and is checked without a socket. These live in
+  [`tests/unit/wire/grpc/`](../unit/wire/grpc/).
+- **Response *framing*** — GOAWAY, RST_STREAM, and a message split
+  across DATA frames. None of these are reachable through
+  `FakeTransport`: they happen *below* `ITransport`, and a fake that
+  hands over one finished body cannot express them. They need a real
+  nghttp2 peer, so they live in
+  [`tests/integration/transport/http2_send_test.cpp`](../integration/transport/http2_send_test.cpp),
+  driving the real codec over the real transport against an in-process
+  server scripted to produce the frame in question.
 
-- Trailer-only response with `grpc-status: 0`.
-- Trailer-only response with `grpc-status: 14` (UNAVAILABLE).
-- Trailer-only response without `grpc-status` (malformed).
-- Multi-DATA-frame response with a single message split mid-prefix.
-- Multi-DATA-frame response with a single message split mid-body.
-- Response with `RESOURCE_EXHAUSTED` and inline `RetryInfo` in
-  `grpc-status-details-bin`.
-- Response with `RESOURCE_EXHAUSTED` and **no** `RetryInfo`.
-- Response with `partial_success` in DATA and `grpc-status: 0` in trailers.
-- Response with conflicting HTTP `:status: 503` and `grpc-status: 0`.
-- GOAWAY mid-stream during DATA.
-- RST_STREAM with `INTERNAL_ERROR (0x2)` from peer.
+## Required corpus entries → covering tests
+
+| # | Corpus entry (`grpc-wire-protocol.md` §7.2) | Test |
+|---|---|---|
+| 1 | Trailer-only response with `grpc-status: 0` | `GrpcWireCodecTest.Send_TrailerOnly_GrpcStatus0_Succeeds` |
+| 2 | Trailer-only response with `grpc-status: 14` (UNAVAILABLE) | `GrpcWireCodecTest.Send_TrailerOnly_Unavailable_Retryable` |
+| 3 | Trailer-only response without `grpc-status` (malformed) | `GrpcWireCodecTest.Send_MissingGrpcStatus_Http200_NotRetryable`, `…_Http429_Retryable`, `…_Http503_Retryable`, `…_MessageNamesTheHttpStatus` |
+| 4 | Multi-DATA-frame response, message split mid-prefix | `Http2TransportSendIntegrationTest.GrpcResponse_SplitMidPrefix_Accumulates` |
+| 5 | Multi-DATA-frame response, message split mid-body | `Http2TransportSendIntegrationTest.GrpcResponse_SplitMidBody_Accumulates` |
+| 6 | `RESOURCE_EXHAUSTED` with inline `RetryInfo` | `GrpcWireCodecTest.Send_ResourceExhausted_WithRetryInfo_RetryableWithDelay` |
+| 7 | `RESOURCE_EXHAUSTED` with **no** `RetryInfo` | `GrpcWireCodecTest.Send_ResourceExhausted_WithoutRetryInfo_NotRetryable` |
+| 8 | `partial_success` in DATA with `grpc-status: 0` | `GrpcWireCodecTest.PartialSuccess_PopulatesRejectedSpans` |
+| 9 | Conflicting HTTP `:status: 503` with `grpc-status: 0` | `GrpcWireCodecTest.Send_Http503WithGrpcStatus0_SucceedsPerGrpcStatus` |
+| 10 | GOAWAY mid-stream during DATA | `Http2TransportSendIntegrationTest.Send_PeerGoawayRefusesStream_FailsNamingGoaway`, `…_PeerGoawayWithErrorCode_NamesTheCode`, `…_PeerGoawayAfterAccepting_CompletesThenReconnects` |
+| 11 | RST_STREAM with `INTERNAL_ERROR (0x2)` from peer | `Http2TransportSendIntegrationTest.Send_PeerRstStream_FailsRequestKeepsConnection` |
+
+Rows 1-3 and 6-9 are in
+[`tests/unit/wire/grpc/grpc_wire_codec_test.cpp`](../unit/wire/grpc/grpc_wire_codec_test.cpp);
+rows 4-5 and 10-11 in
+[`tests/integration/transport/http2_send_test.cpp`](../integration/transport/http2_send_test.cpp).
+
+Related but outside the corpus: the malformed-framing rows
+(`Response_ShortBody_IsMalformed`, `Response_UnknownCompressionFlag_IsMalformed`,
+`Response_DeclaredLengthLongerThanBody_IsMalformed`,
+`Response_TrailingBytesAfterMessage_IsMalformed`) cover §2.3's rejection
+cases, and `tests/fuzz/grpc_codec_fuzz.cpp` fuzzes the same parser.
 
 ## M1 ground-truth
 
 The M1 spike (now deleted; recoverable at the `v0.1.1-m1` tag) verified
 three of these against a real `otel/opentelemetry-collector:0.151.0`:
 the happy path, the trailer-only response with non-zero status, and the
-split-frame request. The recorded byte streams from those runs can be
-captured and replayed here as M3 lands the codec.
+split-frame request. `tests/conformance/` is where that end-to-end
+check lives now.
 
 ## Bar
 
-- **Byte-stable fixtures.** Same as `tests/wire/`. No regeneration in
-  CI.
-- **No real collector.** The whole point is testing the parser against
-  byte streams, not a live server. The fixtures are the contract.
+- **Deterministic responses.** A response a test asserts on is built
+  byte-for-byte by the test, never regenerated and never sampled from a
+  live peer.
+- **No real collector.** The point is testing the parser against bytes.
+  The in-process nghttp2 server the framing rows use is a scripted peer,
+  not a collector; the collector lives in `tests/conformance/`.
+- **A new corpus entry adds a row above.** An entry with no test in this
+  table is an open gap, and saying so here is the whole purpose of the
+  table.

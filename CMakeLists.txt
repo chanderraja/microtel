@@ -300,6 +300,28 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/microtel
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tl-expected/tl/expected.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel/vendor/tl)
 
+# License texts (issue #191). Until this rule, `cmake --install` produced
+# archives, headers and a binary with no license of any kind — which Apache-2.0
+# §4(a)/§4(d) asks for on microtel's own account, and which the vendored upb's
+# BSD-3 binary-redistribution clause requires outright, since upb is compiled
+# into the archives above.
+#
+# CMAKE_INSTALL_DATADIR, not DATAROOTDIR: GNUInstallDirs defines DATADIR as the
+# read-only architecture-independent data root and defaults it to DATAROOTDIR,
+# so the default path is the same `share/` either way — but DATADIR is the
+# variable a distro packager retargets, and license text is data, not a
+# packaging root. `licenses/microtel/` matches what Fedora, Debian and vcpkg
+# already look for.
+#
+# THIRD_PARTY_NOTICES.md carries the full text of every vendored license, so
+# these three files are the whole attribution set; the per-component
+# third_party/*/LICENSE files need no separate install rule.
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
+        ${CMAKE_CURRENT_SOURCE_DIR}/NOTICE
+        ${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/microtel)
+
 # opentelemetry-cpp shim headers — ICP 0020 Decision 3: headers install, no
 # binary and no exported target, permanently. Installed unconditionally
 # (i.e. not gated on MICROTEL_BUILD_OTELCPP_SHIM) because the consumer opts in

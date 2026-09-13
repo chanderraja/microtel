@@ -243,9 +243,11 @@ here while OTLP/HTTP returned `true` for the identical failure).
 | `OK (0)` | true | n/a | n/a | (success) |
 | `OK` with partial-success rejected > 0 | true | **false** (never retried) | n/a | `partial_success_rejection` |
 | `CANCELLED (1)` | false | true | jittered backoff | |
+| `UNKNOWN (2)` | false | false | n/a | `non_retryable_failure` |
 | `INVALID_ARGUMENT (3)` | false | false | n/a | `non_retryable_failure` |
 | `DEADLINE_EXCEEDED (4)` | false | true | jittered backoff | |
 | `NOT_FOUND (5)` | false | false | n/a | `non_retryable_failure` |
+| `ALREADY_EXISTS (6)` | false | false | n/a | `non_retryable_failure` |
 | `PERMISSION_DENIED (7)` | false | false | n/a | `non_retryable_failure` |
 | `RESOURCE_EXHAUSTED (8)`, with `RetryInfo` in details | false | true | from `RetryInfo.retry_delay` | |
 | `RESOURCE_EXHAUSTED (8)`, **without `RetryInfo`** | false | **false** | n/a | `non_retryable_failure` |
@@ -261,6 +263,8 @@ here while OTLP/HTTP returned `true` for the identical failure).
 | Trailer-only response without `grpc-status`, other HTTP `:status` | false | false | n/a | `malformed_response` |
 | Multi-frame parse failure / truncated message | false | false | n/a | `malformed_response` |
 | Decoded body > `max_decompressed_bytes` | false | false | n/a | `decompression_too_large` |
+
+`UNKNOWN (2)` and `ALREADY_EXISTS (6)` were absent from this table until issue #171; they are listed now because the codec's status table covers the whole `0..16` range and the matrix is what that table is checked against. Both were already non-retryable in the shipped code — they fell off the end of its retryable list — so the rows record existing behaviour rather than change it. A `grpc-status` outside `0..16` has no row and is non-retryable, reported as `UNRECOGNIZED (<code>)`.
 
 The `RESOURCE_EXHAUSTED` row is the most important non-obvious entry — it is documented separately in `microtel-spec.md` §7.2 and has acceptance test coverage requirements per the M4 milestone in spec §13.
 

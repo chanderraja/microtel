@@ -86,11 +86,14 @@ Three caveats behind those ticks:
   carries the service name rather than the `GetTracer(name, version)` scope
   (issue #167), so no test here asserts on it — that would enshrine the bug.
   Confirmed identical on both protocols.
-- **The gRPC failure surface is thin.** Every non-zero `grpc-status` reaches
-  `HealthSnapshot::last_error_message` as the literal `"grpc error"`; the
-  status code and the collector's `grpc-message` are both discarded (issue
-  #171). `tests/conformance/grpc/auth_test.cpp` asserts that observed string
-  rather than the status its HTTP sibling can assert.
+- **The gRPC failure surface names the status** (issue #171, fixed). A
+  rejected credential reaches `HealthSnapshot::last_error_message` as
+  `UNAUTHENTICATED (16): provided authorization does not match expected scheme
+  or token` — the status name, its number, and the collector's own
+  percent-decoded `grpc-message`. `tests/conformance/grpc/auth_test.cpp`
+  asserts the status text and a fragment of the collector's sentence
+  separately, so a regression says which half broke. Until this landed the
+  field read `"grpc error"` for every non-zero status.
 
 **Encoding is protocol-independent, and that was measured.** The collector's
 file-exporter line for the OTLP/HTTP basic-export span and the one for its

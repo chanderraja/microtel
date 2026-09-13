@@ -80,11 +80,16 @@ constexpr const char* kAuthorizationHeader = "authorization";
 /// the real one: the point is a clean UNAUTHENTICATED, not a parser edge case.
 constexpr const char* kWrongToken = "Bearer not-the-conformance-token";
 
-/// What `HealthSnapshot::last_error_message` actually reads after the
-/// collector's rejection: the codec's fixed string for every non-zero
-/// `grpc-status`, not the status and not the collector's `grpc-message`
-/// (issue #171). See the comment in WrongTokenRejected.
-constexpr const char* kObservedGrpcErrorMessage = "grpc error";
+/// The status the collector answers a bad credential with, as microtel now
+/// renders it (issue #171). Asserted as a substring rather than the whole
+/// string so the collector is free to reword its own sentence.
+constexpr const char* kExpectedGrpcStatusText = "UNAUTHENTICATED (16)";
+
+/// A fragment of the collector's own `grpc-message`, observed on the wire
+/// against the pinned image. Short on purpose: enough to prove the server's
+/// sentence survived percent-decoding into `last_error_message`, not so much
+/// that a reworded message upstream becomes a red build for no reason.
+constexpr const char* kExpectedCollectorMessageFragment = "does not match expected scheme";
 
 constexpr auto kFlushTimeout = std::chrono::seconds(30);
 constexpr auto kCollectorPollTimeout = std::chrono::seconds(15);
@@ -274,34 +279,32 @@ TEST(GrpcAuthConformance, WrongTokenRejected)
     EXPECT_EQ(health.batches_sent, 0U);
     EXPECT_GE(health.batches_failed, 1U);
 
-    // The operator-visible reason. Observed on the wire against the pinned
-    // collector — `curl --http2-prior-knowledge` to this receiver with this
-    // same bad credential returns:
+    // The operator-visible reason must name the status, or a rejected
+    // credential is indistinguishable from the network being down — the same
+    // claim tests/conformance/http/auth_test.cpp makes with "401".
+    //
+    // Observed on the wire against the pinned collector; `curl
+    // --http2-prior-knowledge` to this receiver with this same bad credential
+    // returns:
     //
     //     :status 200
     //     grpc-status: 16
     //     grpc-message: provided authorization does not match expected scheme or token
     //
-    // and what microtel makes of it:
+    // and microtel now reports, end to end through GetExporterHealth():
     //
-    //     batches_sent=0  batches_failed=1  last_error_message='grpc error'
+    //     UNAUTHENTICATED (16): provided authorization does not match expected scheme or token
     //
-    // Not "UNAUTHENTICATED", not "16", and not the collector's own sentence —
-    // `ClassifyGrpcCode` puts a single fixed string in `WireResult::error` for
-    // every non-zero status (src/wire/grpc/grpc_wire_codec.cpp:606) and
-    // `grpc-message` is never read anywhere in src/. That contradicts
-    // docs/grpc-wire-protocol.md §4.4, which specifies the percent-decoded
-    // `grpc-message` as `WireResult::error.message`, and it is filed as its own
-    // defect (issue #171) rather than asserted-as-desired here, because this
-    // suite asserts what the shipped code does. The HTTP sibling asserts
-    // `"401"` appears in this same field; tighten this to match when #171 is
-    // fixed.
-    EXPECT_EQ(health.last_error_message, kObservedGrpcErrorMessage)
-        << "the gRPC failure surface changed; if it now names the status, tighten this "
-           "assertion the way tests/conformance/http/auth_test.cpp does";
+    // Two separate claims, asserted separately so a regression says which half
+    // broke: the codec named the status, and the collector's own sentence
+    // survived percent-decoding rather than being replaced by a literal.
+    // Until issue #171 this field read "grpc error" for every non-zero status.
+    EXPECT_NE(health.last_error_message.find(kExpectedGrpcStatusText), std::string::npos)
+        << "last_error_message does not name the status: " << health.last_error_message;
+    EXPECT_NE(health.last_error_message.find(kExpectedCollectorMessageFragment), std::string::npos)
+        << "last_error_message dropped the collector's grpc-message: " << health.last_error_message;
 
-    // The classification is right even though the message is thin: a
-    // non-retryable status means the batch is not retried, so `batches_failed`
+    // A non-retryable status means the batch is not retried, so `batches_failed`
     // stays at 1 rather than climbing with the retry schedule.
     EXPECT_EQ(health.batches_failed, 1U);
 

@@ -242,12 +242,13 @@ per-run marker are normalised
 Five defects were found by building this tier. None of them is asserted
 as desired behaviour. Each is handled one of three ways:
 
-- **Pinned by a test that fails when the defect is fixed** — #166, #171.
+- **Pinned by a test that fails when the defect is fixed** — #166.
 - **Parked as a `DISABLED_` assertion**, already written, waiting to be
   re-enabled — #169.
 - **Left conspicuously unasserted**, with the reason recorded in the
   source — #167.
-- **Fixed since** — #168.
+- **Fixed since** — #168, #171. The pinning test was tightened into a
+  regression test rather than deleted.
 
 Nothing here turns green by accident when a fix lands. When one of the
 first kind fails, do not delete it — invert it.
@@ -258,4 +259,4 @@ first kind fails, do not delete it — invert it.
 | #167 — `InstrumentationScope` carries the service name, not `GetTracer(name, version)` | Nothing in this tier asserts on `ScopeSpans.scope`. The absence is the tripwire: asserting the current output would enshrine the bug. |
 | #168 — `TraceId::ToHex()` / `SpanId::ToHex()` declared in a public header, defined nowhere | **Fixed.** `src/api/` (`microtel_api`) now defines both, and `{http,grpc}/basic_export_test.cpp` call the public formatter directly — this tier builds against public headers only, so it is the thing that hit the link error and is now the thing that proves the encoding matches the collector's. |
 | #169 — 22 of 24 `drop_counters` never written | `DISABLED_WrongTokenIncrementsNonRetryableDropCounter` in both `http/auth_test.cpp` and `grpc/auth_test.cpp`. Kept rather than deleted, and split out rather than weakening `WrongTokenRejected`, so the assertion is waiting when the counters are wired. |
-| #171 — `grpc-status` and `grpc-message` discarded; `last_error_message` is a fixed literal | `grpc/auth_test.cpp` asserts `last_error_message` equals the observed `"grpc error"`. Its HTTP sibling can assert `"401"`; tighten the gRPC one to match when the status reaches the operator. |
+| #171 — `grpc-status` and `grpc-message` discarded; `last_error_message` is a fixed literal | **Fixed.** `grpc/auth_test.cpp` now asserts both halves separately: `last_error_message` names the status (`"UNAUTHENTICATED (16)"`, matching what its HTTP sibling does with `"401"`) and carries a fragment of the collector's own `grpc-message`. The tripwire became the regression test. |

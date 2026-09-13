@@ -119,7 +119,7 @@ The complete table of ownership in microtel v1. Rows are alphabetized within the
 
 | Resource | Owner | Allocated by | Released by | Notes |
 |---|---|---|---|---|
-| `Span` records (after `End()`) | MPSC queue inside the `BatchSpanProcessor` | caller thread | exporter worker, after batching | Move-only. Bounded by `max_total_queue_bytes` (§6). |
+| `Span` records (after `End()`) | MPSC queue inside the `BatchSpanProcessor` | caller thread | exporter worker, after batching | Move-only. Bounded by `max_queue_size` × `max_record_bytes`; the aggregate `max_total_queue_bytes` cap is not yet enforced (§6, issue #181). |
 | `Resource` value | `Provider` | `SdkBuilder::Build()` | `Provider` destruction | Frozen at build; immutable after. |
 | `Config` value | `Provider` | `SdkBuilder::Build()` | `Provider` destruction | Frozen at build; no runtime mutation in v1. |
 | `EncodedPayload` | exporter worker → wire codec → transport (in-flight only) | encoder | last layer holding it on completion | See §3. |

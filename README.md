@@ -46,7 +46,7 @@ has run ahead of it."*
 
 | Signal | Status |
 |---|---|
-| Traces | **v1.0** ✅ — Tracer, Span, W3C propagation, batch processor, OTLP/gRPC + OTLP/HTTP (the latter over TLS; see the [compatibility matrix](docs/compatibility-matrix.md)) |
+| Traces | **v1.0** ✅ — Tracer, Span, W3C propagation (traceparent; tracestate storage tracked in #208), batch processor, OTLP/gRPC + OTLP/HTTP (the latter over TLS; see the [compatibility matrix](docs/compatibility-matrix.md)) |
 | Metrics | Implemented ahead of the release cut; claimed in **v1.2** (spec §13) — all 7 instruments, OTLP encoder, periodic reader, cardinality limits, temporality, views, exemplars |
 | Logs | Implemented ahead of the release cut; claimed in **v1.3** (spec §13) |
 

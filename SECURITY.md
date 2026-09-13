@@ -54,7 +54,7 @@ The following are in scope:
 
 The following are **not** considered vulnerabilities for the purposes of this policy:
 
-- Resource exhaustion caused by legitimate API use without bounds (e.g., creating millions of spans without configuring `max_total_queue_bytes`).
+- Resource exhaustion caused by legitimate API use without bounds (e.g., creating millions of spans beyond the bounded queue (`max_queue_size` × `max_record_bytes`; the aggregate `max_total_queue_bytes` knob is not yet enforced — issue #181)).
 - Issues in third-party dependencies (nghttp2, OpenSSL, zlib) — please report those upstream.
 - Configuration mistakes by operators (e.g., shipping with `insecure = true` in production).
 - Self-XSS or attacks requiring physical access to the host.

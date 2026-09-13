@@ -272,6 +272,87 @@ TEST(SdkBuilderTest, WithMetricLimitsOverridesEnvVar)
 }
 
 // ---------------------------------------------------------------------------
+// End-to-end drop accounting — issue #169. Each of these reaches the counter
+// the way an application does: through the public builder, tracer and
+// GetExporterHealth(), with none of the SDK's seams mocked out.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+std::uint64_t DropCount(const microtel::HealthSnapshot& health, microtel::DropReason reason)
+{
+    return health.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
+/// Short deadlines so a provider pointed at a dead endpoint tears down in
+/// milliseconds instead of burning the default 10s export deadline.
+constexpr microtel::TimeoutOptions kFailFastTimeouts{
+    .connect = std::chrono::milliseconds(200),
+    .tls_handshake = std::chrono::milliseconds(200),
+    .per_export = std::chrono::milliseconds(200),
+    .retry_budget = std::chrono::milliseconds(200),
+    .flush = std::chrono::milliseconds(500),
+    .shutdown = std::chrono::milliseconds(500),
+};
+
+}  // namespace
+
+TEST(SdkBuilderTest, EndToEnd_SpanLimitAndPostShutdownDropsReachGetExporterHealth)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("http://127.0.0.1:1")  // nothing listening; never connects
+                      .WithTimeouts(kFailFastTimeouts)
+                      .WithSpanLimits(microtel::SpanLimitOptions{
+                          .attribute_count_limit = 1,
+                          .event_count_limit = 1,
+                          .link_count_limit = 1,
+                      })
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+
+    const auto tracer = (*result)->GetTracer("test.lib", "1.0");
+    // Shut the pipeline down first, so the finished span is refused at the
+    // processor and never reaches the wire. The record-shaping counters are
+    // recorded in the Span API, well before the processor sees the record, so
+    // this exercises the full path without the test waiting out a retry loop
+    // against a dead endpoint.
+    ASSERT_NE((*result)->Shutdown(std::chrono::seconds(2)), microtel::Status::Failed);
+
+    {
+        auto span = tracer->StartSpan("op");
+        span->SetAttribute("a", std::int64_t{1});
+        span->SetAttribute("b", std::int64_t{2});  // over the limit
+        span->AddEvent("e1");
+        span->AddEvent("e2");  // over the limit
+        span->AddLink(span->GetContext());
+        span->AddLink(span->GetContext());  // over the limit
+        span->End();
+    }
+
+    const auto health = (*result)->GetExporterHealth();
+    EXPECT_EQ(DropCount(health, microtel::DropReason::SpanAttributeLimit), 1U);
+    EXPECT_EQ(DropCount(health, microtel::DropReason::SpanEventLimit), 1U);
+    EXPECT_EQ(DropCount(health, microtel::DropReason::SpanLinkLimit), 1U);
+    EXPECT_EQ(DropCount(health, microtel::DropReason::PostShutdown), 1U);
+}
+
+TEST(SdkBuilderTest, EndToEnd_ConnectFailureReachesGetExporterHealth)
+{
+    // Port 1 is reserved and never listening, so the connect fails fast
+    // without depending on a collector being absent from a common port.
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("http://127.0.0.1:1")
+                      .WithTimeouts(kFailFastTimeouts)
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+
+    ASSERT_FALSE((*result)->Connect().has_value());
+
+    EXPECT_EQ(DropCount((*result)->GetExporterHealth(), microtel::DropReason::ConnectFailure), 1U);
+}
+
+// ---------------------------------------------------------------------------
 // Build()-time warnings
 //
 // Neither configuration below is rejected: an h2c-capable proxy and the bench

@@ -3,9 +3,11 @@
 
 #pragma once
 
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/metric_encoder.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/wire_codec.hpp"
+#include "microtel/provider.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -49,9 +51,12 @@ struct OtlpMetricExporterConfig
 class OtlpMetricExporter final : public internal::IMetricExporter
 {
 public:
+    /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
+    ///        and batch accounting. Borrowed for the exporter's lifetime.
     explicit OtlpMetricExporter(internal::IMetricEncoder* encoder,
                                 internal::IWireCodec* codec,
-                                OtlpMetricExporterConfig config = {}) noexcept;
+                                OtlpMetricExporterConfig config = {},
+                                internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~OtlpMetricExporter() noexcept override;
 
@@ -75,10 +80,20 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void ProcessBatches(std::vector<internal::MetricBatchHandle>& batches);
+    /// @brief Report one batch's outcome. No-op without a sink.
+    /// @note No retry loop here, so a failure is one attempt rather than a
+    ///       resolved outcome — only the batch counters move, and the
+    ///       delivery `DropReason`s stay with the trace exporter until
+    ///       metrics get retries of their own.
+    void RecordOutcome(const internal::WireResult& result) noexcept;
+    /// @brief Add `n` to the counter for `reason`. No-op without a sink.
+    ///        Lock-free, so it is safe under `m_mu`.
+    void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
 
     internal::IMetricEncoder* m_encoder;
     internal::IWireCodec* m_codec;
     OtlpMetricExporterConfig m_config;
+    internal::IDiagnosticsSink* m_diag;
 
     std::deque<internal::MetricBatchHandle> m_queue;
     std::mutex m_mu;

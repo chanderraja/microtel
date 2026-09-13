@@ -289,19 +289,16 @@ TEST(HttpAuthConformance, WrongTokenRejected)
     EXPECT_EQ(microtel::testing::CountOccurrences(output_file, marker), 0U);
 }
 
-// Disabled: asserts the drop accounting docs/error-model.md §7.1 specifies for
-// a 401 ("Other 4xx" → counter `non_retryable_failure`). The classification
-// itself is correct — WrongTokenRejected above proves the batch is not retried
-// and the error names the status — but the counter is never written:
-// `OtlpExporter::RecordOutcome` only calls `RecordBatchSent` / `RecordBatchFailed`,
-// and `RecordDrop` has exactly two call sites in the whole of src/, neither on
-// the trace delivery path. Observed: every one of the 24 `drop_counters`
-// entries reads zero after the 401.
+// The drop accounting docs/error-model.md §7.1 specifies for a 401 ("Other
+// 4xx" → counter `non_retryable_failure`). Split out from WrongTokenRejected
+// rather than folded into it, so a regression in the accounting is
+// distinguishable from a regression in the classification.
 //
-// Kept rather than deleted, and split out rather than weakening
-// WrongTokenRejected, so the assertion is waiting when the counters are wired.
-// Re-enable with issue #169.
-TEST(HttpAuthConformance, DISABLED_WrongTokenIncrementsNonRetryableDropCounter)
+// Ran disabled until issue #169 wired the delivery counters: the
+// classification was always right, but `OtlpExporter::RecordOutcome` recorded
+// only batches_sent / batches_failed and the counter the table names stayed
+// at zero.
+TEST(HttpAuthConformance, WrongTokenIncrementsNonRetryableDropCounter)
 {
     std::string endpoint;
     if (!microtel::testing::ConformanceEnabled(kAuthEndpointEnv, endpoint))

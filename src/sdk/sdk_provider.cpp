@@ -155,15 +155,37 @@ std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::strin
         m_processor.get(),
         m_resource,
         internal::InstrumentationScope{.name = std::string{name}, .version = std::string{version}},
-        m_span_limits);
+        m_span_limits,
+        m_diagnostics.get());
 }
 
 Expected<void, Error> SdkProvider::Connect()
 {
-    return m_transport->Connect(m_connect_opts);
+    auto result = m_transport->Connect(m_connect_opts);
+    if (!result)
+    {
+        // The eager path. The codecs' lazy EnsureConnected covers the other
+        // one; a given connect attempt runs through exactly one of the two,
+        // so the counter never double-counts a single failure.
+        m_diagnostics->RecordDrop(DropReason::ConnectFailure);
+    }
+    return result;
 }
 
 Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
+{
+    const Status status = FlushPipeline(timeout);
+    if (status == Status::TimedOut)
+    {
+        // Recorded here and nowhere else: the processor and exporter arms
+        // below can each time out, but the user made one ForceFlush call and
+        // must see one drop.
+        m_diagnostics->RecordDrop(DropReason::ForceFlushTimeout);
+    }
+    return status;
+}
+
+Status SdkProvider::FlushPipeline(std::chrono::milliseconds timeout) noexcept
 {
     // Two-stage flush: drain the BSP queue into the exporter queue first,
     // then drain the exporter queue (actual HTTP sends). Both are async
@@ -279,6 +301,12 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     }
     status = WorseOf(status, m_exporter->Shutdown(timeout));
     status = WorseOf(status, m_transport->Close(timeout));
+    if (status == Status::TimedOut)
+    {
+        // One user-visible Shutdown call, one drop — however many of the six
+        // components ran out of time.
+        m_diagnostics->RecordDrop(DropReason::ShutdownTimeout);
+    }
     return status;
 }
 
@@ -354,7 +382,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     if (!m_log_processor)
     {
         m_log_processor = std::make_unique<BatchLogRecordProcessor>(
-            m_log_exporter.get(), m_resource, m_log_batch_opts);
+            m_log_exporter.get(), m_resource, m_log_batch_opts, m_diagnostics.get());
     }
     std::string key;
     key.reserve(name.size() + 1 + version.size());

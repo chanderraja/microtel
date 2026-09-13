@@ -19,10 +19,12 @@ namespace microtel::sdk
 
 BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
                                        std::shared_ptr<const Resource> resource,
-                                       BatchOptions opts) noexcept
+                                       BatchOptions opts,
+                                       internal::IDiagnosticsSink* diag) noexcept
     : m_exporter(exporter),
       m_resource(std::move(resource)),
       m_opts(opts),
+      m_diag(diag),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -50,10 +52,14 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
     const std::scoped_lock lock{m_mu};
     if (m_shutdown)
     {
+        RecordDropped(DropReason::PostShutdown);
         return;
     }
     if (m_queue.size() >= m_opts.max_queue_size)
     {
+        // One span is lost either way; the policy chooses which one, not how
+        // many, so the counter moves once before the branch.
+        RecordDropped(DropReason::QueueFull);
         if (m_opts.drop_policy == DropPolicy::DropOldest)
         {
             m_queue.pop_front();
@@ -165,6 +171,14 @@ void BatchSpanProcessor::WorkerLoop() noexcept
         {
             break;
         }
+    }
+}
+
+void BatchSpanProcessor::RecordDropped(DropReason reason) noexcept
+{
+    if (m_diag != nullptr)
+    {
+        m_diag->RecordDrop(reason);
     }
 }
 

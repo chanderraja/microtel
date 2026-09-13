@@ -4,9 +4,11 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"  // InstrumentationScope
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/log_exporter.hpp"
 #include "microtel/internal/log_record_processor.hpp"
 #include "microtel/log_record.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"  // BatchOptions
 #include "microtel/status.hpp"
@@ -43,9 +45,15 @@ namespace microtel::sdk
 class BatchLogRecordProcessor final : public internal::ILogRecordProcessor
 {
 public:
+    /// @param exporter non-owning; must outlive the processor.
+    /// @param resource shared with every batch this processor emits.
+    /// @param opts queue capacity, batch size, schedule delay, drop policy.
+    /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
+    ///        accounting. Borrowed for the processor's lifetime.
     BatchLogRecordProcessor(internal::ILogExporter* exporter,
                             std::shared_ptr<const Resource> resource,
-                            BatchOptions opts) noexcept;
+                            BatchOptions opts,
+                            internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~BatchLogRecordProcessor() noexcept override;
 
@@ -78,10 +86,15 @@ private:
     [[nodiscard]] bool JoinWithTimeout(std::chrono::milliseconds timeout) noexcept;
     void WorkerLoop() noexcept;
     void ExportBatch(std::vector<QueuedLog> batch) noexcept;
+    /// @brief Count one dropped record against `reason`. No-op without a
+    ///        sink. Lock-free, so it is safe to call under `m_mu`
+    ///        (`docs/threading-model.md` §4).
+    void RecordDropped(DropReason reason) noexcept;
 
     internal::ILogExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
     BatchOptions m_opts;
+    internal::IDiagnosticsSink* m_diag;
 
     std::mutex m_mu;
     std::condition_variable m_cv;

@@ -52,6 +52,17 @@ public:
     [[nodiscard]] internal::GaugeData Collect();
 
 private:
+    /// @brief Count one NaN / +-Inf measurement. No-op without a sink.
+    ///        A helper rather than an inline guard so the hot-path `Record`
+    ///        stays under the cognitive-complexity limit.
+    void RecordNonFinite() const noexcept
+    {
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::NonFiniteValue);
+        }
+    }
+
     mutable std::mutex m_mu;
     std::size_t m_max_cardinality;
     const internal::ICurrentSpanSource* m_span_source;  ///< non-owning; null disables exemplars

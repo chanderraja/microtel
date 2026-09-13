@@ -311,20 +311,14 @@ TEST(GrpcAuthConformance, WrongTokenRejected)
     EXPECT_EQ(microtel::testing::CountOccurrences(output_file, marker), 0U);
 }
 
-// Disabled: asserts the drop accounting docs/error-model.md §7.2 specifies for
-// `UNAUTHENTICATED (16)` (→ counter `non_retryable_failure`). The
-// classification itself is correct — WrongTokenRejected above proves the batch
-// is not retried — but the counter is never written:
-// `OtlpExporter::RecordOutcome` only calls `RecordBatchSent` /
-// `RecordBatchFailed`, and `RecordDrop` has exactly two call sites in the whole
-// of src/, neither on the trace delivery path. Observed: every one of the 24
-// `drop_counters` entries reads zero after the rejection, exactly as on the
-// OTLP/HTTP path.
+// The drop accounting docs/error-model.md §7.2 specifies for
+// `UNAUTHENTICATED (16)` (→ counter `non_retryable_failure`). Split out from
+// WrongTokenRejected rather than folded into it, so a regression in the
+// accounting is distinguishable from a regression in the classification.
 //
-// Kept rather than deleted, and split out rather than weakening
-// WrongTokenRejected, so the assertion is waiting when the counters are wired.
-// Re-enable with issue #169.
-TEST(GrpcAuthConformance, DISABLED_WrongTokenIncrementsNonRetryableDropCounter)
+// Ran disabled until issue #169 wired the delivery counters, exactly as on the
+// OTLP/HTTP path.
+TEST(GrpcAuthConformance, WrongTokenIncrementsNonRetryableDropCounter)
 {
     std::string endpoint;
     if (!microtel::testing::ConformanceEnabled(kAuthEndpointEnv, endpoint))

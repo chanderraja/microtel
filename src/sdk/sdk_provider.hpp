@@ -170,6 +170,10 @@ private:
     /// @brief Borrowed pointer to the lazily-built log processor, read under
     ///        `m_logger_mu`. Same rationale as `MetricReaderPtr`.
     [[nodiscard]] internal::ILogRecordProcessor* LogProcessorPtr() noexcept;
+    /// @brief Drive every pipeline component's `ForceFlush`, worst outcome
+    ///        first-wins. Split out of `ForceFlush` so the timeout counter is
+    ///        recorded once for the whole call rather than once per arm.
+    [[nodiscard]] Status FlushPipeline(std::chrono::milliseconds timeout) noexcept;
 
 public:
 private:

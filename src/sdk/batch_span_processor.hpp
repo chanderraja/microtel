@@ -4,8 +4,10 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/exporter.hpp"
 #include "microtel/internal/processor.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/status.hpp"
@@ -53,9 +55,15 @@ namespace microtel::sdk
 class BatchSpanProcessor final : public internal::ISpanProcessor
 {
 public:
+    /// @param exporter non-owning; must outlive the processor.
+    /// @param resource shared with every batch this processor emits.
+    /// @param opts queue capacity, batch size, schedule delay, drop policy.
+    /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
+    ///        accounting. Borrowed for the processor's lifetime.
     BatchSpanProcessor(internal::IExporter* exporter,
                        std::shared_ptr<const Resource> resource,
-                       BatchOptions opts) noexcept;
+                       BatchOptions opts,
+                       internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~BatchSpanProcessor() noexcept override;
 
@@ -90,10 +98,15 @@ private:
     [[nodiscard]] bool JoinWithTimeout(std::chrono::milliseconds timeout) noexcept;
     void WorkerLoop() noexcept;
     void ExportBatch(std::vector<QueuedSpan> batch) noexcept;
+    /// @brief Count one dropped span against `reason`. No-op without a sink.
+    ///        Lock-free, so it is safe to call under `m_mu`
+    ///        (`docs/threading-model.md` §4).
+    void RecordDropped(DropReason reason) noexcept;
 
     internal::IExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
     BatchOptions m_opts;
+    internal::IDiagnosticsSink* m_diag;
 
     std::mutex m_mu;
     std::condition_variable m_cv;

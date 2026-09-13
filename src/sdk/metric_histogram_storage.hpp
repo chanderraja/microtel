@@ -62,6 +62,17 @@ public:
                                                       internal::AggregationTemporality::Cumulative);
 
 private:
+    /// @brief Count one NaN / +-Inf measurement. No-op without a sink.
+    ///        A helper rather than an inline guard so the hot-path `Record`
+    ///        stays under the cognitive-complexity limit.
+    void RecordNonFinite() const noexcept
+    {
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::NonFiniteValue);
+        }
+    }
+
     struct Point
     {
         std::uint64_t count = 0;

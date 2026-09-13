@@ -94,9 +94,14 @@ private:
     ///        retryable and further attempts were made.
     [[nodiscard]] internal::WireResult ResolveOutcome(const internal::WireResult& first_attempt,
                                                       const internal::BatchHandle& batch);
-    /// @brief Report one batch's terminal outcome to the diagnostics sink.
-    ///        No-op when no sink was supplied.
+    /// @brief Report one batch's terminal outcome to the diagnostics sink:
+    ///        the batch counter plus the `DropReason` the classification maps
+    ///        onto (`docs/error-model.md` §3). No-op when no sink was
+    ///        supplied.
     void RecordOutcome(const internal::WireResult& result) noexcept;
+    /// @brief Add `n` to the counter for `reason`. No-op when no sink was
+    ///        supplied. Lock-free, so it is safe under `m_mu`.
+    void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
     /// @brief Publish the current queue depth. Caller must hold `m_mu`.
     void PublishQueueDepth() noexcept;
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;

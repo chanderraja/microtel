@@ -10,7 +10,9 @@
 
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/wire_result.hpp"
+#include "microtel/provider.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_transport.hpp"
 #include "helpers/gunzip.hpp"
 
@@ -478,6 +480,96 @@ TEST(GrpcWireCodecTest, Send_ConnectFailureAndMidStreamFailure_AgreeOnRetryabili
 
     EXPECT_EQ(connect_result.retryable, send_result.retryable);
     EXPECT_TRUE(send_result.retryable);
+}
+
+// ---------------------------------------------------------------------------
+// Drop accounting — issue #169. The codec owns classification (ICP 0001) but
+// wrote none of the counters the classification names in error-model.md §7.2.
+// ---------------------------------------------------------------------------
+
+static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
+TEST(GrpcWireCodecTest, Diagnostics_ConnectFails_CountsConnectFailure)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 1U);
+}
+
+TEST(GrpcWireCodecTest, Diagnostics_ConnectSucceeds_CountsNothing)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ConnectFailure), 0U);
+}
+
+TEST(GrpcWireCodecTest, Diagnostics_MissingGrpcStatusNonRetryable_CountsMalformedResponse)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(GrpcWireCodecTest, Diagnostics_MissingGrpcStatusRetryable_CountsNothing)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "503"}},
+        .response_trailers = {},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    // A 503 without grpc-status is a load balancer talking, not a malformed
+    // gRPC response: §7.2 makes it retryable and names no counter.
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
+}
+
+TEST(GrpcWireCodecTest, Diagnostics_NullSink_IsNotDereferenced)
+{
+    mtfk::FakeTransport transport;
+    transport.state = mt::ConnectionState::Disconnected;
+    transport.connect_result =
+        mt::make_unexpected(mt::Error{.kind = mt::Error::Kind::Network, .message = "refused"});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};  // no sink
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
 }
 
 // ---------------------------------------------------------------------------

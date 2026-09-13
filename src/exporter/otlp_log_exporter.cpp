@@ -3,9 +3,11 @@
 
 #include "exporter/otlp_log_exporter.hpp"
 
+#include "microtel/error.hpp"
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/status.hpp"
 
+#include <cstdint>
 #include <exception>
 #include <mutex>
 #include <thread>
@@ -19,8 +21,13 @@ constexpr auto kDestructorShutdownTimeout = std::chrono::seconds(5);
 
 OtlpLogExporter::OtlpLogExporter(internal::ILogEncoder* encoder,
                                  internal::IWireCodec* codec,
-                                 OtlpLogExporterConfig config) noexcept
-    : m_encoder(encoder), m_codec(codec), m_config(config), m_worker([this] { WorkerLoop(); })
+                                 OtlpLogExporterConfig config,
+                                 internal::IDiagnosticsSink* diag) noexcept
+    : m_encoder(encoder),
+      m_codec(codec),
+      m_config(config),
+      m_diag(diag),
+      m_worker([this] { WorkerLoop(); })
 {
 }
 
@@ -31,13 +38,18 @@ OtlpLogExporter::~OtlpLogExporter() noexcept
 
 internal::ExportResult OtlpLogExporter::Export(internal::LogBatchHandle&& batch) noexcept
 {
+    // Read before the move: after `push_back` consumes the batch there is
+    // nothing left to count.
+    const auto record_count = static_cast<std::uint64_t>(batch.Records().size());
     const std::scoped_lock lock{m_mu};
     if (m_shutdown.load(std::memory_order_relaxed))
     {
+        RecordDropped(DropReason::PostShutdown, record_count);
         return internal::ExportResult::AlreadyShutDown;
     }
     if (m_queue.size() >= m_config.max_queue_size)
     {
+        RecordDropped(DropReason::QueueFull, record_count);
         return internal::ExportResult::Dropped;
     }
     try
@@ -48,6 +60,7 @@ internal::ExportResult OtlpLogExporter::Export(internal::LogBatchHandle&& batch)
     // enough that nothing escapes.
     catch (const std::exception&)
     {
+        RecordDropped(DropReason::QueueFull, record_count);
         return internal::ExportResult::Dropped;
     }
     m_cv.notify_one();
@@ -100,7 +113,34 @@ void OtlpLogExporter::ProcessBatches(std::vector<internal::LogBatchHandle>& batc
     {
         payloads.push_back(m_encoder->Encode(batch));
     }
-    (void)m_codec->SendAll(std::move(payloads), m_config.export_deadline);
+    const auto results = m_codec->SendAll(std::move(payloads), m_config.export_deadline);
+    for (const auto& result : results)
+    {
+        RecordOutcome(result);
+    }
+}
+
+void OtlpLogExporter::RecordOutcome(const internal::WireResult& result) noexcept
+{
+    if (m_diag == nullptr)
+    {
+        return;
+    }
+    if (result.success)
+    {
+        m_diag->RecordBatchSent();
+        return;
+    }
+    m_diag->RecordBatchFailed(result.error.value_or(
+        Error{.kind = Error::Kind::Network, .message = "log export failed at wire codec"}));
+}
+
+void OtlpLogExporter::RecordDropped(DropReason reason, std::uint64_t n) noexcept
+{
+    if (m_diag != nullptr)
+    {
+        m_diag->RecordDrop(reason, n);
+    }
 }
 
 void OtlpLogExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept

@@ -47,6 +47,11 @@ std::uint64_t CardinalityDrops(const mt::testing::FakeDiagnosticsSink& sink)
     return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::CardinalityOverflow)];
 }
 
+std::uint64_t NonFiniteDrops(const mt::testing::FakeDiagnosticsSink& sink)
+{
+    return sink.drop_counters[static_cast<std::size_t>(mt::DropReason::NonFiniteValue)];
+}
+
 void RecordN(mts::HistogramStorage<std::int64_t>& storage,
              mt::AttributeSpan attrs,
              std::int64_t value,
@@ -439,7 +444,9 @@ TEST(HistogramStorageTest, OverflowSeriesMergesBucketStateAcrossFoldedMeasuremen
 
 TEST(HistogramStorageTest, NonFiniteValueIsDropped)
 {
-    mts::HistogramStorage<double> storage{std::vector<double>{10.0}};
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::HistogramStorage<double> storage{
+        std::vector<double>{10.0}, mts::kDefaultMaxCardinality, nullptr, &sink};
     const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
     storage.Record(5.0, mt::AttributeSpan{attrs});
     storage.Record(std::numeric_limits<double>::infinity(), mt::AttributeSpan{attrs});
@@ -448,6 +455,25 @@ TEST(HistogramStorageTest, NonFiniteValueIsDropped)
     ASSERT_EQ(data.points.size(), 1U);
     EXPECT_EQ(data.points[0].count, 1U);
     EXPECT_DOUBLE_EQ(data.points[0].sum, 5.0);
+    EXPECT_EQ(NonFiniteDrops(sink), 2U);
+}
+
+TEST(HistogramStorageTest, FiniteValueRecordsNoNonFiniteDrop)
+{
+    mt::testing::FakeDiagnosticsSink sink;
+    mts::HistogramStorage<double> storage{
+        std::vector<double>{10.0}, mts::kDefaultMaxCardinality, nullptr, &sink};
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(5.0, mt::AttributeSpan{attrs});
+    EXPECT_EQ(NonFiniteDrops(sink), 0U);
+}
+
+TEST(HistogramStorageTest, NonFiniteValueWithNullSinkIsNotDereferenced)
+{
+    mts::HistogramStorage<double> storage{std::vector<double>{10.0}};  // no sink
+    const std::vector<mt::KeyValue> attrs{Kv("k", std::string{"v"})};
+    storage.Record(std::numeric_limits<double>::quiet_NaN(), mt::AttributeSpan{attrs});
+    EXPECT_TRUE(storage.Collect().points.empty());
 }
 
 TEST(HistogramStorageTest, PointCarriesItsAttributes)

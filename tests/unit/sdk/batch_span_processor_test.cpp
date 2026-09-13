@@ -8,12 +8,14 @@
 
 #include "microtel/context.hpp"
 #include "microtel/internal/batch.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/status.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_exporter.hpp"
 
 #include <gtest/gtest.h>
@@ -70,10 +72,17 @@ static mti::SpanRecord MakeRecord(const std::string& name)
 }
 
 static std::unique_ptr<mt::sdk::BatchSpanProcessor> MakeBsp(
-    mtfk::FakeExporter& exp, mt::BatchOptions opts = mt::BatchOptions{})
+    mtfk::FakeExporter& exp,
+    mt::BatchOptions opts = mt::BatchOptions{},
+    mtfk::FakeDiagnosticsSink* sink = nullptr)
 {
     auto resource = std::make_shared<const mt::Resource>();
-    return std::make_unique<mt::sdk::BatchSpanProcessor>(&exp, std::move(resource), opts);
+    return std::make_unique<mt::sdk::BatchSpanProcessor>(&exp, std::move(resource), opts, sink);
+}
+
+static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
 }
 
 // Ends one span on @p bsp as the tracer named @p scope_name would have.
@@ -248,6 +257,84 @@ TEST(BatchSpanProcessorTest, DropNewest_DropsIncoming_WhenQueueFull)
         total += batch.Spans().size();
     }
     EXPECT_EQ(total, 2U);
+}
+
+// ---------------------------------------------------------------------------
+// Drop accounting — issue #169. The queue enforced its capacity but nothing
+// counted the loss, so GetExporterHealth() could not tell "queue full" from
+// "endpoint rejecting us". OnEnd runs on the calling thread here, which is
+// this test's thread, so the non-atomic FakeDiagnosticsSink is safe to read.
+// ---------------------------------------------------------------------------
+
+TEST(BatchSpanProcessorTest, Diagnostics_DropNewest_CountsQueueFull)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 2;
+    opts.max_export_batch_size = 512;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.drop_policy = mt::DropPolicy::DropNewest;
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink);
+
+    EndSpan(*bsp, "keep1");
+    EndSpan(*bsp, "keep2");
+    EndSpan(*bsp, "dropped");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, Diagnostics_DropOldest_CountsQueueFull)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 2;
+    opts.max_export_batch_size = 512;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.drop_policy = mt::DropPolicy::DropOldest;
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink);
+
+    EndSpan(*bsp, "evicted");
+    EndSpan(*bsp, "keep1");
+    EndSpan(*bsp, "new3");
+
+    // Evicting the oldest loses exactly one span, the same as refusing the
+    // newest — the policy picks which span, not how many.
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, Diagnostics_OnEndAfterShutdown_CountsPostShutdown)
+{
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, mt::BatchOptions{}, &sink);
+
+    ASSERT_EQ(bsp->Shutdown(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EndSpan(*bsp, "too-late");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 0U);
+}
+
+TEST(BatchSpanProcessorTest, Diagnostics_NullSink_IsNotDereferenced)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 1;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts);  // no sink
+
+    EndSpan(*bsp, "a");
+    EndSpan(*bsp, "dropped");
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+    EndSpan(*bsp, "after-shutdown");
 }
 
 // ---------------------------------------------------------------------------

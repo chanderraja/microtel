@@ -223,6 +223,15 @@ std::optional<internal::WireResult> HttpWireCodec::EnsureConnected()
     auto connected = m_transport->Connect(m_connect_opts);
     if (!connected)
     {
+        // The transport owns no diagnostics sink; the codec is where a failed
+        // connect is observed, so it is where the counter moves. One attempt,
+        // one increment — a fan-out behind a single prologue connect is one
+        // connect failure, not one per payload. Recorded for every kind,
+        // retryable or not: the loss is the same to an operator.
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::ConnectFailure);
+        }
         // A `Protocol` connect failure is a permanent mismatch — an
         // HTTP/1.1-only receiver, or a TLS endpoint that would not negotiate
         // h2 (issue #166). No backoff outlasts a misconfiguration, so retrying

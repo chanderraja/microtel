@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/resource.hpp"
@@ -32,11 +33,15 @@ namespace microtel::sdk
 class SdkTracer final : public microtel::Tracer
 {
 public:
+    /// @param diagnostics non-owning diagnostics sink handed to every span
+    ///        this tracer starts, or `nullptr` to disable drop accounting.
+    ///        Borrowed for the tracer's lifetime.
     SdkTracer(internal::ISampler* sampler,
               internal::ISpanProcessor* processor,
               std::shared_ptr<const Resource> resource,
               internal::InstrumentationScope scope,
-              SpanLimitOptions limits) noexcept;
+              SpanLimitOptions limits,
+              internal::IDiagnosticsSink* diagnostics = nullptr) noexcept;
 
     ~SdkTracer() noexcept override = default;
 
@@ -58,6 +63,7 @@ private:
     std::shared_ptr<const Resource> m_resource;
     internal::InstrumentationScope m_scope;
     SpanLimitOptions m_limits;
+    internal::IDiagnosticsSink* m_diagnostics;
 };
 
 }  // namespace microtel::sdk

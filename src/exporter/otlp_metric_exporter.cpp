@@ -3,8 +3,10 @@
 
 #include "exporter/otlp_metric_exporter.hpp"
 
+#include "microtel/error.hpp"
 #include "microtel/status.hpp"
 
+#include <cstdint>
 #include <exception>
 #include <mutex>
 #include <thread>
@@ -18,8 +20,13 @@ constexpr auto kDestructorShutdownTimeout = std::chrono::seconds(5);
 
 OtlpMetricExporter::OtlpMetricExporter(internal::IMetricEncoder* encoder,
                                        internal::IWireCodec* codec,
-                                       OtlpMetricExporterConfig config) noexcept
-    : m_encoder(encoder), m_codec(codec), m_config(config), m_worker([this] { WorkerLoop(); })
+                                       OtlpMetricExporterConfig config,
+                                       internal::IDiagnosticsSink* diag) noexcept
+    : m_encoder(encoder),
+      m_codec(codec),
+      m_config(config),
+      m_diag(diag),
+      m_worker([this] { WorkerLoop(); })
 {
 }
 
@@ -30,13 +37,18 @@ OtlpMetricExporter::~OtlpMetricExporter() noexcept
 
 internal::ExportResult OtlpMetricExporter::Export(internal::MetricBatchHandle&& batch) noexcept
 {
+    // Read before the move: after `push_back` consumes the batch there is
+    // nothing left to count.
+    const auto metric_count = static_cast<std::uint64_t>(batch.Metrics().size());
     const std::scoped_lock lock{m_mu};
     if (m_shutdown.load(std::memory_order_relaxed))
     {
+        RecordDropped(DropReason::PostShutdown, metric_count);
         return internal::ExportResult::AlreadyShutDown;
     }
     if (m_queue.size() >= m_config.max_queue_size)
     {
+        RecordDropped(DropReason::QueueFull, metric_count);
         return internal::ExportResult::Dropped;
     }
     try
@@ -47,6 +59,7 @@ internal::ExportResult OtlpMetricExporter::Export(internal::MetricBatchHandle&& 
     // enough that nothing escapes.
     catch (const std::exception&)
     {
+        RecordDropped(DropReason::QueueFull, metric_count);
         return internal::ExportResult::Dropped;
     }
     m_cv.notify_one();
@@ -99,7 +112,34 @@ void OtlpMetricExporter::ProcessBatches(std::vector<internal::MetricBatchHandle>
     {
         payloads.push_back(m_encoder->Encode(batch));
     }
-    (void)m_codec->SendAll(std::move(payloads), m_config.export_deadline);
+    const auto results = m_codec->SendAll(std::move(payloads), m_config.export_deadline);
+    for (const auto& result : results)
+    {
+        RecordOutcome(result);
+    }
+}
+
+void OtlpMetricExporter::RecordOutcome(const internal::WireResult& result) noexcept
+{
+    if (m_diag == nullptr)
+    {
+        return;
+    }
+    if (result.success)
+    {
+        m_diag->RecordBatchSent();
+        return;
+    }
+    m_diag->RecordBatchFailed(result.error.value_or(
+        Error{.kind = Error::Kind::Network, .message = "metric export failed at wire codec"}));
+}
+
+void OtlpMetricExporter::RecordDropped(DropReason reason, std::uint64_t n) noexcept
+{
+    if (m_diag != nullptr)
+    {
+        m_diag->RecordDrop(reason, n);
+    }
 }
 
 void OtlpMetricExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept

@@ -56,12 +56,14 @@ SdkTracer::SdkTracer(internal::ISampler* sampler,
                      internal::ISpanProcessor* processor,
                      std::shared_ptr<const Resource> resource,
                      internal::InstrumentationScope scope,
-                     SpanLimitOptions limits) noexcept
+                     SpanLimitOptions limits,
+                     internal::IDiagnosticsSink* diagnostics) noexcept
     : m_sampler(sampler),
       m_processor(processor),
       m_resource(std::move(resource)),
       m_scope(std::move(scope)),
-      m_limits(limits)
+      m_limits(limits),
+      m_diagnostics(diagnostics)
 {
 }
 
@@ -122,7 +124,8 @@ SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& o
                                            m_processor,
                                            m_resource,
                                            m_scope,
-                                           m_limits);
+                                           m_limits,
+                                           m_diagnostics);
     if (raw == nullptr)
     {
         return MakeNoopHandle();

@@ -507,11 +507,18 @@ struct RetrySearchSignal
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] internal::WireResult ClassifyMissingGrpcStatus(
-    const std::vector<internal::HeaderField>& headers)
+    const std::vector<internal::HeaderField>& headers, internal::IDiagnosticsSink* diag)
 {
     const int http_status = ParseHttpStatus(headers);
     const bool retryable =
         (http_status == 429 || http_status == 502 || http_status == 503 || http_status == 504);
+    // Only the non-retryable half is malformed: a 429/502/503/504 without
+    // grpc-status is an intermediary talking, and error-model.md §7.2 names
+    // no counter for it.
+    if (!retryable && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::MalformedResponse);
+    }
     return internal::WireResult{
         .success = false,
         .retryable = retryable,
@@ -608,7 +615,8 @@ struct RetrySearchSignal
     };
 }
 
-[[nodiscard]] internal::WireResult ClassifyResponse(const internal::TransportResult& tr)
+[[nodiscard]] internal::WireResult ClassifyResponse(const internal::TransportResult& tr,
+                                                    internal::IDiagnosticsSink* diag)
 {
     if (tr.error.has_value())
     {
@@ -634,7 +642,7 @@ struct RetrySearchSignal
     }
     if (!status_sv.has_value())
     {
-        return ClassifyMissingGrpcStatus(tr.response_headers);
+        return ClassifyMissingGrpcStatus(tr.response_headers, diag);
     }
     int code = kGrpcStatusUnparsed;
     const auto* const p = status_sv->data();
@@ -735,6 +743,13 @@ std::optional<internal::WireResult> GrpcWireCodec::EnsureConnected()
     auto connected = m_transport->Connect(m_connect_opts);
     if (!connected)
     {
+        // Same reasoning as HttpWireCodec::EnsureConnected: the transport owns
+        // no sink, so the codec records what it observed. Recorded for every
+        // kind, retryable or not — the loss is the same to an operator.
+        if (m_diag != nullptr)
+        {
+            m_diag->RecordDrop(DropReason::ConnectFailure);
+        }
         // A `Protocol` connect failure is a permanent mismatch — a TLS
         // endpoint that would not negotiate h2 (issue #166). No backoff
         // outlasts a misconfiguration, so retrying one spends the whole budget
@@ -810,7 +825,7 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     }
 
     const auto tr = fut.get();
-    return ClassifyResponse(tr);
+    return ClassifyResponse(tr, m_diag);
 }
 
 }  // namespace microtel::wire

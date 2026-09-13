@@ -220,6 +220,39 @@ jobs:
       - name: Assert dependency closure and the vendored-upb prefix
         run: ci/scripts/symbol-scan.sh --prefix install-tree
 
+  consumer-smoke:
+    runs-on: ubuntu-latest
+    name: consumer-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 cmake ninja-build \
+            libssl-dev libnghttp2-dev zlib1g-dev
+      # Tests off, matching the symbol-scan job: the gate consumes the shipped
+      # configuration, and building the test tree would only slow it down.
+      - name: Configure (shipped configuration)
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
+      - name: Build
+        run: cmake --build build
+      # ICP 0020 Decision 6. Installs to a scratch prefix, then configures,
+      # builds and runs tests/consumer against it as an external project —
+      # the only way a missing install(FILES …) or an export set naming an
+      # uninstalled target becomes visible. In-tree everything builds because
+      # everything is a subdirectory. The script also re-runs the closure scan
+      # over the same prefix.
+      #
+      # One job, default configuration. MICROTEL_USE_SPDLOG=OFF was verified by
+      # hand in #193 and changes no exported target — only the self-describing
+      # microtel_WITH_SPDLOG variable in the package config — so a matrix axis
+      # would buy a second copy of the same assertion.
+      - name: Install, build the consumer project against it, and run it
+        run: ci/scripts/consumer-smoke.sh build
+
   corpus-check:
     runs-on: ubuntu-latest
     name: corpus-check

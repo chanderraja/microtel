@@ -128,13 +128,21 @@ open at the time of writing.
   spans by service rather than by instrumentation library. Affects both
   protocols identically. No conformance test asserts on `ScopeSpans.scope` —
   that would enshrine the bug.
-- **`TraceState` and `W3CTraceContextPropagator` are declared and not
-  defined** (issue #188): `TraceState::FromHeader` / `ToHeader` / `Size` /
-  `Empty` and `W3CTraceContextPropagator::Inject` / `Extract` have no
-  definition in any shipped translation unit, so calling one from consumer
-  code is a link error.
-  Same defect class as issue #168, which is fixed — `TraceId::ToHex()` and
-  `SpanId::ToHex()` are now defined in `src/api/` (`microtel_api`).
+- **`tracestate` does not round-trip** (issue #188, partially fixed). The link
+  defect is gone: `TraceState::FromHeader` / `ToHeader` / `Size` / `Empty` and
+  `W3CTraceContextPropagator::Inject` / `Extract` are now defined in
+  `src/api/propagator.cpp` (`microtel_api`), and `traceparent` inject and
+  extract are complete and W3C-conformant.
+  What remains is the type itself: `microtel::TraceState` as declared in
+  `include/microtel/trace.hpp` has **no data member and no mutation methods**,
+  so it cannot hold an entry. `FromHeader` therefore returns the empty state
+  for every input and `Inject` never emits a `tracestate` header, so a
+  vendor's `tracestate` is dropped rather than forwarded across a microtel
+  hop. `traceparent` — the trace id, parent id and sampled flag — is
+  unaffected.
+  Giving `TraceState` storage is an ABI change to a public header and would
+  put a throwing copy inside `Span::GetContext() const noexcept`; it needs an
+  ICP rather than a drive-by fix.
 - **`HealthSnapshot::drop_counters` is nearly all dead for traces** (issue
   #169). Only 2 of 24 `DropReason` counters are ever incremented, so the
   negative conformance tests assert `batches_failed` and collector output

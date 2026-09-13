@@ -1,0 +1,320 @@
+// Copyright (c) 2026 The microtel Authors.
+// SPDX-License-Identifier: Apache-2.0
+//
+// src/api/ — the W3C Trace Context propagator declared in
+// include/microtel/propagator.hpp, and the TraceState methods declared in
+// include/microtel/trace.hpp. Issue #188: both were declared in the public
+// headers and defined in no shipped translation unit.
+//
+// Dependency-free by design: the public headers plus the standard library.
+
+#include "microtel/propagator.hpp"
+
+#include "microtel/trace.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace microtel
+{
+
+namespace
+{
+
+constexpr std::string_view kTraceparentHeader = "traceparent";
+constexpr std::string_view kTracestateHeader = "tracestate";
+
+constexpr std::string_view kLowerHexDigits = "0123456789abcdef";
+constexpr unsigned int kNibbleShift = 4U;
+constexpr unsigned int kLowNibbleMask = 0x0FU;
+constexpr std::size_t kHexCharsPerByte = 2U;
+constexpr unsigned int kDecimalDigitCount = 10U;
+
+// A version-00 `traceparent` is a fixed 55-character layout —
+// `vv-<32 hex trace id>-<16 hex parent id>-<2 hex flags>` — with `-` at three
+// fixed offsets. Deriving the offsets from the id widths keeps them honest.
+constexpr char kFieldSeparator = '-';
+constexpr std::size_t kSeparatorChars = 1U;
+constexpr std::size_t kVersionOffset = 0U;
+constexpr std::size_t kVersionChars = 2U;
+constexpr std::size_t kTraceIdOffset = kVersionOffset + kVersionChars + kSeparatorChars;
+constexpr std::size_t kTraceIdChars = TraceId::kSizeBytes * kHexCharsPerByte;
+constexpr std::size_t kSpanIdOffset = kTraceIdOffset + kTraceIdChars + kSeparatorChars;
+constexpr std::size_t kSpanIdChars = SpanId::kSizeBytes * kHexCharsPerByte;
+constexpr std::size_t kFlagsOffset = kSpanIdOffset + kSpanIdChars + kSeparatorChars;
+constexpr std::size_t kFlagsChars = kHexCharsPerByte;
+constexpr std::size_t kTraceparentChars = kFlagsOffset + kFlagsChars;
+
+/// @brief The only version microtel emits.
+constexpr std::string_view kInjectedVersion = "00";
+constexpr std::uint8_t kVersion00 = 0x00U;
+
+/// @brief Version `ff` is forbidden outright by W3C Trace Context §3.2.2.1.
+constexpr std::uint8_t kForbiddenVersion = 0xFFU;
+
+/// @brief True for a lower-case hex digit.
+///
+/// W3C Trace Context requires every `traceparent` hex field to be lower-case
+/// (§3.2.2.2-§3.2.2.4, and the specification's own validation corpus rejects
+/// rather than case-folds an upper-case id). microtel parses lower-case only,
+/// in every field including version and flags, and emits lower-case only.
+[[nodiscard]] constexpr bool IsLowerHexDigit(char c) noexcept
+{
+    const bool is_decimal_digit = (c >= '0') && (c <= '9');
+    const bool is_lower_hex_letter = (c >= 'a') && (c <= 'f');
+    return is_decimal_digit || is_lower_hex_letter;
+}
+
+/// @brief Numeric value of a digit satisfying `IsLowerHexDigit`.
+[[nodiscard]] constexpr unsigned int HexDigitValue(char c) noexcept
+{
+    const bool is_decimal_digit = (c >= '0') && (c <= '9');
+    return is_decimal_digit ? static_cast<unsigned int>(c - '0')
+                            : (static_cast<unsigned int>(c - 'a') + kDecimalDigitCount);
+}
+
+/// @brief Decodes exactly `N * 2` lower-case hex characters into @p out.
+///
+/// @return false if the width is wrong or any character is not a lower-case
+///         hex digit. @p out is then partially written and must be discarded.
+template <std::size_t N>
+[[nodiscard]] bool ParseLowerHexBytes(std::string_view hex,
+                                      std::array<std::uint8_t, N>& out) noexcept
+{
+    if (hex.size() != (N * kHexCharsPerByte))
+    {
+        return false;
+    }
+
+    std::size_t offset = 0;
+    for (std::uint8_t& byte : out)
+    {
+        const char high = hex[offset];
+        const char low = hex[offset + 1U];
+        if (!IsLowerHexDigit(high) || !IsLowerHexDigit(low))
+        {
+            return false;
+        }
+        byte =
+            static_cast<std::uint8_t>((HexDigitValue(high) << kNibbleShift) | HexDigitValue(low));
+        offset += kHexCharsPerByte;
+    }
+    return true;
+}
+
+/// @brief True if `-` sits at each of the three fixed offsets.
+/// @pre `header.size() >= kTraceparentChars`.
+[[nodiscard]] bool HasFixedSeparators(std::string_view header) noexcept
+{
+    return (header[kTraceIdOffset - kSeparatorChars] == kFieldSeparator) &&
+           (header[kSpanIdOffset - kSeparatorChars] == kFieldSeparator) &&
+           (header[kFlagsOffset - kSeparatorChars] == kFieldSeparator);
+}
+
+/// @brief Applies the W3C version/length rule.
+///
+/// A version-00 header is exactly 55 characters and nothing may follow. A
+/// higher version keeps the same prefix and may append further
+/// `-`-separated fields, which this parser ignores (§3.2.2.1 forward
+/// compatibility); anything else after the flags is malformed.
+///
+/// @pre `header.size() >= kTraceparentChars`.
+[[nodiscard]] bool HasParsableLength(std::string_view header, std::uint8_t version) noexcept
+{
+    if (header.size() == kTraceparentChars)
+    {
+        return true;
+    }
+    return (version != kVersion00) && (header[kTraceparentChars] == kFieldSeparator);
+}
+
+/// @brief Validates the fixed prefix shape and the version field.
+[[nodiscard]] bool HasParsableShape(std::string_view header) noexcept
+{
+    if (header.size() < kTraceparentChars)
+    {
+        return false;
+    }
+    if (!HasFixedSeparators(header))
+    {
+        return false;
+    }
+
+    std::array<std::uint8_t, 1U> version{};
+    if (!ParseLowerHexBytes(header.substr(kVersionOffset, kVersionChars), version))
+    {
+        return false;
+    }
+    if (version.front() == kForbiddenVersion)
+    {
+        return false;
+    }
+    return HasParsableLength(header, version.front());
+}
+
+/// @brief Parses a `traceparent` value into @p out.
+///
+/// @return false if @p header is malformed, leaving @p out untouched.
+[[nodiscard]] bool ParseTraceparent(std::string_view header, SpanContext& out) noexcept
+{
+    if (!HasParsableShape(header))
+    {
+        return false;
+    }
+
+    TraceId::Bytes trace_bytes{};
+    SpanId::Bytes span_bytes{};
+    std::array<std::uint8_t, 1U> flags{};
+    const bool decoded =
+        ParseLowerHexBytes(header.substr(kTraceIdOffset, kTraceIdChars), trace_bytes) &&
+        ParseLowerHexBytes(header.substr(kSpanIdOffset, kSpanIdChars), span_bytes) &&
+        ParseLowerHexBytes(header.substr(kFlagsOffset, kFlagsChars), flags);
+    if (!decoded)
+    {
+        return false;
+    }
+
+    // W3C: an all-zero trace id or parent id is invalid, not merely unsampled.
+    const TraceId trace_id(trace_bytes);
+    const SpanId span_id(span_bytes);
+    if (!trace_id.IsValid() || !span_id.IsValid())
+    {
+        return false;
+    }
+
+    out.trace_id = trace_id;
+    out.span_id = span_id;
+    out.trace_flags = TraceFlags(flags.front());
+    return true;
+}
+
+/// @brief Renders @p context as a canonical version-00 `traceparent`.
+///
+/// Version 00 defines only the sampled bit, but the remaining flag bits are
+/// emitted as held rather than cleared, so an upstream's bits survive a hop
+/// through microtel.
+[[nodiscard]] std::string FormatTraceparent(const SpanContext& context)
+{
+    const auto flags = static_cast<unsigned int>(context.trace_flags.AsByte());
+
+    std::string header;
+    header.reserve(kTraceparentChars);
+    header.append(kInjectedVersion);
+    header.push_back(kFieldSeparator);
+    header.append(context.trace_id.ToHex());
+    header.push_back(kFieldSeparator);
+    header.append(context.span_id.ToHex());
+    header.push_back(kFieldSeparator);
+    header.push_back(kLowerHexDigits[(flags >> kNibbleShift) & kLowNibbleMask]);
+    header.push_back(kLowerHexDigits[flags & kLowNibbleMask]);
+    return header;
+}
+
+}  // namespace
+
+// ── TraceState ───────────────────────────────────────────────────────────────
+//
+// `TraceState` as declared in include/microtel/trace.hpp carries no data
+// member and declares no mutation methods, so the shipped type cannot hold an
+// entry: every `TraceState` is the empty state. `FromHeader` therefore returns
+// the empty state for every input — which is also its documented return for a
+// parse failure ("failures are silently elided per the W3C 'be liberal in what
+// you accept' guidance", trace.hpp:99-100) — and performs no validation,
+// because the result of validating would be unobservable.
+//
+// Giving `TraceState` storage is an ABI change to a public header, and any
+// heap-backed representation would place a throwing copy inside
+// `Span::GetContext() const noexcept` (src/sdk/sdk_span.cpp:154). That is ICP
+// work, deliberately outside the issue #188 link fix, and is tracked in
+// docs/compatibility-matrix.md §5. tests/unit/api/trace_state_test.cpp locks
+// the contract as declared.
+
+TraceState TraceState::FromHeader(std::string_view /*header*/)
+{
+    return {};
+}
+
+// NOLINTBEGIN(readability-convert-member-functions-to-static)
+// These three are locked public API (include/microtel/trace.hpp:104-110); the
+// storage-free implementation happens not to need `this`, but the signatures
+// are not ours to change.
+
+std::string TraceState::ToHeader() const
+{
+    return {};
+}
+
+std::size_t TraceState::Size() const noexcept
+{
+    return 0U;
+}
+
+bool TraceState::Empty() const noexcept
+{
+    return true;
+}
+
+// NOLINTEND(readability-convert-member-functions-to-static)
+
+// ── W3CTraceContextPropagator ────────────────────────────────────────────────
+
+// NOLINTBEGIN(readability-convert-member-functions-to-static)
+// Locked public API (include/microtel/propagator.hpp:43,50). The propagator is
+// documented as stateless and thread-safe, so neither method needs `this`.
+
+void W3CTraceContextPropagator::Inject(const SpanContext& context, const HeaderSetter& setter) const
+{
+    if (!context.IsValid() || !setter)
+    {
+        return;
+    }
+
+    setter(kTraceparentHeader, FormatTraceparent(context));
+
+    // An empty `tracestate` is not a legal header value, so it is omitted
+    // rather than sent blank.
+    const std::string state = context.trace_state.ToHeader();
+    if (!state.empty())
+    {
+        setter(kTracestateHeader, state);
+    }
+}
+
+SpanContext W3CTraceContextPropagator::Extract(const HeaderGetter& getter) const
+{
+    if (!getter)
+    {
+        return {};
+    }
+
+    const std::optional<std::string_view> traceparent = getter(kTraceparentHeader);
+    if (!traceparent.has_value())
+    {
+        return {};
+    }
+
+    SpanContext context;
+    if (!ParseTraceparent(*traceparent, context))
+    {
+        return {};
+    }
+
+    // Reached only once the parent has parsed: W3C discards `tracestate`
+    // alongside a malformed `traceparent`.
+    const std::optional<std::string_view> tracestate = getter(kTracestateHeader);
+    if (tracestate.has_value())
+    {
+        context.trace_state = TraceState::FromHeader(*tracestate);
+    }
+
+    context.remote = true;
+    return context;
+}
+
+// NOLINTEND(readability-convert-member-functions-to-static)
+
+}  // namespace microtel

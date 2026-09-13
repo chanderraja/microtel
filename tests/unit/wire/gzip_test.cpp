@@ -215,7 +215,7 @@ TEST(GzipDecompressTest, GrowsPastTheInitialChunkForLargeOutput)
 {
     // Well beyond any plausible first allocation, so a single-chunk
     // implementation would truncate or fail here.
-    const auto input = Bytes(std::string(512U * 1024U, 'q'));
+    const auto input = Bytes(std::string(std::size_t{512} * 1024U, 'q'));
     const auto compressed = mtw::GzipCompress(input);
     ASSERT_TRUE(compressed.has_value());
     ASSERT_LT(compressed->size(), input.size() / 100U) << "expected a high ratio for this fixture";
@@ -255,10 +255,10 @@ TEST(GzipDecompressTest, DecompressionBombIsRefusedWithoutMaterialisingIt)
     // 8 MiB of zeroes compresses to a few KiB. With a 4 KiB cap the
     // implementation must stop at the cap rather than allocate the bomb — the
     // sanitiser builds are the other half of this assertion.
-    const auto bomb = Bytes(std::string(8U * 1024U * 1024U, '\0'));
+    const auto bomb = Bytes(std::string(std::size_t{8} * 1024U * 1024U, '\0'));
     const auto compressed = mtw::GzipCompress(bomb);
     ASSERT_TRUE(compressed.has_value());
-    ASSERT_LT(compressed->size(), 64U * 1024U);
+    ASSERT_LT(compressed->size(), std::size_t{64} * 1024U);
 
     const auto restored = mtw::GzipDecompress(*compressed, 4096U);
     ASSERT_FALSE(restored.has_value());

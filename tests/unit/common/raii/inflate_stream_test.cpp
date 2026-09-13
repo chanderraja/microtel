@@ -13,6 +13,8 @@
 
 #include <utility>
 
+#include <zlib.h>
+
 namespace mtr = microtel::common::raii;
 
 namespace
@@ -57,6 +59,19 @@ TEST(InflateStreamTest, ResetReleasesAndIsIdempotent)
     EXPECT_TRUE(stream.Init(kGzipWindowBits));
 }
 
+/// zlib's internal state holds a back-pointer to the `z_stream` it was
+/// initialised against, and `inflateStateCheck` compares it on every call. If a
+/// move changed the stream's address, this returns `Z_STREAM_ERROR` — and so
+/// does the `inflateEnd` in the destructor, which then frees nothing. Asserting
+/// it here states the guarantee in the test rather than leaving it to whoever
+/// next runs LeakSanitizer.
+static void ExpectStillUsable(mtr::InflateStream& stream)
+{
+    ASSERT_NE(stream.Get(), nullptr);
+    EXPECT_EQ(inflateReset(stream.Get()), Z_OK)
+        << "zlib no longer recognises this stream — its address moved";
+}
+
 TEST(InflateStreamTest, MoveConstructionTransfersOwnership)
 {
     mtr::InflateStream source;
@@ -64,8 +79,9 @@ TEST(InflateStreamTest, MoveConstructionTransfersOwnership)
 
     mtr::InflateStream moved{std::move(source)};
     EXPECT_NE(moved.Get(), nullptr);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved,clang-analyzer-cplusplus.Move)
     EXPECT_EQ(source.Get(), nullptr);
+    ExpectStillUsable(moved);
 }
 
 TEST(InflateStreamTest, MoveAssignmentReleasesTheTargetFirst)
@@ -77,8 +93,9 @@ TEST(InflateStreamTest, MoveAssignmentReleasesTheTargetFirst)
 
     target = std::move(source);
     EXPECT_NE(target.Get(), nullptr);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved,clang-analyzer-cplusplus.Move)
     EXPECT_EQ(source.Get(), nullptr);
+    ExpectStillUsable(target);
 }
 
 TEST(InflateStreamTest, SelfMoveAssignmentKeepsTheStream)

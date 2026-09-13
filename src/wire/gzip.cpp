@@ -35,14 +35,14 @@ microtel::Error GzipError() noexcept
 /// Small enough that the common case — an empty or few-hundred-byte OTLP
 /// response — costs one page, large enough that a real body rarely needs a
 /// second round.
-constexpr std::size_t kInitialOutputChunk = 8U * 1024U;
+constexpr std::size_t kInitialOutputChunk = std::size_t{8} * 1024U;
 
 /// @brief The working ceiling: one byte past the caller's, so that filling the
 ///        buffer is itself proof the stream exceeds `max_output`.
 [[nodiscard]] constexpr std::size_t HardLimit(std::size_t max_output) noexcept
 {
-    const auto kSizeMax = std::numeric_limits<std::size_t>::max();
-    return (max_output == kSizeMax) ? kSizeMax : max_output + 1U;
+    const auto size_max = std::numeric_limits<std::size_t>::max();
+    return (max_output == size_max) ? size_max : max_output + 1U;
 }
 
 /// @brief Enlarge @p out towards @p hard_limit.

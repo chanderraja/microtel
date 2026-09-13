@@ -929,6 +929,7 @@ TEST(HttpWireCodecTest, Response_DecompressionBomb_RecordsDecompressionTooLarge)
     EXPECT_EQ(DropCount(sink, mt::DropReason::DecompressionTooLarge), 1U);
     EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
     ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
     EXPECT_FALSE(result.error->message.empty());
 }
 

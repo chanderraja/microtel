@@ -62,8 +62,8 @@ The project uses pull requests on GitHub.
 1. Fork the repo and create a feature branch.
 2. Follow the [coding standards](docs/coding-standards.md) — CI will reject PRs that don't.
 3. **Tests first.** TDD compliance is mechanically enforced (per spec §14.2):
-   - **Diff coverage gate:** every changed source line in your PR must be covered by a test in the same PR. Threshold: 90% on SDK and encoder; 80% on transport and exporter.
-   - **Test-presence gate:** any change to `src/**/*.{cpp,hpp}` requires a corresponding change to `tests/**/*.{cpp,hpp}` unless your PR has the `[refactor]` label.
+   - **Diff coverage gate:** every changed source line in your PR must be covered by a test in the same PR. Threshold: 90% on SDK and encoder; 80% on transport and exporter. The per-PR check (`diff-cover`) enforces the 80% floor across the whole diff; the 90% for SDK and encoder is enforced by the aggregate gate in the same job, which measures each area separately.
+   - **Test-presence gate:** any change to `src/**/*.{cpp,hpp}` requires a corresponding change to `tests/**/*.{cpp,hpp}` unless your PR has the `[refactor]` label. The label is spelled with the brackets, applied to the PR (not written in a commit message), and is the manual override for comment-only and formatting-only changes as well — the gate does not try to detect those on its own. Deleting code needs no accompanying test and is exempt automatically. Applying `[refactor]` to a change that is not behaviour-preserving is a CLAUDE.md violation, and reviewers are expected to check the diff rather than the label.
 4. **RAII discipline.** No raw `new`/`delete`. Every resource is owned by an RAII type.
 5. Open a PR using the template. Fill in the review checklist.
 6. CI will run the full gauntlet — build matrix, sanitizers, static analysis, coverage, fuzz smoke. Address any failures.

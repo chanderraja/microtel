@@ -21,6 +21,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `compile` | `cxx20 / gcc`, `cxx20 / clang`, `cxx23 / gcc`, `cxx23 / clang` | ✅ (cxx20 pair only) |
 | `ci.yml` | `sanitizers` | `asan`, `tsan`, `ubsan` | ✅ |
 | `ci.yml` | `coverage` | `coverage` | ✅ |
+| `ci.yml` | `test-presence` | `test-presence` | ❌ (see below) |
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
@@ -33,10 +34,10 @@ required, so a C++23-only regression can currently merge.
 ### Design intent (not all implemented)
 
 The table below is the originally designed job set. Several rows —
-`build-and-test`, `static-analysis`, `test-presence`, `license-scan`, `release` —
-do **not** exist as jobs today; their function is either covered by the as-built
-jobs above under different names, or still outstanding. Treat this as the target,
-not as a description of the pipeline.
+`build-and-test`, `static-analysis`, `license-scan`, `release` — do **not** exist
+as jobs today; their function is either covered by the as-built jobs above under
+different names, or still outstanding. Treat this as the target, not as a
+description of the pipeline.
 
 | Job | When | Blocking? | Approx. duration |
 |---|---|---|---|
@@ -112,41 +113,56 @@ Three sanitizer build configurations, run separately because they're slow and so
 
 **Pass condition:** all three sanitizer builds green on the same test corpus that `build-and-test` runs.
 
-### `.github/workflows/coverage.yml`
+### `coverage` (job in `.github/workflows/ci.yml`)
 
-Two coverage measurements: aggregate (must meet the per-area thresholds in spec §14.2) and diff (must cover lines added/modified in this PR).
+Two independent coverage measurements, both against the same filtered lcov tracefile: **aggregate** (the whole tree must meet the spec §14.2 floors) and **diff** (the lines this PR touched must be covered).
 
 **Steps:**
-1. Build with `--coverage` flag (gcc) or `-fprofile-instr-generate -fcoverage-mapping` (clang).
-2. Run unit + integration tests.
-3. Generate `lcov` report.
-4. Run `diff-cover` against the report, comparing against `origin/main`. Fail if:
-   - SDK/encoder paths < 90% line coverage on changed lines
-   - Transport/exporter paths < 80% line coverage on changed lines
-5. Check aggregate thresholds against the report. Fail if the floor (90% / 85% branch on SDK/encoder; 80% on transport/exporter) is not met.
-6. Post the report as a PR comment.
+1. Checkout at `fetch-depth: 0` — the diff gate needs `origin/master` as a base.
+2. [`ci/scripts/coverage.sh build`](../ci/scripts/coverage.sh) configures with `-DMICROTEL_COVERAGE=ON` (gcc `--coverage`), builds, runs `ctest`, and captures + filters an lcov report.
+3. The same script then enforces the aggregate floors, and **fails the job** below them. It reduces the tracefile to one row per file (`build/coverage.per-file.tsv`, uploaded with the report) and sums those rows into two groups. The group mapping is stated in the script's header; briefly:
 
-**Pass condition:** both diff coverage and aggregate coverage thresholds met.
+   | Group | Paths | Floor |
+   |---|---|---|
+   | `sdk-encoder` | `include/microtel/**`, `src/api/`, `src/sdk/`, `src/common/`, `src/wire/encoder/` | ≥ 90% line, ≥ 85% branch |
+   | `transport-exporter` | `src/transport/`, `src/exporter/`, `src/adapters/`, rest of `src/wire/`, `tools/` | ≥ 80% line |
 
-### `.github/workflows/test-presence.yml`
+   Nothing that survives the tracefile filter is exempt. A path matching neither rule is gated as `sdk-encoder` — the stricter floor — and named in the output, so a new directory cannot dodge the gate by going unmentioned.
+4. `diff-cover` (pip, PR events only) against the same tracefile with `--compare-branch origin/<base>` and `--fail-under=80`.
 
-Custom check that fails any PR modifying `src/**/*.{cpp,hpp}` without a corresponding modification in `tests/**/*.{cpp,hpp}`.
+**Branch coverage is measured and printed but not enforced.** gcov's branch data on this codebase counts exception-unwind edges rather than program logic: `include/microtel/meter.hpp` measures 100% line and 50% branch, and its "uncovered" branches sit on lines containing no conditional at all — they are the throw path out of a potentially-throwing call. Whole-tree branch coverage reads 57.8% against 91.0% line for the same reason. The 85% threshold in the script is **not** lowered; it is gated behind `MICROTEL_COVERAGE_ENFORCE_BRANCH=1` until branches are measured in a way that means something (clang source-based coverage models regions rather than gcov branches, and is the likely fix). Spec §13.5 gate 11 is therefore discharged for line coverage and open for branch.
+
+**Why `--fail-under=80` when §14.2 names two diff thresholds.** `diff-cover` takes a single threshold and does not partition by path. 80 is the floor that holds everywhere; the 90 for SDK/encoder is carried by the aggregate gate in step 3, which *is* measured per group. A PR that drags `sdk-encoder` below 90 fails step 3 whatever step 4 reports.
+
+`diff-cover` is a pip package installed in the job and used only at test time. It is not part of microtel's runtime dependency closure (CLAUDE.md rule 12).
+
+**Pass condition:** both enforced aggregate floors met, and diff coverage ≥ 80% on the changed lines. A PR whose diff touches no covered source (a docs- or CI-only PR, for example) reports "no lines with coverage information in this diff" and passes.
+
+### `test-presence` (job in `.github/workflows/ci.yml`)
+
+[`ci/scripts/test-presence.sh`](../ci/scripts/test-presence.sh) fails any PR modifying `src/**/*.{cpp,hpp}` without a corresponding modification to `tests/**/*.{cpp,hpp}`. It is a presence check, not a coverage check — the diff-coverage gate in `coverage` proves the new lines are exercised; this proves a test file moved at all, and says so in seconds rather than after a 10-minute instrumented build.
 
 **Logic:**
 ```
-src_changed = git diff --name-only origin/main HEAD -- 'src/**/*.cpp' 'src/**/*.hpp'
-tests_changed = git diff --name-only origin/main HEAD -- 'tests/**/*.cpp' 'tests/**/*.hpp'
+merge_base   = git merge-base origin/<base> HEAD
+src_changed   = git diff --name-only --diff-filter=d merge_base..HEAD -- src   | grep '\.(cpp|hpp)$'
+tests_changed = git diff --name-only --diff-filter=d merge_base..HEAD -- tests | grep '\.(cpp|hpp)$'
 
 if src_changed and not tests_changed:
-    if PR has '[refactor]' label or commit message has '[refactor]':
-        pass
-    elif all changes are formatting/comment-only (verified with structured diff):
-        pass
-    else:
-        fail("src/ changed without tests/. See spec §14.2.")
+    if '[refactor]' in PR labels:  pass
+    else:                          fail
 ```
 
-**Pass condition:** test-presence rule satisfied or documented exception applied.
+Labels reach the script through `MICROTEL_PR_LABELS`, which the workflow fills from `github.event.pull_request.labels.*.name`; the script also falls back to parsing `GITHUB_EVENT_PATH` with `jq`, and honours `MICROTEL_PR_LABELS` directly for local dry-runs.
+
+**Exceptions**, per CLAUDE.md rule 3:
+- *Code deletions* — handled by `--diff-filter=d`, which drops deleted files from the changed-source set.
+- *Pure refactors* — the `[refactor]` PR label.
+- *Comment/formatting-only changes* — **not** detected automatically. Classifying a hunk as semantically empty needs a structured diff, and a wrong answer silently disables the gate. The `[refactor]` label is the manual override for this case too; a label is visible on the PR where a heuristic would not be.
+
+**Not currently a required status check.** It runs on `pull_request` only (it needs a base to diff against), so requiring it would block pushes to `master`, and it is new enough to want a few PRs of observation first.
+
+**Exit codes:** 0 satisfied or waived, 1 rule violated, 2 the gate could not run (base ref unreachable — in CI that means the checkout was too shallow).
 
 ### `regen-check` (job in `.github/workflows/ci.yml`)
 
@@ -314,9 +330,17 @@ Runs **SonarQube Cloud** on the project's OSS tier — free for public/open-sour
 
 **Pass condition:** SonarQube Cloud quality gate passes — no critical or blocker issues introduced by the PR.
 
+**When `SONAR_TOKEN` is absent the job exits 0 but is no longer silent.** Requiring the secret would block every PR on a maintainer-only setup step, so the job stays green — but a green check that means "nothing ran" is worse than no check, because it reads as "analysed and clean". The skip now emits a `::warning::` annotation and writes a **NO SONAR SCAN RAN** heading to `$GITHUB_STEP_SUMMARY` stating that spec §13.5 gate 13 is UNMEASURED, with the maintainer steps to fix it. The scanned path writes its own counterpart heading, so the two outcomes are distinguishable from the summary alone.
+
+The workflow also carries a `workflow_dispatch` trigger, so a scan can be fired from the Actions tab the moment the secret lands, rather than waiting for the next merge to `master`.
+
+`ci/scripts/coverage.sh` runs here with `MICROTEL_COVERAGE_ENFORCE=0`: this job wants the tracefile, not a second opinion on the §14.2 floors. The `coverage` job owns that gate, and letting a shortfall abort this job too would suppress the Sonar scan exactly when the code most needs looking at.
+
 **Configuration:**
 - `sonar-project.properties` (at the repo root — required by SonarCloud's automatic analysis discovery) — project key, organization, source paths, exclusions, coverage report path.
 - `SONAR_TOKEN` GitHub Actions secret — generated in SonarQube Cloud, stored in repo secrets.
+
+**Exclusions (audited).** `sonar.exclusions` covers `gen/**`, `**/third_party/**`, `**/_deps/**`, `proto/**`, `build*/**`, `spike/**`, the generated upb outputs (`**/*.upb.c`, `**/*.upb.h`, `**/*.upb_minitable.*`), and `**/_generated/**`. The build pattern is `build*/**` rather than `build/**` + `build-*/**` so that every build directory the repo's scripts and docs create — `build/`, `build/coverage`, `build-asan/`, `builds/` — is covered; a build tree that escapes it would be scanned as source, and the FetchContent output under `_deps/` is precisely the vendored code these exclusions exist to keep out. `tests/**` is excluded from **coverage** analysis (`sonar.coverage.exclusions`) but deliberately still *analysed* for issues. The most load-bearing patterns are restated inline in the workflow's `args:` as a safety net against a future edit that breaks the `.properties` file.
 
 **Why SonarQube Cloud OSS tier vs self-hosted Community Build:** the cloud OSS tier is free for public projects and includes the C++ analyzer, branch analysis, and PR decoration — all of which the self-hosted Community Build lacks without paid Developer Edition. For a public OSS project, the cloud tier is the strict superset at zero cost.
 
@@ -368,8 +392,22 @@ pre-commit install
 # run all checks manually
 pre-commit run --all-files
 
-# run the test-presence check on a working PR
-ci/scripts/check-test-presence.sh
+# test-presence, against whatever your branch will be PR'd into
+ci/scripts/test-presence.sh origin/master
+
+# ... simulating the [refactor] label
+MICROTEL_PR_LABELS='[refactor]' ci/scripts/test-presence.sh origin/master
+
+# coverage build + the aggregate §14.2 gate (10-15 min)
+ci/scripts/coverage.sh build/coverage
+
+# ... reporting the numbers without failing on a shortfall
+MICROTEL_COVERAGE_ENFORCE=0 ci/scripts/coverage.sh build/coverage
+
+# diff coverage, the way the coverage job runs it
+pip install diff-cover
+diff-cover build/coverage/coverage.filtered.info \
+    --compare-branch origin/master --src-roots . --fail-under=80
 ```
 
 The `ci/scripts/` directory holds the shared scripts called by both the workflow files and the pre-commit hooks, so local and CI behavior stays in sync.

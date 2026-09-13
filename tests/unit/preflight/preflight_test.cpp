@@ -119,3 +119,90 @@ TEST(PreflightTest, ConnectMode_MalformedEndpointViaEnv_ReturnsConfigError)
     ::unsetenv("OTEL_EXPORTER_OTLP_ENDPOINT");
     EXPECT_EQ(code, tools::kExitConfig);
 }
+
+// ---------------------------------------------------------------------------
+// Synthetic span identity — spec §6.4, issue #209
+//
+// These assert on `ResolveSpanIdentity` rather than on an exported span
+// because `Provider` has no accessor for its resolved config and no seam
+// through which a built provider's `Resource` can be read. `RunPreflight`
+// uses this same struct for the provider's service name and the span's
+// `microtel.protocol` attribute, so it is the values themselves under test.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Clears every environment variable these tests set, so one case cannot leak
+// configuration into the next. gtest gives no ordering guarantee across TUs.
+void ClearIdentityEnv()
+{
+    ::unsetenv("OTEL_SERVICE_NAME");
+    ::unsetenv("OTEL_EXPORTER_OTLP_PROTOCOL");
+    ::unsetenv("OTEL_EXPORTER_OTLP_ENDPOINT");
+}
+
+}  // namespace
+
+TEST(PreflightSpanIdentityTest, ServiceNameIsMicrotelPreflight)
+{
+    ClearIdentityEnv();
+    EXPECT_EQ(tools::ResolveSpanIdentity("").service_name, "microtel-preflight");
+}
+
+TEST(PreflightSpanIdentityTest, ServiceNameIsNotTheUnknownServiceFallback)
+{
+    // Regression guard for #209: with nothing naming a service, config
+    // resolution supplies "unknown_service" (#203). preflight's span must
+    // still identify itself, or a collector rule written against the spec's
+    // value matches nothing.
+    ClearIdentityEnv();
+    EXPECT_NE(tools::ResolveSpanIdentity("").service_name, "unknown_service");
+}
+
+TEST(PreflightSpanIdentityTest, ServiceNameOverridesOtelServiceNameEnv)
+{
+    // A preflight run against an operator's configuration must report
+    // preflight's identity, not that configuration's. Code overrides are the
+    // highest-precedence layer (docs/configuration.md §2).
+    ClearIdentityEnv();
+    ::setenv("OTEL_SERVICE_NAME", "operators-own-service", /*overwrite=*/1);
+    const auto identity = tools::ResolveSpanIdentity("");
+    ClearIdentityEnv();
+    EXPECT_EQ(identity.service_name, "microtel-preflight");
+}
+
+TEST(PreflightSpanIdentityTest, ProtocolDefaultsToHttp)
+{
+    ClearIdentityEnv();
+    EXPECT_EQ(tools::ResolveSpanIdentity("").protocol, "http");
+}
+
+TEST(PreflightSpanIdentityTest, ProtocolReflectsGrpcFromEnv)
+{
+    ClearIdentityEnv();
+    ::setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc", /*overwrite=*/1);
+    const auto identity = tools::ResolveSpanIdentity("");
+    ClearIdentityEnv();
+    EXPECT_EQ(identity.protocol, "grpc");
+}
+
+TEST(PreflightSpanIdentityTest, ProtocolReflectsGrpcFromEndpointScheme)
+{
+    // `grpc://` selects OTLP/gRPC when no protocol is named explicitly; the
+    // reported attribute has to follow the same resolution.
+    ClearIdentityEnv();
+    ::setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "grpc://localhost:4317", /*overwrite=*/1);
+    const auto identity = tools::ResolveSpanIdentity("");
+    ClearIdentityEnv();
+    EXPECT_EQ(identity.protocol, "grpc");
+}
+
+TEST(PreflightSpanIdentityTest, ProtocolReflectsHttpProtobufFromEnv)
+{
+    ClearIdentityEnv();
+    ::setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf", /*overwrite=*/1);
+    const auto identity = tools::ResolveSpanIdentity("");
+    ClearIdentityEnv();
+    EXPECT_EQ(identity.protocol, "http");
+}

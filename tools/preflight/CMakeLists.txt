@@ -7,9 +7,13 @@
 # Shared library so the test target can link against the logic without main().
 add_library(microtel_preflight_lib STATIC preflight.cpp)
 
+# microtel_config is a direct dependency, not an inherited one: preflight runs
+# the file → env → validate chain itself to learn the resolved protocol, since
+# `Provider` exposes no accessor for its runtime config (issue #209).
 target_link_libraries(microtel_preflight_lib
     PUBLIC  microtel_sdk
-    PRIVATE microtel_headers)
+    PRIVATE microtel_headers
+            microtel_config)
 
 target_include_directories(microtel_preflight_lib
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/..

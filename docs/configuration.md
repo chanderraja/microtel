@@ -237,13 +237,13 @@ there is no `WithDropPolicy` setter — it is a `BatchOptions` field. The
 `WithMemoryLimits(MemoryLimitOptions)`. There is no `[limits]` TOML table and no
 environment variable; the values are plain integer bytes.
 
-| Code (`WithMemoryLimits({…})`) | TOML | Env | Default |
-|---|---|---|---|
-| `.max_total_queue_bytes = n` | — | — | 16 MiB |
-| `.max_record_bytes = n` | — | — | 64 KiB |
-| `.max_response_bytes = n` | — | — | 1 MiB |
-| `.max_trailer_bytes = n` | — | — | 64 KiB |
-| `.max_decompressed_bytes = n` | — | — | 4 MiB |
+| Code (`WithMemoryLimits({…})`) | TOML | Env | Default | Enforced at |
+|---|---|---|---|---|
+| `.max_total_queue_bytes = n` | — | — | 16 MiB | **nowhere yet** — issue #181; the span queue is bounded by `sdk.max_queue_size` in records only |
+| `.max_record_bytes = n` | — | — | 64 KiB | `BatchSpanProcessor::OnEnd`, before the record is queued (counter `record_too_large`) |
+| `.max_response_bytes = n` | — | — | 1 MiB | the transport, as the response body is accumulated (counter `response_too_large`) |
+| `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`) |
+| `.max_decompressed_bytes = n` | — | — | 4 MiB | the wire codec, as a gzipped response inflates (counter `decompression_too_large`) |
 
 Corrections (#196): the five `WithMax…Bytes(n)` setters this section named do
 not exist, the `limits.*` TOML keys are unknown keys that fail `Build()`, and

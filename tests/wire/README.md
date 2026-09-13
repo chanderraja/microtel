@@ -35,7 +35,7 @@ One test per row of the OTLP/HTTP classification matrix, all in
 | Other 4xx | `Send_Other4xx_IsNonRetryable` |
 | Other 5xx | `Send_500_IsNonRetryable` |
 | Connection failure / TLS failure / read timeout | `Send_TransportFailure_ReturnsError`, `Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWithoutSending`, `Diagnostics_ConnectFails_CountsConnectFailure` |
-| Response > `max_response_bytes` | **none** — the cap `gzip.cpp` and `error-model.md` both assume is not enforced anywhere in `src/`, so there is no behaviour to test yet |
+| Response > `max_response_bytes` | `Send_ResponseTooLarge_IsNonRetryableAndCounted`, `Send_TrailersTooLarge_CountsResponseTooLarge` (both codecs) for the classification; the cap itself lives in the transport and is tested end to end in `tests/integration/transport/http2_send_test.cpp` (`Send_ResponseOverMaxResponseBytes_FailsAndDropsTheBody`, `Send_TrailersOverMaxTrailerBytes_Fails`, `GrpcExport_OversizedResponse_IsTerminalAndCounted`) |
 | Decompressed body > `max_decompressed_bytes` | `Response_DecompressionBomb_RecordsDecompressionTooLarge` |
 | Body unparseable / malformed encoding | `Response_UnknownContentEncoding_IsMalformed`, `Response_CorruptGzipBody_IsMalformed` |
 

@@ -292,18 +292,20 @@ The byte budgets from `microtel-spec.md` §5.5 are normative. Each value has a d
 
 | Budget | Default | Layer that enforces | What happens at boundary |
 |---|---|---|---|
-| `max_total_queue_bytes` | 16 MiB | `BatchSpanProcessor` | Reject the incoming record at `End()` time. Drop counter `queue_full`. |
-| `max_record_bytes` | 64 KiB | `BatchSpanProcessor` | Reject the incoming record at `End()` time. Drop counter `record_too_large`. |
-| `max_response_bytes` | 1 MiB | wire codec | Treat the request as failed (non-retryable). Capture is truncated. Drop counter `response_too_large`. |
-| `max_trailer_bytes` | 64 KiB | gRPC wire codec | Treat as malformed response. Drop counter `non_retryable_failure`. |
+| `max_total_queue_bytes` | 16 MiB | — | **Not enforced** (issue #181). The span queue is bounded by `max_queue_size` in records only. |
+| `max_record_bytes` | 64 KiB | `BatchSpanProcessor::OnEnd` | Reject the incoming record before it is queued. Drop counter `record_too_large`. |
+| `max_response_bytes` | 1 MiB | `Http2Transport`, as the response body is accumulated | Stop buffering, release what was buffered, `RST_STREAM(CANCEL)`, fail the request. The codec classifies it non-retryable. Drop counter `response_too_large`. |
+| `max_trailer_bytes` | 64 KiB | `Http2Transport`, as the trailers are accumulated | Same as `max_response_bytes`, and the same counter — `response_too_large` covers both (`error-model.md` §3). |
 | `max_decompressed_bytes` | 4 MiB | wire codec | Decompression-bomb protection. Fail the request, non-retryable. Drop counter `decompression_too_large` (`error-model.md` §7.1/§7.2). |
 
 **Counting rules.**
 
-- `max_total_queue_bytes` counts the **encoded-size estimate** of records in the queue, not the C++ object size. The estimate is computed at enqueue time and is conservative (≥ encoded size).
-- `max_record_bytes` is the same conservative estimate for a single record.
-- `max_response_bytes` is the count of bytes received from the transport before parsing. Once the count reaches the limit, further bytes are discarded and the response is failed.
+- `max_record_bytes` counts a **size estimate** of the record, not the C++ object size: fixed per-record overhead plus the owned buffers (name, status description, attribute keys and values, events, links). `sdk::EstimateRecordBytes` is the single definition, and its Doxygen carries the formula.
+- `max_response_bytes` is the count of DATA-frame bytes accumulated for one response. The check is made before each chunk is appended, so the limit is never exceeded even transiently, and the request fails rather than being handed a truncated body.
+- `max_trailer_bytes` is the summed name+value bytes of one response's trailers, counted the same way.
 - `max_decompressed_bytes` is the count of bytes produced by the decompressor regardless of the compressed input size.
+
+The transport, not the codec, enforces the two response budgets: the buffers they bound are the transport's own, and by the time a codec sees a `TransportResult` the bytes have already been spent. Retry *classification* stays in the codec (ICP 0001), which turns `TransportResult::response_too_large` into the terminal `response_too_large` row of `error-model.md` §7.1.
 
 The diagnostic surface for each of these — drop counter increment, rate-limited log emission, exposure through `GetExporterHealth()` — is in `error-model.md`.
 

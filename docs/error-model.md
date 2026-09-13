@@ -70,7 +70,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | Reason (counter name) | Where incremented | Triggered by |
 |---|---|---|
 | `queue_full` | `BatchSpanProcessor` / `BatchLogRecordProcessor` on enqueue, and each exporter's `Export` | queue at capacity. Counted in records, not batches: a batch the exporter refuses costs every record in it. Both drop policies lose one record per rejection — the policy picks which one |
-| `record_too_large` | *(not yet produced)* | record's encoded-size estimate exceeds `max_record_bytes` — awaiting the §13.5 limits gate |
+| `record_too_large` | `BatchSpanProcessor::OnEnd`, before the record is queued | record's size estimate (`sdk::EstimateRecordBytes`) exceeds `max_record_bytes`. Counted in records: the record is refused, never queued, and the rest of the batch is unaffected |
 | `span_attribute_limit` | API layer, in `SetAttribute` | per-span `attribute_count_limit` reached |
 | `span_event_limit` | API layer, in `AddEvent` | per-span `event_count_limit` reached |
 | `span_link_limit` | API layer, in `AddLink` | per-span `link_count_limit` reached |
@@ -78,7 +78,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | `link_attribute_limit` | API layer, in `AddLink` (per-link attributes) | per-link `link_attribute_count_limit` reached; counts the surplus attributes, the link itself is kept |
 | `attribute_value_truncated` | *(not yet produced)* | string value exceeded `attribute_value_length_limit` — awaiting the §13.5 limits gate |
 | `post_shutdown` | `BatchSpanProcessor` / `BatchLogRecordProcessor`, and each exporter's `Export` | call after `Shutdown` returned. Counted in records, as `queue_full` is |
-| `response_too_large` | *(not yet produced)* | response body exceeded `max_response_bytes` — awaiting the §13.5 limits gate |
+| `response_too_large` | wire codec, on a transport result flagged `response_too_large` | response body exceeded `max_response_bytes`, **or** the trailers exceeded `max_trailer_bytes`. The transport detects both as it accumulates (it owns the buffers), releases what it had, resets the stream, and fails the request; the codec counts it and classifies it terminal. `max_trailer_bytes` has no counter of its own — the `Error` message names which cap it was |
 | `decompression_too_large` | wire codec, per response whose decompression hit the ceiling | decompressed body exceeded `max_decompressed_bytes`. Recorded by both codecs: `content-encoding: gzip` on OTLP/HTTP, a `CF = 0x01` message on OTLP/gRPC. Decompression stops at the ceiling, so the bomb is never materialised |
 | `malformed_response` | wire codec, per observed malformed response | response could not be parsed (missing trailers, bad framing, unparseable proto). **Gap:** `ParseRejectedSpans` returns 0 for an unparseable body exactly as it does for an absent one, so a partial-success body that fails to parse is not yet distinguishable and is not counted |
 | `partial_success_rejection` | exporter, in the final-outcome funnel | rejected items count from the response — see §6. The codec parses the count; the exporter records it, so one batch yields one accounting whatever the retry path did |
@@ -101,7 +101,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 - **Final-outcome counters** (`partial_success_rejection`, `non_retryable_failure`, `retry_budget_exhausted`, `retryable_failure_recovered`) are recorded by the *exporter*, once per batch, after every retry has resolved. The wire codec still owns the classification (§7, ICP 0001) — the exporter reads `WireResult` without reinterpreting it. Recording in the codec instead would count every retry attempt as a separate outcome.
 - **Observation counters** (everything else) are recorded at the site that detects the drop.
 
-**Six counters have no producer yet** and are marked *(not yet produced)* above. Each is enumerated because `DropReason`'s order is a locked part of the public health surface; each awaits the feature whose limit it reports, not a wiring fix.
+**Three counters have no producer yet** and are marked *(not yet produced)* above. Each is enumerated because `DropReason`'s order is a locked part of the public health surface; each awaits the feature whose limit it reports, not a wiring fix. `record_too_large` and `response_too_large` left that list when the §13.5 limits gate closed — `max_record_bytes` at `BatchSpanProcessor::OnEnd`, `max_response_bytes` and `max_trailer_bytes` in the transport (issue #181). `max_total_queue_bytes` remains unenforced, but it needs no counter of its own: a record refused for it would be `queue_full`.
 
 **Adding a new counter is an ICP** because every counter is part of `GetExporterHealth()`'s public surface. Renaming a counter is an ICP. Re-attributing an existing counter to a different layer is not — the counter's meaning is what is locked, not which file writes it.
 
@@ -223,7 +223,7 @@ The wire codec — not the exporter — owns retry classification (per ICP 0001 
 | Other 4xx | false | false | n/a | `non_retryable_failure` |
 | Other 5xx (not in retryable list) | false | false | n/a | `non_retryable_failure` |
 | Connection failure / TLS failure / read timeout | false | true (limited attempts) | jittered backoff | `connect_failure` if pre-request |
-| Response > `max_response_bytes` | false | false | n/a | `response_too_large` |
+| Response > `max_response_bytes`, or trailers > `max_trailer_bytes` | false | false | n/a | `response_too_large` |
 | Decompressed body > `max_decompressed_bytes` | false | false | n/a | `decompression_too_large` |
 | Body unparseable as protobuf | false | false | n/a | `malformed_response` |
 
@@ -240,6 +240,7 @@ here while OTLP/HTTP returned `true` for the identical failure).
 | `grpc-status` | `success` | `retryable` | `retry_after` | Counter |
 |---|---|---|---|---|
 | *(no response — connection failure / TLS failure / read timeout)* | false | true (limited attempts) | jittered backoff | `connect_failure` if pre-request |
+| *(no usable response — body > `max_response_bytes`, or trailers > `max_trailer_bytes`)* | false | **false** | n/a | `response_too_large` |
 | `OK (0)` | true | n/a | n/a | (success) |
 | `OK` with partial-success rejected > 0 | true | **false** (never retried) | n/a | `partial_success_rejection` |
 | `CANCELLED (1)` | false | true | jittered backoff | |

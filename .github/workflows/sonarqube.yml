@@ -11,6 +11,12 @@
 # Required repo secret: `SONAR_TOKEN` (generated under sonarcloud.io →
 # Account → Security). Forks do not have access; this workflow no-ops on
 # fork PRs rather than failing loudly.
+#
+# When the secret is missing the job still exits 0 — requiring it would block
+# every PR on a maintainer-only setup step — but it is no longer silent. The
+# skip writes a heading to the job summary and emits a `::warning::`
+# annotation, so "green" and "scanned" cannot be confused by reading the
+# checks list. Spec §13.5 gate 13 is not discharged by a skipped scan.
 
 name: sonarqube
 
@@ -19,6 +25,11 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # Manual trigger. Without it the first scan after SONAR_TOKEN is configured
+  # cannot be fired on demand — `gh workflow run` returns HTTP 422 — and the
+  # secret's first real exercise would have to wait for the next merge to
+  # master.
+  workflow_dispatch:
 
 # One in-flight scan per branch is plenty — Sonar matches PR decoration
 # by SHA, so cancelling stale runs only saves Sonar API quota.
@@ -33,7 +44,7 @@ jobs:
 
     # Skip on fork PRs (no SONAR_TOKEN) and when the secret is unset.
     if: >-
-      (github.event_name == 'push'
+      (github.event_name != 'pull_request'
        || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
@@ -47,12 +58,38 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [[ -z "${SONAR_TOKEN}" ]]; then
-            echo "SONAR_TOKEN not configured — skipping scan." >&2
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          else
+          if [[ -n "${SONAR_TOKEN}" ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+          # A silent green check is worse than no check: it reads as "SonarQube
+          # analysed this and found nothing". Say plainly that nothing ran.
+          echo "::warning title=NO SONAR SCAN RAN::SONAR_TOKEN is not configured for this repository. No SonarQube analysis was performed — this job is green only because it did nothing. Spec §13.5 gate 13 is UNMEASURED."
+
+          {
+            echo "## :rotating_light: NO SONAR SCAN RAN"
+            echo
+            echo "\`SONAR_TOKEN\` is not configured, so **no SonarQube analysis was"
+            echo "performed** for this commit. This job exits 0 so that master is not"
+            echo "blocked on a maintainer-only setup step — it is **not** evidence that"
+            echo "the code is clean."
+            echo
+            echo "Spec §13.5 gate 13 (\"SonarQube Cloud: no blocker/critical issues\")"
+            echo "is **UNMEASURED** until the secret exists."
+            echo
+            echo "To fix, a maintainer must:"
+            echo
+            echo "1. Create a token at sonarcloud.io → Account → Security."
+            echo "2. Add it as the \`SONAR_TOKEN\` repository secret."
+            echo "3. Replace \`TBD-organization\` in \`sonar-project.properties\`."
+            echo "4. Disable Automatic Analysis in the SonarCloud project settings, so"
+            echo "   this workflow is the only analysis path and \`sonar.exclusions\` is"
+            echo "   honoured."
+            echo "5. Re-run this workflow from the Actions tab (\`workflow_dispatch\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install toolchain + lcov
         if: steps.token-check.outputs.available == 'true'
@@ -60,11 +97,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-13 cmake ninja-build lcov
 
+      # MICROTEL_COVERAGE_ENFORCE=0 because this job wants the tracefile, not a
+      # second opinion on the §14.2 floors. The `coverage` job in ci.yml owns
+      # that gate; letting a shortfall abort this job too would suppress the
+      # Sonar scan exactly when the code most needs looking at.
       - name: Build under coverage (produces compile_commands.json + lcov)
         if: steps.token-check.outputs.available == 'true'
         env:
           CC:  gcc-13
           CXX: g++-13
+          MICROTEL_COVERAGE_ENFORCE: "0"
         run: ci/scripts/coverage.sh build/coverage
 
       - name: SonarCloud scan
@@ -81,6 +123,19 @@ jobs:
           args: >
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.scm.provider=git
-            -Dsonar.exclusions=gen/**,**/third_party/**,proto/**,build/**,build-*/**,spike/**,**/_generated/**,**/*.upb.c,**/*.upb.h,**/*.upb_minitable.c,**/*.upb_minitable.h
+            -Dsonar.exclusions=gen/**,**/third_party/**,**/_deps/**,proto/**,build*/**,spike/**,**/_generated/**,**/*.upb.c,**/*.upb.h,**/*.upb_minitable.c,**/*.upb_minitable.h
             -Dsonar.cfamily.compile-commands=build/coverage/compile_commands.json
             -Dsonar.cfamily.llvm-cov.reportPath=build/coverage/coverage.filtered.info
+
+      # The positive counterpart of the skip notice, so a reader of the job
+      # summary can tell "scanned and clean" from "did nothing and exited 0".
+      - name: Record that the scan ran
+        if: steps.token-check.outputs.available == 'true'
+        run: |
+          {
+            echo "## SonarQube scan ran"
+            echo
+            echo "Analysis was submitted to SonarCloud for \`${GITHUB_SHA}\`."
+            echo "The Quality Gate result is on the SonarCloud project page and,"
+            echo "for pull requests, in the PR decoration comment."
+          } >> "$GITHUB_STEP_SUMMARY"

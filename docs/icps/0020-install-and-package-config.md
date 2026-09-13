@@ -249,3 +249,70 @@ the install work, neither of which changes a decision above:
    OpenSSL and nghttp2 reach consumers the same way and need the same
    `find_dependency` treatment; the gzip work is simply what made the class of
    defect concrete.
+
+## Status addendum — Decision 4 implemented
+
+Decision 4 shipped ahead of the rest of this ICP. It is the only part that is a
+v1.0 deadline rather than a v1.0 convenience — after v1.0 the rename is an ABI
+break for every consumer who linked the exported target — so it landed on its
+own rather than waiting on `install(TARGETS … EXPORT …)` (issue #19). Decisions
+1, 2, 3, 5 and 6 remain open.
+
+**Mechanism.** [`third_party/upb/microtel_upb_rename.h`](../../third_party/upb/microtel_upb_rename.h)
+is a generated block of `#define <name> microtel_<name>` lines — one per
+globally-visible symbol of the vendored upb runtime and utf8_range, 217 on the
+v29.4 pin. CMake force-includes it with `-include` on every target that
+compiles a translation unit reaching a upb header: `microtel_upb_runtime`,
+`microtel_utf8_range`, `microtel_upb_gen`, `microtel_encoder`, and the four
+upb-touching test targets.
+
+Three properties made this the cheapest mechanism available. upb v29.4 has no
+rename hook of its own, so a preprocessor rename was the only option that does
+not fork the vendored source. No source file changes, which keeps `gen/`
+byte-identical to protoc's output and leaves the `regen-check` gate untouched —
+the rename is a compile option, not an edit. And no upb header reaches a
+consumer, because the upb include paths and link dependencies are PRIVATE to
+those targets, so there is no ODR hazard from two translation units disagreeing
+about a name.
+
+**The list covers global linkage only** (`nm -g`: defined, weak, and
+undefined). That is exactly the set a linker can collide; a file-local `static`
+helper inside upb's `.c` files is never a candidate when resolving a consumer's
+reference. It is also the only stable choice — `UPB_INLINE` functions are
+emitted out-of-line at `-O0` and inlined away at `-O2`, and the all-linkage
+symbol set differs between clang and gcc at the same optimization level, while
+the global set is identical across clang-Debug, gcc-Debug and Release.
+
+**The scan update shipped in the same change**, as Decision 4 required.
+`ci/scripts/symbol-scan.sh` gained a second pass that fails on any *unprefixed*
+`upb_*`, `_upb_*`, `kUpb_*`, `_kUpb_*`, `kWyhashSalt`, `UPB_linkarr*` or
+`utf8_range_*` global in a shipped artifact. The old allowance was only a
+comment — the forbidden pattern never matched upb names — so this pass is the
+first mechanical enforcement of anything in this area. It is what makes the
+rename list *enforced* rather than trusted: a upb pin bump that adds a global
+fails the build rather than silently shipping it unprefixed. The header carries
+the regeneration recipe.
+
+### Known residual — the `linkarr_upb_AllExts` section
+
+One vendored name cannot be renamed. upb's linked-extension registry lives in
+an ELF section whose name is composed by stringification in `upb/port/def.inc`
+(`section("linkarr_" #name)`), with the array symbol and the `__start_`/
+`__stop_` bounds composed by token-pasting from the same operand. `#` and `##`
+suppress macro expansion of their operand, so no `#define` can reach the
+composed section name `linkarr_upb_AllExts`. The array symbol
+`UPB_linkarr_internal_empty_upb_AllExts` is renamed by an explicit entry in the
+list; the section name and its linker-synthesized bounds are not.
+
+Consequence: a consumer linking microtel *and* a real upb gets one shared
+`linkarr_upb_AllExts` section holding both extension registries, and
+`upb_ExtensionRegistry_AddAllLinkedExtensions` on either side would walk the
+concatenation.
+
+**Accepted.** microtel contributes nothing to that section but upb's
+zero-filled placeholder array, which the walk already skips on its
+`upb_MiniTableExtension_Number(p) != 0` guard, and the OTLP encoder never calls
+the linked-extension API. Renaming the section would mean rewriting three
+platform variants of upb's macro block — a fork of vendored source, which is
+the cost the whole mechanism was chosen to avoid. Revisit if microtel ever
+gains a proto extension of its own.

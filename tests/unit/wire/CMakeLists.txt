@@ -34,6 +34,12 @@ target_include_directories(upb_arena_test
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/third_party/upb)
 
+# Every TU that reaches a upb header needs the symbol-prefix header too, or it
+# emits references to the upstream names and fails to link against the renamed
+# runtime. See third_party/upb/microtel_upb_rename.h and ICP 0020 Decision 4.
+target_compile_options(upb_arena_test PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER})
+
 microtel_add_test(
     NAME    otlp_encoder_test
     SOURCES otlp_encoder_test.cpp
@@ -51,6 +57,7 @@ target_include_directories(otlp_encoder_test
 # member initializers. GCC -Wextra fires -Wmissing-field-initializers for
 # those — suppress it for this test TU only.
 target_compile_options(otlp_encoder_test PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
     -Wno-missing-field-initializers)
 
 microtel_add_test(
@@ -65,6 +72,7 @@ target_include_directories(otlp_metric_encoder_test
         ${CMAKE_SOURCE_DIR}/third_party/upb)
 
 target_compile_options(otlp_metric_encoder_test PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
     -Wno-missing-field-initializers)
 
 microtel_add_test(
@@ -79,4 +87,5 @@ target_include_directories(otlp_log_encoder_test
         ${CMAKE_SOURCE_DIR}/third_party/upb)
 
 target_compile_options(otlp_log_encoder_test PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
     -Wno-missing-field-initializers)

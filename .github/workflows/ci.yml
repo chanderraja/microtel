@@ -211,7 +211,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
       - name: Build
         run: cmake --build build
-      - name: Assert dependency closure (no gRPC / abseil / protobuf-cpp)
+      - name: Assert dependency closure and the vendored-upb prefix
         run: ci/scripts/symbol-scan.sh build
 
   corpus-check:

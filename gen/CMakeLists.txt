@@ -40,5 +40,11 @@ target_link_libraries(microtel_upb_gen PUBLIC microtel_upb_runtime)
 # Generated C is compiled as C11.
 target_compile_features(microtel_upb_gen PUBLIC c_std_11)
 
-# Suppress warnings in generated code.
-target_compile_options(microtel_upb_gen PRIVATE -w)
+# -include first: the symbol-prefix header must be seen before any TU text, so
+# the generated accessors call the renamed upb runtime. It is a compile option,
+# not a source edit — gen/ stays byte-identical to protoc's output, which is
+# what the regen-check gate asserts. See ICP 0020 Decision 4.
+# -w suppresses warnings in generated code.
+target_compile_options(microtel_upb_gen PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
+    -w)

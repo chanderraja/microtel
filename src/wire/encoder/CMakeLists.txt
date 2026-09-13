@@ -21,5 +21,9 @@ target_include_directories(microtel_encoder
 
 target_compile_features(microtel_encoder PUBLIC cxx_std_20)
 
+# -include first: the symbol-prefix header must be seen before any TU text, so
+# this TU's references resolve against the renamed upb runtime.
+# See third_party/upb/microtel_upb_rename.h and ICP 0020 Decision 4.
 target_compile_options(microtel_encoder PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
     -Wall -Wextra -Wpedantic -Werror)

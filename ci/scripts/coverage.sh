@@ -267,6 +267,10 @@ awk \
     -v transport_line_min="$TRANSPORT_LINE_MIN" \
     -v enforce="$ENFORCE" \
     -v enforce_branch="$ENFORCE_BRANCH" '
+    # A group with nothing instrumented reads as 100%: vacuously covered. It
+    # cannot be a way to pass with no data — unclassified paths fold into
+    # sdk-encoder, and an empty tracefile exits 2 before this runs — and the
+    # printed (0/0) makes the emptiness visible either way.
     function pct(hit, found)
     {
         return found > 0 ? 100 * hit / found : 100

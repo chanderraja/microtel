@@ -91,11 +91,18 @@ jobs:
             echo "5. Re-run this workflow from the Actions tab (\`workflow_dispatch\`)."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Keep this list in sync with the building jobs in ci.yml (tidy-check,
+      # compile, sanitizers, coverage) — CLAUDE.md §"Adding new system
+      # dependencies to CI". The three -dev packages were missing here and the
+      # gap stayed invisible for as long as this job skipped for want of
+      # SONAR_TOKEN: the moment it ran, CMake failed at
+      # `pkg_check_modules(libnghttp2)` before a single file compiled.
       - name: Install toolchain + lcov
         if: steps.token-check.outputs.available == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13 cmake ninja-build lcov
+          sudo apt-get install -y g++-13 cmake ninja-build lcov \
+            libssl-dev libnghttp2-dev zlib1g-dev
 
       # MICROTEL_COVERAGE_ENFORCE=0 because this job wants the tracefile, not a
       # second opinion on the §14.2 floors. The `coverage` job in ci.yml owns

@@ -154,6 +154,63 @@ TEST(OtlpExporterTest, Shutdown_WaitsForPendingBatch)
 }
 
 // ---------------------------------------------------------------------------
+// Destructor without Shutdown
+//
+// CLAUDE.md rule 15: the destructor invokes Shutdown with a small finite
+// timeout if not already shut down. Every lifecycle test above calls Shutdown
+// explicitly, so nothing exercised the destructor-only path — the one an
+// application takes when an exporter simply goes out of scope.
+// ---------------------------------------------------------------------------
+
+// Generous by design: the assertion is that teardown *terminates*, not a
+// latency budget. The real bound is the destructor's own Shutdown timeout
+// (`kDestructorShutdownTimeout`, 5s in `otlp_exporter.cpp`); a sanitizer build
+// runs several times slower, and ctest's per-test timeout is the backstop for a
+// destructor that wedges rather than merely running late.
+static constexpr auto kDestructorTeardownBound = std::chrono::seconds(30);
+
+TEST(OtlpExporterTest, DestroyedWithoutShutdown_DrainsAndJoinsWithinBound)
+{
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::MockWireCodec codec;
+    codec.result_to_return.success = true;
+
+    const auto start = std::chrono::steady_clock::now();
+    {
+        // Declared inside, so encoder and codec outlive the exporter that
+        // borrows them — the same ordering the SDK guarantees by member
+        // declaration order.
+        mte::OtlpExporter exporter{&encoder, &codec};
+        (void)exporter.Export(MakeBatch());
+        // No Shutdown(), no ForceFlush(). Scope exit is the whole teardown.
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_LT(elapsed, kDestructorTeardownBound);
+    // Not merely "it returned": the queued batch was drained by the
+    // destructor's Shutdown rather than abandoned with the worker thread.
+    EXPECT_EQ(encoder.encode_call_count.load(), 1);
+    EXPECT_EQ(codec.send_call_count.load(), 1);
+}
+
+TEST(OtlpExporterTest, DestroyedImmediatelyAfterConstruction_JoinsWithinBound)
+{
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::MockWireCodec codec;
+
+    const auto start = std::chrono::steady_clock::now();
+    {
+        // `const` because nothing is called on it — construction and
+        // destruction are the whole test, and the destructor runs regardless.
+        const mte::OtlpExporter exporter{&encoder, &codec};
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_LT(elapsed, kDestructorTeardownBound);
+    EXPECT_EQ(encoder.encode_call_count.load(), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Queue capacity
 // ---------------------------------------------------------------------------
 
@@ -466,6 +523,13 @@ TEST(OtlpExporterTest, Diagnostics_PartialSuccessRejection_CountsRejectedRecords
 
     // Still a sent batch — partial success is never retried and never a
     // failed batch — but the rejected records must be attributable.
+    //
+    // The send count is the direct assertion of "never retried": the retry
+    // policy allows three attempts and the result carries rejections, so an
+    // exporter that treated partial success as a failure would show 3 here.
+    // Without it the test proved only that the counters were right, which a
+    // retrying implementation could also manage.
+    EXPECT_EQ(codec.send_call_count.load(), 1);
     EXPECT_EQ(sink.batches_sent, 1U);
     EXPECT_EQ(sink.batches_failed, 0U);
     EXPECT_EQ(DropCount(sink, mt::DropReason::PartialSuccessRejection), 3U);

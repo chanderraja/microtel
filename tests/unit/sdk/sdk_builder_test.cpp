@@ -353,6 +353,76 @@ TEST(SdkBuilderTest, EndToEnd_ConnectFailureReachesGetExporterHealth)
 }
 
 // ---------------------------------------------------------------------------
+// Destructor without Shutdown
+//
+// CLAUDE.md rule 15 and threading-model.md §6.2: the destructor invokes
+// Shutdown with a small finite timeout if not already shut down, is noexcept,
+// and does not block indefinitely. Every other lifecycle test in this file
+// calls Shutdown explicitly first, so until now nothing exercised the path
+// where the destructor is the only thing that stops the batch-processor worker
+// and the transport's I/O thread. An application that simply drops its
+// provider on the way out takes exactly this path.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Deliberately generous: the assertion is that teardown *terminates*, not a
+/// latency budget. The real bound is the destructor's own Shutdown timeout
+/// (`kProviderDestructorTimeout`, 5s in `sdk_provider.cpp`); a TSAN or ASAN
+/// build runs several times slower, and ctest's per-test timeout is the
+/// backstop for a destructor that wedges rather than merely running late.
+constexpr auto kDestructorTeardownBound = std::chrono::seconds(30);
+
+}  // namespace
+
+TEST(SdkBuilderTest, Provider_DestroyedWithoutShutdown_TearsDownWithinBound)
+{
+    const auto start = std::chrono::steady_clock::now();
+    {
+        auto result = microtel::SdkBuilder()
+                          .WithEndpoint("http://127.0.0.1:1")  // nothing listening
+                          .WithTimeouts(kFailFastTimeouts)
+                          .Build();
+        ASSERT_TRUE(result.has_value());
+
+        // A live provider, not a freshly built and untouched one: a tracer
+        // handed out and a span ended, so the worker has real work queued and
+        // the export path has been entered when the destructor runs.
+        //
+        // Declared after `result` so it is destroyed before it — the tracer
+        // holds borrowed pointers into provider-owned state.
+        const auto tracer = (*result)->GetTracer("dtor.test", "1.0");
+        ASSERT_NE(tracer, nullptr);
+        {
+            auto span = tracer->StartSpan("never-explicitly-flushed");
+            span->SetAttribute("k", std::int64_t{1});
+        }
+        // No Shutdown(), no ForceFlush(). Scope exit is the whole teardown.
+    }
+
+    EXPECT_LT(std::chrono::steady_clock::now() - start, kDestructorTeardownBound);
+}
+
+TEST(SdkBuilderTest, Provider_DestroyedImmediatelyAfterBuild_TearsDownWithinBound)
+{
+    // The other half of the gap: threads exist from construction (the batch
+    // processor's worker, and the transport's I/O thread from
+    // Http2Transport::Create), so a provider that is built and dropped without
+    // a single API call still has to join two threads.
+    const auto start = std::chrono::steady_clock::now();
+    {
+        auto result = microtel::SdkBuilder()
+                          .WithEndpoint("http://127.0.0.1:1")
+                          .WithTimeouts(kFailFastTimeouts)
+                          .Build();
+        ASSERT_TRUE(result.has_value());
+    }
+
+    EXPECT_LT(std::chrono::steady_clock::now() - start, kDestructorTeardownBound);
+}
+
+// ---------------------------------------------------------------------------
 // Build()-time warnings
 //
 // Neither configuration below is rejected: an h2c-capable proxy and the bench

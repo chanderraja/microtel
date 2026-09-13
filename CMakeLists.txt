@@ -186,6 +186,7 @@ pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
 # `docs/development.md`. Subdirectories grow as M3+ implementation
 # chunks land. Track A (src/sdk/) leads M3.
 add_subdirectory(src/common)
+add_subdirectory(src/api)
 add_subdirectory(src/sdk)
 add_subdirectory(src/wire)
 add_subdirectory(src/transport)

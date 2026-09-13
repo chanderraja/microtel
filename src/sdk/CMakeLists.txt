@@ -29,8 +29,12 @@ add_library(microtel_sdk STATIC
     sdk_builder.cpp
     view_registry.cpp)
 
+# microtel_api is PUBLIC: it defines methods declared on public API types
+# (TraceId::ToHex, SpanId::ToHex), so every SDK consumer needs them in its
+# link closure.
 target_link_libraries(microtel_sdk
     PUBLIC  microtel_headers
+            microtel_api
     PRIVATE microtel_config
             microtel_exporter
             microtel_transport

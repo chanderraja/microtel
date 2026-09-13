@@ -5,6 +5,11 @@
 # microtel::Provider / microtel::Meter interfaces (not SDK internals directly).
 
 microtel_add_test(
+    NAME    trace_id_test
+    SOURCES trace_id_test.cpp
+    LIBS    microtel_api)
+
+microtel_add_test(
     NAME    meter_api_test
     SOURCES meter_api_test.cpp
     LIBS    microtel_sdk)

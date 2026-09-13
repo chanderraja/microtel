@@ -7,7 +7,7 @@
 #
 # ----------------------------------------------------------------------
 # Initial state: solo project. The default owner reviews everything.
-# As the project grows, replace `@TBD-username` per directory and add
+# As the project grows, replace the default owner per directory and add
 # additional reviewers as a space-separated list:
 #
 #     /src/wire/grpc/      @grpc-track-owner @backup-reviewer
@@ -15,26 +15,26 @@
 # ----------------------------------------------------------------------
 
 # Default — covers everything not explicitly claimed below
-*                                       @TBD-username
+*                                       @chanderraja
 
 # ----------------------------------------------------------------------
 # Architecture and design documents (M0 deliverables)
 # ----------------------------------------------------------------------
 
-/docs/architecture.md                   @TBD-username
-/docs/threading-model.md                @TBD-username
-/docs/memory-model.md                   @TBD-username
-/docs/error-model.md                    @TBD-username
-/docs/interfaces.md                     @TBD-username
-/docs/coding-standards.md               @TBD-username
-/docs/sequences/                        @TBD-username
-/docs/icps/                             @TBD-username
+/docs/architecture.md                   @chanderraja
+/docs/threading-model.md                @chanderraja
+/docs/memory-model.md                   @chanderraja
+/docs/error-model.md                    @chanderraja
+/docs/interfaces.md                     @chanderraja
+/docs/coding-standards.md               @chanderraja
+/docs/sequences/                        @chanderraja
+/docs/icps/                             @chanderraja
 
 # ----------------------------------------------------------------------
 # Public API headers — interface changes are high-impact
 # ----------------------------------------------------------------------
 
-/include/microtel/                      @TBD-username
+/include/microtel/                      @chanderraja
 
 # ----------------------------------------------------------------------
 # Track-owned source directories (per spec §13.1)
@@ -42,78 +42,78 @@
 # ----------------------------------------------------------------------
 
 # Track A — Trace SDK
-/src/api/                               @TBD-username
-/src/sdk/                               @TBD-username
+/src/api/                               @chanderraja
+/src/sdk/                               @chanderraja
 
 # Track B — OTLP/HTTP wire codec
-/src/wire/http/                         @TBD-username
+/src/wire/http/                         @chanderraja
 
 # Track C — OTLP/gRPC wire codec (the hardest piece)
-/src/wire/grpc/                         @TBD-username
+/src/wire/grpc/                         @chanderraja
 
 # Track D — Transport (foundational)
-/src/transport/                         @TBD-username
+/src/transport/                         @chanderraja
 
 # Track E — Config
-/src/common/config/                     @TBD-username
+/src/common/config/                     @chanderraja
 
 # Track F — OTLP encoder (foundational; only file touching upb directly)
-/src/wire/encoder/                      @TBD-username
+/src/wire/encoder/                      @chanderraja
 
 # Common code (logging, errors, RAII wrappers, limits)
-/src/common/                            @TBD-username
+/src/common/                            @chanderraja
 
 # ----------------------------------------------------------------------
 # Build and packaging
 # ----------------------------------------------------------------------
 
-/CMakeLists.txt                         @TBD-username
-/cmake/                                 @TBD-username
-/.clang-tidy                            @TBD-username
-/.clang-format                          @TBD-username
-/ci/                                    @TBD-username
-/.github/workflows/                     @TBD-username
+/CMakeLists.txt                         @chanderraja
+/cmake/                                 @chanderraja
+/.clang-tidy                            @chanderraja
+/.clang-format                          @chanderraja
+/ci/                                    @chanderraja
+/.github/workflows/                     @chanderraja
 
 # Packaging (deb/rpm/cibuildwheel)
-/packaging/                             @TBD-username
+/packaging/                             @chanderraja
 
 # ----------------------------------------------------------------------
 # Python bindings
 # ----------------------------------------------------------------------
 
-/python/                                @TBD-username
-/python/bindings/                       @TBD-username
+/python/                                @chanderraja
+/python/bindings/                       @chanderraja
 
 # ----------------------------------------------------------------------
 # Vendored third-party code — changes require explicit attention
 # ----------------------------------------------------------------------
 
-/third_party/                           @TBD-username
-/proto/                                 @TBD-username
-/gen/                                   @TBD-username
+/third_party/                           @chanderraja
+/proto/                                 @chanderraja
+/gen/                                   @chanderraja
 
 # ----------------------------------------------------------------------
 # Tests
 # ----------------------------------------------------------------------
 
-/tests/                                 @TBD-username
-/tests/grpc-wire/                       @TBD-username
-/tests/conformance/                     @TBD-username
-/tests/fuzz/                            @TBD-username
+/tests/                                 @chanderraja
+/tests/grpc-wire/                       @chanderraja
+/tests/conformance/                     @chanderraja
+/tests/fuzz/                            @chanderraja
 
 # ----------------------------------------------------------------------
 # Compatibility shims — separate experimental packages
 # ----------------------------------------------------------------------
 
-/shims/otelcpp/                         @TBD-username
-/shims/python/                          @TBD-username
+/shims/otelcpp/                         @chanderraja
+/shims/python/                          @chanderraja
 
 # ----------------------------------------------------------------------
 # Project-level metadata
 # ----------------------------------------------------------------------
 
-/CLAUDE.md                              @TBD-username
-/SECURITY.md                            @TBD-username
-/CODEOWNERS                             @TBD-username
-/microtel-spec.md                       @TBD-username
-/microtel-roadmap.md                    @TBD-username
+/CLAUDE.md                              @chanderraja
+/SECURITY.md                            @chanderraja
+/CODEOWNERS                             @chanderraja
+/microtel-spec.md                       @chanderraja
+/microtel-roadmap.md                    @chanderraja

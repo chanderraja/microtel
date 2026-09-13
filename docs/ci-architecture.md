@@ -165,14 +165,34 @@ Verifies that regenerating the proto accessors produces a zero-diff result again
 
 ### `symbol-scan` (job in `.github/workflows/ci.yml`)
 
-Mechanical enforcement of the dependency closure: asserts that no shipped
-artifact defines **or references** a symbol from gRPC, abseil, or the protobuf
-C++ runtime. This is the test behind CLAUDE.md rule 13 and spec §3 — the closure
-claim is the project's reason to exist, so it is verified rather than asserted.
+Mechanical enforcement of the dependency closure, in two passes.
+
+**Pass 1 — forbidden namespaces.** No shipped artifact defines **or references**
+a symbol from gRPC, abseil, or the protobuf C++ runtime. This is the test behind
+CLAUDE.md rule 13 and spec §3 — the closure claim is the project's reason to
+exist, so it is verified rather than asserted.
 
 Undefined (`U`) references count as violations alongside defined symbols: a
 static archive carrying `U absl::…` makes abseil a link requirement for every
 consumer even though the archive contains none of abseil's code.
+
+**Pass 2 — the vendored-upb prefix.** No shipped artifact carries a vendored
+upb or utf8_range symbol under its *upstream* name. Per ICP 0020 Decision 4 they
+ship renamed to `microtel_*`, so a consumer who also links a real upb cannot get
+two definitions of `upb_Arena_Init` and — with static libraries — a silent,
+undiagnosable selection between them. The pass fails on any unprefixed `upb_*`,
+`_upb_*`, `kUpb_*`, `_kUpb_*`, `kWyhashSalt`, `UPB_linkarr*` or `utf8_range_*`
+global.
+
+This pass looks at global linkage only (`nm -g`), which is both the collision
+surface and the only deterministic choice: `UPB_INLINE` functions are emitted
+out-of-line at `-O0` and inlined away at `-O2`, so an all-linkage scan would
+fire on optimization level rather than on a real hazard.
+
+A upb pin bump that introduces a new global fails here rather than shipping it
+unprefixed; the fix is to regenerate the list using the recipe in
+[`third_party/upb/microtel_upb_rename.h`](../third_party/upb/microtel_upb_rename.h),
+never to widen the pattern.
 
 **Steps:**
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
@@ -180,15 +200,19 @@ consumer even though the archive contains none of abseil's code.
 2. Build.
 3. Run [`ci/scripts/symbol-scan.sh build`](../ci/scripts/symbol-scan.sh).
 
-**Pass condition:** zero forbidden symbols across every `libmicrotel_*.a` and the
-`microtel-preflight` binary.
+**Pass condition:** zero forbidden symbols and zero unprefixed vendored symbols
+across every `libmicrotel_*.a` and the `microtel-preflight` binary.
 
 **Deliberate non-violations.** The scan anchors its patterns at the start of the
-demangled name, which is what keeps the vendored dependencies legal: upb emits C
-accessors such as `google_protobuf_Timestamp_set_seconds`, which are upb's own
-generated code and must not be confused with the `google::protobuf::` C++
-runtime. `upb_*` and `utf8_range_*` are likewise permitted members of the
-closure.
+demangled name, which is what keeps the generated accessors legal: upb emits C
+accessors such as `google_protobuf_Timestamp_set_seconds` and
+`opentelemetry_proto_trace_v1_Span_set_name`, which are protoc-gen-upb's output
+and must not be confused with the `google::protobuf::` C++ runtime. Those
+generated names are unchanged by the rename — they are not upb runtime symbols.
+
+Anchoring is also what makes pass 2 self-consistent: a correctly renamed symbol
+begins with `microtel_`, so it can never match a pattern anchored on the
+upstream name.
 
 **A scan that finds no artifacts fails with exit 2** rather than reporting green,
 so a build-layout change cannot silently turn this gate into a no-op.

@@ -49,6 +49,15 @@ What's **not** vendored (and why):
 - `upb/bazel/`, `BUILD*` files — the bazel build is upstream-only.
 - `*.hpp` C++ wrappers — optional convenience headers we don't consume.
 
+The one file here that is **not** upstream is
+[`microtel_upb_rename.h`](microtel_upb_rename.h), which renames every
+globally-visible vendored symbol to `microtel_*`. It is force-included with
+`-include` rather than `#include`d, so the vendored sources above stay
+byte-identical to upstream. Its comment block carries the rationale (ICP 0020
+Decision 4), the regeneration recipe, and the one residual the mechanism cannot
+cover. See also `third_party/utf8_range/`, which is force-included with the same
+header.
+
 ## Refreshing the pin
 
 The pin is refreshed by re-running the rsync that produced this tree;
@@ -64,7 +73,12 @@ no in-place patches. To bump:
 6. Refresh `third_party/utf8_range/{utf8_range.h,utf8_range.c,LICENSE}` from
    the same upstream commit.
 7. Regenerate the upb accessors under `gen/` (see M3-F2 docs).
-8. Run the full test suite — the wire round-trip tests will catch any
+8. Regenerate [`microtel_upb_rename.h`](microtel_upb_rename.h) — a bump can add,
+   remove, or rename globals, and every one of them must ship `microtel_`-
+   prefixed (ICP 0020 Decision 4). The recipe is in that header's comment block.
+   `ci/scripts/symbol-scan.sh` fails the build if any global escapes the list,
+   so a forgotten regeneration is caught rather than silently shipped.
+9. Run the full test suite — the wire round-trip tests will catch any
    incompatible field-number or descriptor-format changes immediately.
 
 A bump that touches the wire encode/decode contract goes through the ICP

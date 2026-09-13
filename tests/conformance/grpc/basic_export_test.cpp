@@ -225,10 +225,8 @@ TEST(GrpcConformance, BasicExportRoundTrip)
 
     // Identity: the collector decoded the same ids microtel generated, out of a
     // length-prefixed gRPC message rather than an HTTP body.
-    const std::string trace_id_json =
-        R"("traceId":")" + microtel::testing::ToHex(context.trace_id.AsBytes()) + R"(")";
-    const std::string span_id_json =
-        R"("spanId":")" + microtel::testing::ToHex(context.span_id.AsBytes()) + R"(")";
+    const std::string trace_id_json = R"("traceId":")" + context.trace_id.ToHex() + R"(")";
+    const std::string span_id_json = R"("spanId":")" + context.span_id.ToHex() + R"(")";
     ExpectLineContains(exported, trace_id_json);
     ExpectLineContains(exported, span_id_json);
 

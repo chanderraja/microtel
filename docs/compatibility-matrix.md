@@ -128,8 +128,12 @@ open at the time of writing.
   spans by service rather than by instrumentation library. Affects both
   protocols identically. No conformance test asserts on `ScopeSpans.scope` —
   that would enshrine the bug.
-- **`TraceId::ToHex()` / `SpanId::ToHex()` are declared and not defined**
-  (issue #168): calling either from consumer code is a link error.
+- **`TraceState` and `W3CTraceContextPropagator` are declared and not
+  defined**: `TraceState::FromHeader` / `ToHeader` / `Size` / `Empty` and
+  `W3CTraceContextPropagator::Inject` / `Extract` have no definition in any
+  shipped translation unit, so calling one from consumer code is a link error.
+  Same defect class as issue #168, which is fixed — `TraceId::ToHex()` and
+  `SpanId::ToHex()` are now defined in `src/api/` (`microtel_api`).
 - **`HealthSnapshot::drop_counters` is nearly all dead for traces** (issue
   #169). Only 2 of 24 `DropReason` counters are ever incremented, so the
   negative conformance tests assert `batches_failed` and collector output

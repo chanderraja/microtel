@@ -11,26 +11,16 @@
 // Delivery is asynchronous — ForceFlush returning only means microtel handed
 // the batch to the collector, which still has to run it through its own batch
 // processor and flush the file. So reads poll rather than assume.
-//
-// ToHex() below duplicates what include/microtel/trace.hpp already promises.
-// TraceId::ToHex() and SpanId::ToHex() are declared there but defined in no
-// shipped translation unit, so calling either from outside the library is a
-// link error — this test tier, which builds against public headers only, is
-// the first thing in the repo to notice. Delete this helper and switch to the
-// public formatter once those two are implemented.
 
 #pragma once
 
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <span>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <thread>
 
 namespace microtel::testing
@@ -72,29 +62,6 @@ inline std::optional<std::string> FindLineContaining(const std::string& haystack
 }
 
 }  // namespace detail
-
-/// @brief Lower-case hex, no separators — the protojson id encoding.
-///
-/// The collector renders `trace_id` and `span_id` this way, so this is how a
-/// test turns a `SpanContext` into a needle for the output file:
-/// `ToHex(context.trace_id.AsBytes())`.
-///
-/// @param bytes borrowed; any length.
-inline std::string ToHex(std::span<const std::uint8_t> bytes)
-{
-    constexpr std::string_view kHexDigits = "0123456789abcdef";
-    constexpr unsigned int kNibbleShift = 4U;
-    constexpr unsigned int kNibbleMask = 0xFU;
-
-    std::string out;
-    out.reserve(bytes.size() * 2U);
-    for (const std::uint8_t byte : bytes)
-    {
-        out.push_back(kHexDigits[static_cast<unsigned int>(byte) >> kNibbleShift]);
-        out.push_back(kHexDigits[static_cast<unsigned int>(byte) & kNibbleMask]);
-    }
-    return out;
-}
 
 /// @brief Waits for the collector to write a line containing @p needle.
 ///

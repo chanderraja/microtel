@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(microtel
-        VERSION 0.1.0
+        VERSION 1.0.0
         LANGUAGES C CXX
         DESCRIPTION "Lightweight OpenTelemetry-compatible trace runtime built on nghttp2")
 
@@ -349,8 +349,11 @@ install(EXPORT MicrotelTargets
 # usage is `find_package(microtel …)`. `MicrotelConfig.cmake` would only be
 # found by `find_package(Microtel)`.
 #
-# The version is the project version, 0.1.0. include/microtel/version.hpp
-# still says "0.1.0-m0"; unifying the two is a separate concern from packaging.
+# The version is the project version, 1.0.0, and include/microtel/version.hpp
+# now agrees with it. Both are hand-set: generating the header from
+# PROJECT_VERSION is post-v1.0 work, so a release bump edits two files and the
+# grpc user-agent literal, which a static_assert in src/wire/grpc/ ties back to
+# kVersionString.
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
@@ -358,12 +361,15 @@ configure_package_config_file(
     ${CMAKE_CURRENT_BINARY_DIR}/microtelConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
-# SameMajorVersion is wrong below 1.0 — 0.x minor bumps are breaking by
-# convention — so pre-1.0 releases match exactly. Revisit at v1.0.
+# Now that the project is 1.0.0, SameMajorVersion is the right mode: semver
+# says a 1.x consumer requirement is satisfied by any later 1.y. ExactVersion
+# was correct only below 1.0, where minor bumps are breaking by convention;
+# keeping it past the 1.0 cut would fail `find_package(microtel 1.0)` against a
+# 1.1 install for no reason.
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/microtelConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY ExactVersion)
+    COMPATIBILITY SameMajorVersion)
 
 install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/microtelConfig.cmake

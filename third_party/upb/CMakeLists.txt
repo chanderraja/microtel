@@ -7,7 +7,10 @@
 # Builds two OBJECT/STATIC libraries consumed by microtel_upb_gen
 # (gen/CMakeLists.txt) and ultimately by microtel_encoder (src/wire/encoder/).
 #
-# NOT installed. Internal-use only. No install() rules here.
+# The archive is installed and exported as `microtel::upb_runtime` — a static
+# link closure needs it — but the headers are not, and the target is
+# exported-but-unsupported (ICP 0020 Decision 2). The install rules live in the
+# top-level CMakeLists.txt, which keeps the shipped set in one place.
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -52,9 +55,12 @@ add_library(microtel_upb_runtime STATIC
 
 # Headers use #include "upb/...", resolved from this directory.
 # utf8_range.h is found via the utf8_range include path below.
+#
+# BUILD_INTERFACE only — see the note in third_party/utf8_range/CMakeLists.txt.
+# The archive installs; the headers do not.
 target_include_directories(microtel_upb_runtime
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    PUBLIC ${CMAKE_SOURCE_DIR}/third_party/utf8_range)
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/utf8_range>)
 
 target_link_libraries(microtel_upb_runtime PUBLIC microtel_utf8_range)
 

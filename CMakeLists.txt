@@ -17,14 +17,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# bindir / libdir / includedir for the install rules at the foot of this file.
+# Included up here because the $<INSTALL_INTERFACE:> expressions below need
+# CMAKE_INSTALL_INCLUDEDIR.
+include(GNUInstallDirs)
+
 # Header-only target — exposes include/ and the vendored tl::expected to
 # consumers and to the M0 header check. Per ICP 0002 the public-API
 # `microtel::Expected<T, E>` aliases to `tl::expected` on C++20 and to
 # `std::expected` on C++23.
+#
+# In an installed tree the vendored tl::expected moves to
+# <includedir>/microtel/vendor/tl/expected.hpp, so `microtel/vendor` — not
+# `microtel` — goes on the include path: expected.hpp says
+# `#include "tl/expected.hpp"`, and the extra `vendor` level keeps that from
+# resolving against a consumer's own tl-expected (or ours from theirs).
 add_library(microtel_headers INTERFACE)
 target_include_directories(microtel_headers INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/tl-expected>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/tl-expected>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/microtel/vendor>)
 target_compile_features(microtel_headers INTERFACE cxx_std_20)
 
 # M0 header compile check.
@@ -207,6 +220,104 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
     add_subdirectory(src/adapters/otelcpp)
 endif()
 add_subdirectory(tools)
+
+# ---------------------------------------------------------------------------
+# Install rules and the exported target set — issue #19, ICP 0020.
+#
+# Centralised here rather than spread across src/*/CMakeLists.txt because the
+# exported names are a compatibility surface (ICP 0020 Decision 2): "what
+# microtel ships" should be one readable list, not something reconstructed by
+# grepping fifteen directories.
+# ---------------------------------------------------------------------------
+
+# The aggregate. `microtel::microtel` is the ONLY supported exported name
+# (ICP 0020 Decision 2); every other exported target exists so the static link
+# closure resolves and may merge, split or disappear without an ICP.
+#
+# Linking microtel_sdk alone is deliberate: CMake derives the rest of the
+# closure — and its link order — from the real dependency graph, which is the
+# whole point of Decision 1. A static closure this wide is exactly what a
+# consumer should not have to order by hand.
+add_library(microtel INTERFACE)
+add_library(microtel::microtel ALIAS microtel)
+target_link_libraries(microtel INTERFACE microtel_sdk)
+
+# The shipped set: the aggregate, the header carrier, and the fourteen static
+# components. `microtel_preflight_lib` is tool-only and is not exported
+# (ICP 0020 "What exists to export"); neither adapter is exported (Decision 3).
+set(MICROTEL_EXPORTED_TARGETS
+    microtel
+    microtel_headers
+    microtel_api
+    microtel_common
+    microtel_config
+    microtel_sdk
+    microtel_exporter
+    microtel_transport
+    microtel_otlp_response
+    microtel_gzip
+    microtel_http_wire
+    microtel_grpc_wire
+    microtel_encoder
+    microtel_upb_gen
+    microtel_upb_runtime
+    microtel_utf8_range)
+
+# `microtel_sdk` exports as `microtel::sdk`, not `microtel::microtel_sdk`.
+# The aggregate is already bare `microtel`, so the regex leaves it alone.
+foreach(microtel_target IN LISTS MICROTEL_EXPORTED_TARGETS)
+    string(REGEX REPLACE "^microtel_" "" microtel_export_name "${microtel_target}")
+    set_target_properties(${microtel_target} PROPERTIES
+        EXPORT_NAME "${microtel_export_name}")
+endforeach()
+
+install(TARGETS ${MICROTEL_EXPORTED_TARGETS}
+    EXPORT MicrotelTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# The operator CLI from spec §6.4. The binary ships; `microtel_preflight_lib`
+# does not, and no target for either is exported — installing an executable
+# needs no export entry.
+install(TARGETS microtel-preflight
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Public headers, plus `internal/`.
+#
+# `include/microtel/internal/` is not public API — but public headers include
+# it (provider.hpp reaches internal/processor.hpp, sdk_builder.hpp reaches
+# internal/sampler.hpp, and so on), so an install that omitted it would ship a
+# tree that does not compile. Shipping the files is not a promise about them:
+# ICP 0020 Decision 2 draws the supported line at `include/microtel/*.hpp`.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/microtel
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.hpp")
+
+# The vendored tl::expected, under a `vendor/` level of its own so that
+# `#include "tl/expected.hpp"` from expected.hpp keeps resolving without the
+# installed tree putting a bare `tl/` on a consumer's include path — where it
+# would collide with their own copy. See the microtel_headers include
+# directories at the top of this file.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tl-expected/tl/expected.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel/vendor/tl)
+
+# opentelemetry-cpp shim headers — ICP 0020 Decision 3: headers install, no
+# binary and no exported target, permanently. Installed unconditionally
+# (i.e. not gated on MICROTEL_BUILD_OTELCPP_SHIM) because the consumer opts in
+# from *their* build, which means the headers have to be in the package they
+# installed.
+#
+# They live under src/adapters/otelcpp/ and include each other as
+# "adapters/otelcpp/…", so they need a root of their own that is not
+# <includedir>: a consumer adds <includedir>/microtel-shim to their include
+# path and the self-includes resolve unchanged.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/adapters/otelcpp/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel-shim/adapters/otelcpp
+    FILES_MATCHING PATTERN "*.hpp")
+
+install(EXPORT MicrotelTargets
+    FILE MicrotelTargets.cmake
+    NAMESPACE microtel::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the

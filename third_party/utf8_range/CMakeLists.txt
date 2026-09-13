@@ -9,8 +9,12 @@ cmake_minimum_required(VERSION 3.20)
 
 add_library(microtel_utf8_range STATIC utf8_range.c)
 
+# BUILD_INTERFACE only: the archive is installed so the static link closure
+# resolves, but no vendored header ever reaches a consumer — every upb include
+# path in this project is PRIVATE. A bare path here would also be a stale
+# absolute source path in the installed export file.
 target_include_directories(microtel_utf8_range
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 target_compile_features(microtel_utf8_range PUBLIC c_std_11)
 

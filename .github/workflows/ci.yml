@@ -383,13 +383,18 @@ jobs:
       #
       # diff-cover is a pip package used only at test time. It adds nothing to
       # microtel's runtime dependency closure (CLAUDE.md rule 12).
+      #
+      # `--user` needs no root and `--break-system-packages` satisfies PEP 668
+      # on the runner's system Python; invoking the module rather than the
+      # console script means the step does not depend on ~/.local/bin being on
+      # PATH.
       - name: Install diff-cover
         if: github.event_name == 'pull_request'
-        run: pip install --break-system-packages diff-cover
+        run: pip install --user --break-system-packages diff-cover
       - name: Diff coverage gate
         if: github.event_name == 'pull_request'
         run: |
-          diff-cover build/coverage.filtered.info \
+          python3 -m diff_cover.diff_cover_tool build/coverage.filtered.info \
             --compare-branch "origin/${{ github.event.pull_request.base.ref }}" \
             --src-roots . \
             --fail-under=80
@@ -403,6 +408,7 @@ jobs:
             build/coverage.filtered.info
             build/coverage.per-file.tsv
           retention-days: 14
+
   # The TDD test-presence half of spec §14.2. Separate from `coverage` because
   # it needs a git diff rather than a 10-minute instrumented build: a PR that
   # forgot its tests should hear about it in seconds.

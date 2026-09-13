@@ -76,7 +76,7 @@ sum of every theme's worst case.
 | Header | What |
 |---|---|
 | [`conformance_env.hpp`](support/conformance_env.hpp) | `GetEnv`, `UniqueMarker` (a per-run needle), and `ConformanceEnabled` — the skip-or-fail contract below. |
-| [`collector_output.hpp`](support/collector_output.hpp) | Reads back what the collector wrote: `PollForLineContaining`, `CountOccurrences`, and a local `ToHex` (issue #168). |
+| [`collector_output.hpp`](support/collector_output.hpp) | Reads back what the collector wrote: `PollForLineContaining` and `CountOccurrences`. |
 | [`provider_builder.hpp`](support/provider_builder.hpp) | `ConfigureConformanceBuilder` — endpoint, protocol, and timeouts short enough to fail fast instead of becoming a ctest timeout. |
 
 ### `collector/config.yaml`
@@ -246,7 +246,8 @@ as desired behaviour. Each is handled one of three ways:
 - **Parked as a `DISABLED_` assertion**, already written, waiting to be
   re-enabled — #169.
 - **Left conspicuously unasserted**, with the reason recorded in the
-  source — #167, #168.
+  source — #167.
+- **Fixed since** — #168.
 
 Nothing here turns green by accident when a fix lands. When one of the
 first kind fails, do not delete it — invert it.
@@ -255,6 +256,6 @@ first kind fails, do not delete it — invert it.
 |---|---|
 | #166 — plaintext OTLP/HTTP unreachable (h2c vs an HTTP/1.1-only receiver) | `http/plaintext_gap_test.cpp` → `PlaintextHttpUnreachable` asserts `Connect()` to `:4318` **fails**. Invert it into a positive delivery test against `MICROTEL_CONFORMANCE_HTTP_ENDPOINT` when either side gains the missing half. |
 | #167 — `InstrumentationScope` carries the service name, not `GetTracer(name, version)` | Nothing in this tier asserts on `ScopeSpans.scope`. The absence is the tripwire: asserting the current output would enshrine the bug. |
-| #168 — `TraceId::ToHex()` / `SpanId::ToHex()` declared in a public header, defined nowhere | `support/collector_output.hpp` carries its own `ToHex`. This tier builds against public headers only, so it is the first thing in the repo to hit the link error. Delete the helper and switch to the public formatter once they are implemented. |
+| #168 — `TraceId::ToHex()` / `SpanId::ToHex()` declared in a public header, defined nowhere | **Fixed.** `src/api/` (`microtel_api`) now defines both, and `{http,grpc}/basic_export_test.cpp` call the public formatter directly — this tier builds against public headers only, so it is the thing that hit the link error and is now the thing that proves the encoding matches the collector's. |
 | #169 — 22 of 24 `drop_counters` never written | `DISABLED_WrongTokenIncrementsNonRetryableDropCounter` in both `http/auth_test.cpp` and `grpc/auth_test.cpp`. Kept rather than deleted, and split out rather than weakening `WrongTokenRejected`, so the assertion is waiting when the counters are wired. |
 | #171 — `grpc-status` and `grpc-message` discarded; `last_error_message` is a fixed literal | `grpc/auth_test.cpp` asserts `last_error_message` equals the observed `"grpc error"`. Its HTTP sibling can assert `"401"`; tighten the gRPC one to match when the status reaches the operator. |

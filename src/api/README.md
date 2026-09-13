@@ -17,6 +17,12 @@ Track A — Trace SDK (per [`docs/development.md`](../../docs/development.md) §
 
 ## Implements
 
+- `microtel::TraceId::ToHex` / `microtel::SpanId::ToHex`
+  ([`trace.cpp`](trace.cpp), declared in
+  [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)) — the only
+  content built into `microtel_api` today. `TraceState` and
+  `W3CTraceContextPropagator` are declared in the public headers and still
+  defined nowhere; they belong here — issue #188.
 - `microtel::Tracer` (declared in [`include/microtel/tracer.hpp`](../../include/microtel/tracer.hpp))
 - `microtel::Span`   (declared in [`include/microtel/span.hpp`](../../include/microtel/span.hpp))
 - `microtel::W3CTraceContextPropagator` (declared in [`include/microtel/propagator.hpp`](../../include/microtel/propagator.hpp))

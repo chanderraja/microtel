@@ -403,4 +403,23 @@ jobs:
             build/coverage.filtered.info
             build/coverage.per-file.tsv
           retention-days: 14
-
+  # The TDD test-presence half of spec §14.2. Separate from `coverage` because
+  # it needs a git diff rather than a 10-minute instrumented build: a PR that
+  # forgot its tests should hear about it in seconds.
+  #
+  # Not a required status check yet.
+  test-presence:
+    runs-on: ubuntu-latest
+    name: test-presence
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run test-presence gate
+        env:
+          # The `[refactor]` escape hatch. Passing the labels through the
+          # workflow context keeps the script free of jq and `gh auth`.
+          MICROTEL_PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: ci/scripts/test-presence.sh "origin/${{ github.event.pull_request.base.ref }}"

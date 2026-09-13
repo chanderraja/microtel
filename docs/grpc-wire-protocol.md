@@ -242,6 +242,14 @@ This case is common in proxy-heavy environments. The codec emits a `warn`-level 
 
 `grpc-message` is URL-encoded UTF-8. The codec percent-decodes (no DOS protection needed — it's bounded by `max_trailer_bytes`) and stores the decoded message in `WireResult::error.message`, capped per the `BoundedString` rule in `interfaces.md` §3.
 
+**Format.** `WireResult::error.message` is `"<NAME> (<code>): <decoded grpc-message>"`, e.g. `UNAUTHENTICATED (16): provided authorization does not match expected scheme or token`. With no `grpc-message` the suffix is omitted entirely — `UNAUTHENTICATED (16)` — rather than leaving a dangling separator. A `grpc-status` outside `0..16` renders as `UNRECOGNIZED (<code>)` and is non-retryable: the codec will not classify what it does not recognise. The name and the number are both always present; the name is what an operator reads, the number is what they grep for.
+
+Percent-decoding accepts either hex case. A malformed escape — anything that is not `%` followed by two hex digits, including a `%` at the end of the value — passes through verbatim rather than failing the decode, because the field is human-readable text that may legitimately contain a bare `%`.
+
+The decoded message is also what fills `WireResult::response_excerpt` on the gRPC path, mirroring the body excerpt the OTLP/HTTP codec builds.
+
+The status names and their retryability live in one table, `src/wire/grpc/grpc_status.cpp`, which is the codec's only source of both; `error-model.md` §7.2 is the matrix it is checked against.
+
 ### 4.5 `RetryInfo` precedence
 
 If both `grpc-message` and `grpc-status-details-bin` carry information about retry timing, `RetryInfo.retry_delay` wins over any inline `grpc-message` content. The latter is human-readable; the former is machine-readable; the codec acts on the machine-readable signal.

@@ -4,6 +4,14 @@
 # Unit tests for src/wire/grpc/ (M4).
 
 microtel_add_test(
+    NAME    grpc_status_test
+    SOURCES grpc_status_test.cpp
+    LIBS    microtel_grpc_wire)
+
+target_include_directories(grpc_status_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
     NAME    grpc_wire_codec_test
     SOURCES grpc_wire_codec_test.cpp
     LIBS    microtel_grpc_wire ZLIB::ZLIB)

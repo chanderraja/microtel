@@ -139,11 +139,12 @@ open at the time of writing.
   #169). Only 2 of 24 `DropReason` counters are ever incremented, so the
   negative conformance tests assert `batches_failed` and collector output
   instead. Do not build alerting on a counter without checking it is wired.
-- **gRPC failures report `"grpc error"` and nothing else** (issue #171). The
-  `grpc-status` code and the collector's `grpc-message` are both discarded
-  before reaching `HealthSnapshot::last_error_message`, so a 401 and a
-  malformed payload look identical to an operator on the gRPC path. The HTTP
-  path carries the status.
+- **gRPC failures name the status** (issue #171, fixed). Both the
+  `grpc-status` name and number and the collector's percent-decoded
+  `grpc-message` reach `HealthSnapshot::last_error_message` — e.g.
+  `UNAUTHENTICATED (16): provided authorization does not match expected scheme
+  or token`. Before this, every non-zero status read `"grpc error"` and a
+  rejected credential was indistinguishable from a malformed payload.
 - **Response decompression shipped** (issue #161). Both codecs advertise
   `gzip` and inflate a compressed response under `max_decompressed_bytes`.
   Before it shipped, a collector that compressed its response body was not

@@ -32,7 +32,7 @@ Each release advances along the four-tier model from spec §2.2. The progression
 
 | Release | Tier 1 (wire) | Tier 2 (data-model) | Tier 3 (API-adapter) | Tier 4 (SDK conformance) |
 |---|---|---|---|---|
-| **v1.0** | traces | traces | experimental: traces | — |
+| **v1.0** | traces | traces | — (shim is M17, post-v1.0) | — |
 | **v1.1** | traces | traces | experimental: traces | — |
 | **v1.2** | traces, metrics | traces, metrics | experimental: traces, metrics | — |
 | **v1.3** | all three signals | all three signals | experimental: all three | — |
@@ -46,9 +46,10 @@ Each release advances along the four-tier model from spec §2.2. The progression
 "Profiles" refers to OpenTelemetry's continuous-profiling signal, which is still stabilizing upstream as of this writing. It graduates onto the roadmap once upstream marks it stable.
 
 > **Tier 3 is a plan, not shipped code — read this before citing the table.** No
-> API-adapter shim exists today. The rows above read as though `v1.0` already
-> ships "experimental: traces"; that was always a target, and the table's
-> incremental Tier 3 progression (traces → traces+metrics → all three) is now
+> API-adapter shim exists today, which is why the `v1.0` row's Tier 3 cell now
+> reads `—`: the shipped v1.0 tag is traces at Tier 1 and Tier 2 and nothing at
+> Tier 3. The later rows remain targets, and the table's incremental Tier 3
+> progression (traces → traces+metrics → all three) is
 > **superseded**: the shim is scheduled as **M17** and lands *after* all three
 > signals shipped (M12/M13/M14), so its first release covers traces, metrics,
 > and logs at once. Tier 1 and Tier 2 columns are unaffected. See

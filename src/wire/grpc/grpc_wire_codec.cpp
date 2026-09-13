@@ -503,6 +503,104 @@ struct RetrySearchSignal
 }
 
 // ---------------------------------------------------------------------------
+// Response DATA frame decoding — §2.3 (framing) and §5.2 (decompression)
+// ---------------------------------------------------------------------------
+
+/// Why a response frame yielded no message. Both are terminal; they differ
+/// only in which counter and which operator message they produce.
+enum class FrameError : std::uint8_t
+{
+    Malformed = 0,
+    TooLarge = 1,
+};
+
+[[nodiscard]] std::uint32_t ReadFrameLength(std::span<const std::byte> body) noexcept
+{
+    return (std::to_integer<std::uint32_t>(body[1]) << kByteShift24) |
+           (std::to_integer<std::uint32_t>(body[2]) << kByteShift16) |
+           (std::to_integer<std::uint32_t>(body[3]) << kByteShift8) |
+           std::to_integer<std::uint32_t>(body[4]);
+}
+
+/// @brief Validate one response DATA frame and hand back its message bytes.
+///
+/// Replaces an unconditional 5-byte skip that read neither the compression
+/// flag nor the declared length: a compressed or truncated response reached
+/// the protobuf parser as noise, and `ParseRejectedSpans` reports 0 for noise
+/// exactly as it does for an absent body — so a rejected batch looked clean.
+///
+/// @param body the whole response body; empty is a legal empty success.
+/// @param max_decompressed ceiling applied to a `CF = 0x01` message.
+/// @param owned receives the inflated bytes when the message was compressed.
+///        The returned span borrows it, so it must outlive that span.
+/// @return the message bytes ready for `ParseRejectedSpans`.
+[[nodiscard]] microtel::Expected<std::span<const std::byte>, FrameError> DecodeResponseFrame(
+    std::span<const std::byte> body, std::size_t max_decompressed, std::vector<std::byte>& owned)
+{
+    if (body.empty())
+    {
+        // No DATA at all: the ordinary empty success, and the trailer-only
+        // shape from §2.5. Not a truncated frame.
+        return std::span<const std::byte>{};
+    }
+    if (body.size() < kGrpcFrameHeaderSize)
+    {
+        return microtel::make_unexpected(FrameError::Malformed);
+    }
+    const auto flag = std::to_integer<std::uint8_t>(body[0]);
+    const auto message = body.subspan(kGrpcFrameHeaderSize);
+    // Equality, not "at least": a short count leaves trailing bytes, which for
+    // OTLP unary means a second message, and §2.3 rejects that.
+    if (ReadFrameLength(body) != message.size())
+    {
+        return microtel::make_unexpected(FrameError::Malformed);
+    }
+    if (flag == kGrpcUncompressedFlag)
+    {
+        return message;
+    }
+    if (flag != kGrpcCompressedFlag)
+    {
+        return microtel::make_unexpected(FrameError::Malformed);
+    }
+    auto inflated = GzipDecompress(message, max_decompressed);
+    if (!inflated)
+    {
+        const bool too_large = (inflated.error() == GzipDecompressError::TooLarge);
+        return microtel::make_unexpected(too_large ? FrameError::TooLarge : FrameError::Malformed);
+    }
+    owned = std::move(*inflated);
+    return std::span<const std::byte>{owned};
+}
+
+[[nodiscard]] internal::WireResult FrameFailure(FrameError err, internal::IDiagnosticsSink* diag)
+{
+    const bool too_large = (err == FrameError::TooLarge);
+    const auto reason =
+        too_large ? DropReason::DecompressionTooLarge : DropReason::MalformedResponse;
+    if (diag != nullptr)
+    {
+        diag->RecordDrop(reason);
+    }
+    const std::string_view message =
+        too_large ? "response exceeds max_decompressed_bytes" : "malformed gRPC response frame";
+    return internal::WireResult{
+        .success = false,
+        // Neither is transient: a peer that mis-frames, or that answers with a
+        // decompression bomb, does the same on the retry. error-model.md §7.2
+        // makes both terminal. `Kind` is `Malformed` for both — the counter
+        // and the message carry the distinction, and `Error::Kind` is public
+        // surface not worth churning for it.
+        .retryable = false,
+        .retry_after = {},
+        .partial_success_rejected = 0,
+        .error = microtel::Error{.kind = microtel::Error::Kind::Malformed,
+                                 .message = std::string{message}},
+        .response_excerpt = {},
+    };
+}
+
+// ---------------------------------------------------------------------------
 // gRPC status classification
 // ---------------------------------------------------------------------------
 
@@ -572,25 +670,36 @@ struct RetrySearchSignal
     };
 }
 
-[[nodiscard]] internal::WireResult ClassifyGrpcCode(int code, const internal::TransportResult& tr)
+/// @brief `grpc-status: 0` — the body is the partial-success message.
+[[nodiscard]] internal::WireResult ClassifyGrpcSuccess(const internal::TransportResult& tr,
+                                                       std::size_t max_decompressed,
+                                                       internal::IDiagnosticsSink* diag)
+{
+    // Owns the inflated bytes for as long as `message` borrows them.
+    std::vector<std::byte> inflated;
+    const auto message = DecodeResponseFrame(tr.response_body, max_decompressed, inflated);
+    if (!message)
+    {
+        return FrameFailure(message.error(), diag);
+    }
+    return internal::WireResult{
+        .success = true,
+        .retryable = false,
+        .retry_after = {},
+        .partial_success_rejected = ParseRejectedSpans(*message),
+        .error = {},
+        .response_excerpt = {},
+    };
+}
+
+[[nodiscard]] internal::WireResult ClassifyGrpcCode(int code,
+                                                    const internal::TransportResult& tr,
+                                                    std::size_t max_decompressed,
+                                                    internal::IDiagnosticsSink* diag)
 {
     if (code == 0)
     {
-        std::uint32_t rejected = 0;
-        if (tr.response_body.size() >= kGrpcFrameHeaderSize)
-        {
-            const auto body =
-                std::span<const std::byte>{tr.response_body}.subspan(kGrpcFrameHeaderSize);
-            rejected = ParseRejectedSpans(body);
-        }
-        return internal::WireResult{
-            .success = true,
-            .retryable = false,
-            .retry_after = {},
-            .partial_success_rejected = rejected,
-            .error = {},
-            .response_excerpt = {},
-        };
+        return ClassifyGrpcSuccess(tr, max_decompressed, diag);
     }
     constexpr int kCancelled = 1;
     constexpr int kDeadlineExceeded = 4;
@@ -616,6 +725,7 @@ struct RetrySearchSignal
 }
 
 [[nodiscard]] internal::WireResult ClassifyResponse(const internal::TransportResult& tr,
+                                                    std::size_t max_decompressed,
                                                     internal::IDiagnosticsSink* diag)
 {
     if (tr.error.has_value())
@@ -648,7 +758,7 @@ struct RetrySearchSignal
     const auto* const p = status_sv->data();
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     (void)std::from_chars(p, p + status_sv->size(), code);
-    return ClassifyGrpcCode(code, tr);
+    return ClassifyGrpcCode(code, tr, max_decompressed, diag);
 }
 
 // ---------------------------------------------------------------------------
@@ -703,6 +813,11 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders(bool compressed) 
     headers.push_back({.name = "te", .value = "trailers"});
     headers.push_back({.name = "content-type", .value = "application/grpc+proto"});
     headers.push_back({.name = "user-agent", .value = "microtel-cpp/0.1.0"});
+    // Unconditional, and independent of `compression_gzip` (§5.2): this says
+    // what the client can decode, not what it chose to encode. The codec now
+    // handles `CF = 0x01` on the way back, so there is nothing left to gate it
+    // on — and staying silent costs response bandwidth for no benefit.
+    headers.push_back({.name = "grpc-accept-encoding", .value = "gzip"});
     if (compressed)
     {
         headers.push_back({.name = "grpc-encoding", .value = "gzip"});
@@ -825,7 +940,7 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     }
 
     const auto tr = fut.get();
-    return ClassifyResponse(tr, m_diag);
+    return ClassifyResponse(tr, m_config.max_decompressed_bytes, m_diag);
 }
 
 }  // namespace microtel::wire

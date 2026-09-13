@@ -55,7 +55,7 @@ being explicitly marked unsupported here**. This is that ledger.
 | **Plaintext OTLP/HTTP against an HTTP/1.1-only receiver** | **UNSUPPORTED** | §4 below; [`interop-matrix.md`](interop-matrix.md) §4; issue #166 |
 | A peer that hangs up under an in-flight write | Survivable: the export fails, the host process does not | `SIGPIPE` is suppressed per write — `MSG_NOSIGNAL` on plaintext sends, and a custom `BIO` carrying the same flag for TLS, covering `SSL_write` and the handshake writes inside `SSL_connect`. The host needs no `signal(SIGPIPE, SIG_IGN)` of its own, and microtel installs no handler and changes no process-wide disposition (`threading-model.md` §7.1). Evidence: `NoSignalIoTest` / `NoSignalBioTest` in `tests/unit/transport/nosignal_io_test.cpp`, plus the peer-reset tests in `tests/integration/transport/`. Issue #177. |
 | gzip request compression | Supported | conformance suites, both protocols |
-| gRPC response decompression | Specified, not implemented | issue #161 |
+| Response decompression (`grpc-encoding` / `content-encoding: gzip`) | Supported, bounded by `max_decompressed_bytes` | `tests/unit/wire/grpc/`, `tests/unit/wire/http/`, `tests/fuzz/response_decompression_fuzz.cpp` |
 | HTTP/3 | Out of scope for v1 | spec §17; v1.5 experiment per roadmap |
 | Windows | Out of scope | spec §3 |
 
@@ -144,9 +144,12 @@ open at the time of writing.
   before reaching `HealthSnapshot::last_error_message`, so a 401 and a
   malformed payload look identical to an operator on the gRPC path. The HTTP
   path carries the status.
-- **gRPC response decompression is specified but not implemented** (issue
-  #161). A collector that compresses its response body is not interoperable on
-  the gRPC path today.
+- **Response decompression shipped** (issue #161). Both codecs advertise
+  `gzip` and inflate a compressed response under `max_decompressed_bytes`.
+  Before it shipped, a collector that compressed its response body was not
+  interoperable on the gRPC path — and the pinned collector does exactly that
+  whenever the request is compressed, so `compression = "gzip"` deployments
+  were silently discarding partial-success counts.
 
 ---
 

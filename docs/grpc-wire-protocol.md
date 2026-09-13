@@ -53,7 +53,7 @@ Sent on stream open. Required pseudo-headers and headers:
 | `content-type` | `application/grpc+proto` |
 | `user-agent` | `microtel-cpp/<version>` (or `microtel-python/<version>`) |
 | `grpc-encoding` | `gzip` if request compression on; absent otherwise |
-| `grpc-accept-encoding` | `gzip` if response decompression supported; `identity` otherwise |
+| `grpc-accept-encoding` | `gzip`, always — the codec decodes `CF = 0x01` responses (§5.2) |
 | `grpc-timeout` | absent in v1 — microtel manages its own timeouts and uses `RST_STREAM` on local timeout (see §2.5) |
 
 Plus any user-configured static headers (`exporter.headers` in `microtel.toml`) and the `Authorization` header from `IAuthProvider`.
@@ -268,12 +268,21 @@ Advertised via `grpc-accept-encoding: gzip`. If the server returns `grpc-encodin
 
 Mixed messages (some compressed, some not) are permitted by gRPC but unused for OTLP unary; the codec handles the per-message flag correctly anyway.
 
-**Implementation status (not implemented).** This section describes intent, not
-the shipped codec. `GrpcWireCodec` does **not** send `grpc-accept-encoding`, and
-`ClassifyResponse` never inspects the response frame's compression flag. The two
-facts are deliberately paired: advertising the capability without implementing
-the decompression would invite a response the parser reads as garbage. Request
-compression (§5.1) ships independently and is unaffected. Tracked by issue #161.
+**Implementation status: implemented.** `GrpcWireCodec` sends
+`grpc-accept-encoding: gzip` unconditionally and validates the response frame
+before parsing it — `CF = 0x01` is inflated under `max_decompressed_bytes`,
+`CF > 0x01` and any declared length that disagrees with the bytes present are
+`malformed_response`, and an overflow is `decompression_too_large`.
+
+The advertisement and the decoding landed together, as issue #161 required —
+but the pairing turned out not to be what made the gap harmless. Measured
+against the pinned collector (`otel/opentelemetry-collector-contrib:0.160.0`),
+a response comes back `grpc-encoding: gzip` with `CF = 0x01` whenever the
+*request* carried `grpc-encoding: gzip`, whether or not `grpc-accept-encoding`
+was ever sent — grpc-go picks the response compressor from the request's
+encoding. So any deployment running OTLP/gRPC with `compression = "gzip"` was
+already receiving compressed responses and discarding their partial-success
+bodies. Fixed by the PR closing #161.
 
 ### 5.3 Distinct from HTTP `Content-Encoding`
 

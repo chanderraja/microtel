@@ -1,0 +1,65 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Package configuration file for microtel — issue #19, ICP 0020.
+#
+#   find_package(microtel REQUIRED)
+#   target_link_libraries(my_app PRIVATE microtel::microtel)
+#
+# `microtel::microtel` is the only supported target name (ICP 0020 Decision 2).
+# The component targets are exported because a static link closure needs them;
+# they may merge, split or disappear without an ICP.
+#
+# Installed as `microtelConfig.cmake`, not `MicrotelConfig.cmake`: find_package
+# derives the filename from the package name it was given, and both issue #19
+# and ICP 0020 spell the usage `find_package(microtel …)`.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# What this build was configured with. Recorded so an installed package
+# describes itself rather than leaving a consumer to infer it.
+set(microtel_WITH_SPDLOG @MICROTEL_USE_SPDLOG@)
+set(microtel_FORBID_INSECURE_TLS @MICROTEL_FORBID_INSECURE_TLS@)
+
+# --- Link dependencies -----------------------------------------------------
+#
+# All three reach consumers through PRIVATE link interfaces, so they are not
+# usage requirements that propagate includes or definitions — but the static
+# archives still carry undefined references to them (libmicrotel_gzip.a alone
+# has `U deflate`, `U deflateBound`, `U deflateEnd`, `U deflateInit2_`), and
+# those must resolve at a consumer's final link. This is the failure mode
+# ICP 0020's amendment describes: it builds in-tree, configures cleanly under
+# find_package, and fails only in someone else's link step.
+
+find_dependency(ZLIB)
+find_dependency(OpenSSL)
+
+# nghttp2 has no CMake package, so microtel consumes it through pkg-config and
+# the exported link interfaces literally name `PkgConfig::NGHTTP2`. Recreating
+# that exact imported target is therefore mandatory, not a convenience.
+if(NOT TARGET PkgConfig::NGHTTP2)
+    find_package(PkgConfig QUIET)
+    if(NOT PKG_CONFIG_FOUND)
+        set(microtel_FOUND FALSE)
+        set(microtel_NOT_FOUND_MESSAGE
+            "microtel requires pkg-config to locate libnghttp2: the installed "
+            "libmicrotel_transport.a links the imported target "
+            "PkgConfig::NGHTTP2, which only pkg_check_modules can create. "
+            "Install pkg-config (and libnghttp2's .pc file) and reconfigure.")
+        return()
+    endif()
+    pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
+endif()
+
+# spdlog is deliberately absent from this list even when microtel_WITH_SPDLOG
+# is TRUE. It is FetchContent'd with SPDLOG_INSTALL=OFF, so it is not part of
+# this package, and no installed archive references a spdlog symbol — the
+# option currently selects a compile-time route that has not landed. Requiring
+# it here would fail find_package for a dependency nothing needs. See
+# src/common/CMakeLists.txt and issue #189.
+
+include("${CMAKE_CURRENT_LIST_DIR}/MicrotelTargets.cmake")
+
+check_required_components(microtel)

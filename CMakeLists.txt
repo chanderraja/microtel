@@ -319,6 +319,35 @@ install(EXPORT MicrotelTargets
     NAMESPACE microtel::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
+# The package config pair that makes `find_package(microtel)` work.
+#
+# The installed filenames are `microtelConfig.cmake` /
+# `microtelConfigVersion.cmake` — lowercase `microtel`, because find_package
+# builds the filename from the package name it is given and the documented
+# usage is `find_package(microtel …)`. `MicrotelConfig.cmake` would only be
+# found by `find_package(Microtel)`.
+#
+# The version is the project version, 0.1.0. include/microtel/version.hpp
+# still says "0.1.0-m0"; unifying the two is a separate concern from packaging.
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/microtelConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/microtelConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
+
+# SameMajorVersion is wrong below 1.0 — 0.x minor bumps are breaking by
+# convention — so pre-1.0 releases match exactly. Revisit at v1.0.
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/microtelConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY ExactVersion)
+
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/microtelConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/microtelConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
+
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
 # per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
 # whole tree for cross-compilation or constrained builds (spec §14.2).

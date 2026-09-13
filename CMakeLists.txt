@@ -163,6 +163,15 @@ endif()
 option(MICROTEL_FORBID_INSECURE_TLS
     "Fail at init if insecure = true is configured" OFF)
 
+# Every vendored upb/utf8_range global is renamed to microtel_* so that a
+# consumer who also links a real upb cannot get two definitions and a silent
+# static-link selection between them (ICP 0020 Decision 4). The header is
+# force-included into every target that compiles a TU reaching a upb header;
+# its own comment block carries the rationale and the regeneration recipe.
+# `ci/scripts/symbol-scan.sh` fails the build if any global escapes it.
+set(MICROTEL_UPB_RENAME_HEADER
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/upb/microtel_upb_rename.h)
+
 # Third-party libraries: upb runtime + utf8_range validator.
 # CMake targets: microtel_upb_runtime, microtel_utf8_range.
 # These are compiled as C11 with -w (no warnings from vendored code).

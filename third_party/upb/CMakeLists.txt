@@ -61,6 +61,9 @@ target_link_libraries(microtel_upb_runtime PUBLIC microtel_utf8_range)
 # upb is C99/C11; no C++ standard required.
 target_compile_features(microtel_upb_runtime PUBLIC c_std_11)
 
-# Suppress warnings in vendored code — we don't own this source.
+# -include first: the symbol-prefix header must be seen before any TU text.
+# See microtel_upb_rename.h and ICP 0020 Decision 4.
+# -w suppresses warnings in vendored code — we don't own this source.
 target_compile_options(microtel_upb_runtime PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
     -w)

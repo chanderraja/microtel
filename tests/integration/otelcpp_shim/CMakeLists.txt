@@ -20,6 +20,10 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
             ${CMAKE_SOURCE_DIR}/gen
             ${CMAKE_SOURCE_DIR}/third_party/upb)
 
+    # -include: this TU reaches upb headers, so it needs the symbol-prefix
+    # header to resolve against the renamed runtime. See
+    # third_party/upb/microtel_upb_rename.h and ICP 0020 Decision 4.
     target_compile_options(otelcpp_wire_conformance_test PRIVATE
+        -include ${MICROTEL_UPB_RENAME_HEADER}
         -Wno-missing-field-initializers)
 endif()

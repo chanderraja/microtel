@@ -14,5 +14,9 @@ target_include_directories(microtel_utf8_range
 
 target_compile_features(microtel_utf8_range PUBLIC c_std_11)
 
-# Suppress warnings in vendored code.
-target_compile_options(microtel_utf8_range PRIVATE -w)
+# -include first: the symbol-prefix header must be seen before any TU text.
+# See third_party/upb/microtel_upb_rename.h and ICP 0020 Decision 4.
+# -w suppresses warnings in vendored code.
+target_compile_options(microtel_utf8_range PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
+    -w)

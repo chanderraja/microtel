@@ -316,3 +316,58 @@ the linked-extension API. Renaming the section would mean rewriting three
 platform variants of upb's macro block — a fork of vendored source, which is
 the cost the whole mechanism was chosen to avoid. Revisit if microtel ever
 gains a proto extension of its own.
+
+## Status addendum — Decisions 1, 2, 3 and 5 implemented
+
+Issue #19 landed the `install()` rules, the `MicrotelTargets` export set and
+the generated package config. Decision 6's consumer test remains open and is
+the next piece; until it exists the export set is verified by hand against a
+real `cmake --install` prefix.
+
+Four points where the implementation had to decide something this ICP did not
+settle. None changes a decision above.
+
+**1. `microtel::api` and `microtel::headers` join the exported-but-unsupported
+row.** `microtel_api` was created after this ICP was signed off (issue #168 —
+it defines `TraceId::ToHex` / `SpanId::ToHex`, declared on public API types, and
+is `PUBLIC` into `microtel_sdk`). `microtel_headers` was always in the graph but
+never in Decision 2's table; it is `PUBLIC` on every component, so it cannot be
+omitted from the export set. Neither is a supported name. The component
+inventory is therefore **fourteen static archives** — thirteen per the earlier
+amendment, plus `api` — with `microtel::headers` as a fifteenth exported
+`INTERFACE` target carrying the include directories, and `microtel::microtel` as
+the sixteenth and only supported one.
+
+**2. `include/microtel/internal/` is installed.** It is not public API and
+Decision 2's line is unmoved — but public headers include it (`provider.hpp`
+reaches `internal/processor.hpp`, `sdk_builder.hpp` reaches
+`internal/sampler.hpp`), so an install that omitted it would ship a header tree
+that does not compile. Shipping a file is not a promise about it; the install
+rule carries that note where someone would look for it.
+
+**3. The vendored `tl::expected` installs to
+`<includedir>/microtel/vendor/tl/expected.hpp`.** `expected.hpp` says
+`#include "tl/expected.hpp"`, so *some* directory must put `tl/` on the include
+path. Installing it at `<includedir>/tl/` would collide with a consumer's own
+tl-expected — in whichever direction the include order fell. The extra `vendor`
+level keeps the include resolving while confining it to microtel's own subtree.
+
+**4. The package config installs as `microtelConfig.cmake`, not
+`MicrotelConfig.cmake`.** `find_package` derives the filename from the package
+name it is given, so `MicrotelConfig.cmake` is only found by
+`find_package(Microtel)`. Both issue #19 and Decision 1 spell the usage
+`find_package(microtel REQUIRED)`, so the lowercase spelling is the one that
+works. The export file keeps the name this ICP gave it (`MicrotelTargets.cmake`)
+because nothing searches for it — the config includes it by path.
+
+**Two things the install deliberately does not do.** The preflight *binary*
+installs to `<bindir>` (it is the shipped operator CLI of spec §6.4, and
+dropping it would have narrowed Decision 5's scan); `microtel_preflight_lib`
+stays unexported, as this ICP's "What exists to export" says. And the package
+config issues **no `find_dependency(spdlog)`** even when built with
+`MICROTEL_USE_SPDLOG=ON`: spdlog is FetchContent'd with `SPDLOG_INSTALL=OFF`
+so it is not part of the package, and no installed archive references a spdlog
+symbol — the option currently selects a compile-time route that has not landed.
+The config records the option as `microtel_WITH_SPDLOG` instead. This stops
+being true the moment the M3+ logging route calls into spdlog; issue #190
+tracks it.

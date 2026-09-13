@@ -124,6 +124,38 @@ ctest --test-dir build-asan
 
 Replace `asan` with `tsan` or `ubsan` as needed.
 
+## Install and consume
+
+```bash
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF
+cmake --build build -j$(nproc)
+cmake --install build --prefix /opt/microtel
+```
+
+Then, from another project:
+
+```cmake
+find_package(microtel REQUIRED)
+target_link_libraries(my_app PRIVATE microtel::microtel)
+```
+
+`microtel::microtel` is the only supported target name. The per-layer
+components (`microtel::sdk`, `microtel::transport`, …) are exported because a
+static link closure needs them, but they are **not** a supported API and may
+merge, split or disappear without notice — see
+[ICP 0020](docs/icps/0020-install-and-package-config.md) Decision 2. Linking
+the aggregate also means CMake derives the link order of the fourteen static
+archives for you.
+
+If the prefix is not on the default search path, point cmake at it:
+`-DCMAKE_PREFIX_PATH=/opt/microtel`.
+
+**A consumer needs zlib, OpenSSL and libnghttp2 at link time.** They reach
+microtel through PRIVATE link interfaces, so they add no include paths or
+definitions to your build, but the static archives carry undefined references
+to them. `find_package(microtel)` resolves all three itself — nghttp2 through
+pkg-config, so `pkg-config` and libnghttp2's `.pc` file must be installed.
+
 **Benchmarks** (requires Podman):
 
 ```bash

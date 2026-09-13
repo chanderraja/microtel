@@ -34,7 +34,7 @@ target_compile_options(microtel_common PRIVATE
 # FetchContent'd with SPDLOG_INSTALL=OFF and is therefore not in the package.
 #
 # When the M3+ route starts calling into spdlog, this stops being true and the
-# installed package needs a real answer — issue #189.
+# installed package needs a real answer — issue #190.
 if(MICROTEL_USE_SPDLOG)
     target_link_libraries(microtel_common PRIVATE $<BUILD_INTERFACE:spdlog::spdlog>)
     target_compile_definitions(microtel_common PRIVATE MICROTEL_USE_SPDLOG=1)

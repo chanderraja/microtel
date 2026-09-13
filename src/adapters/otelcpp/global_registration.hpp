@@ -27,6 +27,20 @@
 /// microtel (ICP 0014's stated goal). `Make*Provider` in each signal's own
 /// header remain available for callers who want just one signal or want to
 /// hold the `nostd::shared_ptr` themselves.
+///
+/// @note **There is no prebuilt shim library, and there never will be — this
+/// header and its siblings are compiled inside your build.** The
+/// opentelemetry-cpp API puts `nostd::` types in every signature and wraps
+/// everything in `inline namespace v<OPENTELEMETRY_ABI_VERSION_NO>`, so the
+/// same shim source compiled under two configurations produces
+/// link-incompatible symbols. Which configuration is right is a choice *you*
+/// made when you built opentelemetry-cpp (`OPENTELEMETRY_STL_VERSION`,
+/// `OPENTELEMETRY_ABI_VERSION_NO`), so a shipped archive would be wrong for
+/// most consumers and silently so. `cmake --install` therefore places these
+/// headers under `<includedir>/microtel-shim/` — add that directory to your
+/// include path, compile the shim in your own tree against your own
+/// opentelemetry-cpp, and link `microtel::microtel` alongside it. See
+/// ICP 0014 §1 and ICP 0020 Decision 3.
 
 namespace microtel::adapters::otelcpp
 {

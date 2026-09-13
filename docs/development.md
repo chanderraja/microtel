@@ -263,3 +263,81 @@ For trivial work (typo fix, comment update, single-line bug fix in one file), sk
 A solo project before v1.0 has every owner pointing to the project lead. The structure exists so that as the project grows, ownership can fan out without changing the routing mechanism.
 
 A CI check that fails PRs touching files outside the author's claimed track is **deferred** until collision incidents prove the lighter tools insufficient (spec §13.3). For now, CODEOWNERS plus this atlas plus per-directory READMEs are sufficient.
+
+---
+
+## 12. The install tree — what ships, and how a consumer links it
+
+`cmake --install` produces the artifact set that `find_package(microtel)`
+consumes. The decisions behind it are
+[ICP 0020](icps/0020-install-and-package-config.md); this section is the
+operational summary.
+
+```bash
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF
+cmake --build build
+cmake --install build --prefix /opt/microtel
+```
+
+```cmake
+find_package(microtel REQUIRED)              # add -DCMAKE_PREFIX_PATH=/opt/microtel
+target_link_libraries(my_app PRIVATE microtel::microtel)
+```
+
+### What the prefix contains
+
+| Path | Contents |
+|---|---|
+| `<libdir>/libmicrotel_*.a` | The fourteen static components. |
+| `<libdir>/cmake/microtel/` | `microtelConfig.cmake`, `microtelConfigVersion.cmake`, `MicrotelTargets*.cmake`. |
+| `<includedir>/microtel/` | Public headers, plus `internal/` and `adapters/`. |
+| `<includedir>/microtel/vendor/tl/` | The vendored `tl::expected` (ICP 0002). |
+| `<includedir>/microtel-shim/adapters/otelcpp/` | The opentelemetry-cpp shim's headers. |
+| `<bindir>/microtel-preflight` | The operator CLI (spec §6.4). |
+
+### Rules worth knowing before you change any of it
+
+**`microtel::microtel` is the only supported name.** The thirteen component
+targets plus `microtel::headers` are exported because a static link closure
+needs them, and are explicitly unsupported (ICP 0020 Decision 2). The aggregate
+also means CMake orders the archives, which is not something a consumer should
+be doing by hand.
+
+**The install rules live in the top-level `CMakeLists.txt`, not in each
+`src/*/CMakeLists.txt`.** The exported names are a compatibility surface, so
+"what microtel ships" is one readable list rather than something reconstructed
+from fifteen directories.
+
+**`install(EXPORT …)` is itself a gate.** CMake refuses to generate an export
+set that references a target it does not install — including targets that
+arrive through a `PRIVATE` link on a static library, which land in the exported
+interface as `$<LINK_ONLY:…>`. That is why toml++, spdlog and the vendored upb
+include paths are wrapped in `$<BUILD_INTERFACE:…>`: each is genuinely absorbed
+at build time and reaches no consumer. **A clean configure is the check.** If
+you add a dependency to a shipped target and configure starts failing, the fix
+is to export the dependency (if it really does ship) or to correct the linkage —
+never to promote something to `PUBLIC` that was not.
+
+**`include/microtel/internal/` ships.** Not because it is public API — it is
+not — but because public headers include it, so an install that omitted it
+would ship a tree that does not compile.
+
+**Not exported:** `microtel_preflight_lib` (tool-only; the *binary* ships, the
+library does not), `microtel_otelcpp_shim` and `microtel_spdlog_bridge` (ICP
+0020 Decision 3 — adapter headers install, adapter targets do not). The
+otelcpp shim must never ship as a binary: its ABI depends on the consumer's own
+opentelemetry-cpp configuration.
+
+**Consumer link dependencies are zlib, OpenSSL and libnghttp2.** All three
+arrive through `PRIVATE` link interfaces — no includes or definitions
+propagate — but the archives carry undefined references that a consumer's final
+link must resolve, so `microtelConfig.cmake` resolves all three. nghttp2 has no
+CMake package, so the exported interfaces name `PkgConfig::NGHTTP2` and the
+config recreates it with `pkg_check_modules`; pkg-config is therefore a
+consumer-side requirement.
+
+**Nothing in this repository catches an export-set defect on its own.** Every
+in-tree target builds because everything is a subdirectory. ICP 0020 Decision 6
+requires a consumer project that configures against a genuinely installed
+prefix; until it lands, `cmake --install` to a scratch prefix and build a
+throwaway consumer by hand before touching any of this.

@@ -198,10 +198,20 @@ never to widen the pattern.
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
    configuration only, never gtest/gmock or other test-only inputs.
 2. Build.
-3. Run [`ci/scripts/symbol-scan.sh build`](../ci/scripts/symbol-scan.sh).
+3. `cmake --install build --prefix install-tree`.
+4. Run [`ci/scripts/symbol-scan.sh --prefix install-tree`](../ci/scripts/symbol-scan.sh).
+
+**It scans the install tree, not the build tree** (ICP 0020 Decision 5). Once
+`cmake --install` exists, "shipped" means what `cmake --install` produces;
+scanning the build directory would verify the closure claim against artifacts
+that are not the ones users receive. The narrowing is real and intended —
+`libmicrotel_preflight_lib.a` is in the build tree and is deliberately not
+installed, so it is no longer scanned. The script keeps its build-directory
+form (`symbol-scan.sh [build-dir]`) for the quicker local loop.
 
 **Pass condition:** zero forbidden symbols and zero unprefixed vendored symbols
-across every `libmicrotel_*.a` and the `microtel-preflight` binary.
+across every installed `libmicrotel_*.a` and the installed `microtel-preflight`
+binary.
 
 **Deliberate non-violations.** The scan anchors its patterns at the start of the
 demangled name, which is what keeps the generated accessors legal: upb emits C

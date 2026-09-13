@@ -32,8 +32,12 @@ add_library(microtel_upb_gen STATIC
 #   #include "opentelemetry/proto/.../foo.upb.h"  — resolved from gen/
 #   #include "upb/..."                             — resolved from upb runtime
 #   #include "upb/port/def.inc"                   — same
+#
+# BUILD_INTERFACE only: the archive installs so the link closure resolves, but
+# the generated headers do not ship — microtel_encoder reaches them on a
+# PRIVATE include path and is the only TU that does.
 target_include_directories(microtel_upb_gen
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 target_link_libraries(microtel_upb_gen PUBLIC microtel_upb_runtime)
 

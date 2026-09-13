@@ -85,6 +85,11 @@ __pycache__/
 _deps/
 build_*/
 
+# Staging prefix for `cmake --install` — the name the symbol-scan CI job and
+# docs/ci-architecture.md use, so a local run of those steps leaves nothing
+# untracked (and cannot be committed by accident).
+install-tree/
+
 # Compiled test binaries from in-tree builds (test sources are *_test.cpp and stay tracked)
 tests/**/*_test
 

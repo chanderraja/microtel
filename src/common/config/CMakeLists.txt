@@ -12,9 +12,17 @@ add_library(microtel_config STATIC
     config_validator.cpp
     auth_providers.cpp)
 
+# toml++ is wrapped in $<BUILD_INTERFACE:> so it does not reach the install
+# export set. That is not a workaround — it is the accurate statement: toml++
+# is header-only and is absorbed whole into this archive at compile time, so
+# libmicrotel_config.a carries no toml symbol (defined or undefined) and a
+# consumer of the installed package needs nothing from it. Without the wrap,
+# a PRIVATE dependency of a STATIC library still lands in the exported link
+# interface as $<LINK_ONLY:…>, and install(EXPORT) rejects it because
+# tomlplusplus is a FetchContent target that microtel does not install.
 target_link_libraries(microtel_config
     PUBLIC  microtel_headers
-    PRIVATE tomlplusplus::tomlplusplus)
+    PRIVATE $<BUILD_INTERFACE:tomlplusplus::tomlplusplus>)
 
 # src/ is on the private include path so #include "config/..." resolves.
 target_include_directories(microtel_config

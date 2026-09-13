@@ -19,15 +19,37 @@
 # carrying `U absl::...` makes abseil a link requirement for every consumer, even
 # though the archive itself contains none of abseil's code.
 #
-# Usage:  ci/scripts/symbol-scan.sh [build-dir]     (default: build)
+# Usage:  ci/scripts/symbol-scan.sh --prefix <install-prefix>
+#         ci/scripts/symbol-scan.sh [build-dir]     (default: build)
+#
+# --prefix is the form CI uses. ICP 0020 Decision 5: once `cmake --install`
+# exists, "shipped" means the install tree, and a gate that scans the build tree
+# verifies the dependency-closure claim against artifacts that are not the ones
+# users receive. It is also the sturdier scan — an install tree contains exactly
+# the shipped artifacts, where a build tree also holds FetchContent output under
+# _deps/ and whatever a nested or stale build directory left behind.
+#
+# The build-dir form is kept for local use, where scanning without installing
+# first is the quicker loop.
 
 set -euo pipefail
 
-BUILD_DIR="${1:-build}"
 NM="${NM:-nm}"
 
-if [[ ! -d "$BUILD_DIR" ]]; then
-    echo "symbol-scan: build directory '$BUILD_DIR' not found" >&2
+if [[ "${1:-}" == "--prefix" ]]; then
+    SCAN_MODE="prefix"
+    SCAN_ROOT="${2:-}"
+    if [[ -z "$SCAN_ROOT" ]]; then
+        echo "symbol-scan: --prefix requires an install prefix" >&2
+        exit 2
+    fi
+else
+    SCAN_MODE="build"
+    SCAN_ROOT="${1:-build}"
+fi
+
+if [[ ! -d "$SCAN_ROOT" ]]; then
+    echo "symbol-scan: $SCAN_MODE directory '$SCAN_ROOT' not found" >&2
     exit 2
 fi
 
@@ -75,22 +97,41 @@ NM_VENDORED_FLAGS=(-A -C -g)
 # the vendored upb runtime and utf8_range; the preflight binary is the shipped
 # CLI from spec §6.4. `microtel_header_check` is the M0 compile check and is
 # deliberately excluded — it is never shipped.
-mapfile -t ARTIFACTS < <(
-    {
-        find "$BUILD_DIR" -type f -name "libmicrotel_*.a"
-        find "$BUILD_DIR" -type f -perm -u+x -name "microtel-preflight"
-    } 2>/dev/null | sort
-)
+#
+# In prefix mode the search is confined to the install tree's lib*/ and bin/
+# (libdir is `lib` or `lib64` depending on the distribution), so it can only
+# find artifacts that `cmake --install` actually placed there. In build mode it
+# sweeps the whole build directory, which is why an intermediate archive that
+# never ships can still be scanned — harmless, but it is the looser check.
+if [[ "$SCAN_MODE" == "prefix" ]]; then
+    mapfile -t ARTIFACTS < <(
+        {
+            find "$SCAN_ROOT"/lib* -type f -name "libmicrotel_*.a"
+            find "$SCAN_ROOT"/bin -type f -perm -u+x -name "microtel-preflight"
+        } 2>/dev/null | sort
+    )
+else
+    mapfile -t ARTIFACTS < <(
+        {
+            find "$SCAN_ROOT" -type f -name "libmicrotel_*.a"
+            find "$SCAN_ROOT" -type f -perm -u+x -name "microtel-preflight"
+        } 2>/dev/null | sort
+    )
+fi
 
 # A scan that finds nothing must fail, not pass. Otherwise a build-layout change
 # silently turns this gate into a no-op that still reports green.
 if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
-    echo "symbol-scan: no shipped artifacts found under '$BUILD_DIR'" >&2
-    echo "symbol-scan: build first, or fix the artifact globs in this script" >&2
+    echo "symbol-scan: no shipped artifacts found under '$SCAN_ROOT'" >&2
+    if [[ "$SCAN_MODE" == "prefix" ]]; then
+        echo "symbol-scan: run 'cmake --install <build> --prefix $SCAN_ROOT' first" >&2
+    else
+        echo "symbol-scan: build first, or fix the artifact globs in this script" >&2
+    fi
     exit 2
 fi
 
-echo "symbol-scan: checking ${#ARTIFACTS[@]} shipped artifacts under $BUILD_DIR"
+echo "symbol-scan: checking ${#ARTIFACTS[@]} shipped artifacts under $SCAN_ROOT"
 
 # Symbol names in one artifact, one per line, defined and undefined alike.
 #

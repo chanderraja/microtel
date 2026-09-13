@@ -7,3 +7,8 @@ microtel_add_integration_test(
     NAME    exporter_health_test
     SOURCES exporter_health_test.cpp
     LIBS    microtel_sdk)
+
+microtel_add_integration_test(
+    NAME    retry_budget_test
+    SOURCES retry_budget_test.cpp
+    LIBS    microtel_sdk)

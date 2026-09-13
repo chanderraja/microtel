@@ -33,6 +33,10 @@ constexpr std::uint16_t kDefaultPortGrpc = 4317;
 constexpr std::uint16_t kDefaultPortHttp = 4318;
 constexpr std::uint16_t kPortMax = 65535;
 
+/// OTel resource semantic conventions: `service.name` is required, and this is
+/// the placeholder a producer uses when it has not been told one.
+constexpr std::string_view kUnknownService = "unknown_service";
+
 // ---------------------------------------------------------------------------
 // URL parsing helpers
 // ---------------------------------------------------------------------------
@@ -181,6 +185,40 @@ struct AuthorityPath
     };
 }
 
+/// @brief Resolve the effective protocol against the endpoint scheme.
+///
+/// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (spec §12.2).
+/// The shorthand selects the protocol when the user has not named one; when the
+/// user has named `http`, the two disagree and the configuration is rejected
+/// rather than silently resolved in either direction — the same rule, and the
+/// same `ProtocolMismatch` kind, that the gRPC-path check below applies.
+///
+/// `https://` and `http://` say nothing about the protocol: `https://` plus an
+/// explicit `protocol` is the canonical spelling of a gRPC endpoint, and
+/// plaintext h2c gRPC over `http://` is legitimate. Only the two gRPC-named
+/// schemes carry an opinion, so only they are consulted here.
+///
+/// A URL with no recognisable scheme falls through unchanged; `ParseEndpointUrl`
+/// is what reports it, and it reports it as `EndpointMalformed`.
+[[nodiscard]] microtel::Expected<Protocol, ConfigError> ResolveProtocol(const Config& cfg)
+{
+    const std::string_view scheme = ExtractScheme(cfg.endpoint_url);
+    if (scheme != kSchemeGrpc && scheme != kSchemeGrpcs)
+    {
+        return cfg.protocol;
+    }
+    if (cfg.protocol_explicit && cfg.protocol != Protocol::Grpc)
+    {
+        return microtel::make_unexpected(ConfigError{
+            .kind = ConfigError::Kind::ProtocolMismatch,
+            .field = "exporter.protocol",
+            .message = "endpoint scheme \"" + std::string{scheme} +
+                       "://\" selects OTLP/gRPC but protocol is set to \"http\"; use an "
+                       "http:// or https:// endpoint, or drop the explicit protocol"});
+    }
+    return Protocol::Grpc;
+}
+
 /// Check that a path-string refers to a readable file.
 [[nodiscard]] bool IsReadable(const std::filesystem::path& p)
 {
@@ -192,33 +230,38 @@ struct AuthorityPath
     return std::filesystem::is_regular_file(p, ec) && !ec;
 }
 
-}  // namespace
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-microtel::Expected<void, ConfigError> Validate(Config& cfg)
+/// @brief Reject `insecure = true` when the build forbids it.
+///
+/// `MICROTEL_FORBID_INSECURE_TLS=ON` compiles the macro into this translation
+/// unit (see src/common/config/CMakeLists.txt). Spec §12.3 makes the refusal an
+/// initialisation failure, not a warning: a default build only warns, and
+/// `SdkBuilder`'s `WarnOnRiskyConfig` owns that half.
+///
+/// This is the only place in the tree that tests the macro. Everything else
+/// calls this function unconditionally, so the OFF build differs from the ON
+/// build by the contents of one function body and nothing else.
+[[nodiscard]] microtel::Expected<void, ConfigError> CheckInsecureAllowed(
+    [[maybe_unused]] const Config& cfg)
 {
-    // --- Endpoint URL ---
-    auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
-    if (!endpoint)
-    {
-        return microtel::make_unexpected(endpoint.error());
-    }
-
-    // --- gRPC path rejection (spec §12.2) ---
-    if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
+#ifdef MICROTEL_FORBID_INSECURE_TLS
+    if (cfg.tls.insecure)
     {
         return microtel::make_unexpected(
-            ConfigError{.kind = ConfigError::Kind::ProtocolMismatch,
-                        .field = "exporter.endpoint",
-                        .message = "gRPC endpoint URLs must not include a path"});
+            ConfigError{.kind = ConfigError::Kind::InsecureDisallowed,
+                        .field = "tls.insecure",
+                        .message = "tls.insecure = true is refused: this build was compiled "
+                                   "with MICROTEL_FORBID_INSECURE_TLS=ON"});
     }
+#endif
+    return {};
+}
 
-    cfg.endpoint = std::move(*endpoint);
-
-    // --- TLS material ---
+/// @brief Check the configured TLS material is coherent and readable.
+///
+/// Split out of `Validate` to keep both function bodies inside the cognitive
+/// complexity budget; it carries no state and is called exactly once.
+[[nodiscard]] microtel::Expected<void, ConfigError> ValidateTlsMaterial(const Config& cfg)
+{
     if (!IsReadable(cfg.tls.ca_bundle))
     {
         return microtel::make_unexpected(
@@ -258,6 +301,54 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
                         .field = "tls.client_key",
                         .message = "client key not readable: " + cfg.tls.client_key.string()});
     }
+    return {};
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+microtel::Expected<void, ConfigError> Validate(Config& cfg)
+{
+    // --- Protocol (spec §12.2) ---
+    // Before the endpoint is parsed: the resolved protocol is what picks the
+    // default port, so `grpc://collector` means 4317 and not 4318.
+    auto protocol = ResolveProtocol(cfg);
+    if (!protocol)
+    {
+        return microtel::make_unexpected(protocol.error());
+    }
+    cfg.protocol = *protocol;
+
+    // --- Endpoint URL ---
+    auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
+    if (!endpoint)
+    {
+        return microtel::make_unexpected(endpoint.error());
+    }
+
+    // --- gRPC path rejection (spec §12.2) ---
+    if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
+    {
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::ProtocolMismatch,
+                        .field = "exporter.endpoint",
+                        .message = "gRPC endpoint URLs must not include a path"});
+    }
+
+    cfg.endpoint = std::move(*endpoint);
+
+    // --- TLS ---
+    if (auto insecure_ok = CheckInsecureAllowed(cfg); !insecure_ok)
+    {
+        return microtel::make_unexpected(insecure_ok.error());
+    }
+    if (auto tls_ok = ValidateTlsMaterial(cfg); !tls_ok)
+    {
+        return microtel::make_unexpected(tls_ok.error());
+    }
 
     // --- Batch coherence ---
     if (cfg.batch.max_export_batch_size > cfg.batch.max_queue_size)
@@ -266,6 +357,16 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
             ConfigError{.kind = ConfigError::Kind::InvalidValue,
                         .field = "sdk.max_export_batch_size",
                         .message = "max_export_batch_size must not exceed max_queue_size"});
+    }
+
+    // --- Service identity ---
+    // `service.name` is required by the OTel resource semantic conventions;
+    // resolving the placeholder here rather than at resource-assembly time
+    // keeps one owner for the default and leaves `Config` a complete record of
+    // what the pipeline will actually report.
+    if (cfg.service_name.empty())
+    {
+        cfg.service_name = std::string{kUnknownService};
     }
 
     return {};

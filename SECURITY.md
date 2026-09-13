@@ -64,7 +64,7 @@ The following are **not** considered vulnerabilities for the purposes of this po
 
 For deployments handling sensitive telemetry:
 
-- Build with `MICROTEL_FORBID_INSECURE_TLS=ON` to refuse `insecure = true` at runtime.
+- Build with `MICROTEL_FORBID_INSECURE_TLS=ON`. A library compiled that way fails `SdkBuilder::Build()` with `ConfigError::Kind::InsecureDisallowed` when the resolved configuration sets `tls.insecure = true`, so no `microtel.toml`, environment variable or code path can turn certificate verification off. Default builds (`OFF`) accept `insecure = true` and only log a warning.
 - Pin to a specific minor version and review release notes before upgrading.
 - Run `microtel --preflight=connect` against your collector before deploying to validate TLS and connectivity.
 - Use mTLS (`client_cert` + `client_key`) where the upstream collector supports it.

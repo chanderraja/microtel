@@ -147,6 +147,7 @@ namespace
         return microtel::make_unexpected(proto.error());
     }
     cfg.protocol = *proto;
+    cfg.protocol_explicit = true;
     return {};
 }
 

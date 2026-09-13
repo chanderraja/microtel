@@ -79,15 +79,19 @@ Rows are alphabetised within each subsection.
 
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
-| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | **none** — attribute omitted | spec §12.7 |
+| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | `"unknown_service"` | spec §12.7 |
 | `service.version` | `WithServiceVersion(s)` | (in `OTEL_RESOURCE_ATTRIBUTES`) | — | empty | spec §12.7 |
 
-Correction (#196): the default was given as `"unknown_service"`. No such
-fallback exists — `sdk_builder.cpp` emits the `service.name` resource attribute
-only when the resolved value is non-empty, so an unset `service.name` means the
-attribute is **absent from the exported resource** rather than present with a
-placeholder. The OTel resource semantic conventions require the placeholder, so
-this is a conformance gap as well as a documentation one: issue #203.
+The `service.name` resource attribute is always present. When nothing supplies
+a value, `config::Validate` resolves it to `unknown_service`, the placeholder
+the OTel resource semantic conventions specify so that a backend always has
+something to group on. microtel does not append an executable name — the OTel
+conventions permit `unknown_service:<process name>`, but v1 has no process-name
+or resource-detector machinery to derive one from, so the plain form is what it
+emits. `service.version` has no such requirement and stays absent when unset.
+
+(Before #203 landed, no fallback existed and the attribute was omitted
+entirely.)
 
 ### 3.2 Resource attributes
 
@@ -100,21 +104,36 @@ this is a conformance gap as well as a documentation one: issue #203.
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
 | `exporter.endpoint` | `WithEndpoint(s)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | none (required) | If unset, `Build` fails with `ConfigError::EndpointMalformed`. |
-| `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | **`http`** | `http` or `grpc`. Not derived from the endpoint scheme — see the warning below. |
+| `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | **`http`**, or `grpc` for a `grpc://` / `grpcs://` endpoint | `http` or `grpc`. See "Endpoint scheme and protocol" below. |
 | `exporter.compression` | `WithCompressionGzip(b)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | off | TOML/env value is `gzip` to enable; anything else is off. The code setter is a `bool`, not a codec name — gzip is the only compression v1 implements. Controls **requests**: gzip request bodies with `content-encoding: gzip` (HTTP) or frame flag `0x01` with `grpc-encoding: gzip` (gRPC). Responses are independent — `accept-encoding` / `grpc-accept-encoding: gzip` is advertised whatever this is set to, and a compressed response is inflated under `MemoryLimitOptions::max_decompressed_bytes`. |
 | `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers; runtime auth via `WithAuthProvider` is separate. |
 
-> **`grpc://` does not select OTLP/gRPC.** The scheme is normalised for TLS only
-> — `grpc://` → `http`, `grpcs://` → `https` — and `protocol` is left at its
-> default. `WithEndpoint("grpc://collector:4317")` without a matching
-> `WithProtocol(Protocol::Grpc)` therefore speaks **OTLP/HTTP** at a gRPC port.
-> Set `protocol` explicitly; spec §12.2 calls `https://` plus an explicit
-> `protocol` the canonical form for exactly this reason. Tracked as issue #203,
-> which also covers the `service.name` default above.
+**Endpoint scheme and protocol.** Four schemes are accepted. Two of them are
+microtel shorthand that carries a protocol; two say nothing about it.
 
-Corrections (#196): the protocol default was given as "derived from URL scheme;
-otherwise `grpc`". Both halves are wrong — `Config::protocol` initialises to
-`Protocol::Http` and no code path derives it from the scheme.
+| Endpoint scheme | Transport | Effect on `protocol` |
+|---|---|---|
+| `https://` | TLS | none — `protocol` keeps its configured value (default `http`) |
+| `http://` | plaintext h2c | none — `protocol` keeps its configured value (default `http`) |
+| `grpcs://` | TLS | selects `grpc` unless `protocol` was set explicitly |
+| `grpc://` | plaintext h2c | selects `grpc` unless `protocol` was set explicitly |
+
+So `WithEndpoint("grpc://collector:4317")` alone speaks OTLP/gRPC, and picks up
+the gRPC default port 4317 when the URL omits a port. "Set explicitly" means any
+of `WithProtocol(p)`, the `exporter.protocol` TOML key, or
+`OTEL_EXPORTER_OTLP_PROTOCOL` — not the built-in default.
+
+**A `grpc://` or `grpcs://` endpoint combined with an explicit `protocol =
+"http"` is rejected** at `Build()` with `ConfigError::Kind::ProtocolMismatch`
+and `field = "exporter.protocol"`. The two statements contradict each other and
+microtel resolves the contradiction in neither direction. Use an `http://` or
+`https://` endpoint for OTLP/HTTP, or drop the explicit protocol.
+
+Spec §12.2 still calls `https://` plus an explicit `protocol` the canonical
+form, and it remains the unambiguous spelling; the shorthand is a convenience,
+not a replacement. (Before #203 landed, the shorthand was normalised for TLS
+only and left `protocol` at its default, so `grpc://` silently spoke OTLP/HTTP
+at a gRPC port.)
 
 **No per-signal env vars.** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
 `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` were listed here and are read by nothing —
@@ -176,11 +195,15 @@ ca_bundle = "/etc/pki/tls/certs/collector-ca.pem"
 `insecure=true` emits a `Warn`-level log line from `Build()`. There is no way to
 suppress it short of installing a filtering `SetLogSink`.
 
-**`MICROTEL_FORBID_INSECURE_TLS=ON` is currently a no-op** (issue #200). The
-CMake option is defined and compiles `MICROTEL_FORBID_INSECURE_TLS=1` into
-`microtel_config`, but no source consults the macro: `insecure=true` builds
-successfully whatever the option is set to, and `ConfigError::Kind::InsecureDisallowed`
-is never constructed. Do not rely on it as a hardening control until #200 lands.
+**`MICROTEL_FORBID_INSECURE_TLS=ON` refuses `insecure=true` at initialisation.**
+The CMake option compiles `MICROTEL_FORBID_INSECURE_TLS=1` into
+`microtel_config`, and `config::Validate` fails a configuration carrying
+`tls.insecure = true` with `ConfigError::Kind::InsecureDisallowed` and
+`field = "tls.insecure"` — so `SdkBuilder::Build()` returns the error instead of
+a `Provider`, and there is no runtime way to turn verification back off. The
+option is a property of the build, not of the configuration: a library compiled
+with it OFF cannot be made to refuse, and one compiled with it ON cannot be made
+to accept. Default builds (`OFF`) keep the `Warn` line described above.
 
 Two corrections against what this section used to claim (#196): the TOML paths
 were given as `exporter.tls.*`, which is an **unknown key** — `[exporter]`
@@ -337,7 +360,7 @@ Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.
 | CMake option | Default | Effect |
 |---|---|---|
 | `MICROTEL_USE_SPDLOG` | `ON` | When `OFF`, microtel uses a minimal stderr logger instead of spdlog. Sink injection still works. |
-| `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | *Intended:* refuse `insecure=true` at runtime. **Currently a no-op** — see §3.5 and issue #200. |
+| `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | When `ON`, a configuration with `tls.insecure = true` fails `Build()` with `ConfigError::Kind::InsecureDisallowed`. Default builds warn instead. See §3.5. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp adapter (ICP 0014). |
 | `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree. Set `OFF` for cross-compilation. |
 | `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Builds the header compile check that includes every public and internal header. |

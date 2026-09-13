@@ -226,16 +226,18 @@ namespace
 /// @brief Emit the warnings for configurations that are legal but very likely
 ///        wrong.
 ///
-/// Neither case is rejected. Plaintext OTLP/HTTP is legitimate in front of an
-/// h2c-capable proxy (and the bench harness's own sink), and spec §12.3
-/// permits `insecure = true` outright — a hard ban is what
-/// `MICROTEL_FORBID_INSECURE_TLS=ON` is for. Both are, however, overwhelmingly
-/// likely to be a mistake, and `config::Validate` returns
-/// `Expected<void, ConfigError>`: it can reject a configuration but it cannot
-/// warn about one.
+/// Neither case is rejected here. Plaintext OTLP/HTTP is legitimate in front of
+/// an h2c-capable proxy (and the bench harness's own sink), and a default build
+/// permits `insecure = true` outright per spec §12.3 — the hard ban belongs to
+/// `MICROTEL_FORBID_INSECURE_TLS=ON`, which `config::Validate` enforces before
+/// this ever runs. Both are, however, overwhelmingly likely to be a mistake,
+/// and `config::Validate` returns `Expected<void, ConfigError>`: it can reject
+/// a configuration but it cannot warn about one.
 ///
-/// @param cfg Borrowed; read only. `cfg.endpoint.scheme` is post-normalisation,
-///            so `grpc://` has already collapsed to `http`.
+/// @param cfg Borrowed; read only. Both fields are post-resolution:
+///            `cfg.endpoint.scheme` has collapsed `grpc://` to `http`, and
+///            `cfg.protocol` has already taken `Grpc` from that same scheme,
+///            so the plaintext warning below sees a gRPC endpoint as gRPC.
 void WarnOnRiskyConfig(const config::Config& cfg) noexcept
 {
     // h2c with prior knowledge: microtel has no HTTP/1.1 mode, and a stock
@@ -292,10 +294,10 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
 [[nodiscard]] std::shared_ptr<const Resource> BuildResource(const config::Config& cfg)
 {
     std::vector<KeyValue> attrs;
-    if (!cfg.service_name.empty())
-    {
-        attrs.push_back({.key = "service.name", .value = cfg.service_name});
-    }
+    // Unconditional: `config::Validate` resolves an unset service name to the
+    // `unknown_service` placeholder the OTel resource semantic conventions
+    // require, so there is no "absent" case left to guard against here.
+    attrs.push_back({.key = "service.name", .value = cfg.service_name});
     if (!cfg.service_version.empty())
     {
         attrs.push_back({.key = "service.version", .value = cfg.service_version});
@@ -556,6 +558,7 @@ void SdkBuilder::Impl::ApplyExporterOverrides(config::Config& cfg) const
     if (protocol)
     {
         cfg.protocol = *protocol;
+        cfg.protocol_explicit = true;
     }
     if (compression_gzip)
     {

@@ -282,7 +282,7 @@ The `RESOURCE_EXHAUSTED` row is the most important non-obvious entry — it is d
 | Endpoint scheme conflicts with explicit `protocol` | `ProtocolMismatch` | `exporter.protocol` |
 | TLS CA bundle missing or unreadable | `TlsMaterialUnreadable` | `exporter.tls.ca_bundle` |
 | Client cert / key path unreadable | `TlsMaterialUnreadable` | `exporter.tls.client_cert` |
-| `insecure=true` while compiled with `MICROTEL_FORBID_INSECURE_TLS=ON` | `InsecureDisallowed` | `exporter.tls.insecure` |
+| `insecure=true` while compiled with `MICROTEL_FORBID_INSECURE_TLS=ON` | `InsecureDisallowed` | `tls.insecure` |
 | Out-of-range numeric value (negative timeout, etc.) | `InvalidValue` | `exporter.timeouts.per_export` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` malformed | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Second call to `SdkBuilder::Build()` | `BuildAlreadyConsumed` | (empty) |

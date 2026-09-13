@@ -6,10 +6,13 @@
 // the SETTINGS exchange, receives one POST request and replies with 200.
 // No TLS (insecure=true).
 
+#include "microtel/internal/encoded_payload.hpp"
+#include "microtel/internal/wire_result.hpp"
 #include "microtel/provider.hpp"
 
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
+#include "wire/grpc/grpc_wire_codec.hpp"
 
 #include <gtest/gtest.h>
 #include <nghttp2/nghttp2.h>
@@ -22,6 +25,7 @@
 #include <cstdint>
 #include <cstring>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <span>
@@ -38,6 +42,7 @@
 
 namespace mtt = microtel::transport;
 namespace mti = microtel::internal;
+namespace mtw = microtel::wire;
 
 // ---------------------------------------------------------------------------
 // Minimal in-process HTTP/2 server: completes SETTINGS, responds to one POST
@@ -197,6 +202,7 @@ void SrvSubmit200(nghttp2_session* s, RequestServerCtx& ctx, int32_t stream_id) 
 // ---------------------------------------------------------------------------
 
 constexpr std::array<std::uint8_t, 4> kRejected42Proto{0x0A, 0x02, 0x08, 0x2A};
+constexpr std::uint32_t kRejected42Count = 42;
 /// First DATA frame ends inside the 5-byte prefix.
 constexpr std::size_t kSplitInsidePrefix = 3;
 /// First DATA frame ends inside the message body.
@@ -949,6 +955,12 @@ std::string ErrorMessage(const mti::TransportResult& result)
     return result.error ? result.error->message : std::string{};
 }
 
+/// The kind a failed result carries; `Unspecified` when it carried no error.
+microtel::Error::Kind ErrorKind(const mti::TransportResult& result)
+{
+    return result.error ? result.error->kind : microtel::Error::Kind::Unspecified;
+}
+
 mti::ConnectOptions MakeConnectOptions(int port)
 {
     mti::ConnectOptions opts;
@@ -1087,4 +1099,135 @@ TEST(Http2TransportSendIntegrationTest, Send_PeerGoawayAfterAccepting_CompletesT
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     server.Stop();
     restarted.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// Peer RST_STREAM (spec §13.5 gate 6, `docs/grpc-wire-protocol.md` §2.6)
+//
+// A stream-level error. The request it kills must fail; the connection under
+// it must not. The only peer-reset coverage before this was TCP-level (an RST
+// via SO_LINGER), which is a different thing entirely — that one does retire
+// the connection.
+// ---------------------------------------------------------------------------
+
+TEST(Http2TransportSendIntegrationTest, Send_PeerRstStream_FailsRequestKeepsConnection)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::RstStreamOnFirstRequest);
+    ASSERT_GT(port, 0);
+
+    auto t = ConnectedTransport(port);
+    ASSERT_NE(t, nullptr);
+
+    const std::vector<std::byte> payload(kSmallPayloadBytes, std::byte{0x5A});
+    const std::string authority = "127.0.0.1:" + std::to_string(port);
+
+    auto first = t->Send(MakeRequestSpec(authority, payload));
+    ASSERT_EQ(first.Future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    const auto first_result = first.Future().get();
+    EXPECT_FALSE(first_result.success);
+    ASSERT_TRUE(first_result.error.has_value()) << "a reset stream must carry an error";
+    // error-model.md classifies a request that got no response as a transport
+    // failure: Network, and retryable at the codec above.
+    EXPECT_EQ(ErrorKind(first_result), microtel::Error::Kind::Network);
+
+    // The half that matters: RST_STREAM is stream-level, so the connection is
+    // still usable and no reconnect is needed to use it.
+    EXPECT_EQ(t->GetState(), microtel::ConnectionState::Connected);
+
+    auto second = t->Send(MakeRequestSpec(authority, payload));
+    ASSERT_EQ(second.Future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    const auto second_result = second.Future().get();
+    EXPECT_TRUE(second_result.success) << "a reset stream must not cost the connection — "
+                                       << (second_result.error ? second_result.error->message : "");
+    // No state assertion after this point: the script is finished, so the
+    // server closes, and the transport is then right to report Reconnecting.
+    // Asserting Connected here would be asserting a race.
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// A gRPC message split across DATA frames (spec §7.2, LOCKED: "the parser must
+// not assume a gRPC message corresponds to a single HTTP/2 DATA frame")
+//
+// The accumulation this exercises lives in the transport, below the codec's
+// view — a `FakeTransport` hands the codec one finished body and so can never
+// reach it. These drive the real codec over the real transport against a
+// server that deliberately parks the remainder of the message for 30 ms: the
+// two halves arrive in separate DATA frames, in separate reads.
+//
+// A nine-byte body is the point: `rejected_spans: 42` only decodes if every
+// one of those bytes was accumulated, in order.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+mti::EncodedPayload MakeEncodedPayload(std::size_t n = kSmallPayloadBytes)
+{
+    auto buf = std::make_unique<std::byte[]>(n);
+    return mti::EncodedPayload{std::move(buf), n};
+}
+
+/// Run one OTLP/gRPC export against @p port and return what the codec made of
+/// the response. The codec connects the transport lazily (ICP 0017).
+mti::WireResult ExportOverGrpc(mtt::Http2Transport& transport, int port)
+{
+    const mtw::GrpcWireCodecConfig config{
+        .host = "127.0.0.1:" + std::to_string(port),
+        .scheme = "http",
+        .extra_headers = {},
+        .service_path = {},
+    };
+    mtw::GrpcWireCodec codec{
+        &transport, config, nullptr, nullptr, nullptr, MakeConnectOptions(port)};
+    return codec.Send(MakeEncodedPayload(), std::chrono::milliseconds(5000));
+}
+
+}  // namespace
+
+TEST(Http2TransportSendIntegrationTest, GrpcResponse_SplitMidPrefix_Accumulates)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::GrpcSplitPrefix);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    const auto result = ExportOverGrpc(*t, port);
+    EXPECT_TRUE(result.success) << (result.error ? result.error->message : "");
+    EXPECT_EQ(result.partial_success_rejected, kRejected42Count)
+        << "the 5-byte length prefix straddled two DATA frames and must be reassembled";
+    EXPECT_GE(server.DataFramesSent(), 2) << "the server did not actually split the response";
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+TEST(Http2TransportSendIntegrationTest, GrpcResponse_SplitMidBody_Accumulates)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::GrpcSplitBody);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    const auto result = ExportOverGrpc(*t, port);
+    EXPECT_TRUE(result.success) << (result.error ? result.error->message : "");
+    EXPECT_EQ(result.partial_success_rejected, kRejected42Count)
+        << "the message body straddled two DATA frames and must be reassembled";
+    EXPECT_GE(server.DataFramesSent(), 2) << "the server did not actually split the response";
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
 }

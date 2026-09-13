@@ -192,33 +192,38 @@ struct AuthorityPath
     return std::filesystem::is_regular_file(p, ec) && !ec;
 }
 
-}  // namespace
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-microtel::Expected<void, ConfigError> Validate(Config& cfg)
+/// @brief Reject `insecure = true` when the build forbids it.
+///
+/// `MICROTEL_FORBID_INSECURE_TLS=ON` compiles the macro into this translation
+/// unit (see src/common/config/CMakeLists.txt). Spec §12.3 makes the refusal an
+/// initialisation failure, not a warning: a default build only warns, and
+/// `SdkBuilder`'s `WarnOnRiskyConfig` owns that half.
+///
+/// This is the only place in the tree that tests the macro. Everything else
+/// calls this function unconditionally, so the OFF build differs from the ON
+/// build by the contents of one function body and nothing else.
+[[nodiscard]] microtel::Expected<void, ConfigError> CheckInsecureAllowed(
+    [[maybe_unused]] const Config& cfg)
 {
-    // --- Endpoint URL ---
-    auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
-    if (!endpoint)
-    {
-        return microtel::make_unexpected(endpoint.error());
-    }
-
-    // --- gRPC path rejection (spec §12.2) ---
-    if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
+#ifdef MICROTEL_FORBID_INSECURE_TLS
+    if (cfg.tls.insecure)
     {
         return microtel::make_unexpected(
-            ConfigError{.kind = ConfigError::Kind::ProtocolMismatch,
-                        .field = "exporter.endpoint",
-                        .message = "gRPC endpoint URLs must not include a path"});
+            ConfigError{.kind = ConfigError::Kind::InsecureDisallowed,
+                        .field = "tls.insecure",
+                        .message = "tls.insecure = true is refused: this build was compiled "
+                                   "with MICROTEL_FORBID_INSECURE_TLS=ON"});
     }
+#endif
+    return {};
+}
 
-    cfg.endpoint = std::move(*endpoint);
-
-    // --- TLS material ---
+/// @brief Check the configured TLS material is coherent and readable.
+///
+/// Split out of `Validate` to keep both function bodies inside the cognitive
+/// complexity budget; it carries no state and is called exactly once.
+[[nodiscard]] microtel::Expected<void, ConfigError> ValidateTlsMaterial(const Config& cfg)
+{
     if (!IsReadable(cfg.tls.ca_bundle))
     {
         return microtel::make_unexpected(
@@ -257,6 +262,44 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
             ConfigError{.kind = ConfigError::Kind::TlsMaterialUnreadable,
                         .field = "tls.client_key",
                         .message = "client key not readable: " + cfg.tls.client_key.string()});
+    }
+    return {};
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+microtel::Expected<void, ConfigError> Validate(Config& cfg)
+{
+    // --- Endpoint URL ---
+    auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
+    if (!endpoint)
+    {
+        return microtel::make_unexpected(endpoint.error());
+    }
+
+    // --- gRPC path rejection (spec §12.2) ---
+    if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
+    {
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::ProtocolMismatch,
+                        .field = "exporter.endpoint",
+                        .message = "gRPC endpoint URLs must not include a path"});
+    }
+
+    cfg.endpoint = std::move(*endpoint);
+
+    // --- TLS ---
+    if (auto insecure_ok = CheckInsecureAllowed(cfg); !insecure_ok)
+    {
+        return microtel::make_unexpected(insecure_ok.error());
+    }
+    if (auto tls_ok = ValidateTlsMaterial(cfg); !tls_ok)
+    {
+        return microtel::make_unexpected(tls_ok.error());
     }
 
     // --- Batch coherence ---

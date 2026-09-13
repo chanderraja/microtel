@@ -658,6 +658,20 @@ TEST(ValidateTest, ValidMinimalConfig_Succeeds)
     ASSERT_TRUE(result.has_value()) << result.error().message;
 }
 
+// The OFF half of the MICROTEL_FORBID_INSECURE_TLS gate (issue #200): this
+// binary links microtel_config as the default build compiles it, i.e. without
+// the macro, so `insecure = true` is legal and only warned about (the warning
+// itself is asserted in tests/unit/sdk/sdk_builder_test.cpp). The ON half is
+// tests/unit/common/config/forbid_insecure_tls_test.cpp.
+TEST(ValidateTest, InsecureTls_WithoutForbidOption_Succeeds)
+{
+    mc::Config cfg = MinimalValidConfig();
+    cfg.tls.insecure = true;
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+}
+
+
 // ---------------------------------------------------------------------------
 // OverlayEnv — OTEL_METRIC_EXPORT_INTERVAL (M12)
 // ---------------------------------------------------------------------------

@@ -16,6 +16,8 @@ namespace microtel::config
 /// Performs eager validation without network access:
 ///   - Endpoint URL structure and scheme.
 ///   - Path rejection for gRPC endpoints (spec §12.2).
+///   - `insecure = true` rejection when the build sets
+///     `MICROTEL_FORBID_INSECURE_TLS=ON` (spec §12.3).
 ///   - TLS file readability (ca_bundle, client_cert, client_key).
 ///   - mTLS key-cert pairing (both or neither).
 ///   - Batch: max_export_batch_size ≤ max_queue_size.

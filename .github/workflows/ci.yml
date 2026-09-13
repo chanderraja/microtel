@@ -211,8 +211,14 @@ jobs:
         run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
       - name: Build
         run: cmake --build build
+      # ICP 0020 Decision 5: "shipped" means the install tree, so the gate
+      # scans what `cmake --install` produces rather than the build directory.
+      # It also drops libmicrotel_preflight_lib.a from the scan, which is
+      # correct — it is tool-only and is not installed.
+      - name: Install to a staging prefix
+        run: cmake --install build --prefix install-tree
       - name: Assert dependency closure and the vendored-upb prefix
-        run: ci/scripts/symbol-scan.sh build
+        run: ci/scripts/symbol-scan.sh --prefix install-tree
 
   corpus-check:
     runs-on: ubuntu-latest
@@ -268,9 +274,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       # The shim must not change what microtel ships. Re-running the closure
       # gate with the shim enabled proves it adds no shipped artifact and no
-      # forbidden symbol — the claim ICP 0014 §4 makes in prose.
+      # forbidden symbol — the claim ICP 0014 §4 makes in prose. Scanning the
+      # install tree rather than the build tree is what makes "no shipped
+      # artifact" mechanical: ICP 0020 Decision 3 says the shim installs headers
+      # and never a binary, and an install tree is where that is observable.
+      - name: Install to a staging prefix
+        run: cmake --install build --prefix install-tree
       - name: Assert the shim does not alter the dependency closure
-        run: ci/scripts/symbol-scan.sh build
+        run: ci/scripts/symbol-scan.sh --prefix install-tree
 
   conformance:
     runs-on: ubuntu-latest

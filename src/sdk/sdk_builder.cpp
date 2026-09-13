@@ -366,42 +366,54 @@ constexpr std::string_view kHttpLogsPath = "/v1/logs";
 constexpr std::string_view kGrpcLogsPath =
     "/opentelemetry.proto.collector.logs.v1.LogsService/Export";
 
+/// @brief Construct the wire codec for the configured protocol.
+///
+/// @param diag the diagnostics sink, which the codecs need rather than merely
+///        accept: connect_failure, malformed_response and
+///        decompression_too_large are all recorded inside the codec, and
+///        passing nullptr here made every one of them invisible to
+///        `GetExporterHealth()`.
 [[nodiscard]] std::unique_ptr<internal::IWireCodec> BuildWireCodec(
     internal::ITransport* transport,
     const config::Config& cfg,
     std::vector<internal::HeaderField> extra_headers,
     internal::IAuthProvider* auth,
+    internal::IDiagnosticsSink* diag,
     std::string_view signal_path = {})
 {
     const auto host_port = cfg.endpoint.host + ":" + std::to_string(cfg.endpoint.port);
     if (cfg.protocol == Protocol::Grpc)
     {
-        return std::make_unique<wire::GrpcWireCodec>(transport,
-                                                     wire::GrpcWireCodecConfig{
-                                                         .host = host_port,
-                                                         .scheme = cfg.endpoint.scheme,
-                                                         .extra_headers = std::move(extra_headers),
-                                                         .service_path = std::string{signal_path},
-                                                         .compression_gzip = cfg.compression_gzip,
-                                                     },
-                                                     auth,
-                                                     /*diag=*/nullptr,
-                                                     /*clock=*/nullptr,
-                                                     BuildConnectOptions(cfg));
+        return std::make_unique<wire::GrpcWireCodec>(
+            transport,
+            wire::GrpcWireCodecConfig{
+                .host = host_port,
+                .scheme = cfg.endpoint.scheme,
+                .extra_headers = std::move(extra_headers),
+                .service_path = std::string{signal_path},
+                .compression_gzip = cfg.compression_gzip,
+                .max_decompressed_bytes = cfg.memory_limits.max_decompressed_bytes,
+            },
+            auth,
+            diag,
+            /*clock=*/nullptr,
+            BuildConnectOptions(cfg));
     }
-    return std::make_unique<wire::HttpWireCodec>(transport,
-                                                 wire::HttpWireCodecConfig{
-                                                     .host = host_port,
-                                                     .scheme = cfg.endpoint.scheme,
-                                                     .path = cfg.endpoint.path,
-                                                     .signal_path = std::string{signal_path},
-                                                     .extra_headers = std::move(extra_headers),
-                                                     .compression_gzip = cfg.compression_gzip,
-                                                 },
-                                                 auth,
-                                                 /*diag=*/nullptr,
-                                                 /*clock=*/nullptr,
-                                                 BuildConnectOptions(cfg));
+    return std::make_unique<wire::HttpWireCodec>(
+        transport,
+        wire::HttpWireCodecConfig{
+            .host = host_port,
+            .scheme = cfg.endpoint.scheme,
+            .path = cfg.endpoint.path,
+            .signal_path = std::string{signal_path},
+            .extra_headers = std::move(extra_headers),
+            .compression_gzip = cfg.compression_gzip,
+            .max_decompressed_bytes = cfg.memory_limits.max_decompressed_bytes,
+        },
+        auth,
+        diag,
+        /*clock=*/nullptr,
+        BuildConnectOptions(cfg));
 }
 
 [[nodiscard]] sdk::ViewRegistry BuildViewRegistry(std::vector<ViewConfig>& views)
@@ -463,14 +475,15 @@ struct ExporterPack
                                           const config::Config& cfg,
                                           internal::IDiagnosticsSink* diag)
 {
-    auto codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth);
+    auto codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, diag);
     const std::string_view metric_path =
         cfg.protocol == Protocol::Grpc ? kGrpcMetricsPath : kHttpMetricsPath;
     auto metric_codec =
-        BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, metric_path);
+        BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, diag, metric_path);
     const std::string_view log_path =
         cfg.protocol == Protocol::Grpc ? kGrpcLogsPath : kHttpLogsPath;
-    auto log_codec = BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, log_path);
+    auto log_codec =
+        BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, diag, log_path);
 
     const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);

@@ -26,3 +26,9 @@ microtel_add_test(
     SOURCES inflate_stream_test.cpp
     LIBS    ZLIB::ZLIB)
 target_include_directories(inflate_stream_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
+    NAME    deflate_stream_test
+    SOURCES deflate_stream_test.cpp
+    LIBS    ZLIB::ZLIB)
+target_include_directories(deflate_stream_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

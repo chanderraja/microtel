@@ -108,9 +108,10 @@ struct InflateOutcome
 microtel::Expected<std::vector<std::byte>, microtel::Error> GzipCompress(
     std::span<const std::byte> input) noexcept
 {
-    // A single deflate pass takes its lengths as uInt. Inputs are bounded by
-    // max_record_bytes well below this, so the check is a guard rather than a
-    // supported path.
+    // A single deflate pass takes its lengths as uInt. A batch is bounded well
+    // below this — `max_export_batch_size` records, each held to
+    // `max_record_bytes` by `BatchSpanProcessor::OnEnd` — so the check is a
+    // guard rather than a supported path.
     if (input.size() > std::numeric_limits<uInt>::max())
     {
         return microtel::make_unexpected(GzipError());
@@ -153,8 +154,9 @@ microtel::Expected<std::vector<std::byte>, GzipDecompressError> GzipDecompress(
     std::span<const std::byte> input, std::size_t max_output) noexcept
 {
     // A single inflate pass takes its input length as uInt. A response that
-    // large never reaches here — the transport caps it at max_response_bytes —
-    // so this is a guard, not a supported path.
+    // large never reaches here: the transport stops buffering a response body
+    // at `ConnectOptions::max_response_bytes` (1 MiB by default) and fails the
+    // request, so this is a guard, not a supported path.
     if (input.size() > std::numeric_limits<uInt>::max())
     {
         return microtel::make_unexpected(GzipDecompressError::Corrupt);

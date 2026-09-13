@@ -36,10 +36,13 @@ unblock).
   runs against a small in-process nghttp2 server over loopback:
   - `http2_connect_test.cpp` — connect, drop, reconnect, HTTP/1.1 peer.
   - `http2_send_test.cpp` — request/response, concurrent `Send`, peer
-    TCP reset, and the frame-level peer behaviour from
+    TCP reset, the frame-level peer behaviour from
     `docs/sequences/goaway-handling.md` and
-    `docs/grpc-wire-protocol.md` §2.6: `Send_PeerGoaway*`,
-    `Send_PeerRstStream_*`, `GrpcResponse_Split*`.
+    `docs/grpc-wire-protocol.md` §2.6 (`Send_PeerGoaway*`,
+    `Send_PeerRstStream_*`, `GrpcResponse_Split*`), and the response
+    memory caps of `docs/memory-model.md` §6
+    (`Send_ResponseOverMaxResponseBytes_*`,
+    `Send_TrailersOverMaxTrailerBytes_*`).
   - `http2_tls_connect_test.cpp` — TLS, ALPN, certificate handling.
 - `tests/fuzz/` — response-size and trailer-parser fuzzers (used by
   Track C too).

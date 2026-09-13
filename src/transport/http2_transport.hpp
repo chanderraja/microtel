@@ -109,6 +109,20 @@ public:
                           std::string_view value) noexcept;
     void OnResponseData(std::int32_t stream_id, const std::uint8_t* data, std::size_t len) noexcept;
 
+    /// @brief Which response memory cap a stream exceeded, if any.
+    ///
+    /// Recorded on the stream rather than acted on where it is detected: both
+    /// detection points sit inside an nghttp2 callback, and the request is
+    /// completed from `FulfillStream` once nghttp2 closes the stream.
+    enum class ResponseOverflow : std::uint8_t
+    {
+        None = 0,
+        /// Body accumulation passed `ConnectOptions::max_response_bytes`.
+        Body = 1,
+        /// Trailer accumulation passed `ConnectOptions::max_trailer_bytes`.
+        Trailers = 2,
+    };
+
     /// @brief Per-stream state owned by the I/O thread.
     ///
     /// Public so the `PayloadReadCb` C trampoline can cast `source->ptr`
@@ -120,6 +134,10 @@ public:
         std::promise<internal::TransportResult> promise;
         internal::TransportResult result;
         std::uint64_t handle_id = 0;
+        /// Summed name+value bytes of the trailers seen so far.
+        std::size_t trailer_bytes = 0;
+        /// Set once, by whichever cap this stream breached first.
+        ResponseOverflow overflow = ResponseOverflow::None;
     };
 
 private:
@@ -158,6 +176,32 @@ private:
     ///        libstdc++). This can run under memory pressure, and a message
     ///        that allocates would throw out of a `noexcept` frame — see #150.
     void AbandonInFlight(const char* message) noexcept;
+
+    /// @brief Take this connection's response memory budget from @p opts.
+    ///
+    /// Called at the top of `Connect`, before anything can read from the
+    /// socket, so the caps govern the very first response the connection
+    /// carries — and so a reconnect picks up whatever the caller passed this
+    /// time rather than inheriting the previous connection's.
+    void AdoptResponseBudget(const internal::ConnectOptions& opts) noexcept;
+
+    /// @brief Stop buffering an over-budget response and reset its stream.
+    ///
+    /// Releases what was accumulated — a truncated body would read like a
+    /// malformed one upstream — records which cap was breached, and sends
+    /// `RST_STREAM(CANCEL)` so the peer stops sending. The request itself is
+    /// completed by `FulfillStream` when nghttp2 closes the stream, which is
+    /// what keeps the completion path single.
+    ///
+    /// Called from inside nghttp2 callbacks, so it submits the reset and
+    /// leaves the flush to the `nghttp2_session_send` that ends the turn.
+    ///
+    /// @param stream_id the offending stream.
+    /// @param state its state; borrowed, still owned by `m_streams`.
+    /// @param kind which cap was breached. Never `None`.
+    void FailOversizedStream(std::int32_t stream_id,
+                             StreamState& state,
+                             ResponseOverflow kind) noexcept;
 
     /// @brief Fulfil and drop every stream the peer's GOAWAY refused.
     ///
@@ -245,6 +289,12 @@ private:
     /// Atomic for the same reason as its neighbours: the frame can arrive
     /// during the caller-thread handshake as well as on the I/O thread.
     std::atomic<bool> m_goaway_received{false};
+    /// Response memory budget for the current connection, from
+    /// `ConnectOptions`. Written by `Connect` on the caller thread and read by
+    /// the I/O thread's nghttp2 callbacks, hence atomic — they are plain
+    /// scalars guarding nothing else, so relaxed ordering is enough.
+    std::atomic<std::uint32_t> m_max_response_bytes{internal::ConnectOptions{}.max_response_bytes};
+    std::atomic<std::uint32_t> m_max_trailer_bytes{internal::ConnectOptions{}.max_trailer_bytes};
     /// The GOAWAY diagnostic, formatted once on receipt.
     ///
     /// The transport owns no diagnostics sink — "its callers record what they

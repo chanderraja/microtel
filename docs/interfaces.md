@@ -205,7 +205,7 @@ public:
 };
 ```
 
-Where `ConnectOptions` carries endpoint, TLS material, ALPN preference, timeout taxonomy (six timeouts per spec §7.3); `RequestSpec` carries HTTP/2 headers, the borrowed payload span, and a per-request deadline; `RequestHandle` is a small move-only token paired with a future-like completion observable by the codec.
+Where `ConnectOptions` carries endpoint, TLS material, ALPN preference, timeout taxonomy (six timeouts per spec §7.3), and the response memory budget the transport enforces while accumulating a response (`max_response_bytes`, `max_trailer_bytes` — `memory-model.md` §6; per-connection rather than per-request because the buffers they bound are the connection's); `RequestSpec` carries HTTP/2 headers, the borrowed payload span, and a per-request deadline; `RequestHandle` is a small move-only token paired with a future-like completion observable by the codec.
 
 **Preconditions.** `Connect` must be called and return success before `Send` is called. After `Close` returns `Completed` or `TimedOut`, no further `Send` is permitted.
 

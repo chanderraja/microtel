@@ -260,6 +260,80 @@ TEST(HttpWireCodecTest, Send_TransportFailure_ReturnsError)
     EXPECT_TRUE(result.error.has_value());
 }
 
+// The `Response > max_response_bytes` row of error-model.md §7.1. The transport
+// enforces the cap (it owns the buffer); the codec's part is the row's
+// classification — terminal, and counted, unlike every other transport failure,
+// because the peer answers the retry with the same oversized response.
+TEST(HttpWireCodecTest, Send_ResponseTooLarge_IsNonRetryableAndCounted)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Malformed,
+                           .message = "response exceeds max_response_bytes"},
+        .response_too_large = true,
+    };
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_EQ(result.error->message, "response exceeds max_response_bytes");
+    EXPECT_EQ(sink.drop_counters.at(static_cast<std::size_t>(mt::DropReason::ResponseTooLarge)),
+              1U);
+}
+
+// The same shape when the trailers were what overran. `max_trailer_bytes` has
+// no counter of its own — error-model.md §3 maps it onto `response_too_large`,
+// with the message carrying which cap it was.
+TEST(HttpWireCodecTest, Send_TrailersTooLarge_CountsResponseTooLarge)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Malformed,
+                           .message = "response trailers exceed max_trailer_bytes"},
+        .response_too_large = true,
+    };
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(sink.drop_counters.at(static_cast<std::size_t>(mt::DropReason::ResponseTooLarge)),
+              1U);
+}
+
+// An ordinary transport failure stays retryable and uncounted — the cap flag,
+// not the mere presence of an error, is what changes the classification.
+TEST(HttpWireCodecTest, Send_OrdinaryTransportFailure_StaysRetryable)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Network, .message = "connection reset"},
+    };
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(sink.drop_counters.at(static_cast<std::size_t>(mt::DropReason::ResponseTooLarge)),
+              0U);
+}
+
 // ---------------------------------------------------------------------------
 // Request header construction
 // ---------------------------------------------------------------------------

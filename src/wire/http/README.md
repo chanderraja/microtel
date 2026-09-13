@@ -46,6 +46,7 @@ Track B — OTLP/HTTP wire codec.
   with `/v1/traces` appended.
 - **Compression:** request `Content-Encoding: gzip` per spec §7.1; off
   by default for the low-CPU profile.
-- **Response handling:** capture body up to `max_response_bytes` for
-  diagnostics; `415` and `404` are non-retryable; `429`/`502`/`503`/`504`
-  are retryable and respect `Retry-After`.
+- **Response handling:** capture the body for diagnostics — it arrives
+  already bounded, the transport having stopped at `max_response_bytes`;
+  `415` and `404` are non-retryable; `429`/`502`/`503`/`504` are
+  retryable and respect `Retry-After`.

@@ -44,6 +44,22 @@ struct ConnectOptions
     // HTTP/2 settings (sensible defaults; tunable via configuration).
     std::uint32_t max_concurrent_streams = 100;
     std::uint32_t initial_window_size = 1U << 20;  // 1 MiB
+
+    /// @brief Ceiling on one response body, in bytes, enforced as the body is
+    ///        accumulated (`MemoryLimitOptions::max_response_bytes`).
+    ///
+    /// A response that exceeds it stops being buffered, its stream is reset,
+    /// and the request fails with `TransportResult::response_too_large`.
+    ///
+    /// A connection-level knob rather than a per-request one: it is a memory
+    /// budget for the transport's own buffers, identical for every request a
+    /// provider issues, and repeating it on each `RequestSpec` would give the
+    /// codec a dial it has no reason to turn.
+    std::uint32_t max_response_bytes = 1U << 20;  // 1 MiB
+    /// @brief Ceiling on the summed name+value bytes of one response's
+    ///        trailers (`MemoryLimitOptions::max_trailer_bytes`). Same
+    ///        failure shape as `max_response_bytes`.
+    std::uint32_t max_trailer_bytes = 64U * 1024U;  // 64 KiB
 };
 
 /// @brief HTTP/2 header (name, value) pair.
@@ -71,8 +87,21 @@ struct TransportResult
     bool success = false;
     std::vector<HeaderField> response_headers;
     std::vector<HeaderField> response_trailers;
-    std::vector<std::byte> response_body;  ///< capped at max_response_bytes
+    /// Bounded by `ConnectOptions::max_response_bytes`. Empty when the cap was
+    /// hit: the transport releases what it had buffered rather than hand up a
+    /// truncated body that reads like a malformed one.
+    std::vector<std::byte> response_body;
     std::optional<Error> error;
+    /// @brief The response exceeded `ConnectOptions::max_response_bytes` or
+    ///        `max_trailer_bytes`, so the transport stopped buffering it and
+    ///        reset the stream.
+    ///
+    /// `success` is false and `error` names which cap. Distinguished from an
+    /// ordinary transport failure because the retry classification differs:
+    /// the peer sends the same oversized response next time, so the codec
+    /// makes this a terminal `response_too_large` rather than a retry
+    /// (`docs/error-model.md` §7.1).
+    bool response_too_large = false;
 };
 
 /// @brief Move-only handle to an in-flight request.

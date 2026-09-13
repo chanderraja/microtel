@@ -322,6 +322,8 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
         .client_cert = cfg.tls.client_cert,
         .client_key = cfg.tls.client_key,
         .sni_override = cfg.tls.sni_override,
+        .max_response_bytes = cfg.memory_limits.max_response_bytes,
+        .max_trailer_bytes = cfg.memory_limits.max_trailer_bytes,
     };
 }
 
@@ -663,8 +665,11 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     // No scope here: the processor stamps each batch with the scope that
     // arrived with the span, i.e. the one `GetTracer` was called with
     // (ICP 0023). The service identity reaches the wire through the Resource.
-    auto processor = std::make_unique<sdk::BatchSpanProcessor>(
-        exporters.exporter.get(), resource, cfg.batch, diagnostics.get());
+    auto processor = std::make_unique<sdk::BatchSpanProcessor>(exporters.exporter.get(),
+                                                               resource,
+                                                               cfg.batch,
+                                                               cfg.memory_limits.max_record_bytes,
+                                                               diagnostics.get());
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);

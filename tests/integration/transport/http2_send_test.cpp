@@ -10,6 +10,7 @@
 #include "microtel/internal/wire_result.hpp"
 #include "microtel/provider.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
 #include "wire/grpc/grpc_wire_codec.hpp"
@@ -43,6 +44,7 @@
 namespace mtt = microtel::transport;
 namespace mti = microtel::internal;
 namespace mtw = microtel::wire;
+namespace mtfk = microtel::testing;
 
 // ---------------------------------------------------------------------------
 // Minimal in-process HTTP/2 server: completes SETTINGS, responds to one POST
@@ -82,6 +84,13 @@ enum class ServerScript : std::uint8_t
     GrpcSplitPrefix,
     /// A gRPC response whose message body straddles two DATA frames.
     GrpcSplitBody,
+    /// A 200 whose DATA body is far larger than the cap the client connects
+    /// with — the `max_response_bytes` row of `error-model.md` §7.1.
+    OversizedResponseBody,
+    /// A 200 whose trailers carry one deliberately huge value, for
+    /// `max_trailer_bytes`. The body is empty: what is over budget here is the
+    /// trailing HEADERS frame, not the DATA that precedes it.
+    OversizedTrailer,
 };
 
 struct RequestServerCtx
@@ -291,6 +300,96 @@ void SrvSubmitGrpcResponse(nghttp2_session* s,
     ::nghttp2_submit_response(s, stream_id, nva.data(), nva.size(), &prd);
 }
 
+// ---------------------------------------------------------------------------
+// Oversized responses — spec §13.5 gate 8 (`max_response_bytes`,
+// `max_trailer_bytes`)
+//
+// Both sizes are comfortably under HTTP/2's default 64 KiB connection window
+// and under any peer's header-list limit: the point is to exceed the *client's*
+// configured cap, not to stress the protocol.
+// ---------------------------------------------------------------------------
+
+constexpr std::size_t kOversizedBodyBytes = std::size_t{32} * 1024;
+constexpr std::size_t kOversizedTrailerBytes = std::size_t{4} * 1024;
+/// What the client is configured to accept in the oversized-response tests —
+/// small enough that the very first DATA frame overruns it.
+constexpr std::uint32_t kTinyResponseCap = 1024;
+constexpr std::uint32_t kTinyTrailerCap = 512;
+
+/// Hands out the whole body as fast as nghttp2 will take it.
+ssize_t SrvBulkBodyReadCb(nghttp2_session* /*s*/,
+                          int32_t /*stream_id*/,
+                          uint8_t* buf,
+                          size_t length,
+                          uint32_t* data_flags,
+                          nghttp2_data_source* source,
+                          void* /*ud*/) noexcept
+{
+    auto* ctx = static_cast<RequestServerCtx*>(source->ptr);
+    const size_t n = std::min(ctx->body.size() - ctx->body_offset, length);
+    std::memcpy(buf, ctx->body.data() + ctx->body_offset, n);
+    ctx->body_offset += n;
+    ctx->data_frames->fetch_add(1, std::memory_order_relaxed);
+    if (ctx->body_offset == ctx->body.size())
+    {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        ctx->response_sent.store(true, std::memory_order_release);
+    }
+    return static_cast<ssize_t>(n);
+}
+
+void SrvSubmitOversizedBody(nghttp2_session* s, RequestServerCtx& ctx, int32_t stream_id)
+{
+    ctx.body.assign(kOversizedBodyBytes, static_cast<std::uint8_t>('B'));
+    ctx.body_offset = 0;
+    ctx.response_stream_id = stream_id;
+
+    const std::array<nghttp2_nv, 2> nva{SrvNv(":status", "200"),
+                                        SrvNv("content-type", "application/grpc")};
+    nghttp2_data_provider prd{};
+    prd.source.ptr = &ctx;
+    prd.read_callback = SrvBulkBodyReadCb;
+    ::nghttp2_submit_response(s, stream_id, nva.data(), nva.size(), &prd);
+}
+
+/// nghttp2 copies header names and values at submit time, so the oversized
+/// value may live on this stack frame.
+void SrvSubmitOversizedTrailers(nghttp2_session* s, int32_t stream_id)
+{
+    const std::string huge(kOversizedTrailerBytes, 'T');
+    const std::array<nghttp2_nv, 2> nva{SrvNv("grpc-status", "0"), SrvNv("grpc-message", huge)};
+    ::nghttp2_submit_trailer(s, stream_id, nva.data(), nva.size());
+}
+
+/// Ends the (empty) body without ending the stream, so the trailing HEADERS
+/// frame is a genuine trailer rather than part of the response headers.
+ssize_t SrvEmptyBodyThenTrailersCb(nghttp2_session* s,
+                                   int32_t stream_id,
+                                   uint8_t* /*buf*/,
+                                   size_t /*length*/,
+                                   uint32_t* data_flags,
+                                   nghttp2_data_source* source,
+                                   void* /*ud*/) noexcept
+{
+    auto* ctx = static_cast<RequestServerCtx*>(source->ptr);
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF | NGHTTP2_DATA_FLAG_NO_END_STREAM;
+    SrvSubmitOversizedTrailers(s, stream_id);
+    ctx->response_sent.store(true, std::memory_order_release);
+    return 0;
+}
+
+void SrvSubmitOversizedTrailerResponse(nghttp2_session* s, RequestServerCtx& ctx, int32_t stream_id)
+{
+    ctx.response_stream_id = stream_id;
+    const std::array<nghttp2_nv, 2> nva{SrvNv(":status", "200"),
+                                        SrvNv("content-type", "application/grpc")};
+    nghttp2_data_provider prd{};
+    prd.source.ptr = &ctx;
+    prd.read_callback = SrvEmptyBodyThenTrailersCb;
+    ::nghttp2_submit_response(s, stream_id, nva.data(), nva.size(), &prd);
+}
+
 void SrvSubmitGoaway(nghttp2_session* s,
                      RequestServerCtx& ctx,
                      int32_t last_stream_id,
@@ -335,6 +434,12 @@ void SrvHandleCompletedRequest(nghttp2_session* s, RequestServerCtx& ctx, int32_
             break;
         case ServerScript::GrpcSplitBody:
             SrvSubmitGrpcResponse(s, ctx, stream_id, kSplitInsideBody);
+            break;
+        case ServerScript::OversizedResponseBody:
+            SrvSubmitOversizedBody(s, ctx, stream_id);
+            break;
+        case ServerScript::OversizedTrailer:
+            SrvSubmitOversizedTrailerResponse(s, ctx, stream_id);
             break;
         case ServerScript::RespondToRequest:
         case ServerScript::ResetOnFirstRequest:
@@ -527,8 +632,14 @@ private:
             case ServerScript::GoawayEnhanceYourCalm:
             case ServerScript::GoawayDrainsInFlight:
                 return std::chrono::milliseconds(kHoldOpenMs);
+            // The oversized scripts share the split scripts' hold: it keeps the
+            // client's RST_STREAM landing on a live connection, where a close
+            // on the heels of the response would let the EOF path fail the
+            // request and the cap would never be the reason.
             case ServerScript::GrpcSplitPrefix:
             case ServerScript::GrpcSplitBody:
+            case ServerScript::OversizedResponseBody:
+            case ServerScript::OversizedTrailer:
                 return std::chrono::milliseconds(kSplitHoldOpenMs);
             case ServerScript::RespondToRequest:
             case ServerScript::ResetOnFirstRequest:
@@ -1227,6 +1338,152 @@ TEST(Http2TransportSendIntegrationTest, GrpcResponse_SplitMidBody_Accumulates)
     EXPECT_EQ(result.partial_success_rejected, kRejected42Count)
         << "the message body straddled two DATA frames and must be reassembled";
     EXPECT_GE(server.DataFramesSent(), 2) << "the server did not actually split the response";
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// Response memory caps — spec §13.5 gate 8, issue #181
+//
+// `max_response_bytes` and `max_trailer_bytes` were declared in
+// `MemoryLimitOptions`, documented in `error-model.md` §7.1, asserted by three
+// source comments — and enforced nowhere: `OnResponseData` appended every byte
+// a peer cared to send and `OnResponseHeader` accumulated trailers without
+// bound. A hostile or broken collector could therefore grow the transport's
+// per-stream buffers without limit.
+//
+// The enforcement point has to be here, in the transport, because that is
+// where the memory is spent; by the time a codec sees a `TransportResult` the
+// bytes have already been buffered. These tests drive the real transport
+// against a server that deliberately overruns the cap the client connected
+// with.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+mti::ConnectOptions MakeCappedConnectOptions(int port,
+                                             std::uint32_t response_cap,
+                                             std::uint32_t trailer_cap)
+{
+    auto opts = MakeConnectOptions(port);
+    opts.max_response_bytes = response_cap;
+    opts.max_trailer_bytes = trailer_cap;
+    return opts;
+}
+
+/// Connect with caps small enough for the oversized scripts to breach, then
+/// issue one raw request and return what the transport made of the response.
+std::unique_ptr<mtt::Http2Transport> CappedTransport(int port,
+                                                     std::uint32_t response_cap,
+                                                     std::uint32_t trailer_cap)
+{
+    auto reactor_result = mtt::EpollReactor::Create();
+    if (!reactor_result)
+    {
+        return nullptr;
+    }
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    if (!transport_result)
+    {
+        return nullptr;
+    }
+    auto transport = std::move(*transport_result);
+    if (!transport->Connect(MakeCappedConnectOptions(port, response_cap, trailer_cap)))
+    {
+        return nullptr;
+    }
+    return transport;
+}
+
+}  // namespace
+
+TEST(Http2TransportSendIntegrationTest, Send_ResponseOverMaxResponseBytes_FailsAndDropsTheBody)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::OversizedResponseBody);
+    ASSERT_GT(port, 0);
+
+    auto t = CappedTransport(port, kTinyResponseCap, kTinyTrailerCap);
+    ASSERT_NE(t, nullptr);
+
+    const std::array<std::byte, kSmallPayloadBytes> payload{};
+    auto handle = t->Send(MakeRequestSpec("127.0.0.1:" + std::to_string(port), payload));
+    ASSERT_EQ(handle.Future().wait_for(std::chrono::seconds(8)), std::future_status::ready);
+    const auto result = handle.Future().get();
+
+    EXPECT_FALSE(result.success) << "a response over the cap must not be reported as delivered";
+    EXPECT_TRUE(result.response_too_large)
+        << "the failure must name the cap, not look like a reset";
+    EXPECT_TRUE(result.response_body.empty())
+        << "the buffered prefix must be released, not handed up as a truncated body";
+    EXPECT_NE(ErrorMessage(result).find("max_response_bytes"), std::string::npos)
+        << "observed message: " << ErrorMessage(result);
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+TEST(Http2TransportSendIntegrationTest, Send_TrailersOverMaxTrailerBytes_Fails)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::OversizedTrailer);
+    ASSERT_GT(port, 0);
+
+    auto t = CappedTransport(port, kTinyResponseCap, kTinyTrailerCap);
+    ASSERT_NE(t, nullptr);
+
+    const std::array<std::byte, kSmallPayloadBytes> payload{};
+    auto handle = t->Send(MakeRequestSpec("127.0.0.1:" + std::to_string(port), payload));
+    ASSERT_EQ(handle.Future().wait_for(std::chrono::seconds(8)), std::future_status::ready);
+    const auto result = handle.Future().get();
+
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.response_too_large);
+    EXPECT_NE(ErrorMessage(result).find("max_trailer_bytes"), std::string::npos)
+        << "observed message: " << ErrorMessage(result);
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+TEST(Http2TransportSendIntegrationTest, GrpcExport_OversizedResponse_IsTerminalAndCounted)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::OversizedResponseBody);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    // End to end: the codec connects the transport lazily with these options
+    // (ICP 0017), so the cap reaches the transport the way it does in a built
+    // Provider, and the counter is the one `GetExporterHealth()` reports.
+    mtfk::FakeDiagnosticsSink sink;
+    const mtw::GrpcWireCodecConfig config{
+        .host = "127.0.0.1:" + std::to_string(port),
+        .scheme = "http",
+        .extra_headers = {},
+        .service_path = {},
+    };
+    mtw::GrpcWireCodec codec{&*t,
+                             config,
+                             nullptr,
+                             &sink,
+                             nullptr,
+                             MakeCappedConnectOptions(port, kTinyResponseCap, kTinyTrailerCap)};
+    const auto result = codec.Send(MakeEncodedPayload(), std::chrono::milliseconds(5000));
+
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable)
+        << "the peer answers the retry with the same oversized response (error-model.md §7.1)";
+    EXPECT_GE(
+        sink.drop_counters.at(static_cast<std::size_t>(microtel::DropReason::ResponseTooLarge)),
+        1U);
 
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     server.Stop();

@@ -26,6 +26,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace mt = microtel;
 namespace mti = microtel::internal;
@@ -74,10 +76,12 @@ static mti::SpanRecord MakeRecord(const std::string& name)
 static std::unique_ptr<mt::sdk::BatchSpanProcessor> MakeBsp(
     mtfk::FakeExporter& exp,
     mt::BatchOptions opts = mt::BatchOptions{},
-    mtfk::FakeDiagnosticsSink* sink = nullptr)
+    mtfk::FakeDiagnosticsSink* sink = nullptr,
+    std::uint32_t max_record_bytes = mt::MemoryLimitOptions{}.max_record_bytes)
 {
     auto resource = std::make_shared<const mt::Resource>();
-    return std::make_unique<mt::sdk::BatchSpanProcessor>(&exp, std::move(resource), opts, sink);
+    return std::make_unique<mt::sdk::BatchSpanProcessor>(
+        &exp, std::move(resource), opts, max_record_bytes, sink);
 }
 
 static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
@@ -335,6 +339,170 @@ TEST(BatchSpanProcessorTest, Diagnostics_NullSink_IsNotDereferenced)
     EndSpan(*bsp, "dropped");
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));
     EndSpan(*bsp, "after-shutdown");
+}
+
+// ---------------------------------------------------------------------------
+// Record-size limit — spec §13.5, issue #181. `max_record_bytes` was declared
+// in `MemoryLimitOptions` and enforced nowhere, and `record_too_large` was one
+// of the six counters error-model.md §3 marked *(not yet produced)* for want of
+// a detection point. `OnEnd` is that point: the record is measured before it is
+// queued, so an oversized one never occupies the queue at all.
+//
+// The boundary tests take the estimate from `EstimateRecordBytes` itself rather
+// than from a hard-coded size — the formula's constants are documented but not
+// a contract, and a test that duplicated them would break on every tweak while
+// asserting nothing about the limit.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A record with one attribute big enough to dominate the estimate.
+mti::SpanRecord MakeFatRecord(const std::string& name)
+{
+    constexpr std::size_t kAttrValueBytes = 4096;
+    auto record = MakeRecord(name);
+    record.attributes.push_back(
+        mt::KeyValue{.key = "payload", .value = std::string(kAttrValueBytes, 'x')});
+    return record;
+}
+
+std::size_t TotalExported(const mtfk::FakeExporter& exp)
+{
+    std::size_t total = 0;
+    for (const auto& batch : exp.received_batches)
+    {
+        total += batch.Spans().size();
+    }
+    return total;
+}
+
+}  // namespace
+
+TEST(BatchSpanProcessorTest, EstimateRecordBytes_GrowsWithEveryOwnedBuffer)
+{
+    const auto bare = MakeRecord("span");
+    const std::size_t bare_bytes = mt::sdk::EstimateRecordBytes(bare);
+    EXPECT_GT(bare_bytes, std::string{"span"}.size()) << "fixed overhead is part of the estimate";
+
+    auto with_attr = bare;
+    with_attr.attributes.push_back(mt::KeyValue{.key = "k", .value = std::string(100, 'v')});
+    const std::size_t attr_bytes = mt::sdk::EstimateRecordBytes(with_attr);
+    EXPECT_GE(attr_bytes, bare_bytes + 101U);
+
+    auto with_event = with_attr;
+    with_event.events.push_back(
+        mti::SpanEvent{.name = std::string(50, 'e'),
+                       .timestamp = {},
+                       .attributes = {mt::KeyValue{.key = "ek", .value = std::string(60, 'w')}}});
+    const std::size_t event_bytes = mt::sdk::EstimateRecordBytes(with_event);
+    EXPECT_GE(event_bytes, attr_bytes + 112U);
+
+    auto with_link = with_event;
+    with_link.links.push_back(
+        mti::SpanLink{.linked_context = {},
+                      .attributes = {mt::KeyValue{.key = "lk", .value = std::string(30, 'z')}}});
+    EXPECT_GE(mt::sdk::EstimateRecordBytes(with_link), event_bytes + 32U);
+}
+
+// Every `AttributeValue` alternative has its own arm in the estimate, and an
+// arm that reported nothing would let an unbounded array through the limit.
+// Asserted as a growth relative to the same record without the attribute, so
+// the test states the contribution of each type without duplicating the
+// per-type constants.
+TEST(BatchSpanProcessorTest, EstimateRecordBytes_CountsEveryAttributeValueKind)
+{
+    const auto bare = MakeRecord("span");
+    const std::size_t bare_bytes = mt::sdk::EstimateRecordBytes(bare);
+
+    const auto growth = [&bare, bare_bytes](mt::AttributeValue value)
+    {
+        auto record = bare;
+        record.attributes.push_back(mt::KeyValue{.key = "k", .value = std::move(value)});
+        return mt::sdk::EstimateRecordBytes(record) - bare_bytes;
+    };
+
+    constexpr std::size_t kKeyBytes = 1;  // "k"
+    constexpr std::size_t kElements = 4;
+
+    // Scalars cost a fixed width; the key is charged on top of it in each case.
+    const std::size_t scalar = growth(true);
+    EXPECT_GT(scalar, kKeyBytes);
+    EXPECT_EQ(growth(std::int64_t{42}), scalar);
+    EXPECT_EQ(growth(2.5), scalar);
+
+    // Strings and arrays cost what they hold.
+    EXPECT_EQ(growth(std::string(64, 's')), kKeyBytes + 64U);
+    EXPECT_EQ(growth(std::vector<std::string>{std::string(10, 'a'), std::string(20, 'b')}),
+              kKeyBytes + 30U);
+    EXPECT_EQ(growth(std::vector<bool>(kElements, true)), kKeyBytes + kElements);
+    EXPECT_EQ(growth(std::vector<std::int64_t>(kElements, 7)),
+              kKeyBytes + (kElements * sizeof(std::int64_t)));
+    EXPECT_EQ(growth(std::vector<double>(kElements, 1.5)),
+              kKeyBytes + (kElements * sizeof(double)));
+}
+
+TEST(BatchSpanProcessorTest, RecordOverMaxRecordBytes_IsDroppedAndCounted)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    auto record = MakeFatRecord("too-big");
+    const std::size_t estimate = mt::sdk::EstimateRecordBytes(record);
+    ASSERT_GT(estimate, 1U);
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink, static_cast<std::uint32_t>(estimate - 1));
+
+    bsp->OnEnd(std::move(record), mti::InstrumentationScope{.name = "test", .version = ""});
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RecordTooLarge), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 0U);
+
+    // Dropped *before* the queue, not after: the flush has nothing to export.
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, RecordAtMaxRecordBytes_IsQueued)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    auto record = MakeFatRecord("exactly-at-the-limit");
+    const std::size_t estimate = mt::sdk::EstimateRecordBytes(record);
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink, static_cast<std::uint32_t>(estimate));
+
+    bsp->OnEnd(std::move(record), mti::InstrumentationScope{.name = "test", .version = ""});
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RecordTooLarge), 0U)
+        << "the limit is a ceiling the record may reach, not one it may only approach";
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 1U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, RecordTooLarge_WithoutSink_IsStillDropped)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    auto record = MakeFatRecord("no-sink");
+    const std::size_t estimate = mt::sdk::EstimateRecordBytes(record);
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts, nullptr, static_cast<std::uint32_t>(estimate - 1));
+
+    bsp->OnEnd(std::move(record), mti::InstrumentationScope{.name = "test", .version = ""});
+
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
 }
 
 // ---------------------------------------------------------------------------

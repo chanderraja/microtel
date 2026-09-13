@@ -9,21 +9,97 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
+#include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace microtel::sdk
 {
 
+namespace
+{
+
+/// Per-record overhead the estimate charges for the fields that are not owned
+/// buffers: trace and span ids, the parent context, two timestamps, kind,
+/// status, and the protobuf framing around them.
+constexpr std::size_t kRecordFixedBytes = 64;
+/// Per-event overhead: timestamp plus framing.
+constexpr std::size_t kEventFixedBytes = 16;
+/// Per-link overhead: the linked trace id, span id, and flags, plus framing.
+constexpr std::size_t kLinkFixedBytes = 32;
+/// What a scalar attribute value costs — the widest of bool, int64, double.
+constexpr std::size_t kScalarValueBytes = 8;
+
+[[nodiscard]] std::size_t ValueBytes(const AttributeValue& value) noexcept
+{
+    if (const auto* const s = std::get_if<std::string>(&value))
+    {
+        return s->size();
+    }
+    if (const auto* const strings = std::get_if<std::vector<std::string>>(&value))
+    {
+        std::size_t total = 0;
+        for (const auto& s : *strings)
+        {
+            total += s.size();
+        }
+        return total;
+    }
+    if (const auto* const bools = std::get_if<std::vector<bool>>(&value))
+    {
+        return bools->size();
+    }
+    if (const auto* const ints = std::get_if<std::vector<std::int64_t>>(&value))
+    {
+        return ints->size() * sizeof(std::int64_t);
+    }
+    if (const auto* const doubles = std::get_if<std::vector<double>>(&value))
+    {
+        return doubles->size() * sizeof(double);
+    }
+    return kScalarValueBytes;
+}
+
+[[nodiscard]] std::size_t AttributesBytes(const std::vector<KeyValue>& attributes) noexcept
+{
+    std::size_t total = 0;
+    for (const auto& kv : attributes)
+    {
+        total += kv.key.size() + ValueBytes(kv.value);
+    }
+    return total;
+}
+
+}  // namespace
+
+std::size_t EstimateRecordBytes(const internal::SpanRecord& record) noexcept
+{
+    std::size_t total = kRecordFixedBytes + record.name.size() + record.status_description.size();
+    total += AttributesBytes(record.attributes);
+    for (const auto& event : record.events)
+    {
+        total += kEventFixedBytes + event.name.size() + AttributesBytes(event.attributes);
+    }
+    for (const auto& link : record.links)
+    {
+        total += kLinkFixedBytes + AttributesBytes(link.attributes);
+    }
+    return total;
+}
+
 BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
                                        std::shared_ptr<const Resource> resource,
                                        BatchOptions opts,
+                                       std::uint32_t max_record_bytes,
                                        internal::IDiagnosticsSink* diag) noexcept
     : m_exporter(exporter),
       m_resource(std::move(resource)),
       m_opts(opts),
+      m_max_record_bytes(max_record_bytes),
       m_diag(diag),
       m_worker([this] { WorkerLoop(); })
 {
@@ -49,10 +125,23 @@ void BatchSpanProcessor::OnStart(microtel::Span& /*span*/,
 void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
                                const internal::InstrumentationScope& scope) noexcept
 {
+    // Measured before the lock: the scan is over the caller's own record and
+    // owes nothing to the queue, and holding `m_mu` across it would serialise
+    // every other tracer thread behind one span's attribute list.
+    const std::size_t record_bytes = EstimateRecordBytes(record);
+
     const std::scoped_lock lock{m_mu};
     if (m_shutdown)
     {
         RecordDropped(DropReason::PostShutdown);
+        return;
+    }
+    if (record_bytes > m_max_record_bytes)
+    {
+        // Refused before it is queued, so an oversized record never occupies
+        // the queue it would otherwise dominate (issue #181, spec §5.5). The
+        // limit is a ceiling the record may reach: only `>` drops.
+        RecordDropped(DropReason::RecordTooLarge);
         return;
     }
     if (m_queue.size() >= m_opts.max_queue_size)

@@ -94,7 +94,8 @@ before codec/transport), consistent with `SdkProvider`'s documented ordering.
 class ILogRecordProcessor {
 public:
     virtual ~ILogRecordProcessor() noexcept = default;
-    virtual void OnEmit(LogRecord&& record) noexcept = 0;      // any caller thread
+    virtual void OnEmit(LogRecord&& record,
+                        const InstrumentationScope& scope) noexcept = 0;  // any caller thread
     [[nodiscard]] virtual Status ForceFlush(std::chrono::milliseconds) noexcept = 0;
     [[nodiscard]] virtual Status Shutdown(std::chrono::milliseconds) noexcept = 0;
 };

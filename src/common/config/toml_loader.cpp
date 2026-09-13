@@ -150,6 +150,7 @@ constexpr std::string_view kValIgnore = "ignore";
                                .field = "exporter.protocol",
                                .message = R"(must be "http" or "grpc")"};
         }
+        cfg.protocol_explicit = true;
     }
     if (const auto v = (*sec)["compression"].value<std::string>())
     {

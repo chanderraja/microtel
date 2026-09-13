@@ -46,6 +46,15 @@ struct Config
     std::string endpoint_url;  ///< raw URL string (validated and parsed)
     ParsedEndpoint endpoint;   ///< parsed URL components (filled by Validate)
     Protocol protocol{Protocol::Http};
+
+    /// @brief True when `protocol` was named by the user rather than defaulted.
+    ///
+    /// Set by the TOML `exporter.protocol` key, `OTEL_EXPORTER_OTLP_PROTOCOL`,
+    /// and `SdkBuilder::WithProtocol`. `Validate()` reads it to tell "the user
+    /// asked for OTLP/HTTP" apart from "nobody said", which is what decides
+    /// whether a `grpc://` endpoint scheme may select `Protocol::Grpc` or
+    /// conflicts with an explicit choice (issue #203).
+    bool protocol_explicit{false};
     bool compression_gzip{false};
     std::vector<KeyValue> headers;  ///< extra request headers from [exporter.headers]
 

@@ -14,6 +14,7 @@
 //
 // Integration tier because it opens a real socket and takes seconds.
 
+#include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/status.hpp"
@@ -34,10 +35,16 @@ namespace
 constexpr const char* kClosedPortEndpoint = "http://127.0.0.1:1";
 constexpr const char* kClosedPortGrpcEndpoint = "grpc://127.0.0.1:1";
 
-[[nodiscard]] std::shared_ptr<microtel::Provider> BuildAgainstClosedPort(const char* endpoint)
+// The protocol is named rather than left to the endpoint scheme (issue #203):
+// which branch of BuildWireCodec runs is the whole point of the gRPC case
+// below, so this test states it instead of depending on scheme inference to
+// supply it.
+[[nodiscard]] std::shared_ptr<microtel::Provider> BuildAgainstClosedPort(
+    const char* endpoint, microtel::Protocol protocol)
 {
     auto result = microtel::SdkBuilder()
                       .WithEndpoint(endpoint)
+                      .WithProtocol(protocol)
                       .WithTimeouts(microtel::TimeoutOptions{
                           .connect = std::chrono::milliseconds(200),
                           .tls_handshake = std::chrono::milliseconds(200),
@@ -124,7 +131,7 @@ TEST(ExporterHealthIntegrationTest, FailedExportIsVisibleInHealthSnapshot)
 
 TEST(ExporterHealthIntegrationTest, HttpCodecRecordedDropReachesHealthSnapshot)
 {
-    const auto provider = BuildAgainstClosedPort(kClosedPortEndpoint);
+    const auto provider = BuildAgainstClosedPort(kClosedPortEndpoint, microtel::Protocol::Http);
     ASSERT_NE(provider, nullptr);
     ExportOneDoomedSpan(provider);
 
@@ -137,7 +144,7 @@ TEST(ExporterHealthIntegrationTest, HttpCodecRecordedDropReachesHealthSnapshot)
 TEST(ExporterHealthIntegrationTest, GrpcCodecRecordedDropReachesHealthSnapshot)
 {
     // Same wiring, the other branch of BuildWireCodec.
-    const auto provider = BuildAgainstClosedPort(kClosedPortGrpcEndpoint);
+    const auto provider = BuildAgainstClosedPort(kClosedPortGrpcEndpoint, microtel::Protocol::Grpc);
     ASSERT_NE(provider, nullptr);
     ExportOneDoomedSpan(provider);
 

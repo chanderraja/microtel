@@ -181,6 +181,40 @@ struct AuthorityPath
     };
 }
 
+/// @brief Resolve the effective protocol against the endpoint scheme.
+///
+/// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (spec §12.2).
+/// The shorthand selects the protocol when the user has not named one; when the
+/// user has named `http`, the two disagree and the configuration is rejected
+/// rather than silently resolved in either direction — the same rule, and the
+/// same `ProtocolMismatch` kind, that the gRPC-path check below applies.
+///
+/// `https://` and `http://` say nothing about the protocol: `https://` plus an
+/// explicit `protocol` is the canonical spelling of a gRPC endpoint, and
+/// plaintext h2c gRPC over `http://` is legitimate. Only the two gRPC-named
+/// schemes carry an opinion, so only they are consulted here.
+///
+/// A URL with no recognisable scheme falls through unchanged; `ParseEndpointUrl`
+/// is what reports it, and it reports it as `EndpointMalformed`.
+[[nodiscard]] microtel::Expected<Protocol, ConfigError> ResolveProtocol(const Config& cfg)
+{
+    const std::string_view scheme = ExtractScheme(cfg.endpoint_url);
+    if (scheme != kSchemeGrpc && scheme != kSchemeGrpcs)
+    {
+        return cfg.protocol;
+    }
+    if (cfg.protocol_explicit && cfg.protocol != Protocol::Grpc)
+    {
+        return microtel::make_unexpected(ConfigError{
+            .kind = ConfigError::Kind::ProtocolMismatch,
+            .field = "exporter.protocol",
+            .message = "endpoint scheme \"" + std::string{scheme} +
+                       "://\" selects OTLP/gRPC but protocol is set to \"http\"; use an "
+                       "http:// or https:// endpoint, or drop the explicit protocol"});
+    }
+    return Protocol::Grpc;
+}
+
 /// Check that a path-string refers to a readable file.
 [[nodiscard]] bool IsReadable(const std::filesystem::path& p)
 {
@@ -274,6 +308,16 @@ struct AuthorityPath
 
 microtel::Expected<void, ConfigError> Validate(Config& cfg)
 {
+    // --- Protocol (spec §12.2) ---
+    // Before the endpoint is parsed: the resolved protocol is what picks the
+    // default port, so `grpc://collector` means 4317 and not 4318.
+    auto protocol = ResolveProtocol(cfg);
+    if (!protocol)
+    {
+        return microtel::make_unexpected(protocol.error());
+    }
+    cfg.protocol = *protocol;
+
     // --- Endpoint URL ---
     auto endpoint = ParseEndpointUrl(cfg.endpoint_url, cfg.protocol);
     if (!endpoint)

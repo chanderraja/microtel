@@ -11,10 +11,15 @@
 namespace microtel::config
 {
 
-/// @brief Validate a resolved Config and parse the endpoint URL.
+/// @brief Resolve the remaining defaults in a Config and validate the result.
 ///
 /// Performs eager validation without network access:
 ///   - Endpoint URL structure and scheme.
+///   - Protocol against the endpoint scheme (spec §12.2): a `grpc://` or
+///     `grpcs://` endpoint selects `Protocol::Grpc` unless the user named a
+///     protocol, and is rejected with `ProtocolMismatch` when the protocol
+///     they named is `http`. `http://` and `https://` say nothing about the
+///     protocol and leave it alone.
 ///   - Path rejection for gRPC endpoints (spec §12.2).
 ///   - `insecure = true` rejection when the build sets
 ///     `MICROTEL_FORBID_INSECURE_TLS=ON` (spec §12.3).
@@ -22,10 +27,13 @@ namespace microtel::config
 ///   - mTLS key-cert pairing (both or neither).
 ///   - Batch: max_export_batch_size ≤ max_queue_size.
 ///
-/// On success, `cfg.endpoint` is populated with the parsed URL components.
+/// On success `cfg.endpoint` holds the parsed URL components and `cfg.protocol`
+/// holds the resolved protocol.
 /// Returns the first validation failure encountered.
 ///
-/// @param cfg Config to validate (cfg.endpoint mutated on success).
+/// @param cfg Config to resolve and validate. Mutated in place as resolution
+///        proceeds; a later failure does not roll the earlier steps back,
+///        because a Config that failed validation is discarded by its caller.
 [[nodiscard]] microtel::Expected<void, ConfigError> Validate(Config& cfg);
 
 }  // namespace microtel::config

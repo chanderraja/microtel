@@ -567,13 +567,100 @@ TEST(ValidateTest, HttpUrl_NoPort_UsesDefaultHttp)
     EXPECT_EQ(cfg.endpoint.port, 4318U);
 }
 
-TEST(ValidateTest, GrpcScheme_SetsGrpcProtocolAndHttpsScheme)
+// ---------------------------------------------------------------------------
+// Validate — protocol inference from the endpoint scheme (issue #203)
+//
+// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (spec §12.2).
+// They select the protocol when the user has not named one; when the user has
+// named a conflicting one, the configuration is rejected rather than silently
+// resolved in either direction.
+// ---------------------------------------------------------------------------
+
+TEST(ValidateTest, GrpcsScheme_SetsGrpcProtocolAndHttpsScheme)
 {
     mc::Config cfg;
     cfg.endpoint_url = "grpcs://collector.internal:4317";
-    cfg.protocol = mt::Protocol::Grpc;
     const auto result = mc::Validate(cfg);
     ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Grpc);
+    EXPECT_EQ(cfg.endpoint.scheme, "https");
+}
+
+TEST(ValidateTest, GrpcScheme_SetsGrpcProtocolAndHttpScheme)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "grpc://collector.internal:4317";
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Grpc);
+    EXPECT_EQ(cfg.endpoint.scheme, "http");
+}
+
+TEST(ValidateTest, GrpcScheme_NoPort_UsesDefaultGrpcPort)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "grpc://collector.internal";
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Grpc);
+    EXPECT_EQ(cfg.endpoint.port, 4317U);
+}
+
+TEST(ValidateTest, HttpScheme_NoExplicitProtocol_StaysHttp)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "http://collector.internal";
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Http);
+    EXPECT_EQ(cfg.endpoint.port, 4318U);
+}
+
+TEST(ValidateTest, GrpcScheme_ExplicitGrpcProtocol_Succeeds)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "grpc://collector.internal:4317";
+    cfg.protocol = mt::Protocol::Grpc;
+    cfg.protocol_explicit = true;
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Grpc);
+}
+
+TEST(ValidateTest, GrpcScheme_ExplicitHttpProtocol_ReturnsProtocolMismatch)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "grpc://collector.internal:4317";
+    cfg.protocol = mt::Protocol::Http;
+    cfg.protocol_explicit = true;
+    const auto result = mc::Validate(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::ProtocolMismatch);
+    EXPECT_EQ(result.error().field, "exporter.protocol");
+}
+
+TEST(ValidateTest, GrpcsScheme_ExplicitHttpProtocol_ReturnsProtocolMismatch)
+{
+    mc::Config cfg;
+    cfg.endpoint_url = "grpcs://collector.internal:4317";
+    cfg.protocol = mt::Protocol::Http;
+    cfg.protocol_explicit = true;
+    const auto result = mc::Validate(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::ProtocolMismatch);
+}
+
+TEST(ValidateTest, HttpsScheme_ExplicitGrpcProtocol_Succeeds)
+{
+    // The canonical spelling of an OTLP/gRPC endpoint (spec §12.2). No scheme
+    // shorthand is involved, so nothing is inferred and nothing conflicts.
+    mc::Config cfg;
+    cfg.endpoint_url = "https://collector.internal:4317";
+    cfg.protocol = mt::Protocol::Grpc;
+    cfg.protocol_explicit = true;
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.protocol, mt::Protocol::Grpc);
     EXPECT_EQ(cfg.endpoint.scheme, "https");
 }
 

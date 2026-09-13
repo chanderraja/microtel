@@ -94,6 +94,28 @@ TEST(SdkBuilderTest, Build_GrpcWithPath_ReturnsProtocolMismatch)
     EXPECT_EQ(result.error().kind, microtel::ConfigError::Kind::ProtocolMismatch);
 }
 
+// Issue #203: the `grpc://` shorthand selects OTLP/gRPC, so the gRPC rule that
+// an endpoint carries no path applies to it. Before the fix this built an
+// OTLP/HTTP pipeline aimed at a gRPC port, and succeeded.
+TEST(SdkBuilderTest, Build_GrpcSchemeWithPath_ReturnsProtocolMismatch)
+{
+    const auto result =
+        microtel::SdkBuilder().WithEndpoint("grpc://localhost:4317/v1/traces").Build();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, microtel::ConfigError::Kind::ProtocolMismatch);
+}
+
+TEST(SdkBuilderTest, Build_GrpcSchemeWithExplicitHttpProtocol_ReturnsProtocolMismatch)
+{
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("grpc://localhost:4317")
+                            .WithProtocol(microtel::Protocol::Http)
+                            .Build();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, microtel::ConfigError::Kind::ProtocolMismatch);
+    EXPECT_EQ(result.error().field, "exporter.protocol");
+}
+
 // ---------------------------------------------------------------------------
 // Provider lifecycle
 // ---------------------------------------------------------------------------
@@ -499,6 +521,19 @@ TEST(SdkBuilderTest, Build_PlaintextGrpcEndpoint_DoesNotWarn)
                             .WithEndpoint("http://localhost:4317")
                             .WithProtocol(microtel::Protocol::Grpc)
                             .Build();
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));
+}
+
+// Issue #203, observed through the one public-API window onto the resolved
+// protocol: the plaintext-h2c warning fires only for `protocol = http`. A bare
+// `grpc://` endpoint warned before the fix, which is what "the shorthand does
+// not select gRPC" looked like from outside.
+TEST(SdkBuilderTest, Build_GrpcSchemeEndpoint_SelectsGrpcAndDoesNotWarnAboutPlaintext)
+{
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder().WithEndpoint("grpc://localhost:4317").Build();
 
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));

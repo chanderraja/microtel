@@ -5,6 +5,7 @@
 # See src/api/README.md.
 
 add_library(microtel_api STATIC
+    propagator.cpp
     trace.cpp)
 
 target_link_libraries(microtel_api

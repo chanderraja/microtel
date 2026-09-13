@@ -10,6 +10,16 @@ microtel_add_test(
     LIBS    microtel_api)
 
 microtel_add_test(
+    NAME    trace_state_test
+    SOURCES trace_state_test.cpp
+    LIBS    microtel_api)
+
+microtel_add_test(
+    NAME    propagator_test
+    SOURCES propagator_test.cpp
+    LIBS    microtel_api)
+
+microtel_add_test(
     NAME    meter_api_test
     SOURCES meter_api_test.cpp
     LIBS    microtel_sdk)

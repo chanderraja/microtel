@@ -15,7 +15,9 @@
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -38,7 +40,28 @@ constexpr int kHttpServiceUnavailable = 503;
 constexpr int kHttpGatewayTimeout = 504;
 
 // Number of built-in request headers added before any extra headers
-constexpr std::size_t kBuiltInHeaderCount = 6U;
+constexpr std::size_t kBuiltInHeaderCount = 7U;
+
+/// Why a response body yielded nothing usable. Both are terminal; they differ
+/// only in which counter and which operator message they produce.
+enum class BodyError : std::uint8_t
+{
+    Malformed = 0,
+    TooLarge = 1,
+};
+
+[[nodiscard]] std::optional<std::string_view> FindHeaderValue(
+    const std::vector<internal::HeaderField>& headers, std::string_view name)
+{
+    for (const auto& h : headers)
+    {
+        if (h.name == name)
+        {
+            return std::string_view{h.value};
+        }
+    }
+    return std::nullopt;
+}
 
 /// @brief Parse an integer-form `Retry-After` value (seconds).
 ///
@@ -121,6 +144,71 @@ constexpr std::size_t kBuiltInHeaderCount = 6U;
     };
 }
 
+/// @brief Undo `content-encoding` on the response body.
+///
+/// Runs before anything reads the body, so neither `ParseRejectedSpans` nor
+/// the diagnostics excerpt ever sees compressed bytes — the former reports 0
+/// for them exactly as for an absent body, and the latter would put binary
+/// noise in front of an operator.
+///
+/// @param result the completed transport response.
+/// @param max_decompressed ceiling on the inflated size.
+/// @param owned receives the inflated bytes when the body was gzipped. The
+///        returned span borrows it, so it must outlive that span.
+[[nodiscard]] microtel::Expected<std::span<const std::byte>, BodyError> DecodeBody(
+    const internal::TransportResult& result,
+    std::size_t max_decompressed,
+    std::vector<std::byte>& owned)
+{
+    const std::span<const std::byte> raw{result.response_body};
+    const auto encoding = FindHeaderValue(result.response_headers, "content-encoding");
+    // An empty body has nothing to decode and nothing to misread, so a header
+    // on one is a server quirk rather than a protocol violation.
+    if (!encoding.has_value() || encoding->empty() || *encoding == "identity" || raw.empty())
+    {
+        return raw;
+    }
+    if (*encoding != "gzip")
+    {
+        // gzip is the only encoding this client asks for. Anything else is
+        // bytes it cannot read, and the retry brings back the same ones.
+        return microtel::make_unexpected(BodyError::Malformed);
+    }
+    auto inflated = GzipDecompress(raw, max_decompressed);
+    if (!inflated)
+    {
+        const bool too_large = (inflated.error() == GzipDecompressError::TooLarge);
+        return microtel::make_unexpected(too_large ? BodyError::TooLarge : BodyError::Malformed);
+    }
+    owned = std::move(*inflated);
+    return std::span<const std::byte>{owned};
+}
+
+[[nodiscard]] internal::WireResult BodyFailure(BodyError err, internal::IDiagnosticsSink* diag)
+{
+    const bool too_large = (err == BodyError::TooLarge);
+    const auto reason =
+        too_large ? DropReason::DecompressionTooLarge : DropReason::MalformedResponse;
+    if (diag != nullptr)
+    {
+        diag->RecordDrop(reason);
+    }
+    const std::string_view message = too_large ? "response exceeds max_decompressed_bytes"
+                                               : "undecodable response content-encoding";
+    return {
+        .success = false,
+        // Terminal per error-model.md §7.1: a peer that answers in an encoding
+        // we cannot read, or with a decompression bomb, does it again on the
+        // retry. `Kind` is `Malformed` for both — the counter and the message
+        // carry the distinction, and `Error::Kind` is public surface not worth
+        // churning for it.
+        .retryable = false,
+        .retry_after = {},
+        .error = Error{.kind = Error::Kind::Malformed, .message = std::string{message}},
+        .response_excerpt = {},
+    };
+}
+
 }  // namespace
 
 HttpWireCodec::HttpWireCodec(internal::ITransport* transport,
@@ -163,6 +251,11 @@ std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(std::size_t conte
     headers.push_back({.name = ":authority", .value = m_config.host});
     headers.push_back({.name = "content-type", .value = "application/x-protobuf"});
     headers.push_back({.name = "content-length", .value = std::to_string(content_length)});
+    // Unconditional, and independent of `compression_gzip`: this states what
+    // the client can decode, not what it chose to encode. The response path
+    // now handles `content-encoding: gzip`, so there is nothing left to gate
+    // it on — and staying silent costs response bandwidth for no benefit.
+    headers.push_back({.name = "accept-encoding", .value = "gzip"});
     if (compressed)
     {
         headers.push_back({.name = "content-encoding", .value = "gzip"});
@@ -198,7 +291,7 @@ void HttpWireCodec::AppendAuthHeader(std::vector<internal::HeaderField>& headers
     headers.push_back({.name = "authorization", .value = token_opt.value()});
 }
 
-std::string HttpWireCodec::BuildExcerpt(const std::vector<std::byte>& body)
+std::string HttpWireCodec::BuildExcerpt(std::span<const std::byte> body)
 {
     if (body.empty())
     {
@@ -319,14 +412,26 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
         };
     }
 
+    return ClassifyResponse(result);
+}
+
+internal::WireResult HttpWireCodec::ClassifyResponse(const internal::TransportResult& result) const
+{
+    // Owns the inflated bytes for as long as `body` borrows them.
+    std::vector<std::byte> inflated;
+    const auto body = DecodeBody(result, m_config.max_decompressed_bytes, inflated);
+    if (!body)
+    {
+        return BodyFailure(body.error(), m_diag);
+    }
+
     const int code = ParseStatusCode(result.response_headers);
     auto wire = ClassifyStatus(code, result.response_headers);
-    if (wire.success && !result.response_body.empty())
+    if (wire.success && !body->empty())
     {
-        wire.partial_success_rejected =
-            ParseRejectedSpans(std::span<const std::byte>{result.response_body});
+        wire.partial_success_rejected = ParseRejectedSpans(*body);
     }
-    wire.response_excerpt = BuildExcerpt(result.response_body);
+    wire.response_excerpt = BuildExcerpt(*body);
     return wire;
 }
 
@@ -363,15 +468,7 @@ internal::WireResult HttpWireCodec::CollectOneResult(
         };
     }
 
-    const int code = ParseStatusCode(result.response_headers);
-    auto wire = ClassifyStatus(code, result.response_headers);
-    if (wire.success && !result.response_body.empty())
-    {
-        wire.partial_success_rejected =
-            ParseRejectedSpans(std::span<const std::byte>{result.response_body});
-    }
-    wire.response_excerpt = BuildExcerpt(result.response_body);
-    return wire;
+    return ClassifyResponse(result);
 }
 
 std::vector<internal::WireResult> HttpWireCodec::SendAll(

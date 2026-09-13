@@ -9,8 +9,12 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_codec.hpp"
 
+#include "wire/gzip.hpp"
+
 #include <chrono>
+#include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -31,9 +35,14 @@ struct HttpWireCodecConfig
     std::string signal_path;
     std::vector<internal::HeaderField> extra_headers;  ///< forwarded verbatim
     /// @brief When true, request bodies are gzip-compressed and
-    /// `content-encoding: gzip` is set. Responses are unaffected: no
-    /// `accept-encoding` is advertised, so servers return identity.
+    /// `content-encoding: gzip` is set. Response decompression is independent
+    /// of this flag: `accept-encoding: gzip` is advertised unconditionally.
     bool compression_gzip{false};
+    /// @brief Ceiling on the decompressed size of a `content-encoding: gzip`
+    /// response body. Past it the response is failed and
+    /// `decompression_too_large` counted, rather than the bomb being
+    /// materialised. Plumbed from `MemoryLimitOptions::max_decompressed_bytes`.
+    std::uint32_t max_decompressed_bytes{kDefaultMaxDecompressedBytes};
 };
 
 /// @brief OTLP/HTTP-protobuf implementation of `IWireCodec`.
@@ -122,7 +131,15 @@ private:
     [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(std::size_t content_length,
                                                                   bool compressed) const noexcept;
     void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
-    [[nodiscard]] static std::string BuildExcerpt(const std::vector<std::byte>& body);
+    [[nodiscard]] static std::string BuildExcerpt(std::span<const std::byte> body);
+    /// @brief Turn a completed transport response into a `WireResult`.
+    ///
+    /// Decodes `content-encoding` first — an encoding this codec cannot read
+    /// makes the response unusable whatever its status — then classifies the
+    /// status and parses the partial-success body. Shared by `Send` and
+    /// `SendAll` so the two cannot drift apart.
+    [[nodiscard]] internal::WireResult ClassifyResponse(
+        const internal::TransportResult& result) const;
     [[nodiscard]] internal::WireResult CollectOneResult(
         InFlight& item, std::chrono::steady_clock::time_point deadline_point);
     /// @brief Connects `m_transport` if it isn't already (ICP 0017).

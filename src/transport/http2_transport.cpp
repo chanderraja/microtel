@@ -17,6 +17,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <future>
 #include <memory>
@@ -412,9 +413,14 @@ ssize_t NgHttp2RecvCb(
 
 int NgHttp2OnFrameRecvCb(nghttp2_session* /*s*/, const nghttp2_frame* frame, void* ud) noexcept
 {
+    auto* const transport = static_cast<Http2Transport*>(ud);
     if (frame->hd.type == NGHTTP2_SETTINGS && (frame->hd.flags & NGHTTP2_FLAG_ACK) != 0U)
     {
-        static_cast<Http2Transport*>(ud)->OnSettingsAck();
+        transport->OnSettingsAck();
+    }
+    else if (frame->hd.type == NGHTTP2_GOAWAY)
+    {
+        transport->OnGoaway(frame->goaway.last_stream_id, frame->goaway.error_code);
     }
     return 0;
 }
@@ -896,6 +902,92 @@ void Http2Transport::OnStreamClose(std::int32_t stream_id, std::uint32_t error_c
     FulfillStream(stream_id, error_code);
 }
 
+namespace
+{
+
+/// @brief Mnemonic for the GOAWAY error codes `goaway-handling.md` tabulates.
+///
+/// v1 treats every code as the same category — drain and reconnect — so the
+/// name is purely diagnostic: it is what lets an operator correlate the drain
+/// with a peer-side incident. Codes outside the table are reported by number.
+[[nodiscard]] const char* GoawayErrorName(std::uint32_t error_code) noexcept
+{
+    switch (error_code)
+    {
+        case NGHTTP2_NO_ERROR:
+            return "NO_ERROR";
+        case NGHTTP2_PROTOCOL_ERROR:
+            return "PROTOCOL_ERROR";
+        case NGHTTP2_INTERNAL_ERROR:
+            return "INTERNAL_ERROR";
+        case NGHTTP2_ENHANCE_YOUR_CALM:
+            return "ENHANCE_YOUR_CALM";
+        default:
+            return "unnamed";
+    }
+}
+
+}  // namespace
+
+void Http2Transport::OnGoaway(std::int32_t last_stream_id, std::uint32_t error_code) noexcept
+{
+    // snprintf into the member buffer rather than building a std::string: this
+    // runs inside a noexcept nghttp2 callback, where an allocation failure
+    // would take the process rather than the batch.
+    (void)std::snprintf(m_goaway_detail.data(),
+                        m_goaway_detail.size(),
+                        "peer sent GOAWAY last_stream_id=%d error=%u (%s)",
+                        last_stream_id,
+                        error_code,
+                        GoawayErrorName(error_code));
+    m_goaway_received.store(true, std::memory_order_release);
+
+    // Only the refusal happens here. The state change waits for `OnIoEvent`,
+    // where nghttp2 has finished with the socket for this turn — see
+    // `FinishGoawayDrainIfIdle`.
+    RefuseStreamsAbove(last_stream_id);
+}
+
+void Http2Transport::RefuseStreamsAbove(std::int32_t last_stream_id) noexcept
+{
+    for (auto it = m_streams.begin(); it != m_streams.end();)
+    {
+        if (it->first <= last_stream_id)
+        {
+            // The peer accepted this one and may still answer it: leave it
+            // alone (`goaway-handling.md` annotation 1).
+            ++it;
+            continue;
+        }
+        auto state = std::move(it->second);
+        it = m_streams.erase(it);
+        m_handle_to_stream.erase(state->handle_id);
+        // Network, matching what `FulfillStream` makes of the REFUSED_STREAM
+        // close that nghttp2 is about to deliver for this stream — the codec
+        // above retries it either way. Only the message changes, and the
+        // message is the whole operator-visible explanation.
+        state->result.error = microtel::Error{.kind = microtel::Error::Kind::Network,
+                                              .message = m_goaway_detail.data()};
+        state->promise.set_value(std::move(state->result));
+    }
+}
+
+bool Http2Transport::FinishGoawayDrainIfIdle() noexcept
+{
+    if (!m_goaway_received.load(std::memory_order_acquire) || !m_streams.empty())
+    {
+        return false;
+    }
+    // Compare-exchange rather than a store: `Close` may have published Closed
+    // while the peer's GOAWAY was in flight, and a blind store would resurrect
+    // a closed transport into Reconnecting.
+    auto expected = microtel::ConnectionState::Connected;
+    return m_state.compare_exchange_strong(expected,
+                                           microtel::ConnectionState::Reconnecting,
+                                           std::memory_order_acq_rel,
+                                           std::memory_order_acquire);
+}
+
 void Http2Transport::OnResponseHeader(std::int32_t stream_id,
                                       bool is_trailer,
                                       std::string_view name,
@@ -1019,6 +1111,9 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
     m_first_plaintext_recv.store(true, std::memory_order_release);
     m_peer_spoke_http1.store(false, std::memory_order_release);
     m_peer_closed_on_send.store(false, std::memory_order_release);
+    // Likewise the GOAWAY: the new session has had none, and inheriting the
+    // old one's would retire this connection the moment a stream finished.
+    m_goaway_received.store(false, std::memory_order_release);
 
     nghttp2_session_callbacks* cbs = nullptr;
     ::nghttp2_session_callbacks_new(&cbs);
@@ -1203,6 +1298,12 @@ void Http2Transport::IoThreadLoop() noexcept
         {
             DrainPendingRequests();
             DrainCancelQueue();
+            // A cancel can retire the last stream on a GOAWAY'd connection,
+            // and no read event need follow it: without this the transport
+            // would sit in Connected on a session nghttp2 refuses to open
+            // streams on, which is the wedge the GOAWAY handling exists to
+            // avoid. Safe here — nghttp2 is between turns, not mid-recv.
+            (void)FinishGoawayDrainIfIdle();
         }
     }
     // Publish loop exit so Close's wait can be bounded by its timeout.
@@ -1256,6 +1357,15 @@ void Http2Transport::OnIoEvent(int fd, internal::EventMask events) noexcept
         {
             AbandonInFlight("connection lost");
             m_state.store(microtel::ConnectionState::Reconnecting, std::memory_order_release);
+            return;
+        }
+        // A GOAWAY seen during that recv retires the connection — but here,
+        // not in the callback that saw it. Publishing Reconnecting from inside
+        // the callback tells the caller thread it may reconnect while nghttp2
+        // is still reading this socket, and the reconnect's `close` then races
+        // the `read` still in flight (TSAN finds it immediately).
+        if (FinishGoawayDrainIfIdle())
+        {
             return;
         }
     }

@@ -32,10 +32,15 @@ unblock).
 
 - `tests/unit/transport/` — `ITransport` and `IReactor` against a fake
   reactor.
-- `tests/integration/transport_loopback/` — runs against a small
-  in-process server.
-- `tests/integration/transport_goaway/` — peer GOAWAY, RST_STREAM,
-  reconnect (per `docs/sequences/goaway-handling.md`).
+- [`tests/integration/transport/`](../../tests/integration/transport/) —
+  runs against a small in-process nghttp2 server over loopback:
+  - `http2_connect_test.cpp` — connect, drop, reconnect, HTTP/1.1 peer.
+  - `http2_send_test.cpp` — request/response, concurrent `Send`, peer
+    TCP reset, and the frame-level peer behaviour from
+    `docs/sequences/goaway-handling.md` and
+    `docs/grpc-wire-protocol.md` §2.6: `Send_PeerGoaway*`,
+    `Send_PeerRstStream_*`, `GrpcResponse_Split*`.
+  - `http2_tls_connect_test.cpp` — TLS, ALPN, certificate handling.
 - `tests/fuzz/` — response-size and trailer-parser fuzzers (used by
   Track C too).
 

@@ -453,6 +453,31 @@ TEST(GrpcWireCodecTest, Send_MissingGrpcStatus_Http200_NotRetryable)
     EXPECT_FALSE(result.retryable);
 }
 
+// A 5xx HTTP status under a `grpc-status: 0` trailer is an unusual but legal
+// combination — an intermediary stamping its own status onto a stream the
+// server completed successfully. §4.1 is LOCKED on which one wins:
+// `grpc-status` classifies, the HTTP status is diagnostic only. Dropping the
+// batch here would discard spans the collector already accepted.
+//
+// (§4.3 also calls for a diagnostic on this row. The codec emits none today;
+// classification is the normative half and is what this pins.)
+TEST(GrpcWireCodecTest, Send_Http503WithGrpcStatus0_SucceedsPerGrpcStatus)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "503"}},
+        .response_trailers = {{.name = "grpc-status", .value = "0"}},
+        .response_body = {},
+        .error = {},
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_FALSE(result.retryable);
+}
+
 // ---------------------------------------------------------------------------
 // Transport-level error
 // ---------------------------------------------------------------------------

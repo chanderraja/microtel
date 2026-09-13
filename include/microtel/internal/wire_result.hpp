@@ -31,7 +31,10 @@ struct WireResult
     std::optional<std::chrono::milliseconds> retry_after;
     std::uint32_t partial_success_rejected = 0;
     std::optional<Error> error;
-    std::string response_excerpt;  ///< capped at max_response_bytes; for diagnostics
+    /// Short operator-facing excerpt of the response, for diagnostics. Its own
+    /// cap is the excerpt length each codec applies; the whole response it is
+    /// taken from is already bounded by `ConnectOptions::max_response_bytes`.
+    std::string response_excerpt;
 };
 
 }  // namespace microtel::internal

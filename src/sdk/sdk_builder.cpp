@@ -320,6 +320,8 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
         .client_cert = cfg.tls.client_cert,
         .client_key = cfg.tls.client_key,
         .sni_override = cfg.tls.sni_override,
+        .max_response_bytes = cfg.memory_limits.max_response_bytes,
+        .max_trailer_bytes = cfg.memory_limits.max_trailer_bytes,
     };
 }
 

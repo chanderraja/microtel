@@ -812,6 +812,34 @@ void WarnMissingGrpcStatusOnce(int http_status, bool& already_warned)
     };
 }
 
+/// @brief Classify a request the transport failed rather than answered.
+///
+/// Transport-level failures — connection reset, refused, read timeout — are
+/// retryable, matching `HttpWireCodec` and this codec's own `EnsureConnected`
+/// path (ICP 0017): they are the transient conditions the retry engine exists
+/// for, and returning false here once meant a gRPC deployment dropped a batch
+/// on the first collector restart that HTTP would have delivered.
+///
+/// A response the transport refused to buffer is the exception. The peer sends
+/// the same oversized response on the retry, so it is terminal and counted
+/// (`docs/error-model.md` §3 and §7.1).
+[[nodiscard]] internal::WireResult ClassifyTransportFailure(const internal::TransportResult& tr,
+                                                            internal::IDiagnosticsSink* diag)
+{
+    if (tr.response_too_large && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::ResponseTooLarge);
+    }
+    return internal::WireResult{
+        .success = false,
+        .retryable = !tr.response_too_large,
+        .retry_after = {},
+        .partial_success_rejected = 0,
+        .error = tr.error,
+        .response_excerpt = {},
+    };
+}
+
 [[nodiscard]] internal::WireResult ClassifyResponse(const internal::TransportResult& tr,
                                                     std::size_t max_decompressed,
                                                     internal::IDiagnosticsSink* diag,
@@ -819,20 +847,7 @@ void WarnMissingGrpcStatusOnce(int http_status, bool& already_warned)
 {
     if (tr.error.has_value())
     {
-        return internal::WireResult{
-            .success = false,
-            // Transport-level failure: connection reset, refused, read timeout.
-            // Retryable, matching HttpWireCodec and this codec's own
-            // EnsureConnected path (ICP 0017) — these are the transient
-            // conditions the retry engine exists for. Returning false here
-            // meant a gRPC deployment dropped a batch on the first collector
-            // restart that HTTP would have delivered.
-            .retryable = true,
-            .retry_after = {},
-            .partial_success_rejected = 0,
-            .error = tr.error,
-            .response_excerpt = {},
-        };
+        return ClassifyTransportFailure(tr, diag);
     }
     auto status_sv = FindHeaderValue(tr.response_trailers, "grpc-status");
     if (!status_sv.has_value())

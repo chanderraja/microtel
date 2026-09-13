@@ -626,6 +626,8 @@ microtel::Expected<void, microtel::Error> Http2Transport::Connect(
         m_state.store(prior, std::memory_order_release);
     };
 
+    AdoptResponseBudget(opts);
+
     auto ep = ParseEndpoint(opts.endpoint, opts.insecure);
     if (!ep)
     {
@@ -864,6 +866,35 @@ void Http2Transport::SubmitStream(PendingRequest req) noexcept
     ::nghttp2_session_send(m_nghttp2_session.Get());
 }
 
+namespace
+{
+
+/// @brief The error a stream carries when it breached a response memory cap.
+///
+/// `Malformed` rather than a kind of its own: the same choice
+/// `HttpWireCodec::BodyFailure` makes for the decompression ceiling — the
+/// counter and the message carry the distinction, and `Error::Kind` is public
+/// surface not worth churning for it. The message names the cap because that
+/// is the setting an operator would raise.
+/// @brief Copy one nghttp2 header field into an owned `HeaderField`.
+///
+/// nghttp2's buffers are recycled on the next read, so the bytes have to be
+/// copied here or not at all.
+[[nodiscard]] internal::HeaderField MakeHeaderField(std::string_view name, std::string_view value)
+{
+    return internal::HeaderField{.name = std::string{name}, .value = std::string{value}};
+}
+
+[[nodiscard]] microtel::Error OversizedError(Http2Transport::ResponseOverflow kind)
+{
+    const auto* const message = (kind == Http2Transport::ResponseOverflow::Trailers)
+                                    ? "response trailers exceed max_trailer_bytes"
+                                    : "response exceeds max_response_bytes";
+    return microtel::Error{.kind = microtel::Error::Kind::Malformed, .message = message};
+}
+
+}  // namespace
+
 void Http2Transport::FulfillStream(std::int32_t stream_id,
                                    std::uint32_t nghttp2_error_code) noexcept
 {
@@ -875,6 +906,17 @@ void Http2Transport::FulfillStream(std::int32_t stream_id,
     auto state = std::move(it->second);
     m_streams.erase(it);
     m_handle_to_stream.erase(state->handle_id);
+
+    // Checked before the nghttp2 code: the stream closes with whatever code
+    // our own RST_STREAM carried, or even cleanly if the peer's END_STREAM won
+    // the race, and neither says why we stopped reading it.
+    if (state->overflow != ResponseOverflow::None)
+    {
+        state->result.response_too_large = true;
+        state->result.error = OversizedError(state->overflow);
+        state->promise.set_value(std::move(state->result));
+        return;
+    }
 
     if (nghttp2_error_code == 0)
     {
@@ -988,6 +1030,31 @@ bool Http2Transport::FinishGoawayDrainIfIdle() noexcept
                                            std::memory_order_acquire);
 }
 
+void Http2Transport::AdoptResponseBudget(const internal::ConnectOptions& opts) noexcept
+{
+    m_max_response_bytes.store(opts.max_response_bytes, std::memory_order_relaxed);
+    m_max_trailer_bytes.store(opts.max_trailer_bytes, std::memory_order_relaxed);
+}
+
+void Http2Transport::FailOversizedStream(std::int32_t stream_id,
+                                         StreamState& state,
+                                         ResponseOverflow kind) noexcept
+{
+    state.overflow = kind;
+    // Release rather than keep: the budget exists to stop this memory being
+    // held, and a truncated body would reach the codec looking like a
+    // malformed one. `shrink_to_fit` is what actually returns the capacity.
+    state.result.response_body.clear();
+    state.result.response_body.shrink_to_fit();
+    state.result.response_trailers.clear();
+    state.result.response_trailers.shrink_to_fit();
+
+    // Tell the peer to stop. Submitted, not sent: this runs inside an nghttp2
+    // callback, and the `nghttp2_session_send` that ends the turn flushes it.
+    ::nghttp2_submit_rst_stream(
+        m_nghttp2_session.Get(), NGHTTP2_FLAG_NONE, stream_id, NGHTTP2_CANCEL);
+}
+
 void Http2Transport::OnResponseHeader(std::int32_t stream_id,
                                       bool is_trailer,
                                       std::string_view name,
@@ -998,15 +1065,26 @@ void Http2Transport::OnResponseHeader(std::int32_t stream_id,
     {
         return;
     }
-    internal::HeaderField field{.name = std::string{name}, .value = std::string{value}};
+    auto& state = *it->second;
+    if (state.overflow != ResponseOverflow::None)
+    {
+        return;  // already over budget; buffer nothing further
+    }
+    // Only trailers are metered: `max_trailer_bytes` is a trailer budget, and
+    // the cap is checked before the strings are copied, so an over-budget
+    // field is never materialised.
     if (is_trailer)
     {
-        it->second->result.response_trailers.push_back(std::move(field));
+        state.trailer_bytes += name.size() + value.size();
+        if (state.trailer_bytes > m_max_trailer_bytes.load(std::memory_order_relaxed))
+        {
+            FailOversizedStream(stream_id, state, ResponseOverflow::Trailers);
+            return;
+        }
+        state.result.response_trailers.push_back(MakeHeaderField(name, value));
+        return;
     }
-    else
-    {
-        it->second->result.response_headers.push_back(std::move(field));
-    }
+    state.result.response_headers.push_back(MakeHeaderField(name, value));
 }
 
 void Http2Transport::OnResponseData(std::int32_t stream_id,
@@ -1018,7 +1096,17 @@ void Http2Transport::OnResponseData(std::int32_t stream_id,
     {
         return;
     }
-    auto& body = it->second->result.response_body;
+    auto& state = *it->second;
+    if (state.overflow != ResponseOverflow::None)
+    {
+        return;  // already over budget; the peer's RST_STREAM is in flight
+    }
+    auto& body = state.result.response_body;
+    if (body.size() + len > m_max_response_bytes.load(std::memory_order_relaxed))
+    {
+        FailOversizedStream(stream_id, state, ResponseOverflow::Body);
+        return;
+    }
     const auto* bytes = reinterpret_cast<const std::byte*>(data);
     body.insert(body.end(), bytes, bytes + len);
 }

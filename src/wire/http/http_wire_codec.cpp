@@ -209,6 +209,39 @@ enum class BodyError : std::uint8_t
     };
 }
 
+/// @brief Turn a failed `TransportResult` into a `WireResult`.
+///
+/// A transport failure is retryable by default — connection reset, refused
+/// peer, read timeout are exactly what the retry engine exists for. The one
+/// exception is a response the transport refused to buffer: the peer answers
+/// the retry with the same oversized response, so it is terminal and counted
+/// (`docs/error-model.md` §3 and §7.1).
+[[nodiscard]] internal::WireResult TransportFailure(const internal::TransportResult& result,
+                                                    internal::IDiagnosticsSink* diag)
+{
+    if (!result.response_too_large)
+    {
+        return {
+            .success = false,
+            .retryable = true,
+            .retry_after = {},
+            .error = result.error,
+            .response_excerpt = {},
+        };
+    }
+    if (diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::ResponseTooLarge);
+    }
+    return {
+        .success = false,
+        .retryable = false,
+        .retry_after = {},
+        .error = result.error,
+        .response_excerpt = {},
+    };
+}
+
 }  // namespace
 
 HttpWireCodec::HttpWireCodec(internal::ITransport* transport,
@@ -403,13 +436,7 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
     auto result = fut.get();
     if (!result.success)
     {
-        return {
-            .success = false,
-            .retryable = true,  // transport-level failure: connection reset, etc.
-            .retry_after = {},
-            .error = result.error,
-            .response_excerpt = {},
-        };
+        return TransportFailure(result, m_diag);
     }
 
     return ClassifyResponse(result);
@@ -459,13 +486,7 @@ internal::WireResult HttpWireCodec::CollectOneResult(
     auto result = item.handle.Future().get();
     if (!result.success)
     {
-        return {
-            .success = false,
-            .retryable = true,
-            .retry_after = {},
-            .error = result.error,
-            .response_excerpt = {},
-        };
+        return TransportFailure(result, m_diag);
     }
 
     return ClassifyResponse(result);

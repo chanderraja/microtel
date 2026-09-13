@@ -535,6 +535,7 @@ TEST(GrpcWireCodecTest, Send_ConnectFailureAndMidStreamFailure_AgreeOnRetryabili
     EXPECT_TRUE(send_result.retryable);
 }
 
+
 // ---------------------------------------------------------------------------
 // Drop accounting — issue #169. The codec owns classification (ICP 0001) but
 // wrote none of the counters the classification names in error-model.md §7.2.
@@ -543,6 +544,54 @@ TEST(GrpcWireCodecTest, Send_ConnectFailureAndMidStreamFailure_AgreeOnRetryabili
 static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
 {
     return sink.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
+// The one transport failure that is *not* retryable: a response the transport
+// refused to buffer past `max_response_bytes`. The peer answers the retry with
+// the same oversized response, so retrying only spends the budget
+// (`error-model.md` §7.1's `response_too_large` row, which §7.2 now mirrors).
+TEST(GrpcWireCodecTest, Send_ResponseTooLarge_IsNonRetryableAndCounted)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Malformed,
+                           .message = "response exceeds max_response_bytes"},
+        .response_too_large = true,
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ResponseTooLarge), 1U);
+}
+
+// Trailers have no counter of their own — error-model.md §3 maps
+// `max_trailer_bytes` onto `response_too_large`, with the message naming the
+// cap. Relevant to gRPC in particular: `grpc-status` rides in the trailers.
+TEST(GrpcWireCodecTest, Send_TrailersTooLarge_CountsResponseTooLarge)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::Malformed,
+                           .message = "response trailers exceed max_trailer_bytes"},
+        .response_too_large = true,
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::ResponseTooLarge), 1U);
 }
 
 TEST(GrpcWireCodecTest, Diagnostics_ConnectFails_CountsConnectFailure)

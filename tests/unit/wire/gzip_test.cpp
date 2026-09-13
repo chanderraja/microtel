@@ -341,6 +341,21 @@ TEST(GzipDecompressTest, TrailingGarbageAfterTheStreamIsRejected)
     EXPECT_EQ(restored.error(), mtw::GzipDecompressError::Corrupt);
 }
 
+TEST(GzipDecompressTest, RejectsInputLargerThanOneInflatePass)
+{
+    // Mirror of RejectsInputLargerThanOneDeflatePass: a single inflate pass
+    // takes its input length as uInt, and the size is checked before any byte
+    // is read, so a span that merely *claims* to be oversized exercises the
+    // guard without touching memory.
+    const std::byte probe{0x00};
+    const std::span<const std::byte> oversized{
+        &probe, static_cast<std::size_t>(std::numeric_limits<uInt>::max()) + 1U};
+
+    const auto restored = mtw::GzipDecompress(oversized, kAmpleCap);
+    ASSERT_FALSE(restored.has_value());
+    EXPECT_EQ(restored.error(), mtw::GzipDecompressError::Corrupt);
+}
+
 TEST(GzipDecompressTest, RejectsRawZlibStream)
 {
     // windowBits 15+16 accepts only the RFC 1952 gzip wrapper. A bare zlib

@@ -53,6 +53,7 @@ being explicitly marked unsupported here**. This is that ledger.
 | `insecure = true` | Supported, and **warns** at `Build()` | `SdkBuilderTest.Build_InsecureTls_Warns`. A hard ban is `MICROTEL_FORBID_INSECURE_TLS=ON`, which turns it into `ConfigError::InsecureDisallowed`. |
 | **HTTP proxy (`https_proxy` / `http_proxy` / `no_proxy`, `CONNECT`)** | **UNSUPPORTED in v1** | Not implemented — zero occurrences in `src/`. The variable names are reserved; setting them changes nothing. Deferred, see [`microtel-roadmap.md`](../microtel-roadmap.md). |
 | **Plaintext OTLP/HTTP against an HTTP/1.1-only receiver** | **UNSUPPORTED** | §4 below; [`interop-matrix.md`](interop-matrix.md) §4; issue #166 |
+| A peer that hangs up under an in-flight write | Survivable: the export fails, the host process does not | `SIGPIPE` is suppressed per write — `MSG_NOSIGNAL` on plaintext sends, and a custom `BIO` carrying the same flag for TLS, covering `SSL_write` and the handshake writes inside `SSL_connect`. The host needs no `signal(SIGPIPE, SIG_IGN)` of its own, and microtel installs no handler and changes no process-wide disposition (`threading-model.md` §7.1). Evidence: `NoSignalIoTest` / `NoSignalBioTest` in `tests/unit/transport/nosignal_io_test.cpp`, plus the peer-reset tests in `tests/integration/transport/`. Issue #177. |
 | gzip request compression | Supported | conformance suites, both protocols |
 | gRPC response decompression | Specified, not implemented | issue #161 |
 | HTTP/3 | Out of scope for v1 | spec §17; v1.5 experiment per roadmap |
@@ -141,10 +142,6 @@ open at the time of writing.
 - **gRPC response decompression is specified but not implemented** (issue
   #161). A collector that compresses its response body is not interoperable on
   the gRPC path today.
-- **The send path is not `SIGPIPE`-safe** (issue #177). A peer that closes the
-  connection under an in-flight write can terminate the *host application*, not
-  just the export. Until that is fixed, an application embedding microtel
-  should ignore `SIGPIPE` itself.
 
 ---
 

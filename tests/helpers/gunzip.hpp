@@ -1,9 +1,13 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Test-only gzip decompression. Production code compresses but never
-// decompresses (no `accept-encoding` is advertised), so this lives in the test
-// tree rather than in src/.
+// Test-only gzip decompression. Production has its own inflate now
+// (`microtel::wire::GzipDecompress`), and this stays deliberately separate as
+// the independent oracle the gzip round-trip tests check against: it allocates
+// the ceiling up front and inflates in one pass, where production grows in
+// chunks and distinguishes an overflow from a corrupt stream. Two
+// implementations that agree are evidence; one implementation checked against
+// itself is not.
 
 #pragma once
 

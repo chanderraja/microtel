@@ -57,8 +57,8 @@ struct HttpWireCodecConfig
 ///   reported as an ordinary retryable `WireResult`, not a distinct shape.
 /// - `IAuthProvider` — optional; if non-null, the `Authorization` header is
 ///   populated on every request.
-/// - `IDiagnosticsSink` — optional; if non-null, non-retryable failures are
-///   counted.
+/// - `IDiagnosticsSink` — optional; records `connect_failure`,
+///   `malformed_response` and `decompression_too_large`.
 /// - `ISteadyClock` — optional; if non-null, passed to `IAuthProvider::Get-
 ///   Authorization` for TTL arithmetic. Falls back to `steady_clock::now()`.
 ///
@@ -150,8 +150,7 @@ private:
     internal::ITransport* m_transport;
     HttpWireCodecConfig m_config;
     internal::IAuthProvider* m_auth;
-    // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M3-C onward
-    [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
+    internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
     internal::ConnectOptions m_connect_opts;
 };

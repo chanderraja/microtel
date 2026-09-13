@@ -54,15 +54,21 @@ struct GrpcWireCodecConfig
 /// using a minimal hand-written proto wire-format reader; no upb dependency
 /// for this path in M4.
 ///
-/// **M4 note:** compression (`grpc-encoding: gzip`), `grpc-timeout`, and
-/// partial-success body parsing are deferred to M5.
+/// **Response framing:** the single response DATA-frame message is validated
+/// before it is parsed — the compression flag and the declared length are both
+/// checked, and a `CF = 0x01` message is inflated under
+/// `max_decompressed_bytes` (`docs/grpc-wire-protocol.md` §2.3 and §5.2).
+///
+/// **Not implemented:** `grpc-timeout` — microtel manages its own deadlines
+/// and uses `RST_STREAM` on a local timeout (§2.5).
 ///
 /// **Dependencies (all non-owning):**
 /// - `ITransport` — required; connected lazily on the first `Send` call if
 ///   not already connected (ICP 0017). A failed connect attempt is reported
 ///   as an ordinary retryable `WireResult`, not a distinct shape.
 /// - `IAuthProvider` — optional; `Authorization` header populated if set.
-/// - `IDiagnosticsSink` — optional; used from M5 onward.
+/// - `IDiagnosticsSink` — optional; records `connect_failure`,
+///   `malformed_response` and `decompression_too_large`.
 /// - `ISteadyClock` — optional; passed to `IAuthProvider` for TTL arithmetic.
 ///
 /// @threadsafety Not thread-safe — single caller (exporter worker).
@@ -100,8 +106,7 @@ private:
     internal::ITransport* m_transport;
     GrpcWireCodecConfig m_config;
     internal::IAuthProvider* m_auth;
-    // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M5 onward
-    [[maybe_unused]] internal::IDiagnosticsSink* m_diag;
+    internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
     internal::ConnectOptions m_connect_opts;
 };

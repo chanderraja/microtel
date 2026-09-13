@@ -147,8 +147,9 @@ private:
     /// @brief Classify a failed SETTINGS exchange.
     ///
     /// Returns the targeted HTTP/1.1-peer error if the first plaintext read of
-    /// this connection was an HTTP/1.1 response, and the generic nghttp2
-    /// failure otherwise. See issue #166.
+    /// this connection was an HTTP/1.1 response (issue #166), the peer-closed
+    /// message when a send failed with EPIPE or ECONNRESET (issue #177), and
+    /// the generic nghttp2 failure otherwise.
     [[nodiscard]] microtel::Error Http2HandshakeFailure() const;
 
     /// @brief Inspect the first plaintext read of a connection for an HTTP/1.1
@@ -194,6 +195,12 @@ private:
     /// Set when that first read turned out to be an HTTP/1.1 response.
     /// Reset by every `Http2Handshake`, so a later reconnect cannot inherit it.
     std::atomic<bool> m_peer_spoke_http1{false};
+    /// Set when a send failed with EPIPE or ECONNRESET — the peer hung up under
+    /// our own write. Since issue #177 those arrive as errno values instead of
+    /// a SIGPIPE, which is what makes them reportable at all. Reset by every
+    /// `Http2Handshake`; written from the caller thread during the handshake
+    /// and from the I/O thread afterwards, hence atomic.
+    std::atomic<bool> m_peer_closed_on_send{false};
 
     // Send queues — caller-thread writes, I/O thread drains.
     std::mutex m_pending_mu;

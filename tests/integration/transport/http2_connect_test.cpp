@@ -259,16 +259,22 @@ private:
 // here as the control: the two must not produce the same diagnosis.
 //
 // `FinBeforeSettings` half-closes rather than closing: it sends FIN and keeps
-// reading. A full close makes the peer RST our in-flight preface, and the
-// transport's next `::write` then raises SIGPIPE in the host process — issue
-// #177, which is not this test's subject and which would kill the binary
-// before the assertions run.
+// reading, which is the gentlest way for a peer to fail the exchange and keeps
+// this file's diagnosis tests away from the reset path.
+//
+// `CloseImmediately` is the violent one: it closes with `SO_LINGER{1, 0}`, so
+// the peer answers our in-flight preface with an RST rather than a FIN. That
+// is the class of failure issue #177 is about — a write that discovers the
+// peer is gone, which before the fix raised `SIGPIPE` and terminated the host
+// process rather than the export. `Connect_PeerClosesBeforeSettings_ProcessSurvives`
+// keeps the caller thread's half of that honest.
 // ---------------------------------------------------------------------------
 
 enum class PlaintextReply : std::uint8_t
 {
     Http1Response,
     FinBeforeSettings,
+    CloseImmediately,
 };
 
 constexpr std::string_view kHttp1Response =
@@ -354,6 +360,11 @@ private:
             ::close(client_fd);
             return;
         }
+        if (m_reply == PlaintextReply::CloseImmediately)
+        {
+            HardClose(client_fd);
+            return;
+        }
         // The collector answers after reading the preface; writing immediately
         // is indistinguishable from the client's side and races nothing, since
         // the client sends its preface before it ever polls for readability.
@@ -368,8 +379,19 @@ private:
         ::close(client_fd);
     }
 
+    /// Close so that the peer sees an RST, not a FIN. A zero linger timeout
+    /// discards whatever the client has in flight and resets the connection,
+    /// which is what makes the client's next write fail deterministically
+    /// rather than only under an unlucky schedule.
+    static void HardClose(int fd)
+    {
+        const linger reset{.l_onoff = 1, .l_linger = 0};
+        ::setsockopt(fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+        ::close(fd);
+    }
+
     /// Keep reading and discarding so the client's writes keep succeeding:
-    /// an unread socket eventually RSTs, which is the SIGPIPE path above.
+    /// an unread socket eventually RSTs, which is the reset path above.
     void DrainUntilStop(int fd) const
     {
         std::array<char, 256> scratch{};
@@ -642,6 +664,53 @@ TEST(Http2TransportIntegrationTest, Connect_PeerHangsUpBeforeSettings_ReportsGen
     EXPECT_EQ(result.error().message.find("HTTP/1.1-only"), std::string::npos)
         << "message was: " << result.error().message;
 
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+// A peer that resets the connection under an in-flight write must not be able
+// to kill the host application (issue #177). `Connect` runs the HTTP/2
+// handshake — and with it the preface write — on the *calling* thread, so this
+// is the write path an application thread walks into. The I/O thread's is
+// covered in http2_send_test.cpp and the TLS one in http2_tls_connect_test.cpp;
+// between them they are where the pre-fix `SIGPIPE` actually reproduced, since
+// Linux answers the *first* write on a reset socket with `ECONNRESET` and only
+// the second with `EPIPE`.
+//
+// It is also where the reset gets diagnosed: the write is what discovers the
+// peer has gone, which beats blaming the read that noticed afterwards.
+TEST(Http2TransportIntegrationTest, Connect_PeerClosesBeforeSettings_ProcessSurvives)
+{
+    ScriptedPlaintextServer server;
+    const int port = server.Start(PlaintextReply::CloseImmediately);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+
+    const auto result = t->Connect(opts);
+    ASSERT_FALSE(result.has_value()) << "a peer that reset the connection cannot have handshaked";
+    EXPECT_EQ(result.error().kind, microtel::Error::Kind::Network);
+
+    // Which of the two messages comes back depends on whether the reset landed
+    // before the preface write or just after it, and that is a scheduling
+    // question. Both name the fault honestly; what must never appear is the
+    // HTTP/1.1 diagnosis, which would send an operator looking for a receiver
+    // that is not there (issue #166).
+    const std::string& message = result.error().message;
+    EXPECT_TRUE(message.find("peer closed the connection") != std::string::npos ||
+                message.find("nghttp2 recv failed") != std::string::npos)
+        << "message was: " << message;
+
+    EXPECT_EQ(t->GetState(), microtel::ConnectionState::Disconnected);
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     server.Stop();
 }

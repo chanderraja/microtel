@@ -18,3 +18,13 @@ microtel_add_test(
 
 target_include_directories(http2_transport_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# OpenSSL is linked explicitly: microtel_transport keeps it PRIVATE, and this
+# test drives the BIO through OpenSSL's own API.
+microtel_add_test(
+    NAME    nosignal_io_test
+    SOURCES nosignal_io_test.cpp
+    LIBS    microtel_transport OpenSSL::SSL OpenSSL::Crypto)
+
+target_include_directories(nosignal_io_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -6,6 +6,8 @@
 #include "microtel/error.hpp"
 #include "microtel/internal/transport.hpp"
 
+#include "transport/nosignal_io.hpp"
+
 #include <nghttp2/nghttp2.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -51,6 +53,13 @@ namespace
 constexpr const char* kHttp1PeerMessage =
     "peer answered the HTTP/2 preface with an HTTP/1.1 response - endpoint appears to be "
     "HTTP/1.1-only; use https:// (ALPN h2) or OTLP/gRPC; see docs/compatibility-matrix.md";
+
+/// What a peer that hung up under our own write reports.
+///
+/// The generic message below blames the read that noticed the loss, which
+/// sends an operator looking at nghttp2. When it was a write that discovered
+/// the peer had gone — an EPIPE or ECONNRESET from `NgHttp2DoSend` — say so.
+constexpr const char* kPeerClosedMessage = "peer closed the connection during the HTTP/2 handshake";
 
 /// The only ALPN protocol microtel offers, and the only one it can use.
 constexpr std::string_view kAlpnH2{"h2"};
@@ -144,6 +153,22 @@ void SetTcpNoDelay(int fd) noexcept
     ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &kEnable, sizeof(kEnable));
 }
 
+// Suppress SIGPIPE for the whole socket where the platform offers it. v1 is
+// Linux-only, where this compiles out entirely and MSG_NOSIGNAL on each write
+// is the mechanism (issue #177); the BSDs and macOS have the socket option
+// instead, and pre-paying it here is three lines.
+void SetNoSigPipe(int fd) noexcept
+{
+#ifdef SO_NOSIGPIPE
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+    static constexpr int kEnable = 1;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &kEnable, sizeof(kEnable));
+#else
+    (void)fd;
+#endif
+}
+
 microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
     const std::string& host, const std::string& port, std::chrono::milliseconds timeout)
 {
@@ -173,6 +198,7 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
         }
 
         SetTcpNoDelay(fd.Get());
+        SetNoSigPipe(fd.Get());
 
         // Non-blocking connect so we can enforce the timeout.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise)
@@ -303,6 +329,33 @@ std::string TlsFailureMessage(const SSL* ssl)
     return (verify == X509_V_OK) ? std::string{"TLS handshake failed"}
                                  : "TLS certificate verification failed: " +
                                        std::string{::X509_verify_cert_error_string(verify)};
+}
+
+/// Give @p ssl a transport that cannot raise `SIGPIPE`.
+///
+/// Not `SSL_set_fd`: OpenSSL's stock socket BIO writes with `write(2)`, which
+/// raises `SIGPIPE` the moment the peer goes away mid-export and takes the host
+/// application down with it. This BIO writes with `MSG_NOSIGNAL` instead, and
+/// covers the handshake writes inside `SSL_connect` as well as `SSL_write`
+/// (issue #177).
+///
+/// @param ssl Borrowed; adopts the BIO on success — `SSL_set_bio` takes
+///            ownership, the same BIO for both directions consumes a single
+///            reference, and `SSL_free` releases it.
+/// @param fd  Borrowed; the BIO reads and writes it and never closes it, so
+///            the socket's owner must outlive the session.
+/// @return false if OpenSSL could not allocate the BIO, in which case nothing
+///         was transferred and nothing leaked.
+[[nodiscard]] bool InstallNoSignalBio(SSL* ssl, int fd) noexcept
+{
+    BioPtr bio = MakeNoSignalBio(fd);
+    if (!bio)
+    {
+        return false;
+    }
+    BIO* const raw_bio = bio.release();
+    ::SSL_set_bio(ssl, raw_bio, raw_bio);
+    return true;
 }
 
 microtel::Expected<void, microtel::Error> SslConnectLoop(
@@ -909,7 +962,11 @@ Http2Transport::TlsHandshake(const internal::ConnectOptions& opts, const std::st
             {.kind = microtel::Error::Kind::Network, .message = "SSL_new failed"}};
     }
 
-    ::SSL_set_fd(ssl.Get(), m_socket.Get());
+    if (!InstallNoSignalBio(ssl.Get(), m_socket.Get()))
+    {
+        return microtel::Unexpected<microtel::Error>{
+            {.kind = microtel::Error::Kind::Network, .message = "BIO_new failed"}};
+    }
     ::SSL_set_connect_state(ssl.Get());
 
     const std::string& sni = opts.sni_override.empty() ? host : opts.sni_override;
@@ -961,6 +1018,7 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
     // construction — is what stops one peer's diagnosis reaching the next.
     m_first_plaintext_recv.store(true, std::memory_order_release);
     m_peer_spoke_http1.store(false, std::memory_order_release);
+    m_peer_closed_on_send.store(false, std::memory_order_release);
 
     nghttp2_session_callbacks* cbs = nullptr;
     ::nghttp2_session_callbacks_new(&cbs);
@@ -1029,6 +1087,11 @@ microtel::Error Http2Transport::Http2HandshakeFailure() const
         return microtel::Error{.kind = microtel::Error::Kind::Protocol,
                                .message = kHttp1PeerMessage};
     }
+    if (m_peer_closed_on_send.load(std::memory_order_acquire))
+    {
+        return microtel::Error{.kind = microtel::Error::Kind::Network,
+                               .message = kPeerClosedMessage};
+    }
     return microtel::Error{.kind = microtel::Error::Kind::Network,
                            .message = "nghttp2 recv failed during SETTINGS exchange"};
 }
@@ -1044,16 +1107,22 @@ std::ptrdiff_t Http2Transport::NgHttp2DoSend(const std::uint8_t* data, std::size
         return SslSend(m_ssl_session.Get(), data, len);
     }
 
-    ssize_t n = ::write(m_socket.Get(), data, len);
-    while (n < 0 && errno == EINTR)
-    {
-        n = ::write(m_socket.Get(), data, len);
-    }
-
+    const ssize_t n = SendNoSignal(m_socket.Get(), data, len);
     if (n < 0)
     {
-        return (errno == EAGAIN || errno == EWOULDBLOCK) ? NGHTTP2_ERR_WOULDBLOCK
-                                                         : NGHTTP2_ERR_CALLBACK_FAILURE;
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return NGHTTP2_ERR_WOULDBLOCK;
+        }
+        // EPIPE and ECONNRESET are the peer-closed cases, and with MSG_NOSIGNAL
+        // they arrive as ordinary errno values rather than as a signal that
+        // would have terminated the host process (issue #177). nghttp2 has no
+        // finer code to return, so recovery is unchanged — the reactor still
+        // retires the connection — but recording which one it was is what lets
+        // a handshake failure name the peer instead of blaming nghttp2.
+        m_peer_closed_on_send.store(errno == EPIPE || errno == ECONNRESET,
+                                    std::memory_order_release);
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
     return static_cast<std::ptrdiff_t>(n);
 }

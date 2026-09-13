@@ -49,6 +49,11 @@ unblock).
   `memory-model.md` §3.3).
 - **One transport == one socket == one nghttp2 session.** Reconnect is
   internal; clients see it only via `ConnectionState`.
+- **Every socket write goes through `nosignal_io.hpp`** — `SendNoSignal` for
+  plaintext, and the custom `BIO` it builds for TLS, which is why the TLS
+  session is wired with `SSL_set_bio` and never `SSL_set_fd`. A bare `write`
+  or `SSL_set_fd` here hands a peer the ability to kill the host process with
+  `SIGPIPE` (issue #177, `threading-model.md` §7.1).
 - **`SslCtx` is per-`Transport`** (per ICP 0003 §3.1), not process-shared.
   v1.1 multi-`Provider` keeps the same shape: each `Provider` builds its
   own `Transport` with its own `SslCtx`.

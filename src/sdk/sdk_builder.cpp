@@ -485,7 +485,13 @@ struct ExporterPack
     auto log_codec =
         BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, diag, log_path);
 
-    const exporter::OtlpExporterConfig ex_cfg{.export_deadline = cfg.timeouts.per_export};
+    // `retry_budget` is the only retry axis TimeoutOptions exposes; the rest of
+    // RetryPolicyConfig (attempts, backoff shape, jitter) has no config surface
+    // and keeps its OTLP-recommended in-class defaults.
+    const exporter::OtlpExporterConfig ex_cfg{
+        .export_deadline = cfg.timeouts.per_export,
+        .retry_policy = {.retry_budget = cfg.timeouts.retry_budget},
+    };
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
     // One sink across all three signals: batches_sent / batches_failed are
     // therefore cross-signal aggregates (see docs/error-model.md §3).

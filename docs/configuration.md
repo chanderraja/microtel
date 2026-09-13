@@ -87,16 +87,34 @@ Rows are alphabetised within each subsection.
 
 ### 3.4 Exporter — timeouts (six independent, spec §7.3)
 
-| TOML | Code | OTEL env | MICROTEL env | Default |
+All six are set in code through the single `WithTimeouts(TimeoutOptions)` setter
+— there are no per-axis `With…Timeout` methods — and in TOML under one
+`[timeouts]` table, whose keys are integer milliseconds.
+
+| TOML (`[timeouts]`) | Code (`WithTimeouts({…})`) | OTEL env | MICROTEL env | Default |
 |---|---|---|---|---|
-| `exporter.timeouts.connect` | `WithConnectTimeout(d)` | — | — | 10s |
-| `exporter.timeouts.tls_handshake` | `WithTlsHandshakeTimeout(d)` | — | — | 10s |
-| `exporter.timeouts.per_export` | `WithPerExportTimeout(d)` | `OTEL_EXPORTER_OTLP_TIMEOUT` (ms) | — | 10s |
-| `exporter.timeouts.retry_budget` | `WithRetryBudget(d)` | — | — | 60s |
-| `exporter.timeouts.flush` | `WithFlushTimeout(d)` (default for `ForceFlush`) | — | — | 5s |
-| `exporter.timeouts.shutdown` | `WithShutdownTimeout(d)` (default for `Shutdown`) | — | — | 5s |
+| `connect_ms` | `.connect = d` | — | — | 10s |
+| `tls_ms` | `.tls_handshake = d` | — | — | 10s |
+| `per_export_ms` | `.per_export = d` | `OTEL_EXPORTER_OTLP_TIMEOUT` (ms) | — | 10s |
+| `retry_budget_ms` | `.retry_budget = d` | — | — | 60s |
+| `flush_ms` | `.flush = d` (default for `ForceFlush`) | — | — | 5s |
+| `shutdown_ms` | `.shutdown = d` (default for `Shutdown`) | — | — | 5s |
+
+```toml
+[timeouts]
+retry_budget_ms = 5000
+```
 
 Caller-provided timeouts to `ForceFlush(timeout)` and `Shutdown(timeout)` override the configured default.
+
+`retry_budget` caps the total elapsed time across all retry attempts for a
+single batch; the remaining retry parameters (attempt count, backoff shape,
+jitter) are not configurable in v1 and keep the OTLP-recommended defaults in
+`RetryPolicyConfig`. The budget is checked between attempts, not enforced
+against one in flight: the loop stops once the budget is *already* spent, so
+the last attempt and the backoff preceding it can carry total elapsed time past
+it. Treat `retry_budget` as the point at which microtel stops starting new
+attempts, not as a hard deadline.
 
 ### 3.5 Exporter — TLS
 

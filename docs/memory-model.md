@@ -296,7 +296,7 @@ The byte budgets from `microtel-spec.md` §5.5 are normative. Each value has a d
 | `max_record_bytes` | 64 KiB | `BatchSpanProcessor` | Reject the incoming record at `End()` time. Drop counter `record_too_large`. |
 | `max_response_bytes` | 1 MiB | wire codec | Treat the request as failed (non-retryable). Capture is truncated. Drop counter `response_too_large`. |
 | `max_trailer_bytes` | 64 KiB | gRPC wire codec | Treat as malformed response. Drop counter `non_retryable_failure`. |
-| `max_decompressed_bytes` | 4 MiB | wire codec | Decompression-bomb protection. Treat as malformed. Drop counter `non_retryable_failure`. |
+| `max_decompressed_bytes` | 4 MiB | wire codec | Decompression-bomb protection. Fail the request, non-retryable. Drop counter `decompression_too_large` (`error-model.md` §7.1/§7.2). |
 
 **Counting rules.**
 

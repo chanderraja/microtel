@@ -15,6 +15,7 @@
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_transport.hpp"
 #include "helpers/gunzip.hpp"
+#include "wire/gzip.hpp"
 
 #include <gtest/gtest.h>
 
@@ -914,4 +915,270 @@ TEST(GrpcWireCodecTest, Send_CompressionOn_SetsCompressedFlagAndCompressedLength
     const auto restored = mtfk::GunzipToString(message);
     ASSERT_TRUE(restored.has_value());
     EXPECT_EQ(restored.value_or(""), body);
+}
+
+// ---------------------------------------------------------------------------
+// Response frame validation and decompression (grpc-wire-protocol.md §2.3, §5.2)
+// ---------------------------------------------------------------------------
+
+/// Builds a response DATA frame with an explicit compression flag and an
+/// explicit declared length, so a test can produce frames the request framer
+/// would never emit — that is the whole point of validating the response.
+static std::vector<std::byte> RawGrpcFrame(std::uint8_t flag,
+                                           std::uint32_t declared_length,
+                                           std::span<const std::byte> message)
+{
+    std::vector<std::byte> frame;
+    frame.reserve(5U + message.size());
+    frame.push_back(std::byte{flag});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((declared_length >> 24U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((declared_length >> 16U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>((declared_length >> 8U) & 0xFFU)});
+    frame.push_back(std::byte{static_cast<std::uint8_t>(declared_length & 0xFFU)});
+    for (const std::byte b : message)
+    {
+        frame.push_back(b);
+    }
+    return frame;
+}
+
+static std::vector<std::byte> Gzipped(std::span<const std::byte> plain)
+{
+    auto compressed = mtw::GzipCompress(plain);
+    EXPECT_TRUE(compressed.has_value());
+    return compressed.value_or(std::vector<std::byte>{});
+}
+
+static std::vector<std::byte> AsBytes(std::span<const std::uint8_t> in)
+{
+    std::vector<std::byte> out;
+    out.reserve(in.size());
+    for (const std::uint8_t b : in)
+    {
+        out.push_back(static_cast<std::byte>(b));
+    }
+    return out;
+}
+
+/// A success response carrying @p body as its single DATA frame.
+static mti::TransportResult GrpcBodyResponse(std::vector<std::byte> body)
+{
+    auto resp = GrpcSuccessResponse();
+    resp.response_body = std::move(body);
+    return resp;
+}
+
+TEST(GrpcWireCodecTest, Send_AdvertisesGrpcAcceptEncodingEvenWithCompressionOff)
+{
+    // §5.2: the advertisement is a statement about what this client can
+    // *decode*, which is now unconditional. Tying it to request compression
+    // would leave a gzip-capable collector sending identity for no reason.
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "grpc-accept-encoding"), "gzip");
+}
+
+TEST(GrpcWireCodecTest, Response_CompressedFrame_IsDecompressedBeforeParsing)
+{
+    // The bug this fixes: the codec skipped the 5-byte prefix and handed the
+    // still-gzipped bytes to the protobuf parser, which returned 0 rejected
+    // spans — a silent clean success that hid a partial-success rejection.
+    const auto plain = AsBytes(kRejected42Proto);
+    const auto compressed = Gzipped(plain);
+    ASSERT_FALSE(compressed.empty());
+
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcBodyResponse(
+        RawGrpcFrame(0x01U, static_cast<std::uint32_t>(compressed.size()), compressed));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(GrpcWireCodecTest, Response_UncompressedFrame_StillParses)
+{
+    const auto plain = AsBytes(kRejected42Proto);
+
+    mtfk::FakeTransport transport;
+    transport.default_response =
+        GrpcBodyResponse(RawGrpcFrame(0x00U, static_cast<std::uint32_t>(plain.size()), plain));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(GrpcWireCodecTest, Response_ShortBody_IsMalformed)
+{
+    // Fewer than the five prefix bytes. Previously the body was ignored and
+    // the response passed as a clean success.
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response =
+        GrpcBodyResponse(std::vector<std::byte>{std::byte{0x00}, std::byte{0x00}, std::byte{0x02}});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(GrpcWireCodecTest, Response_UnknownCompressionFlag_IsMalformed)
+{
+    // CF values 0x02..0xFF are reserved (§2.2). A peer using one is speaking a
+    // protocol this codec does not, and no retry changes that.
+    const auto plain = AsBytes(kRejected42Proto);
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response =
+        GrpcBodyResponse(RawGrpcFrame(0x02U, static_cast<std::uint32_t>(plain.size()), plain));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(GrpcWireCodecTest, Response_DeclaredLengthLongerThanBody_IsMalformed)
+{
+    // A truncated message: the prefix promises more bytes than arrived.
+    const auto plain = AsBytes(kRejected42Proto);
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response =
+        GrpcBodyResponse(RawGrpcFrame(0x00U, static_cast<std::uint32_t>(plain.size()) + 1U, plain));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(GrpcWireCodecTest, Response_TrailingBytesAfterMessage_IsMalformed)
+{
+    // §2.3: OTLP unary carries exactly one message. Bytes past its declared
+    // length are a second message, and the codec rejects those cleanly rather
+    // than parsing the first and ignoring the rest.
+    const auto plain = AsBytes(kRejected42Proto);
+    auto body = RawGrpcFrame(0x00U, static_cast<std::uint32_t>(plain.size()), plain);
+    body.push_back(std::byte{0x00});
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = GrpcBodyResponse(std::move(body));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(GrpcWireCodecTest, Response_CorruptCompressedFrame_IsMalformed)
+{
+    // CF says gzip, the bytes are not gzip. Distinct from the overflow case
+    // below: this one is malformed, not a bomb.
+    const auto garbage = AsBytes(kRejected42Proto);
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response =
+        GrpcBodyResponse(RawGrpcFrame(0x01U, static_cast<std::uint32_t>(garbage.size()), garbage));
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::DecompressionTooLarge), 0U);
+}
+
+TEST(GrpcWireCodecTest, Response_DecompressionBomb_RecordsDecompressionTooLarge)
+{
+    // 1 MiB of zeroes behind a kilobyte of gzip, against a 4 KiB ceiling.
+    const std::vector<std::byte> bomb(1U << 20U, std::byte{0x00});
+    const auto compressed = Gzipped(bomb);
+    ASSERT_FALSE(compressed.empty());
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = GrpcBodyResponse(
+        RawGrpcFrame(0x01U, static_cast<std::uint32_t>(compressed.size()), compressed));
+    mtw::GrpcWireCodecConfig cfg = MakeConfig();
+    cfg.max_decompressed_bytes = 4096U;
+    mtw::GrpcWireCodec codec{&transport, cfg, nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable) << "a bomb is a property of the peer, not of this attempt";
+    EXPECT_EQ(DropCount(sink, mt::DropReason::DecompressionTooLarge), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_FALSE(result.error->message.empty());
+}
+
+TEST(GrpcWireCodecTest, Response_DecompressedExactlyAtTheCap_IsAccepted)
+{
+    // The other side of the cap. An off-by-one here would reject every legal
+    // response whose size happens to equal the configured ceiling.
+    const auto plain = AsBytes(kRejected42Proto);
+    const auto compressed = Gzipped(plain);
+
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcBodyResponse(
+        RawGrpcFrame(0x01U, static_cast<std::uint32_t>(compressed.size()), compressed));
+    mtw::GrpcWireCodecConfig cfg = MakeConfig();
+    cfg.max_decompressed_bytes = static_cast<std::uint32_t>(plain.size());
+    mtw::GrpcWireCodec codec{&transport, cfg};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(GrpcWireCodecTest, Response_MalformedFrame_NullSink_IsNotDereferenced)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response =
+        GrpcBodyResponse(std::vector<std::byte>{std::byte{0x00}, std::byte{0x01}});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};  // no sink
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+}
+
+TEST(GrpcWireCodecTest, Response_NonZeroStatus_DoesNotValidateTheFrame)
+{
+    // The status is already the verdict; a broken body on a failure response
+    // must not turn a retryable status into a non-retryable malformed one.
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    mti::TransportResult resp{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"}},
+        .response_trailers = {{.name = "grpc-status", .value = "14"}},
+        .response_body = {std::byte{0xFF}, std::byte{0xFF}},
+        .error = {},
+    };
+    transport.default_response = std::move(resp);
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
 }

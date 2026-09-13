@@ -16,6 +16,7 @@
 #include "fakes/fake_steady_clock.hpp"
 #include "fakes/fake_transport.hpp"
 #include "helpers/gunzip.hpp"
+#include "wire/gzip.hpp"
 
 #include <gtest/gtest.h>
 
@@ -23,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -781,4 +783,195 @@ TEST(HttpWireCodecTest, SendAll_CompressionOn_CompressesEveryPayloadInOrder)
     ASSERT_EQ(transport.sent_payloads.size(), 2U);
     EXPECT_EQ(mtfk::GunzipToString(transport.sent_payloads[0]).value_or(""), "first");
     EXPECT_EQ(mtfk::GunzipToString(transport.sent_payloads[1]).value_or(""), "second");
+}
+
+// ---------------------------------------------------------------------------
+// Response decompression (error-model.md §7.1, grpc-wire-protocol.md §5.2)
+// ---------------------------------------------------------------------------
+
+static std::vector<std::byte> Gzipped(std::span<const std::byte> plain)
+{
+    auto compressed = mtw::GzipCompress(plain);
+    EXPECT_TRUE(compressed.has_value());
+    return compressed.value_or(std::vector<std::byte>{});
+}
+
+/// A 200 whose body carries @p encoding in `content-encoding`.
+static mti::TransportResult EncodedResponse(const std::string& encoding,
+                                            std::vector<std::byte> body)
+{
+    return mti::TransportResult{
+        .success = true,
+        .response_headers = {{.name = ":status", .value = "200"},
+                             {.name = "content-encoding", .value = encoding}},
+        .response_trailers = {},
+        .response_body = std::move(body),
+        .error = {},
+    };
+}
+
+TEST(HttpWireCodecTest, Send_AdvertisesAcceptEncodingEvenWithCompressionOff)
+{
+    // The advertisement says what this client can decode, which has nothing to
+    // do with whether it chose to compress the request.
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "accept-encoding"), "gzip");
+}
+
+TEST(HttpWireCodecTest, SendAll_AdvertisesAcceptEncoding)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    (void)codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs[0].headers, "accept-encoding"), "gzip");
+}
+
+TEST(HttpWireCodecTest, Response_GzipBody_IsInflatedBeforeParsing)
+{
+    // Without this the still-gzipped bytes went to ParseRejectedSpans, which
+    // reports 0 for noise exactly as for an absent body — a rejected batch
+    // read as a clean success.
+    const auto plain = MakePartialSuccessBody(42U);
+
+    mtfk::FakeTransport transport;
+    transport.default_response = EncodedResponse("gzip", Gzipped(plain));
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 42U);
+}
+
+TEST(HttpWireCodecTest, Response_GzipBody_ExcerptIsTheInflatedText)
+{
+    // The excerpt is what an operator reads out of GetExporterHealth(). Binary
+    // gzip there is worse than useless.
+    std::vector<std::byte> plain;
+    for (const char c : std::string{"rejected 3 spans"})
+    {
+        plain.push_back(static_cast<std::byte>(c));
+    }
+
+    mtfk::FakeTransport transport;
+    transport.default_response = EncodedResponse("gzip", Gzipped(plain));
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_EQ(result.response_excerpt, "rejected 3 spans");
+}
+
+TEST(HttpWireCodecTest, Response_IdentityEncoding_IsPassedThrough)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = EncodedResponse("identity", MakePartialSuccessBody(7U));
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.partial_success_rejected, 7U);
+}
+
+TEST(HttpWireCodecTest, Response_UnknownContentEncoding_IsMalformed)
+{
+    // We only ever ask for gzip. A server answering `deflate` or `br` is
+    // sending bytes this codec cannot read, and a retry gets the same ones.
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = EncodedResponse("br", MakePartialSuccessBody(1U));
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+}
+
+TEST(HttpWireCodecTest, Response_CorruptGzipBody_IsMalformed)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = EncodedResponse("gzip", MakePartialSuccessBody(1U));
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::DecompressionTooLarge), 0U);
+}
+
+TEST(HttpWireCodecTest, Response_DecompressionBomb_RecordsDecompressionTooLarge)
+{
+    const std::vector<std::byte> bomb(1U << 20U, std::byte{0x00});
+
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = EncodedResponse("gzip", Gzipped(bomb));
+    mtw::HttpWireCodecConfig cfg = MakeConfig();
+    cfg.max_decompressed_bytes = 4096U;
+    mtw::HttpWireCodec codec{&transport, cfg, nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::DecompressionTooLarge), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
+    ASSERT_TRUE(result.error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+    EXPECT_FALSE(result.error->message.empty());
+}
+
+TEST(HttpWireCodecTest, Response_GzipEmptyBody_IsNotTreatedAsCorrupt)
+{
+    // Zero bytes is not a gzip stream, but a header on an empty body is a
+    // server quirk, not a protocol violation — there is nothing to misread.
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = EncodedResponse("gzip", {});
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::MalformedResponse), 0U);
+}
+
+TEST(HttpWireCodecTest, Response_MalformedEncoding_NullSink_IsNotDereferenced)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = EncodedResponse("br", MakePartialSuccessBody(1U));
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};  // no sink
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+}
+
+TEST(HttpWireCodecTest, SendAll_GzipBody_IsInflatedBeforeParsing)
+{
+    // SendAll classifies responses on its own path; the fix has to reach both.
+    const auto plain = MakePartialSuccessBody(9U);
+
+    mtfk::FakeTransport transport;
+    transport.default_response = EncodedResponse("gzip", Gzipped(plain));
+    mtw::HttpWireCodec codec{&transport, MakeConfig()};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    const auto results = codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+
+    ASSERT_EQ(results.size(), 2U);
+    EXPECT_EQ(results[0].partial_success_rejected, 9U);
+    EXPECT_EQ(results[1].partial_success_rejected, 9U);
 }

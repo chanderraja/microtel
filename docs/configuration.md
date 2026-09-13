@@ -79,8 +79,15 @@ Rows are alphabetised within each subsection.
 
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
-| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | `"unknown_service"` | spec §12.7 |
+| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | **none** — attribute omitted | spec §12.7 |
 | `service.version` | `WithServiceVersion(s)` | (in `OTEL_RESOURCE_ATTRIBUTES`) | — | empty | spec §12.7 |
+
+Correction (#196): the default was given as `"unknown_service"`. No such
+fallback exists — `sdk_builder.cpp` emits the `service.name` resource attribute
+only when the resolved value is non-empty, so an unset `service.name` means the
+attribute is **absent from the exported resource** rather than present with a
+placeholder. The OTel resource semantic conventions require the placeholder, so
+this is a conformance gap as well as a documentation one: issue #203.
 
 ### 3.2 Resource attributes
 
@@ -93,9 +100,21 @@ Rows are alphabetised within each subsection.
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
 | `exporter.endpoint` | `WithEndpoint(s)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | none (required) | If unset, `Build` fails with `ConfigError::EndpointMalformed`. |
-| `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | derived from URL scheme; otherwise `grpc` | `http` or `grpc`. URL schemes `grpc://` / `grpcs://` are accepted shorthand (spec §12.2). |
+| `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | **`http`** | `http` or `grpc`. Not derived from the endpoint scheme — see the warning below. |
 | `exporter.compression` | `WithCompressionGzip(b)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | off | TOML/env value is `gzip` to enable; anything else is off. The code setter is a `bool`, not a codec name — gzip is the only compression v1 implements. Controls **requests**: gzip request bodies with `content-encoding: gzip` (HTTP) or frame flag `0x01` with `grpc-encoding: gzip` (gRPC). Responses are independent — `accept-encoding` / `grpc-accept-encoding: gzip` is advertised whatever this is set to, and a compressed response is inflated under `MemoryLimitOptions::max_decompressed_bytes`. |
 | `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers; runtime auth via `WithAuthProvider` is separate. |
+
+> **`grpc://` does not select OTLP/gRPC.** The scheme is normalised for TLS only
+> — `grpc://` → `http`, `grpcs://` → `https` — and `protocol` is left at its
+> default. `WithEndpoint("grpc://collector:4317")` without a matching
+> `WithProtocol(Protocol::Grpc)` therefore speaks **OTLP/HTTP** at a gRPC port.
+> Set `protocol` explicitly; spec §12.2 calls `https://` plus an explicit
+> `protocol` the canonical form for exactly this reason. Tracked as issue #203,
+> which also covers the `service.name` default above.
+
+Corrections (#196): the protocol default was given as "derived from URL scheme;
+otherwise `grpc`". Both halves are wrong — `Config::protocol` initialises to
+`Protocol::Http` and no code path derives it from the scheme.
 
 **No per-signal env vars.** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
 `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` were listed here and are read by nothing —

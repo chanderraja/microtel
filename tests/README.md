@@ -13,6 +13,7 @@ taxonomy from `microtel-spec.md` §14.2 / `docs/coding-standards.md` §11.
 | [`wire/`](wire/) | Protocol byte-level fixtures — verifies the encoder and HTTP codec against captured upstream payloads. |
 | [`grpc-wire/`](grpc-wire/) | Same idea for the gRPC codec; the corpus from `docs/grpc-wire-protocol.md` §7. |
 | [`fuzz/`](fuzz/) | libFuzzer harnesses (TOML parser, gRPC trailer parser, response decompression, OTLP response parser). Required for v1.0 release. |
+| [`consumer/`](consumer/) | The external `find_package(microtel)` project (ICP 0020 Decision 6). **Not part of this build** — driven by `ci/scripts/consumer-smoke.sh` against a real install prefix. Doubles as the canonical consumer example. |
 | [`mocks/`](mocks/) | Dumb mocks per interface — return what they're configured to return, no logic. |
 | [`fakes/`](fakes/) | Fakes with logic — fake clock, fake transport, fake reactor, fake server. |
 

@@ -371,3 +371,39 @@ symbol — the option currently selects a compile-time route that has not landed
 The config records the option as `microtel_WITH_SPDLOG` instead. This stops
 being true the moment the M3+ logging route calls into spdlog; issue #190
 tracks it.
+
+## Status addendum — Decision 6 implemented
+
+**All of this ICP is now implemented.** The consumer test is
+[`tests/consumer/`](../../tests/consumer/): an external CMake project —
+`find_package(microtel REQUIRED CONFIG)`, one executable, `microtel::microtel`
+and nothing else — driven by
+[`ci/scripts/consumer-smoke.sh`](../../ci/scripts/consumer-smoke.sh) and run by
+the `consumer-smoke` CI job. The script installs the build tree to a scratch
+prefix, configures the consumer against *that* prefix, builds it, **runs** it,
+and re-runs `symbol-scan.sh --prefix` over the same tree.
+
+It is deliberately not reachable from the main build: `tests/CMakeLists.txt`
+does not `add_subdirectory` it, which Decision 6 requires — a consumer resolved
+against a build directory that still has every source file in place is the
+weaker test that misses the defect.
+
+Three implementation notes.
+
+**The program asserts the package, not the exporter.** It builds a provider,
+takes a tracer, starts and ends a span, hex-encodes the resulting ids (which is
+what puts `libmicrotel_api.a` on the link line), flushes and shuts down. The
+endpoint is a closed port and every timeout is a few hundred milliseconds, so
+it passes offline and cannot flake: a failed `Connect()` is the expected
+outcome, and `ForceFlush` / `Shutdown` are asserted only to return a live
+status. Behaviour is the unit, integration and conformance suites' job.
+
+**libdir is located, never assumed.** `<prefix>/lib64` on Fedora,
+`<prefix>/lib` on Debian/Ubuntu, and multiarch elsewhere — the script finds
+`microtelConfig.cmake` under the prefix and passes its directory as
+`microtel_DIR`. An install that produces no package config fails the gate
+rather than confusing it.
+
+**One job, default configuration.** `MICROTEL_USE_SPDLOG=OFF` changes no
+exported target — only the self-describing `microtel_WITH_SPDLOG` variable —
+so a CI matrix axis for it would re-assert the same thing.

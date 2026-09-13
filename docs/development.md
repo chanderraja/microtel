@@ -336,8 +336,24 @@ CMake package, so the exported interfaces name `PkgConfig::NGHTTP2` and the
 config recreates it with `pkg_check_modules`; pkg-config is therefore a
 consumer-side requirement.
 
-**Nothing in this repository catches an export-set defect on its own.** Every
-in-tree target builds because everything is a subdirectory. ICP 0020 Decision 6
-requires a consumer project that configures against a genuinely installed
-prefix; until it lands, `cmake --install` to a scratch prefix and build a
-throwaway consumer by hand before touching any of this.
+**No in-tree target catches an export-set defect.** Every one of them builds
+because everything is a subdirectory. The gate that does is
+[`tests/consumer/`](../tests/consumer/) — a small external CMake project that
+`find_package`s an installed prefix, links `microtel::microtel`, and runs. It
+is the canonical consumer example as well as the test: `CMakeLists.txt` there
+is the whole of what a consumer writes, and `main.cpp` is a full
+build-trace-flush-shutdown cycle against the public API. It is deliberately not
+`add_subdirectory`'d into this build — configuring it against a build tree that
+still holds every source file would miss precisely what it exists to catch.
+
+Run it with [`ci/scripts/consumer-smoke.sh`](../ci/scripts/consumer-smoke.sh),
+which installs to a scratch prefix, configures the consumer against that
+prefix, builds it, runs it, and re-runs the closure scan over the same tree:
+
+```bash
+ci/scripts/consumer-smoke.sh build            # scratch prefix, cleaned up after
+ci/scripts/consumer-smoke.sh build /tmp/mt    # or keep the prefix to poke at
+```
+
+CI runs it as the `consumer-smoke` job. Run it locally before changing an
+install rule, an exported target, or anything in `cmake/microtelConfig.cmake.in`.

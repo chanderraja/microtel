@@ -758,6 +758,27 @@ TEST(ValidateTest, InsecureTls_WithoutForbidOption_Succeeds)
     ASSERT_TRUE(result.has_value()) << result.error().message;
 }
 
+// ---------------------------------------------------------------------------
+// Validate — service identity resolution (issue #203)
+// ---------------------------------------------------------------------------
+
+TEST(ValidateTest, NoServiceName_ResolvesToUnknownService)
+{
+    mc::Config cfg = MinimalValidConfig();
+    ASSERT_TRUE(cfg.service_name.empty());
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.service_name, "unknown_service");
+}
+
+TEST(ValidateTest, ServiceNameSet_IsNotOverwritten)
+{
+    mc::Config cfg = MinimalValidConfig();
+    cfg.service_name = "checkout";
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.service_name, "checkout");
+}
 
 // ---------------------------------------------------------------------------
 // OverlayEnv — OTEL_METRIC_EXPORT_INTERVAL (M12)

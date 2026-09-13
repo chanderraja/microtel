@@ -294,10 +294,10 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
 [[nodiscard]] std::shared_ptr<const Resource> BuildResource(const config::Config& cfg)
 {
     std::vector<KeyValue> attrs;
-    if (!cfg.service_name.empty())
-    {
-        attrs.push_back({.key = "service.name", .value = cfg.service_name});
-    }
+    // Unconditional: `config::Validate` resolves an unset service name to the
+    // `unknown_service` placeholder the OTel resource semantic conventions
+    // require, so there is no "absent" case left to guard against here.
+    attrs.push_back({.key = "service.name", .value = cfg.service_name});
     if (!cfg.service_version.empty())
     {
         attrs.push_back({.key = "service.version", .value = cfg.service_version});

@@ -33,6 +33,10 @@ constexpr std::uint16_t kDefaultPortGrpc = 4317;
 constexpr std::uint16_t kDefaultPortHttp = 4318;
 constexpr std::uint16_t kPortMax = 65535;
 
+/// OTel resource semantic conventions: `service.name` is required, and this is
+/// the placeholder a producer uses when it has not been told one.
+constexpr std::string_view kUnknownService = "unknown_service";
+
 // ---------------------------------------------------------------------------
 // URL parsing helpers
 // ---------------------------------------------------------------------------
@@ -353,6 +357,16 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
             ConfigError{.kind = ConfigError::Kind::InvalidValue,
                         .field = "sdk.max_export_batch_size",
                         .message = "max_export_batch_size must not exceed max_queue_size"});
+    }
+
+    // --- Service identity ---
+    // `service.name` is required by the OTel resource semantic conventions;
+    // resolving the placeholder here rather than at resource-assembly time
+    // keeps one owner for the default and leaves `Config` a complete record of
+    // what the pipeline will actually report.
+    if (cfg.service_name.empty())
+    {
+        cfg.service_name = std::string{kUnknownService};
     }
 
     return {};

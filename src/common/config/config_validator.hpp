@@ -27,8 +27,9 @@ namespace microtel::config
 ///   - mTLS key-cert pairing (both or neither).
 ///   - Batch: max_export_batch_size ≤ max_queue_size.
 ///
-/// On success `cfg.endpoint` holds the parsed URL components and `cfg.protocol`
-/// holds the resolved protocol.
+/// On success `cfg.endpoint` holds the parsed URL components, `cfg.protocol`
+/// holds the resolved protocol, and `cfg.service_name` holds `unknown_service`
+/// if nothing else supplied one (OTel resource semantic conventions).
 /// Returns the first validation failure encountered.
 ///
 /// @param cfg Config to resolve and validate. Mutated in place as resolution

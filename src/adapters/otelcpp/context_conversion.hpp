@@ -20,10 +20,10 @@
 /// The byte layouts agree (W3C Trace Context: 16-byte trace id, 8-byte span
 /// id, 1-byte flags), so every conversion is a plain copy.
 ///
-/// **TraceState does not round-trip.** `microtel::TraceState` carries no
-/// storage and its `FromHeader`/`ToHeader` are unimplemented declarations, so
-/// bridging it would link-fail; both directions produce the empty default
-/// instead. Revisit when microtel's TraceState gains an implementation.
+/// **TraceState does not round-trip.** `FromHeader`/`ToHeader` are defined as
+/// of issue #188, but `microtel::TraceState` still carries no storage, so it
+/// cannot hold an entry: both directions produce the empty default. Revisit
+/// when microtel's TraceState gains storage.
 
 namespace microtel::adapters::otelcpp
 {

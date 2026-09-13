@@ -66,4 +66,5 @@ microtel_add_fuzz_target(
 
 microtel_add_fuzz_target(
     NAME    response_decompression_fuzz
-    SOURCES response_decompression_fuzz.cpp)
+    SOURCES response_decompression_fuzz.cpp
+    LIBS    microtel_gzip microtel_grpc_wire)

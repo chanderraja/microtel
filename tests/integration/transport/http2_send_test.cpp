@@ -51,6 +51,17 @@ struct RequestServerCtx
     int32_t request_stream_id = -1;
 };
 
+/// What the server does once the SETTINGS exchange is complete.
+enum class ServerScript : std::uint8_t
+{
+    /// Read one POST and answer it with 200.
+    RespondToRequest,
+    /// Stop reading and reset the connection as soon as the client's first
+    /// request bytes arrive — a collector restarting under an export, which is
+    /// the shape issue #177 was reported against.
+    ResetOnFirstRequest,
+};
+
 ssize_t SrvSendCb(
     nghttp2_session* /*s*/, const uint8_t* data, size_t len, int /*flags*/, void* ud) noexcept
 {
@@ -158,8 +169,9 @@ public:
     MinimalHttp2RequestServer& operator=(MinimalHttp2RequestServer&&) = delete;
 
     // Bind to 127.0.0.1:0, listen, start accept thread. Returns port or -1.
-    int Start()
+    int Start(ServerScript script = ServerScript::RespondToRequest)
     {
+        m_script = script;
         m_listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (m_listen_fd < 0)
         {
@@ -233,12 +245,20 @@ private:
             m_response_done.store(true, std::memory_order_release);
             return;
         }
-        RunSession(client_fd);
+        if (RunSession(client_fd))
+        {
+            // Zero linger turns close() into an RST, so the client's in-flight
+            // writes fail immediately instead of only when the peer's kernel
+            // gets round to answering them.
+            const linger reset{.l_onoff = 1, .l_linger = 0};
+            ::setsockopt(client_fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+        }
         ::close(client_fd);
         m_response_done.store(true, std::memory_order_release);
     }
 
-    static void RunSession(int fd)
+    /// @return true when the connection must be reset rather than closed.
+    bool RunSession(int fd)
     {
         // Non-blocking so nghttp2 recv_callback returns WOULDBLOCK instead of blocking.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg,hicpp-signed-bitwise)
@@ -261,8 +281,18 @@ private:
         const nghttp2_settings_entry iv[1] = {{NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100U}};
         ::nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, iv, 1);
 
-        static constexpr int kPollMs = 50;
-        static constexpr int kTimeoutMs = 10000;
+        const bool reset = (m_script == ServerScript::ResetOnFirstRequest)
+                               ? RunUntilFirstRequestByte(session, ctx, fd)
+                               : RunUntilResponseSent(session, ctx, fd);
+
+        ::nghttp2_session_del(session);
+        return reset;
+    }
+
+    /// The stock script: pump the session until the 200 has gone out.
+    /// @return false — this connection ends with an ordinary close.
+    static bool RunUntilResponseSent(nghttp2_session* session, RequestServerCtx& ctx, int fd)
+    {
         const auto deadline =
             std::chrono::steady_clock::now() + std::chrono::milliseconds(kTimeoutMs);
 
@@ -281,9 +311,41 @@ private:
         // Flush any remaining output after response is submitted.
         ::nghttp2_session_send(session);
         ::nghttp2_session_send(session);
-        ::nghttp2_session_del(session);
+        return false;
     }
 
+    /// Complete the SETTINGS exchange, then stop reading. The first byte the
+    /// client sends afterwards is the head of its request burst, and returning
+    /// here resets the connection in the middle of that burst — which is what
+    /// puts a reset socket under a write the client has already started.
+    /// @return true — this connection ends with an RST.
+    static bool RunUntilFirstRequestByte(nghttp2_session* session, RequestServerCtx& ctx, int fd)
+    {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(kTimeoutMs);
+
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            ::nghttp2_session_send(session);
+            pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
+            if (::poll(&pfd, 1, kPollMs) <= 0)
+            {
+                continue;
+            }
+            if (ctx.settings_ack_received.load(std::memory_order_acquire))
+            {
+                return true;
+            }
+            ::nghttp2_session_recv(session);
+            ::nghttp2_session_send(session);
+        }
+        return true;
+    }
+
+    static constexpr int kPollMs = 50;
+    static constexpr int kTimeoutMs = 10000;
+
+    ServerScript m_script = ServerScript::RespondToRequest;
     int m_listen_fd = -1;
     int m_port = 0;
     std::thread m_thread;
@@ -467,4 +529,107 @@ TEST(Http2TransportIntegrationTest, ConcurrentSendFromMultipleThreads)
         << "handle ids collided across concurrent Send calls";
 
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+}
+
+// ---------------------------------------------------------------------------
+// A peer that resets under an in-flight export (issue #177)
+//
+// This is the I/O thread's write path, the counterpart to the caller-thread
+// one in http2_connect_test.cpp. Two details make it reproduce the fault
+// rather than merely describe it:
+//
+//   * A *burst*, not one request. Linux hands the first write after a reset
+//     `ECONNRESET` and only the second one `EPIPE` — and `EPIPE` is what
+//     raises `SIGPIPE`. `DrainPendingRequests` submits every queued request in
+//     one pass with no error check in between, so a burst is what puts two
+//     writes on a reset socket; a single request never could.
+//   * The server resets on the client's *first request byte*, which lands the
+//     reset in the middle of that pass rather than before it, where the
+//     reactor's `EPOLLERR` handling would have retired the connection first.
+//
+// The assertion that matters is reaching the end of the function at all.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr int kBurstRequests = 256;
+constexpr std::size_t kBurstPayloadBytes = 256;
+
+[[nodiscard]] bool WaitForState(const mtt::Http2Transport& transport,
+                                microtel::ConnectionState want,
+                                std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (transport.GetState() == want)
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return transport.GetState() == want;
+}
+
+}  // namespace
+
+TEST(Http2TransportSendIntegrationTest, Send_PeerResetsMidBurst_ProcessSurvives)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start(ServerScript::ResetOnFirstRequest);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+    ASSERT_TRUE(t->Connect(opts).has_value());
+
+    // Borrowed for the lifetime of every request below (memory-model.md §3.3),
+    // so it must outlive the awaits at the bottom of the test.
+    const std::vector<std::byte> payload(kBurstPayloadBytes, std::byte{0x5A});
+    const std::string authority = "127.0.0.1:" + std::to_string(port);
+
+    std::vector<mti::RequestHandle> handles;
+    handles.reserve(kBurstRequests);
+    for (int i = 0; i < kBurstRequests; ++i)
+    {
+        mti::RequestSpec spec{
+            .headers = {{.name = ":method", .value = "POST"},
+                        {.name = ":scheme", .value = "http"},
+                        {.name = ":path", .value = "/v1/traces"},
+                        {.name = ":authority", .value = authority},
+                        {.name = "content-type", .value = "application/x-protobuf"}},
+            .payload = std::span<const std::byte>{payload},
+            .deadline = std::chrono::milliseconds(3000),
+        };
+        handles.push_back(t->Send(std::move(spec)));
+    }
+
+    EXPECT_TRUE(WaitForState(*t, microtel::ConnectionState::Reconnecting, std::chrono::seconds(5)))
+        << "a peer reset must retire the connection, not the process — state was "
+        << static_cast<int>(t->GetState());
+
+    // Close fulfils whatever the drop did not: nothing may be left waiting.
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+
+    for (auto& handle : handles)
+    {
+        if (!handle.Future().valid())
+        {
+            continue;
+        }
+        ASSERT_EQ(handle.Future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+        EXPECT_FALSE(handle.Future().get().success)
+            << "the peer went away; no request can have succeeded";
+    }
+
+    server.Stop();
 }

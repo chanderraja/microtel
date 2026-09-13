@@ -278,6 +278,38 @@ Concretely:
 
 The fork-survival sequence diagram is `docs/sequences/fork-survival.md`.
 
+### 7.1 Signal disposition
+
+Signals belong in the same register as fork: process-wide state a library
+shares with a host it does not own.
+
+**Rule (LOCKED).** microtel installs **no signal handler** and changes **no
+process-global signal disposition**. Nothing in the runtime calls `signal`,
+`sigaction`, or `pthread_sigmask` — not for `SIGPIPE`, not for anything else.
+A host that has its own handlers keeps them; a host that has none still has
+none after linking microtel.
+
+That leaves `SIGPIPE`, whose default disposition terminates the process and
+which a peer can provoke at will simply by hanging up under a write — a
+collector restart, a GOAWAY followed by a close, or a load balancer draining
+a backend. A library must not be able to kill its host that way, so
+**`SIGPIPE` is suppressed per write, not per process**:
+
+- Plaintext sends go through `SendNoSignal` (`src/transport/nosignal_io.hpp`),
+  which is `::send(..., MSG_NOSIGNAL)`.
+- TLS sends go through the same call, one layer down: microtel hands `SSL` a
+  custom `BIO` whose write callback is that `send`, rather than the stock
+  socket BIO OpenSSL would otherwise build from `SSL_set_fd`. That covers the
+  handshake writes inside `SSL_connect` as well as `SSL_write`.
+- `SO_NOSIGPIPE` is set on the socket where the platform has it. v1 is
+  Linux-only, where it does not exist and the per-write flag is the mechanism.
+
+Per-write, rather than a per-thread `pthread_sigmask`, because writes are not
+confined to the I/O thread: `Connect` runs the TCP connect, the TLS handshake
+and the HTTP/2 handshake — all of them writing — on the **calling** thread,
+which is an application thread or an exporter worker. microtel does not alter
+the signal mask of threads it did not create. See issue #177.
+
 ---
 
 ## 8. What `noexcept` and non-blocking on the hot path mean

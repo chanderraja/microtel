@@ -28,6 +28,11 @@ The wrappers required by `microtel-spec.md` §14.3 and listed in
 | `SslSession` | `SSL*` | `SSL_free` (with clean shutdown if reachable) |
 | `Nghttp2Session` | `nghttp2_session*` | `nghttp2_session_del` |
 | `DeflateStream` | initialised `z_stream` | `deflateEnd` |
+| `BioMethod` | `BIO_METHOD*` | `BIO_meth_free` |
+
+`BioMethod` is not in the spec's list: it arrived with the SIGPIPE-safe TLS
+BIO (issue #177) and owns that BIO type's method table. The `BIO` objects
+built from it are owned by the `SSL` they are handed to, not here.
 
 The `UpbArena` wrapper lives in [`src/wire/encoder/`](../../wire/encoder/),
 not here, because it must not escape that directory (LOCKED —

@@ -398,7 +398,7 @@ read back its resolved config and health.
 | Secret disclosure via read-back | §12.6 redaction applies unconditionally to every response. There is **no control-plane equivalent of `--show-secrets`** — secrets are never readable over the socket at any privilege level. |
 | Malformed frame → parser exploit | §3's restricted grammar, pre-parse size cap, dedicated fuzz harness (§10). |
 | Resource exhaustion (connection flood, slowloris) | Single-threaded accept loop, max 4 concurrent connections, per-connection idle timeout, bounded read buffer. Reject rather than queue. |
-| **`SIGPIPE` kills the process** | **Live hazard, not hypothetical.** There is no `MSG_NOSIGNAL` and no `SIG_IGN` anywhere in the repo. A UDS write to a client that has hung up — trivially triggered by Ctrl-C'ing `microtelctl` — would terminate the host application. Every control-plane `send` must use `MSG_NOSIGNAL`. Process-wide `SIG_IGN` is the alternative but is a library imposing policy on its host, which needs its own ICP. |
+| **`SIGPIPE` kills the process** | **Live hazard, not hypothetical.** A UDS write to a client that has hung up — trivially triggered by Ctrl-C'ing `microtelctl` — would terminate the host application. Every control-plane `send` must use `MSG_NOSIGNAL`. The transport settled this for its own sockets in issue #177 and the precedent is `src/transport/nosignal_io.hpp`: per-write suppression, no process-global disposition anywhere. Process-wide `SIG_IGN` remains the alternative and remains a library imposing policy on its host, which would need its own ICP. |
 | Control plane as persistence/escalation foothold | No command may execute a path, load a library, or write a file. §6 is a closed enumeration — no passthrough, no eval, no config-file path argument. |
 
 ### The socket path has no safe default
@@ -524,9 +524,12 @@ transport re-establishment and defers to whichever milestone solves reconnect.
 
 Spec §923 scopes "config reload via SIGHUP" into the control plane.
 
-**microtel installs no signal handlers today** — zero hits for `signal(`,
-`sigaction`, `SIGHUP`, or `pthread_atfork` across the whole tree. M15 would be
-the first. Consequences:
+**microtel installs no signal handlers today** — no `signal(`, no `sigaction`,
+and no `SIGHUP` anywhere in `src/`, and `threading-model.md` §7.1 makes that a
+rule rather than an accident (`SIGPIPE` is suppressed per write, not by
+changing its disposition). The one `pthread_atfork` registration, in
+`src/sdk/sdk_provider.cpp`, sets a flag in the child and handles no signal.
+M15 would be the first handler. Consequences:
 
 - **Async-signal-safety.** The handler may not lock, allocate, or read a file.
   Standard shape: `write()` one byte to a self-pipe/`eventfd`; the

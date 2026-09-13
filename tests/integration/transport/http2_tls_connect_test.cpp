@@ -24,11 +24,15 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <memory>
+#include <span>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -264,6 +268,24 @@ enum class ServerAlpn : std::uint8_t
     None,    ///< no ALPN callback at all: no protocol in the ServerHello
 };
 
+/// When and how this server tears the connection down.
+///
+/// The two reset modes exist for issue #177: microtel's TLS writes go through
+/// OpenSSL, so `MSG_NOSIGNAL` is only reachable there via a custom `BIO`, and
+/// these are the two write paths that BIO has to cover — the handshake's and
+/// the record layer's.
+enum class ServerClose : std::uint8_t
+{
+    /// Hold the connection open until `Stop()`: what every other test wants.
+    HoldOpen,
+    /// Reset the moment the connection is accepted, before `SSL_accept`. The
+    /// client is inside `SSL_connect`, so this hits the handshake write path.
+    ResetOnAccept,
+    /// Serve the handshakes, then reset on the client's first post-handshake
+    /// byte — its export burst, written with `SSL_write`.
+    ResetOnFirstRequest,
+};
+
 /// The wire bytes of "http/1.1", without ALPN's length prefix. Static storage:
 /// OpenSSL keeps the pointer the select callback hands back.
 constexpr std::array<unsigned char, 8> kHttp11Wire{'h', 't', 't', 'p', '/', '1', '.', '1'};
@@ -345,9 +367,12 @@ public:
 
     /// Bind 127.0.0.1:0, listen, start the accept thread.  Returns the
     /// assigned port, or -1.
-    int Start(const Credential& cred, ServerAlpn alpn = ServerAlpn::H2)
+    int Start(const Credential& cred,
+              ServerAlpn alpn = ServerAlpn::H2,
+              ServerClose close = ServerClose::HoldOpen)
     {
         m_alpn = alpn;
+        m_close = close;
         m_ctx = MakeServerCtx(cred, &m_alpn);
         if (!m_ctx)
         {
@@ -428,12 +453,25 @@ private:
         {
             return;
         }
-        RunConnection(client_fd);
+        if (RunConnection(client_fd))
+        {
+            // Zero linger turns close() into an RST, so the client's in-flight
+            // writes fail now rather than whenever the peer's kernel gets round
+            // to answering them.
+            const linger reset{.l_onoff = 1, .l_linger = 0};
+            ::setsockopt(client_fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+        }
         ::close(client_fd);
     }
 
-    void RunConnection(int fd)
+    /// @return true when the connection must be reset rather than closed.
+    bool RunConnection(int fd)
     {
+        if (m_close == ServerClose::ResetOnAccept)
+        {
+            return true;
+        }
+
         // Bound the blocking SSL_accept: a client that rejects our certificate
         // may hang up without a word, and the accept thread must still exit.
         const timeval tv{.tv_sec = kAcceptTimeoutSec, .tv_usec = 0};
@@ -442,13 +480,13 @@ private:
         const SslPtr ssl{::SSL_new(m_ctx.get())};
         if (!ssl)
         {
-            return;
+            return false;
         }
         ::SSL_set_fd(ssl.get(), fd);
         if (::SSL_accept(ssl.get()) != 1)
         {
             // Expected whenever the client refuses the certificate.
-            return;
+            return false;
         }
 
         SetNonBlocking(fd);
@@ -461,6 +499,11 @@ private:
         }
         m_handshake_done.store(true, std::memory_order_release);
 
+        if (m_close == ServerClose::ResetOnFirstRequest)
+        {
+            return WaitForClientBytes(fd);
+        }
+
         // Hold the connection open until Stop(): closing straight after the
         // handshake makes the client's Connected state transient and races the
         // assertions (see http2_connect_test.cpp).
@@ -468,6 +511,23 @@ private:
         {
             std::this_thread::sleep_for(kPollInterval);
         }
+        return false;
+    }
+
+    /// Stop reading and wait for the client's first post-handshake byte, so the
+    /// reset lands in the middle of its export burst rather than before it.
+    /// @return true — this connection always ends with an RST.
+    [[nodiscard]] bool WaitForClientBytes(int fd) const
+    {
+        while (!m_stop.load(std::memory_order_acquire))
+        {
+            pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
+            if (::poll(&pfd, 1, kPollMs) > 0)
+            {
+                return true;
+            }
+        }
+        return true;
     }
 
     static void SetNonBlocking(int fd) noexcept
@@ -515,6 +575,7 @@ private:
 
     SslCtxPtr m_ctx;
     ServerAlpn m_alpn = ServerAlpn::H2;
+    ServerClose m_close = ServerClose::HoldOpen;
     int m_listen_fd = -1;
     int m_port = 0;
     std::thread m_thread;
@@ -564,6 +625,30 @@ ConnectOutcome ConnectOnce(const mti::ConnectOptions& opts)
     }
     (void)transport->Close(std::chrono::milliseconds(1000));
     return outcome;
+}
+
+/// Size of the export burst the reset tests fire. Big enough that the I/O
+/// thread is still draining it when the peer's RST lands.
+constexpr int kBurstRequests = 256;
+constexpr std::size_t kBurstPayloadBytes = 256;
+constexpr auto kStatePollInterval = std::chrono::milliseconds(20);
+
+/// Poll until @p transport reports @p want, or the deadline passes: the drop
+/// is noticed on the I/O thread, so this cannot be a bare read.
+[[nodiscard]] bool WaitForState(const mtt::Http2Transport& transport,
+                                microtel::ConnectionState want,
+                                std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (transport.GetState() == want)
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(kStatePollInterval);
+    }
+    return transport.GetState() == want;
 }
 
 mti::ConnectOptions MakeOptions(int port)
@@ -744,4 +829,97 @@ TEST(Http2TlsConnectTest, AlpnNotNegotiated_ConnectFailsWithProtocolError)
     EXPECT_FALSE(outcome.connected) << "no ALPN answer means no agreement to speak h2";
     EXPECT_EQ(outcome.kind, microtel::Error::Kind::Protocol);
     EXPECT_NE(outcome.message.find("none"), std::string::npos) << "error was: " << outcome.message;
+}
+
+// ---------------------------------------------------------------------------
+// A peer that resets a TLS connection (issue #177)
+//
+// The plaintext paths take `MSG_NOSIGNAL` at the `::send` call; OpenSSL owns
+// the TLS ones, so microtel hands `SSL` a custom `BIO` that does the same.
+// These two tests walk the two write paths that BIO carries — the handshake's
+// (`SSL_connect`) and the record layer's (`SSL_write`) — with a peer that
+// resets underneath them.
+//
+// In both, the assertion that matters is reaching the end of the function at
+// all: with OpenSSL's stock socket BIO the second write on a reset connection
+// raises `SIGPIPE`, whose default disposition terminates the test binary.
+// ---------------------------------------------------------------------------
+
+TEST(Http2TlsConnectTest, PeerResetsDuringTlsHandshake_ProcessSurvives)
+{
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+
+    TlsHttp2Server server;
+    const int port = server.Start(server_cred, ServerAlpn::H2, ServerClose::ResetOnAccept);
+    ASSERT_GT(port, 0);
+
+    auto opts = MakeOptions(port);
+    opts.insecure = true;  // the certificate is not what this test is about
+
+    const auto outcome = ConnectOnce(opts);
+    EXPECT_FALSE(outcome.connected) << "a peer that reset cannot have completed a TLS handshake";
+    EXPECT_FALSE(outcome.message.empty()) << "the failure must still be reported to the caller";
+}
+
+TEST(Http2TlsConnectTest, PeerResetsUnderTlsExportBurst_ProcessSurvives)
+{
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+
+    TlsHttp2Server server;
+    const int port = server.Start(server_cred, ServerAlpn::H2, ServerClose::ResetOnFirstRequest);
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& transport = *transport_result;
+
+    auto opts = MakeOptions(port);
+    opts.insecure = true;
+    ASSERT_TRUE(transport->Connect(opts).has_value());
+
+    // A burst, because Linux answers the first write on a reset socket with
+    // ECONNRESET and only the second with EPIPE — see the equivalent test in
+    // http2_send_test.cpp. Borrowed payload: it must outlive the awaits below.
+    const std::vector<std::byte> payload(kBurstPayloadBytes, std::byte{0x5A});
+    const std::string authority = "127.0.0.1:" + std::to_string(port);
+
+    std::vector<mti::RequestHandle> handles;
+    handles.reserve(kBurstRequests);
+    for (int i = 0; i < kBurstRequests; ++i)
+    {
+        mti::RequestSpec spec{
+            .headers = {{.name = ":method", .value = "POST"},
+                        {.name = ":scheme", .value = "https"},
+                        {.name = ":path", .value = "/v1/traces"},
+                        {.name = ":authority", .value = authority},
+                        {.name = "content-type", .value = "application/x-protobuf"}},
+            .payload = std::span<const std::byte>{payload},
+            .deadline = std::chrono::milliseconds(3000),
+        };
+        handles.push_back(transport->Send(std::move(spec)));
+    }
+
+    EXPECT_TRUE(
+        WaitForState(*transport, microtel::ConnectionState::Reconnecting, std::chrono::seconds(5)))
+        << "a peer reset must retire the connection, not the process — state was "
+        << static_cast<int>(transport->GetState());
+
+    EXPECT_EQ(transport->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+
+    for (auto& handle : handles)
+    {
+        if (!handle.Future().valid())
+        {
+            continue;
+        }
+        ASSERT_EQ(handle.Future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+        EXPECT_FALSE(handle.Future().get().success)
+            << "the peer went away; no request can have succeeded";
+    }
+
+    server.Stop();
 }

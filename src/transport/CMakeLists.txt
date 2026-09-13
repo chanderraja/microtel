@@ -5,7 +5,8 @@
 
 add_library(microtel_transport STATIC
     epoll_reactor.cpp
-    http2_transport.cpp)
+    http2_transport.cpp
+    nosignal_io.cpp)
 
 target_link_libraries(microtel_transport
     PUBLIC  microtel_headers

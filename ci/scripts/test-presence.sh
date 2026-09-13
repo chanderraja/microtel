@@ -98,6 +98,8 @@ changed_sources()
 SRC_CHANGED="$(changed_sources src)"
 TESTS_CHANGED="$(changed_sources tests)"
 
+# Truncation is done inside awk rather than with `head`, which would exit early
+# and, under `pipefail`, SIGPIPE its producer.
 list_paths()
 {
     local label="$1"
@@ -109,13 +111,9 @@ list_paths()
     fi
 
     echo "  $label:"
-    printf '%s\n' "$paths" | head -n "$MAX_LISTED_PATHS" | sed 's/^/    /'
-
-    local total
-    total="$(printf '%s\n' "$paths" | wc -l)"
-    if (( total > MAX_LISTED_PATHS )); then
-        echo "    ... and $(( total - MAX_LISTED_PATHS )) more"
-    fi
+    printf '%s\n' "$paths" | awk -v limit="$MAX_LISTED_PATHS" '
+        NR <= limit { print "    " $0 }
+        END { if (NR > limit) { print "    ... and " NR - limit " more" } }'
 }
 
 list_paths "changed src/ sources" "$SRC_CHANGED"

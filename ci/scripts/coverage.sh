@@ -231,6 +231,10 @@ fi
 
 # Lowest-covered files in a group, largest shortfall first. Sorting in `sort`
 # rather than awk keeps pass 2 portable.
+#
+# The last stage is an awk that reads its whole input rather than a `head` that
+# exits early: under `pipefail`, an early exit can SIGPIPE `sort` and make this
+# informational helper abort the script.
 worst_files()
 {
     local group="$1"
@@ -240,12 +244,13 @@ worst_files()
         -v group="$group" \
         -v min_lines="$WORST_FILE_MIN_LINES" '
         $1 == group && $3 >= min_lines {
-            printf "%9.4f\t%6.2f%%  %5d/%-5d  %s\n", $4 / $3, 100 * $4 / $3, $4, $3, $2
+            printf "%09.4f\t%6.2f%%  %5d/%-5d  %s\n",
+                $4 / $3, 100 * $4 / $3, $4, $3, $2
         }' "$PER_FILE" \
-        | sort -n \
-        | head -n "$WORST_FILE_COUNT" \
-        | cut -f2- \
-        | sed 's/^/      /'
+        | sort \
+        | awk -F'\t' -v limit="$WORST_FILE_COUNT" '
+            NR <= limit { print "      " $2 }
+            END { if (NR == 0) { print "      (nothing to report)" } }'
 }
 
 # Pass 2: group totals, the report table, and the verdict. awk's exit status

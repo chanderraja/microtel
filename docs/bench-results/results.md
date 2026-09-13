@@ -8,15 +8,15 @@
 | Physical cores | 12 |
 | CPU governor | powersave |
 | Hyperthreading | True |
-| Kernel | 7.0.12-101.fc43.x86_64 |
-| Container engine | podman podman version 5.8.2 |
-| Load avg (1m) | 0.6650390625 |
-| Started | 2026-07-13T00:28:05.572495+00:00 |
+| Kernel | 7.1.13-200.fc44.x86_64 |
+| Container engine | podman podman version 5.8.4 |
+| Load avg (1m) | 0.8115234375 |
+| Started | 2026-09-13T20:12:18.261148+00:00 |
 
 ## Warnings
 
 - ⚠ cpu_governor is 'powersave'; results may be noisy (set governor to 'performance' for reproducible benchmarks)
-- ⚠ host load average is 0.67 (> 0.5); background activity may inflate latency
+- ⚠ host load average is 0.81 (> 0.5); background activity may inflate latency
 - ⚠ hyperthreading (SMT) is enabled; pass --allow-smt to suppress this warning
 
 ## Profile
@@ -34,14 +34,14 @@
 | Metric | microtel | microtel-grpc | otelcpp-grpc | otelcpp-http |
 |--------|--------|--------|--------|--------|
 | StartSpan p50 (ns) | 192 [192–192] | 192 [192–192] | 768 [768–768] | 768 [768–768] |
-| StartSpan p95 (ns) | 384 [384–384] | 384 [384–384] | 3072 [3072–3072] | 3072 [1536–3072] |
-| StartSpan p99 (ns) | 384 [384–672] | 384 [384–384] | 4608 [3072–6144] | 3072 [3072–6144] |
-| Flush latency p50 (ns) | 2982758 [2906362–3104910] | 4977818 [4803721–5034786] | 1874089 [1755964–2351108] | 1851351 [1399083–2144162] |
-| Spans/sec | 1,467,212 [1,430,634–1,520,581] | 1,227,571 [1,211,999–1,250,545] | 710,334 [680,889–810,691] | 824,953 [755,321–840,317] |
-| Throughput (Mbps) | 1667.9 [1602.1–1711.4] | 999.3 [987.9–1035.5] | 2688.9 [2192.5–2870.0] | 2857.6 [2491.7–3857.9] |
-| Delivery rate (sink/emitted) | 100.00% | 100.00% | 93.81% | 96.93% |
+| StartSpan p95 (ns) | 384 [384–384] | 384 [384–384] | 3072 [3072–3072] | 3072 [3072–3072] |
+| StartSpan p99 (ns) | 768 [480–768] | 576 [384–768] | 6144 [6144–6144] | 3072 [3072–6144] |
+| Flush latency p50 (ns) | 2989075 [2867329–3239448] | 4252050 [4156564–4358493] | 2042270 [1885736–2181006] | 1877961 [1705494–2035364] |
+| Spans/sec | 1,528,105 [1,462,542–1,582,300] | 1,286,592 [1,243,369–1,308,767] | 742,689 [690,293–802,776] | 799,785 [787,974–852,212] |
+| Throughput (Mbps) | 1663.8 [1536.1–1734.5] | 1169.9 [1141.0–1196.4] | 2515.0 [2332.5–2617.2] | 2796.9 [2592.6–3115.8] |
+| Delivery rate (sink/emitted) | 100.00% | 100.00% | 93.96% | 96.63% |
 | Wire bytes/span | 62.2 [62.2–62.2] | 62.2 [62.2–62.2] | 68.1 [68.1–68.1] | 68.1 [68.1–68.1] |
-| Binary size (bytes) | 11,510,088 | 11,510,088 | 38,494,312 | 16,818,808 |
+| Binary size (bytes) | 14,229,216 | 14,229,216 | 38,494,312 | 16,818,808 |
 | Spans dropped (total) | 0 | 0 | 0 | 0 |
 
 ---

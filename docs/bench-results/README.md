@@ -1,5 +1,7 @@
 # Committed benchmark snapshot
 
+**Snapshot refreshed 2026-09-13 for the v1.0 tag** — same host (Ryzen 5 5600G), `powersave` governor, SMT on, podman; run warnings: host load 0.81 at start (a parallel build finishing; the later regression pass on a quiet host agreed within 4%). Full-suite context (7 profiles + ±5% regression gate PASS vs the prior baseline) in the v1.0 release notes.
+
 The files here are one benchmark run, committed verbatim so the numbers in the
 root [`README.md`](../../README.md) are checkable from a clone.
 

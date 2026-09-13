@@ -64,13 +64,13 @@ Hot-loop traces, 10 000 spans/sample × 10 samples, blackhole sink (no network),
 |---|---|---|---|---|
 | StartSpan p50 | **192 ns** | **192 ns** | 768 ns | 768 ns |
 | StartSpan p95 | **384 ns** | **384 ns** | 3 072 ns | 3 072 ns |
-| Spans / sec | **1 467 212** | 1 227 571 | 710 334 | 824 953 |
-| Flush p50 | 3.0 ms | 5.0 ms | 1.9 ms | 1.9 ms |
-| Delivery rate | **100%** | **100%** | 93.8% | 96.9% |
+| Spans / sec | **1 528 105** | 1 286 592 | 742 689 | 799 785 |
+| Flush p50 | 3.0 ms | 4.3 ms | 2.0 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 94.0% | 96.6% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
-| Binary size | **11.5 MB** | **11.5 MB** | 38.5 MB | 16.8 MB |
+| Binary size | **14.2 MB** | **14.2 MB** | 38.5 MB | 16.8 MB |
 
-microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 6% under load), and the binary is **3.3× smaller** than otelcpp-gRPC.
+microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 6% under load), and the binary is **2.7× smaller** than otelcpp-gRPC. (The binary grew 11.5 → 14.2 MB in the v1.0 release round — W3C propagation, response decompression, memory-limit enforcement and GOAWAY handling are new code.)
 
 Full results with interactive plots: [`docs/bench-results/plots.html`](docs/bench-results/plots.html) — a committed snapshot of one run, with its environment, warnings and raw per-sample data ([`results.md`](docs/bench-results/results.md), [`results.json`](docs/bench-results/results.json), [provenance](docs/bench-results/README.md)). `bench/results/` is where a local `./bench.sh` writes, and it is gitignored; the snapshot exists so these numbers are checkable from a clone. Methodology: [`docs/bench-spec.md`](docs/bench-spec.md).
 

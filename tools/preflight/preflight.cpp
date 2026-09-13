@@ -3,10 +3,16 @@
 
 #include "preflight/preflight.hpp"
 
+#include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
+
+#include "common/config/config.hpp"
+#include "common/config/config_validator.hpp"
+#include "common/config/env_resolver.hpp"
+#include "common/config/toml_loader.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -15,6 +21,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace tools
 {
@@ -24,6 +31,16 @@ namespace
 
 constexpr std::string_view kVersion = "1.0.0";
 constexpr std::string_view kPreflightFlag = "--preflight=";
+
+/// Spec §6.4: the synthetic span's `service.name`, fixed so a collector rule
+/// can drop preflight traffic by matching it.
+constexpr std::string_view kPreflightServiceName = "microtel-preflight";
+
+/// Spell a protocol the way spec §6.4 requires the attribute to read.
+[[nodiscard]] constexpr std::string_view ProtocolName(microtel::Protocol protocol) noexcept
+{
+    return protocol == microtel::Protocol::Grpc ? "grpc" : "http";
+}
 
 enum class Mode
 {
@@ -37,8 +54,7 @@ struct PreflightArgs
     std::optional<std::filesystem::path> config_path;
 };
 
-[[nodiscard]] std::optional<PreflightArgs>
-ParseArgs(int argc, char** argv, std::ostream& err)
+[[nodiscard]] std::optional<PreflightArgs> ParseArgs(int argc, char** argv, std::ostream& err)
 {
     if (argc < 2)
     {
@@ -81,6 +97,46 @@ ParseArgs(int argc, char** argv, std::ostream& err)
 
 }  // namespace
 
+SpanIdentity ResolveSpanIdentity(std::string_view config_path)
+{
+    // The service name is preflight's own and is not resolved from anything:
+    // spec §6.4 fixes it precisely so that a collector rule can match it, and
+    // a value the file under test could change would not be that.
+    //
+    // The protocol is the opposite — it is whatever the configuration under
+    // test resolves to, so it has to be computed. `SdkBuilder::Build()` runs
+    // exactly the chain below and then keeps the result to itself, so the only
+    // way to report it truthfully today is to run the chain again. preflight
+    // applies no exporter-level code override, so the two agree by
+    // construction; an override added here without a matching line below is
+    // the one way that could stop being true.
+    //
+    // Every failure below is deliberately discarded. `Build()` runs next and
+    // reports the same failure with a field-level message, and a run that
+    // cannot be configured never reaches the span.
+    microtel::config::Config cfg;
+
+    if (!config_path.empty())
+    {
+        auto file_cfg = microtel::config::LoadToml(std::filesystem::path{config_path});
+        if (file_cfg)
+        {
+            cfg = std::move(*file_cfg);
+        }
+    }
+
+    if (microtel::config::OverlayEnv(cfg))
+    {
+        // `Validate` is what turns a `grpc://` scheme into `Protocol::Grpc`,
+        // and it does so before it parses the endpoint URL — so even an
+        // unparseable endpoint leaves the protocol resolved behind it.
+        (void)microtel::config::Validate(cfg);
+    }
+
+    return SpanIdentity{.service_name = std::string{kPreflightServiceName},
+                        .protocol = std::string{ProtocolName(cfg.protocol)}};
+}
+
 int RunPreflight(int argc, char** argv)
 {
     return RunPreflight(argc, argv, std::cout, std::cerr);
@@ -94,12 +150,22 @@ int RunPreflight(int argc, char** argv, std::ostream& out, std::ostream& err)
         return kExitUsage;
     }
 
+    const std::string config_path = args->config_path ? args->config_path->string() : std::string{};
+    const SpanIdentity identity = ResolveSpanIdentity(config_path);
+
     // Build Provider from file → env → defaults.
     microtel::SdkBuilder builder;
     if (args->config_path)
     {
         builder.FromFile(*args->config_path);
     }
+
+    // Spec §6.4 fixes the synthetic span's service name, and it has to survive
+    // a run against an operator's own config: the value exists so a collector
+    // rule can drop preflight traffic, which it cannot do if the file under
+    // test renames it. A code override is the highest-precedence layer
+    // (docs/configuration.md §2), so this wins over file and environment.
+    builder.WithServiceName(identity.service_name);
 
     auto provider_result = builder.Build();
     if (!provider_result)
@@ -132,9 +198,7 @@ int RunPreflight(int argc, char** argv, std::ostream& out, std::ostream& err)
         auto span = tracer->StartSpan("microtel.preflight");
         span->SetAttribute("microtel.preflight", true);
         span->SetAttribute("microtel.version", std::string{kVersion});
-        // Protocol is not yet queryable from Provider; default to "http".
-        // Revisit when Provider exposes its runtime config (v1.1).
-        span->SetAttribute("microtel.protocol", std::string{"http"});
+        span->SetAttribute("microtel.protocol", identity.protocol);
         span->End();
     }
 

@@ -39,9 +39,17 @@ namespace microtel::sdk
 /// which `docs/threading-model.md` §4 marks LOCKED against. The flag gives the
 /// same mutual exclusion while `m_collect_mu` stays a leaf.
 ///
+/// `final` is load-bearing, not decoration. The destructor calls `Shutdown()`,
+/// a virtual — in a base class that would statically bind to this class's
+/// override while a derived object's own `Shutdown` was skipped, because the
+/// derived part is already destroyed by the time the base destructor runs.
+/// Sealing the class makes the call unambiguously correct rather than
+/// correct-until-someone-subclasses-it. A future reader that needs different
+/// shutdown behaviour implements `IMetricReader` directly.
+///
 /// @threadsafety Thread-safe.
 /// @noexcept All public methods; background thread entry point.
-class PeriodicExportingMetricReader : public internal::IMetricReader
+class PeriodicExportingMetricReader final : public internal::IMetricReader
 {
 public:
     /// Default export interval per metrics-design.md §5.

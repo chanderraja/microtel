@@ -27,7 +27,12 @@ public:
     NoopLogger(NoopLogger&&) noexcept = default;
     NoopLogger& operator=(NoopLogger&&) noexcept = default;
 
-    void Emit(LogRecord /*record*/) noexcept override {}
+    void Emit(LogRecord /*record*/) noexcept override
+    {
+        // Intentionally empty: with no logs exporter configured there is
+        // nowhere for the record to go, and dropping it here is the whole
+        // point of the type (ICP 0012). The record is destroyed on return.
+    }
 };
 
 }  // namespace microtel::sdk

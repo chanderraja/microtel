@@ -131,7 +131,7 @@ SdkSpan::SdkSpan(SpanContext context,
 {
     m_record.context = context;
     m_record.parent_context = parent_context;
-    DropOnBadAlloc([&] { m_record.name = std::string{name}; });
+    DropOnBadAlloc([this, &name] { m_record.name = std::string{name}; });
     m_record.kind = kind;
     m_record.start_time = (start_time == std::chrono::system_clock::time_point{})
                               ? std::chrono::system_clock::now()
@@ -173,7 +173,7 @@ void SdkSpan::SetAttribute(std::string_view key, AttributeValue value) noexcept
         return;
     }
     DropOnBadAlloc(
-        [&]
+        [this, &key, &value]
         { m_record.attributes.push_back({.key = std::string{key}, .value = std::move(value)}); });
 }
 
@@ -193,7 +193,7 @@ void SdkSpan::AddEvent(std::string_view name,
     // All-or-nothing: BuildEvent's local is discarded if it cannot be
     // completed, so the record never holds a half-written event.
     DropOnBadAlloc(
-        [&]
+        [this, &name, &attributes, &timestamp]
         {
             m_record.events.push_back(BuildEvent(
                 name, attributes, timestamp, m_limits.event_attribute_count_limit, m_diagnostics));
@@ -213,7 +213,7 @@ void SdkSpan::AddLink(const SpanContext& linked_context, AttributeSpan attribute
     }
     // All-or-nothing, same reasoning as AddEvent.
     DropOnBadAlloc(
-        [&]
+        [this, &linked_context, &attributes]
         {
             m_record.links.push_back(BuildLink(
                 linked_context, attributes, m_limits.link_attribute_count_limit, m_diagnostics));
@@ -236,7 +236,8 @@ void SdkSpan::SetStatus(StatusCode code, std::string_view description) noexcept
     if (code == StatusCode::Error && m_record.status_code != StatusCode::Ok)
     {
         m_record.status_code = StatusCode::Error;
-        DropOnBadAlloc([&] { m_record.status_description = std::string{description}; });
+        DropOnBadAlloc([this, &description]
+                       { m_record.status_description = std::string{description}; });
     }
 }
 
@@ -244,7 +245,7 @@ void SdkSpan::UpdateName(std::string_view name) noexcept
 {
     if (!m_ended.load(std::memory_order_relaxed))
     {
-        DropOnBadAlloc([&] { m_record.name = std::string{name}; });
+        DropOnBadAlloc([this, &name] { m_record.name = std::string{name}; });
     }
 }
 

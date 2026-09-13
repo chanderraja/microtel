@@ -16,6 +16,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,32 @@ class Context;
 
 namespace microtel::sdk
 {
+
+/// @brief Estimate the byte cost of one span record.
+///
+/// `max_record_bytes` has to be applied *before* the record is queued (issue
+/// #181 names `BatchSpanProcessor::OnEnd` as its detection point), and at that
+/// point nothing has encoded the record — so this is a documented estimate of
+/// the memory the record occupies, not a wire measurement:
+///
+/// ```text
+/// bytes = kRecordFixedBytes                        // ids, timestamps, kind, status
+///       + name + status_description
+///       + Σ attributes ( key + value )
+///       + Σ events     ( kEventFixedBytes + name + Σ attributes( key + value ) )
+///       + Σ links      ( kLinkFixedBytes  + Σ attributes( key + value ) )
+/// ```
+///
+/// A value costs its string bytes, the sum of its elements' bytes for a string
+/// array, its element count times the element width for a numeric or boolean
+/// array, and `kScalarValueBytes` for a scalar. Per-field protobuf tags and
+/// varint lengths are folded into the three fixed constants rather than
+/// modelled individually: the limit is a memory budget, and an estimate a test
+/// can reproduce is worth more here than one that tracks the encoder.
+///
+/// @param record the record about to be queued. Borrowed; not retained.
+/// @return the estimated size in bytes; never zero.
+[[nodiscard]] std::size_t EstimateRecordBytes(const internal::SpanRecord& record) noexcept;
 
 /// @brief Asynchronous batching span processor.
 ///
@@ -58,11 +85,19 @@ public:
     /// @param exporter non-owning; must outlive the processor.
     /// @param resource shared with every batch this processor emits.
     /// @param opts queue capacity, batch size, schedule delay, drop policy.
+    /// @param max_record_bytes ceiling on one record's `EstimateRecordBytes`;
+    ///        a record above it is dropped in `OnEnd` and counted as
+    ///        `RecordTooLarge`. From `MemoryLimitOptions::max_record_bytes`.
+    ///        A scalar rather than the whole options struct because it is the
+    ///        only field of it this processor enforces — `max_total_queue_bytes`
+    ///        remains unimplemented (issue #181) and taking it here would imply
+    ///        otherwise.
     /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
     ///        accounting. Borrowed for the processor's lifetime.
     BatchSpanProcessor(internal::IExporter* exporter,
                        std::shared_ptr<const Resource> resource,
                        BatchOptions opts,
+                       std::uint32_t max_record_bytes = MemoryLimitOptions{}.max_record_bytes,
                        internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~BatchSpanProcessor() noexcept override;
@@ -106,6 +141,7 @@ private:
     internal::IExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
     BatchOptions m_opts;
+    std::uint32_t m_max_record_bytes;
     internal::IDiagnosticsSink* m_diag;
 
     std::mutex m_mu;

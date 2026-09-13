@@ -91,8 +91,9 @@ TEST(OtelCppContextConversion, InvalidContextConvertsToInvalid)
 
 TEST(OtelCppContextConversion, TraceStateIsEmptyDefaultBothWays)
 {
-    // microtel::TraceState has no storage or implementation yet; the bridge
-    // must not pretend otherwise. Both directions yield the empty default.
+    // microtel::TraceState has no storage yet (issue #188 defined its methods
+    // but not a data member); the bridge must not pretend otherwise. Both
+    // directions yield the empty default.
     const auto otel = ToOtelSpanContext(MakeMicrotelContext(true, false));
     EXPECT_TRUE(otel.trace_state()->ToHeader().empty());
 }

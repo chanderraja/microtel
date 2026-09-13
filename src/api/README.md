@@ -19,13 +19,17 @@ Track A — Trace SDK (per [`docs/development.md`](../../docs/development.md) §
 
 - `microtel::TraceId::ToHex` / `microtel::SpanId::ToHex`
   ([`trace.cpp`](trace.cpp), declared in
-  [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)) — the only
-  content built into `microtel_api` today. `TraceState` and
-  `W3CTraceContextPropagator` are declared in the public headers and still
-  defined nowhere; they belong here — issue #188.
+  [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)).
+- `microtel::W3CTraceContextPropagator::Inject` / `Extract` and
+  `microtel::TraceState::FromHeader` / `ToHeader` / `Size` / `Empty`
+  ([`propagator.cpp`](propagator.cpp), declared in
+  [`include/microtel/propagator.hpp`](../../include/microtel/propagator.hpp)
+  and [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)) —
+  issue #188. `traceparent` inject/extract is complete; `TraceState` has no
+  data member in its public declaration and so cannot hold an entry, which
+  `docs/compatibility-matrix.md` §5 tracks as the remaining gap.
 - `microtel::Tracer` (declared in [`include/microtel/tracer.hpp`](../../include/microtel/tracer.hpp))
 - `microtel::Span`   (declared in [`include/microtel/span.hpp`](../../include/microtel/span.hpp))
-- `microtel::W3CTraceContextPropagator` (declared in [`include/microtel/propagator.hpp`](../../include/microtel/propagator.hpp))
 - The unsampled-`Span` no-op singleton + `internal::SpanDeleter` per
   [ICP 0003 §3.2](../../docs/icps/0003-m0-deferred-decisions.md#32-unsampled-span-shape--unique_ptrspan-to-no-op-singleton)
 

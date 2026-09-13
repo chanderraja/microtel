@@ -9,7 +9,10 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_codec.hpp"
 
+#include "wire/gzip.hpp"
+
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,9 +31,15 @@ struct GrpcWireCodecConfig
     /// Use the metrics service path to point this codec at the metrics endpoint.
     std::string service_path;
     /// @brief When true, the request message is gzip-compressed, the frame's
-    /// compression flag is `0x01`, and `grpc-encoding: gzip` is set. No
-    /// `grpc-accept-encoding` is advertised, so responses stay uncompressed.
+    /// compression flag is `0x01`, and `grpc-encoding: gzip` is set. Response
+    /// decompression is independent of this flag: `grpc-accept-encoding: gzip`
+    /// is advertised unconditionally (`docs/grpc-wire-protocol.md` §5.2).
     bool compression_gzip{false};
+    /// @brief Ceiling on the decompressed size of a `CF = 0x01` response
+    /// message. Past it the response is failed and `decompression_too_large`
+    /// counted, rather than the bomb being materialised. Plumbed from
+    /// `MemoryLimitOptions::max_decompressed_bytes`.
+    std::uint32_t max_decompressed_bytes{kDefaultMaxDecompressedBytes};
 };
 
 /// @brief OTLP/gRPC implementation of `IWireCodec` — no gRPC library.

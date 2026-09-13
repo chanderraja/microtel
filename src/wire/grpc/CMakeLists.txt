@@ -3,7 +3,9 @@
 #
 # src/wire/grpc/ — OTLP/gRPC implementation of IWireCodec (M4).
 
-add_library(microtel_grpc_wire STATIC grpc_wire_codec.cpp)
+add_library(microtel_grpc_wire STATIC
+    grpc_status.cpp
+    grpc_wire_codec.cpp)
 
 target_link_libraries(microtel_grpc_wire PUBLIC microtel_headers microtel_otlp_response microtel_gzip)
 

@@ -2,14 +2,16 @@
 
 ## Supported versions
 
-microtel is **pre-1.0**. No version is currently considered "stable" for security-support purposes. Once v1.0 ships, the support matrix below will list which versions receive security updates.
-
 | Version | Status | Security updates |
 |---|---|---|
-| 0.x | pre-release | best-effort, no SLA |
-| 1.x | TBD when 1.0 ships | TBD |
+| 1.0.x | current release | ✅ supported |
+| < 1.0 | pre-release | ❌ unsupported — upgrade to 1.0.x |
 
-After v1.0:
+The pre-1.0 tags were development snapshots. They receive no security fixes; the
+supported path off one is to upgrade.
+
+The policy this matrix will follow as further releases land:
+
 - The most recent **minor release** of the latest **major version** is fully supported.
 - The previous **major version** receives security fixes for **18 months** after the next major version ships (per the LTS policy in `microtel-roadmap.md` §2).
 - Older versions are end-of-life. If you're running one, the recommended path is to upgrade.
@@ -31,7 +33,7 @@ What to include:
 
 ## What to expect
 
-- **Acknowledgement within 72 hours** of receipt (best-effort pre-1.0).
+- **Acknowledgement within 72 hours** of receipt.
 - **Initial assessment within 7 days.**
 - **Coordinated disclosure preferred.** We aim to publish a fix and advisory together.
 - **CVE assignment** when warranted.

@@ -37,7 +37,7 @@ For SECURITY vulnerabilities, do NOT use this form. See SECURITY.md.
 
 ## Environment
 
-- **microtel version (or commit SHA):** <!-- e.g. v0.1.0, or 1a2b3c4 -->
+- **microtel version (or commit SHA):** <!-- e.g. v1.0.0, or 1a2b3c4 -->
 - **C++ compiler and version:** <!-- e.g. gcc 12.2, clang 17 -->
 - **Build configuration:** <!-- Debug / Release / RelWithDebInfo, sanitizers if any -->
 - **Platform:** <!-- Linux x86_64 / Linux ARM64 -->

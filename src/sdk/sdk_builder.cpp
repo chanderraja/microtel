@@ -254,7 +254,7 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
     if (cfg.tls.insecure)
     {
         internal::LogImpl(LogLevel::Warn,
-                          "exporter.tls.insecure = true - TLS certificate verification is "
+                          "tls.insecure = true - TLS certificate verification is "
                           "disabled and any certificate will be accepted, including an "
                           "attacker's. Not for production; see docs/compatibility-matrix.md");
     }

@@ -7,6 +7,7 @@
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
+#include "microtel/version.hpp"
 
 #include "common/internal_log.hpp"
 #include "wire/grpc/grpc_status.hpp"
@@ -34,6 +35,15 @@ namespace
 constexpr std::string_view kGrpcTracesPath =
     "/opentelemetry.proto.collector.trace.v1.TraceService/Export";
 constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.RetryInfo";
+
+// `microtel-cpp/<version>`, required by spec §7.2. Spelled as a literal rather
+// than assembled at runtime — this is on the per-export header path — with the
+// version half checked against `kVersionString` at compile time. It had read
+// "microtel-cpp/0.1.0" since M4 with nothing to catch the drift.
+constexpr std::string_view kUserAgentPrefix = "microtel-cpp/";
+constexpr std::string_view kUserAgent = "microtel-cpp/1.0.0";
+static_assert(kUserAgent.substr(kUserAgentPrefix.size()) == kVersionString,
+              "gRPC user-agent must carry microtel::kVersionString (spec §7.2)");
 
 // ---------------------------------------------------------------------------
 // Base64 alphabet position constants (RFC 4648 §5)
@@ -891,7 +901,7 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders(bool compressed) 
     headers.push_back({.name = ":path", .value = path});
     headers.push_back({.name = "te", .value = "trailers"});
     headers.push_back({.name = "content-type", .value = "application/grpc+proto"});
-    headers.push_back({.name = "user-agent", .value = "microtel-cpp/0.1.0"});
+    headers.push_back({.name = "user-agent", .value = std::string{kUserAgent}});
     // Unconditional, and independent of `compression_gzip` (§5.2): this says
     // what the client can decode, not what it chose to encode. The codec now
     // handles `CF = 0x01` on the way back, so there is nothing left to gate it

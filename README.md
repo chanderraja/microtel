@@ -33,33 +33,46 @@ gRPC at the wire level is a thin protocol on top of HTTP/2 — a 5-byte length-p
 
 ## Status
 
-**v1.2 in progress — Traces complete, Metrics SDK substantially implemented.**
+**v1.0 — traces.**
+
+The release cut and the implementation are not the same line. v1.0 is scoped to
+traces: that is the signal the spec's conformance gates, the compatibility
+matrix and the support promise cover. Metrics and logs are *implemented* — the
+code is in the tree and tested — but they are claimed by later releases, and
+until then they carry no compatibility guarantee. `microtel-spec.md` §13 puts it
+directly: *"do not read 'v1 is traces only' as a statement about what is
+implemented — that phrasing described the release cut, and the implementation
+has run ahead of it."*
 
 | Signal | Status |
 |---|---|
-| Traces | Complete — Tracer, Span, W3C propagation, batch processor, OTLP/gRPC + OTLP/HTTP (the latter over TLS; see the [compatibility matrix](docs/compatibility-matrix.md)) |
-| Metrics | In progress (v1.2) — all 7 instruments, OTLP encoder, periodic reader, cardinality limits, temporality |
-| Logs | Planned v1.3 |
+| Traces | **v1.0** ✅ — Tracer, Span, W3C propagation, batch processor, OTLP/gRPC + OTLP/HTTP (the latter over TLS; see the [compatibility matrix](docs/compatibility-matrix.md)) |
+| Metrics | Implemented ahead of the release cut; claimed in **v1.2** (spec §13) — all 7 instruments, OTLP encoder, periodic reader, cardinality limits, temporality, views, exemplars |
+| Logs | Implemented ahead of the release cut; claimed in **v1.3** (spec §13) |
 
-Metrics remaining for v1.2: Views, Exemplars, `mt::Timer` sugar. See [microtel-roadmap.md](microtel-roadmap.md).
+What "claimed in v1.2/v1.3" buys you when it lands: the compatibility-tier
+promise in [microtel-roadmap.md](microtel-roadmap.md) §3, conformance coverage,
+and the security-support matrix in [SECURITY.md](SECURITY.md). Using the metrics
+or logs API before then works; it is just not yet something v1.0 promises not to
+break.
 
 ## Benchmarks
 
-Hot-loop traces, 10 000 spans/sample × 10 samples, blackhole sink (no network), Podman containers, AMD Ryzen 5 5600G. CPU governor was `powersave`; results with `performance` governor will be lower-variance.
+Hot-loop traces, 10 000 spans/sample × 10 samples, blackhole sink (no network), Podman containers, AMD Ryzen 5 5600G. CPU governor was `powersave` and SMT was on; results with `performance` and SMT off will be lower-variance. Every number below is read off the committed snapshot linked under the table — not a separate run.
 
 | Metric | **microtel** (HTTP) | **microtel** (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
 |---|---|---|---|---|
 | StartSpan p50 | **192 ns** | **192 ns** | 768 ns | 768 ns |
 | StartSpan p95 | **384 ns** | **384 ns** | 3 072 ns | 3 072 ns |
-| Spans / sec | **1 494 603** | 1 245 356 | 706 764 | 822 506 |
-| Flush p50 | 3.7 ms | 4.9 ms | 2.1 ms | 1.9 ms |
-| Delivery rate | **100%** | **100%** | 93.4% | 97.1% |
+| Spans / sec | **1 467 212** | 1 227 571 | 710 334 | 824 953 |
+| Flush p50 | 3.0 ms | 5.0 ms | 1.9 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 93.8% | 96.9% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
-| Binary size | **11.3 MB** | **11.3 MB** | 38.5 MB | 16.8 MB |
+| Binary size | **11.5 MB** | **11.5 MB** | 38.5 MB | 16.8 MB |
 
-microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 7% under load), and the binary is **3.4× smaller** than otelcpp-gRPC.
+microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 6% under load), and the binary is **3.3× smaller** than otelcpp-gRPC.
 
-Full results with interactive plots: [`bench/results/plots.html`](bench/results/plots.html). Methodology: [`docs/bench-spec.md`](docs/bench-spec.md).
+Full results with interactive plots: [`docs/bench-results/plots.html`](docs/bench-results/plots.html) — a committed snapshot of one run, with its environment, warnings and raw per-sample data ([`results.md`](docs/bench-results/results.md), [`results.json`](docs/bench-results/results.json), [provenance](docs/bench-results/README.md)). `bench/results/` is where a local `./bench.sh` writes, and it is gitignored; the snapshot exists so these numbers are checkable from a clone. Methodology: [`docs/bench-spec.md`](docs/bench-spec.md).
 
 ## API
 

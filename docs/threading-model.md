@@ -204,18 +204,56 @@ The I/O thread signals a per-request `m_completion` condvar when a request compl
 
 ### 5.3 Shutdown signal (LOCKED — single-source-of-truth)
 
-A single `std::atomic<ShutdownState> m_state` on the `Provider` is the ground truth for shutdown progress:
+There is no shutdown state machine and no single ground-truth variable. Shutdown
+is **a flag, then an ordered sequence of per-component shutdowns**, each component
+owning its own idempotence.
+
+`SdkProvider::m_shut_down` is a `std::atomic<bool>` (`src/sdk/sdk_provider.hpp`).
+`Provider::Shutdown(timeout)` release-stores it `true` *before* tearing anything
+down, then drives each component in a fixed order:
 
 ```
-NotShutDown → Draining → Closed
+m_shut_down = true
+  → span processor
+  → metric reader (or the bare metric exporter, if no reader)
+  → log processor → log exporter
+  → trace exporter
+  → transport (Close)
 ```
 
-- `Provider::Shutdown(timeout)` is the only writer to the state. It acquires `m_shutdown`, transitions `NotShutDown` → `Draining`, then signals both wakeup primitives (worker condvar, I/O eventfd).
-- The worker, on observing `Draining`, finishes its in-flight batch within the remaining timeout, drains the queue up to the deadline, then exits its loop. `Span` records that arrive after the worker has exited are dropped at the producer side with reason `post_shutdown`.
-- The I/O thread, on observing `Draining`, completes any in-flight request, runs the GOAWAY-and-drain handshake on the nghttp2 session, closes the socket, exits its loop.
-- After both threads have joined, `Shutdown` transitions `Draining` → `Closed` and returns the appropriate `Status` (see `error-model.md`).
+- **The flag's only job** is to stop `GetMeter` / `GetLogger` from building a new
+  pipeline component — and spawning its thread — after `Shutdown` has begun. It
+  does not gate the export path, and it is not a progress indicator: it is `true`
+  for the whole of the teardown and afterwards, with no intermediate value.
+- **Every component runs even if an earlier one timed out.** A partial teardown
+  would leak threads and sockets. The statuses fold worst-first — `Failed` >
+  `TimedOut` > `Completed` > `AlreadyShutDown` — into the single `Status` the
+  caller sees (`WorseOf` in `sdk_provider.cpp`), and a `TimedOut` fold records
+  exactly one `ShutdownTimeout` drop however many components ran out of time.
+- **Ordering is the explicit call order above**, plus member declaration order in
+  `SdkProvider` for destruction. Nothing consults a state enum to decide what to
+  tear down next.
+- Each component implements its own drain against the timeout it is handed —
+  the worker finishing its in-flight batch, the I/O thread completing its
+  in-flight request and closing the socket. Those contracts belong to the
+  components, not to a Provider-level state machine.
 
-`Shutdown` is **idempotent** (LOCKED). A second call observes `Closed` and returns `AlreadyShutDown` immediately.
+`Shutdown` is **idempotent** (LOCKED) — but by composition, not by a
+Provider-level short-circuit. A second call re-runs the whole sequence; each
+component observes its own already-shut-down state and returns
+`AlreadyShutDown`, and the fold above turns six of them back into one.
+
+**What this section used to say, and why it is worth recording.** It asserted "a
+single `std::atomic<ShutdownState> m_state` on the `Provider` is the ground truth
+for shutdown progress", over a `NotShutDown → Draining → Closed` table. No such
+member and no such enum has ever existed in this repository — `ShutdownState`
+appears in no commit (issue #134). The claim entered in the M0 commit, already
+marked LOCKED, at a phase with no source code to check it against; **LOCKED means
+"changing this needs an ICP", never "this has been verified true"**. The nearest
+real thing to the documented `m_state` is `Http2Transport::m_state`, an
+`std::atomic<ConnectionState>` on the *transport* — the release-store §2.3 refers
+to, and the reason `Transport::Close` can return `AlreadyShutDown` on a second
+call.
 
 ---
 
@@ -233,7 +271,7 @@ The worker treats a `ForceFlush` request as a synthesised batch deadline of "now
 ### 6.2 `Shutdown(timeout)`
 
 **Caller.** Any caller thread, but in practice the application's shutdown path.
-**Effect.** Transitions `m_state` to `Draining`, signals the worker and I/O thread, waits for both to join (within the timeout), transitions to `Closed`. Returns `Completed` / `TimedOut` / `AlreadyShutDown` / `Failed`.
+**Effect.** Sets `m_shut_down`, then shuts down each pipeline component in the order given in §5.3 — each signalling and joining its own thread within the timeout — and folds their statuses into one `Completed` / `TimedOut` / `AlreadyShutDown` / `Failed`.
 
 After `Shutdown` returns, no further records are accepted; producers see `post_shutdown` drops.
 

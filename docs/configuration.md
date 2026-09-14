@@ -168,10 +168,11 @@ Caller-provided timeouts to `ForceFlush(timeout)` and `Shutdown(timeout)` overri
 single batch; the remaining retry parameters (attempt count, backoff shape,
 jitter) are not configurable in v1 and keep the OTLP-recommended defaults in
 `RetryPolicyConfig`. The budget is checked between attempts, not enforced
-against one in flight: the loop stops once the budget is *already* spent, so
-the last attempt and the backoff preceding it can carry total elapsed time past
-it. Treat `retry_budget` as the point at which microtel stops starting new
-attempts, not as a hard deadline.
+against one in flight: before each backoff the loop looks ahead and stops if
+that sleep would reach or pass the budget, so no backoff ever runs beyond it
+(issue #195). An attempt already in flight still can — it is bounded by
+`per_export`, not by `retry_budget`. Treat `retry_budget` as the point at which
+microtel stops starting new attempts, not as a hard deadline.
 
 ### 3.5 Exporter — TLS
 

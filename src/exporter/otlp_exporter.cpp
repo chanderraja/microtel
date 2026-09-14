@@ -149,7 +149,13 @@ std::optional<internal::WireResult> OtlpExporter::RunRetryLoop(const internal::B
         }
 
         const auto backoff = ComputeBackoff(attempt, rp, last->retry_after, DrawJitter01());
-        if (ClockNow() >= budget_deadline)
+        // Look-ahead, per `docs/sequences/retry-after-failure.md` §4: exit when
+        // the *upcoming* sleep would reach or pass the budget, not once the
+        // budget is already spent. Checking only the latter let a failure path
+        // that returns quickly sleep a full backoff past `retry_budget`
+        // (issue #195). `>=` subsumes the spent-budget check it replaces:
+        // `backoff` is never negative.
+        if (ClockNow() + backoff >= budget_deadline)
         {
             break;
         }

@@ -42,7 +42,7 @@ Exporter Worker      Wire Codec       I/O Thread        Peer       SteadyClock
    | record dropped EncodedPayload (release unique_ptr<byte[]>)         |
    | (NOT retryable_failure_recovered yet — only on success)            |
    |                                                                    |
-   | check budget: (Now() - t_budget_start) < retry_budget? yes         |
+   | check budget: (Now() - t_budget_start) + backoff < retry_budget? yes|
    |                                                                    |
    | sleep retry_after + jitter(0..0.5*retry_after)                     |
    |                                                                    |
@@ -68,7 +68,7 @@ Exporter Worker      Wire Codec       I/O Thread        Peer       SteadyClock
 1. **Encoded bytes do not survive a retry.** The `EncodedPayload` from attempt 1 is released as soon as the failed `Send` returns. Attempt 2 calls `Encode()` again, producing a fresh arena and a fresh `EncodedPayload`. (LOCKED — `memory-model.md` §3, ICP 0001.)
 2. **Retry classification is the codec's responsibility.** The codec produces `WireResult.retryable` and `retry_after`; the exporter does not reinterpret. For HTTP, `retry_after` comes from the `Retry-After` response header; for gRPC, from `RetryInfo.retry_delay` in `grpc-status-details-bin`. (`error-model.md` §7, `grpc-wire-protocol.md` §2.4.)
 3. **Backoff with jitter.** When `retry_after` is absent (e.g., gRPC `UNAVAILABLE` without `RetryInfo`), the exporter applies exponential backoff: `min(base * 2^(attempt-1), cap) ± jitter`. v1 uses `base=1s`, `cap=30s`, jitter is uniform `[0, 0.5*delay)`. The exact constants are pinned in M5; the shape is documented here.
-4. **The retry budget is enforced by the exporter, not the codec.** `t_budget_start` is recorded at the first `Send` attempt; if the next sleep would push elapsed time past `retry_budget`, the exporter exits the loop with `retry_budget_exhausted` instead of attempting another send.
+4. **The retry budget is enforced by the exporter, not the codec.** `t_budget_start` is recorded at the first `Send` attempt; if the next sleep would reach or pass `retry_budget`, the exporter exits the loop with `retry_budget_exhausted` instead of attempting another send. The check is a look-ahead — `Now() + backoff >= t_budget_start + retry_budget` — so a failure path that returns quickly can never buy one whole backoff beyond the budget (issue #195).
 5. **Counters are recorded only on terminal outcomes.** `retryable_failure_recovered` increments only when a retry succeeds. `retry_budget_exhausted` increments on budget timeout. Each retry attempt itself is **not** counted (otherwise the counter would conflate "2 attempts to succeed" with "2 batches retried at all").
 
 ---
@@ -101,7 +101,7 @@ Examples of non-retryable failures: HTTP 415 (Unsupported Media Type), HTTP 404,
 ```
 Exporter Worker (loop iteration N where retry_after > remaining_budget)
    |
-   | check budget: (Now() - t_budget_start) + retry_after > retry_budget? yes
+   | check budget: (Now() - t_budget_start) + retry_after >= retry_budget? yes
    | record retry_budget_exhausted
    | record batch_failed
    | release EncodedPayload

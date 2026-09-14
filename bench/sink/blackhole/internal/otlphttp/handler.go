@@ -4,8 +4,11 @@
 package otlphttp
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -71,7 +74,18 @@ func (h *traceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.c.RecordError("read body: " + err.Error())
 		return
 	}
+	// reqBytes is the wire size, so it is taken before inflation: the
+	// compression profile measures bytes/span on the wire.
 	reqBytes := uint64(len(body))
+
+	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+		body, err = gunzip(body)
+		if err != nil {
+			http.Error(w, "invalid gzip body", http.StatusBadRequest)
+			h.c.RecordError("gunzip: " + err.Error())
+			return
+		}
+	}
 
 	var req tracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(body, &req); err != nil {
@@ -95,6 +109,18 @@ func (h *traceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(respBody)
 
 	h.c.RecordHTTPExport(spans, reqBytes, uint64(len(respBody)))
+}
+
+// gunzip inflates a `content-encoding: gzip` body.  Exporters configured with
+// compression (the microtel-gzip SUT) send one; without this the sink hands
+// deflate output to proto.Unmarshal and reports every span as undelivered.
+func gunzip(body []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(zr)
 }
 
 func countSpans(req *tracepb.ExportTraceServiceRequest) uint64 {

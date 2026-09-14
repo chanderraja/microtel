@@ -26,7 +26,7 @@ POST /reset    → 200 "{}" (zeroes all counters; uptime is not reset)
 | Field | Type | Description |
 |-------|------|-------------|
 | `spans_received` | uint64 | Total span records counted |
-| `bytes_received` | uint64 | Wire bytes in (HTTP: body size; gRPC: proto.Size) |
+| `bytes_received` | uint64 | Wire bytes in (HTTP: body size; gRPC: proto.Size — see Compression) |
 | `requests_received` | uint64 | HTTP + gRPC request total |
 | `http_requests_received` | uint64 | HTTP-only request count |
 | `grpc_requests_received` | uint64 | gRPC-only request count |
@@ -34,6 +34,21 @@ POST /reset    → 200 "{}" (zeroes all counters; uptime is not reset)
 | `errors` | uint64 | Requests rejected with an error |
 | `last_error` | string | Description of most recent error, empty if none |
 | `uptime_seconds` | float64 | Seconds since process start (not reset by /reset) |
+
+## Compression
+
+Both listeners inflate gzip before counting spans, so the `*-gzip` SUTs report
+real delivery:
+
+| Path | Trigger | Inflated by |
+|------|---------|-------------|
+| HTTP | `content-encoding: gzip` | the trace handler, after `bytes_received` is taken |
+| gRPC | `grpc-encoding: gzip` (message CF=`0x01`) | grpc-go, via the registered gzip compressor |
+
+`bytes_received` therefore means different things per protocol: on HTTP it is
+the compressed wire size, on gRPC it is the *uncompressed* `proto.Size` of the
+decoded message, because grpc-go inflates before the handler runs. Tracked in
+[#228](https://github.com/chanderraja/microtel/issues/228).
 
 ## Run with Docker
 

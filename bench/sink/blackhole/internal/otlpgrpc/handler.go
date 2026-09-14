@@ -9,6 +9,12 @@ import (
 
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+
+	// grpc-go inflates `grpc-encoding: gzip` messages only when a compressor
+	// is registered for that name, and no compressor is registered by default.
+	// Without this import the server answers a compressed export (the
+	// microtel-grpc-gzip SUT) with Unimplemented and counts nothing.
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/chanderraja/microtel/bench/sink/blackhole/internal/counters"

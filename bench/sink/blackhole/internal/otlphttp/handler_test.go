@@ -5,6 +5,7 @@ package otlphttp_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,6 +30,19 @@ func buildTraceRequest(nSpans int) []byte {
 	}
 	b, _ := proto.Marshal(req)
 	return b
+}
+
+func gzipBytes(t *testing.T, b []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(b); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func newTestHandler() (http.Handler, *counters.Counters) {
@@ -107,6 +121,77 @@ func TestHTTP_ResponseContentType(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if ct := rec.Header().Get("Content-Type"); ct != "application/x-protobuf" {
 		t.Errorf("response Content-Type: want application/x-protobuf, got %q", ct)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// content-encoding: gzip  (microtel's EMIT_COMPRESSION_GZIP=1 SUTs)
+// ---------------------------------------------------------------------------
+
+func TestHTTP_GzipEncodedBody_CountsSpans(t *testing.T) {
+	h, c := newTestHandler()
+	plain := buildTraceRequest(3)
+	body := gzipBytes(t, plain)
+	if len(body) == len(plain) {
+		t.Fatalf("test setup: gzipped body is the same size as the plain body (%d)", len(body))
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", rec.Code)
+	}
+	snap := c.Snapshot()
+	if snap.SpansReceived != 3 {
+		t.Errorf("spans_received: want 3, got %d", snap.SpansReceived)
+	}
+	// bytes_received must stay the compressed wire size — the whole point of
+	// the compression profile is to measure bytes on the wire.
+	if snap.BytesReceived != uint64(len(body)) {
+		t.Errorf("bytes_received: want %d (compressed), got %d", len(body), snap.BytesReceived)
+	}
+	if snap.Errors != 0 {
+		t.Errorf("errors: want 0, got %d (last_error %q)", snap.Errors, snap.LastError)
+	}
+}
+
+func TestHTTP_GzipEncodedBody_MixedWithPlain_Accumulates(t *testing.T) {
+	h, c := newTestHandler()
+
+	gz := httptest.NewRequest(http.MethodPost, "/v1/traces",
+		bytes.NewReader(gzipBytes(t, buildTraceRequest(4))))
+	gz.Header.Set("Content-Type", "application/x-protobuf")
+	gz.Header.Set("Content-Encoding", "gzip")
+	h.ServeHTTP(httptest.NewRecorder(), gz)
+
+	plain := httptest.NewRequest(http.MethodPost, "/v1/traces",
+		bytes.NewReader(buildTraceRequest(2)))
+	plain.Header.Set("Content-Type", "application/x-protobuf")
+	h.ServeHTTP(httptest.NewRecorder(), plain)
+
+	if snap := c.Snapshot(); snap.SpansReceived != 6 {
+		t.Errorf("spans_received: want 6, got %d", snap.SpansReceived)
+	}
+}
+
+func TestHTTP_GzipHeaderWithBadBody_Returns400(t *testing.T) {
+	h, c := newTestHandler()
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces",
+		bytes.NewReader([]byte("not gzip at all")))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status: want 400, got %d", rec.Code)
+	}
+	if c.Snapshot().Errors != 1 {
+		t.Errorf("errors: want 1, got %d", c.Snapshot().Errors)
 	}
 }
 

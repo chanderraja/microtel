@@ -119,7 +119,7 @@ The complete table of ownership in microtel v1. Rows are alphabetized within the
 
 | Resource | Owner | Allocated by | Released by | Notes |
 |---|---|---|---|---|
-| `Span` records (after `End()`) | MPSC queue inside the `BatchSpanProcessor` | caller thread | exporter worker, after batching | Move-only. Bounded by `max_queue_size` × `max_record_bytes`; the aggregate `max_total_queue_bytes` cap is not yet enforced (§6, issue #181). |
+| `Span` records (after `End()`) | MPSC queue inside the `BatchSpanProcessor` | caller thread | exporter worker, after batching | Move-only. Bounded by `max_queue_size` in records, `max_record_bytes` per record, and `max_total_queue_bytes` in aggregate — whichever binds first (§6). |
 | `Resource` value | `Provider` | `SdkBuilder::Build()` | `Provider` destruction | Frozen at build; immutable after. |
 | `Config` value | `Provider` | `SdkBuilder::Build()` | `Provider` destruction | Frozen at build; no runtime mutation in v1. |
 | `EncodedPayload` | exporter worker → wire codec → transport (in-flight only) | encoder | last layer holding it on completion | See §3. |
@@ -292,7 +292,7 @@ The byte budgets from `microtel-spec.md` §5.5 are normative. Each value has a d
 
 | Budget | Default | Layer that enforces | What happens at boundary |
 |---|---|---|---|
-| `max_total_queue_bytes` | 16 MiB | — | **Not enforced** (issue #181). The span queue is bounded by `max_queue_size` in records only. |
+| `max_total_queue_bytes` | 16 MiB | `BatchSpanProcessor::OnEnd` | Refuse the incoming record, or evict the oldest until it fits, per `drop_policy` — the same branch the `max_queue_size` cap takes. Drop counter `queue_full`. |
 | `max_record_bytes` | 64 KiB | `BatchSpanProcessor::OnEnd` | Reject the incoming record before it is queued. Drop counter `record_too_large`. |
 | `max_response_bytes` | 1 MiB | `Http2Transport`, as the response body is accumulated | Stop buffering, release what was buffered, `RST_STREAM(CANCEL)`, fail the request. The codec classifies it non-retryable. Drop counter `response_too_large`. |
 | `max_trailer_bytes` | 64 KiB | `Http2Transport`, as the trailers are accumulated | Same as `max_response_bytes`, and the same counter — `response_too_large` covers both (`error-model.md` §3). |
@@ -301,6 +301,7 @@ The byte budgets from `microtel-spec.md` §5.5 are normative. Each value has a d
 **Counting rules.**
 
 - `max_record_bytes` counts a **size estimate** of the record, not the C++ object size: fixed per-record overhead plus the owned buffers (name, status description, attribute keys and values, events, links). `sdk::EstimateRecordBytes` is the single definition, and its Doxygen carries the formula.
+- `max_total_queue_bytes` is the sum of the same estimate over everything currently queued. Each record carries the estimate it was admitted with, so the running total is decremented by exactly what it was incremented by when the record is evicted or drained. It measures what the queue *holds*, not what it has ever held.
 - `max_response_bytes` is the count of DATA-frame bytes accumulated for one response. The check is made before each chunk is appended, so the limit is never exceeded even transiently, and the request fails rather than being handed a truncated body.
 - `max_trailer_bytes` is the summed name+value bytes of one response's trailers, counted the same way.
 - `max_decompressed_bytes` is the count of bytes produced by the decompressor regardless of the compressed input size.

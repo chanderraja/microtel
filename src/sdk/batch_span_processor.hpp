@@ -88,17 +88,23 @@ public:
     /// @param max_record_bytes ceiling on one record's `EstimateRecordBytes`;
     ///        a record above it is dropped in `OnEnd` and counted as
     ///        `RecordTooLarge`. From `MemoryLimitOptions::max_record_bytes`.
-    ///        A scalar rather than the whole options struct because it is the
-    ///        only field of it this processor enforces — `max_total_queue_bytes`
-    ///        remains unimplemented (issue #181) and taking it here would imply
-    ///        otherwise.
+    /// @param max_total_queue_bytes ceiling on the summed `EstimateRecordBytes`
+    ///        of everything queued. A record that would push the queue over it
+    ///        is refused (or displaces the oldest, per `opts.drop_policy`) and
+    ///        counted as `QueueFull` — the queue is full, by whichever of the
+    ///        two budgets filled first. From
+    ///        `MemoryLimitOptions::max_total_queue_bytes`. Scalars rather than
+    ///        the whole options struct because these two are the only fields of
+    ///        it this processor enforces.
     /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
     ///        accounting. Borrowed for the processor's lifetime.
-    BatchSpanProcessor(internal::IExporter* exporter,
-                       std::shared_ptr<const Resource> resource,
-                       BatchOptions opts,
-                       std::uint32_t max_record_bytes = MemoryLimitOptions{}.max_record_bytes,
-                       internal::IDiagnosticsSink* diag = nullptr) noexcept;
+    BatchSpanProcessor(
+        internal::IExporter* exporter,
+        std::shared_ptr<const Resource> resource,
+        BatchOptions opts,
+        std::uint32_t max_record_bytes = MemoryLimitOptions{}.max_record_bytes,
+        std::uint64_t max_total_queue_bytes = MemoryLimitOptions{}.max_total_queue_bytes,
+        internal::IDiagnosticsSink* diag = nullptr) noexcept;
 
     ~BatchSpanProcessor() noexcept override;
 
@@ -116,10 +122,16 @@ public:
 
 private:
     /// A queued record paired with the scope of the tracer that produced it.
+    ///
+    /// `bytes` is the record's `EstimateRecordBytes` as measured on the way in.
+    /// It is carried rather than recomputed on the way out so that the running
+    /// total can never drift from what was added: the record is moved out of
+    /// the queue before the subtraction would happen.
     struct QueuedSpan
     {
         internal::SpanRecord record;
         internal::InstrumentationScope scope;
+        std::size_t bytes = 0;
     };
 
     struct WakeResult
@@ -129,6 +141,17 @@ private:
         std::size_t pending_flush_seq{0};
     };
 
+    /// @brief Make the queue able to accept a record of @p record_bytes.
+    ///
+    /// Applies both caps — `max_queue_size` in records and
+    /// `max_total_queue_bytes` in bytes — and counts one `QueueFull` per span
+    /// actually lost, whether that is the incoming record (`DropNewest`) or an
+    /// evicted one (`DropOldest`). Called with `m_mu` held.
+    ///
+    /// @param record_bytes the incoming record's `EstimateRecordBytes`.
+    /// @return `true` when the caller may queue the record; `false` when the
+    ///         incoming record is the one dropped.
+    [[nodiscard]] bool MakeRoomFor(std::size_t record_bytes) noexcept;
     WakeResult WaitAndCollect() noexcept;
     [[nodiscard]] bool JoinWithTimeout(std::chrono::milliseconds timeout) noexcept;
     void WorkerLoop() noexcept;
@@ -142,11 +165,15 @@ private:
     std::shared_ptr<const Resource> m_resource;
     BatchOptions m_opts;
     std::uint32_t m_max_record_bytes;
+    std::uint64_t m_max_total_queue_bytes;
     internal::IDiagnosticsSink* m_diag;
 
     std::mutex m_mu;
     std::condition_variable m_cv;
     std::deque<QueuedSpan> m_queue;
+    /// Summed `QueuedSpan::bytes` of everything currently in `m_queue`.
+    /// Guarded by `m_mu`.
+    std::uint64_t m_queue_bytes{0};
     bool m_shutdown{false};
     std::size_t m_flush_seq{0};
     std::size_t m_flush_done_seq{0};

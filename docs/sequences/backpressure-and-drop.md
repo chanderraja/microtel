@@ -45,6 +45,8 @@ Caller A         Caller B          Span Queue (capacity 8192)        Exporter Wo
 
 `max_queue_size` (8192) and `max_export_batch_size` (512) are independent. The worker drains in batches of up to 512; the queue holds up to 8192.
 
+The queue is full when **either** cap is reached: `max_queue_size` in records, or `max_total_queue_bytes` (16 MiB) in summed record estimates. Both take the overflow path below and both count `queue_full`; the byte cap may shed more than one record under `drop_oldest` to admit one, and each shed record is counted.
+
 ---
 
 ## Variant — overflow with `drop_newest` (default)

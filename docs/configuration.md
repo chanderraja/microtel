@@ -263,7 +263,7 @@ environment variable; the values are plain integer bytes.
 
 | Code (`WithMemoryLimits({…})`) | TOML | Env | Default | Enforced at |
 |---|---|---|---|---|
-| `.max_total_queue_bytes = n` | — | — | 16 MiB | **nowhere yet** — issue #181; the span queue is bounded by `sdk.max_queue_size` in records only |
+| `.max_total_queue_bytes = n` | — | — | 16 MiB | `BatchSpanProcessor::OnEnd`, against the summed estimate of everything queued (counter `queue_full`) |
 | `.max_record_bytes = n` | — | — | 64 KiB | `BatchSpanProcessor::OnEnd`, before the record is queued (counter `record_too_large`) |
 | `.max_response_bytes = n` | — | — | 1 MiB | the transport, as the response body is accumulated (counter `response_too_large`) |
 | `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`) |

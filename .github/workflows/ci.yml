@@ -429,3 +429,23 @@ jobs:
           # workflow context keeps the script free of jq and `gh auth`.
           MICROTEL_PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: ci/scripts/test-presence.sh "origin/${{ github.event.pull_request.base.ref }}"
+
+  # Version-coherence gate. The release version is hand-spelled in CMakeLists.txt,
+  # version.hpp, the gRPC user-agent and the preflight tool; this fails a PR in
+  # which they stop agreeing. A check, not a generator — RELEASING.md explains
+  # why version.hpp is not derived from PROJECT_VERSION.
+  #
+  # Needs no toolchain: it reads source text, so it answers in seconds.
+  version-drift-check:
+    runs-on: ubuntu-latest
+    name: version-drift-check
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every version literal against PROJECT_VERSION
+        run: ci/scripts/version-drift-check.sh
+      # The gate checking itself: synthetic fixtures for each drift shape, plus
+      # the cases where the literal has gone missing or been duplicated and the
+      # gate must fail rather than silently pass.
+      - name: Self-test the gate
+        run: ci/scripts/version-drift-check.sh --self-test

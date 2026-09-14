@@ -18,10 +18,13 @@ namespace microtel
 /// would make the public API depend on a configured build directory, which the
 /// header-only `microtel_headers` target and the M0 header check do not have.
 ///
-/// A release bump therefore edits this header, `CMakeLists.txt`, and the gRPC
-/// user-agent literal in `src/wire/grpc/grpc_wire_codec.cpp` — the last of
-/// which carries a `static_assert` against `kVersionString`, so it cannot
-/// silently drift the way it did between 0.1.0 and this release.
+/// A release bump therefore edits this header, `CMakeLists.txt`, the gRPC
+/// user-agent literal in `src/wire/grpc/grpc_wire_codec.cpp`, and `kVersion` in
+/// `tools/preflight/preflight.cpp`. The user-agent carries a `static_assert`
+/// against `kVersionString`; the preflight literal does not, and was out of step
+/// from M6-D until 1.0.0 shipped. `ci/scripts/version-drift-check.sh` (CI job
+/// `version-drift-check`) now compares all of them against `PROJECT_VERSION`.
+/// The procedure is in `RELEASING.md`.
 
 inline constexpr std::uint32_t kVersionMajor = 1;
 inline constexpr std::uint32_t kVersionMinor = 0;

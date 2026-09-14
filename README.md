@@ -188,6 +188,7 @@ cd bench && ./bench.sh                        # hot-loop-traces profile
 - **[CLAUDE.md](CLAUDE.md)** — rules for AI coding agents (and humans) working on this project.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — contribution process.
 - **[SECURITY.md](SECURITY.md)** — vulnerability disclosure policy.
+- **[RELEASING.md](RELEASING.md)** — release procedure: the version bump, tagging, and snapshot refreshes.
 
 ## License
 

@@ -350,10 +350,11 @@ install(EXPORT MicrotelTargets
 # found by `find_package(Microtel)`.
 #
 # The version is the project version, 1.0.0, and include/microtel/version.hpp
-# now agrees with it. Both are hand-set: generating the header from
-# PROJECT_VERSION is post-v1.0 work, so a release bump edits two files and the
-# grpc user-agent literal, which a static_assert in src/wire/grpc/ ties back to
-# kVersionString.
+# agrees with it. Both are hand-set — generating the header from PROJECT_VERSION
+# would make a public header a build artifact, which RELEASING.md records as a
+# rejected trade. A release bump edits this file, version.hpp, the grpc
+# user-agent literal and tools/preflight/preflight.cpp; ci/scripts/version-drift-check.sh
+# (CI job version-drift-check) fails any PR in which they stop agreeing.
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(

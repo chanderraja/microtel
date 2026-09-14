@@ -584,6 +584,7 @@ Aligns with OTel exporter conventions. `grpc://` and `grpcs://` schemes are acce
 - mTLS via `client_cert` + `client_key` (paths).
 - SNI is taken from the endpoint host; explicit `sni_override` available.
 - ALPN selects `h2` for HTTP/2.
+- **TLS 1.2 is the minimum protocol version**, set by microtel itself rather than inherited from the linked OpenSSL, with TLS 1.3 preferred through OpenSSL's own version negotiation. A receiver that will not negotiate at least TLS 1.2 fails the handshake; there is no option to lower the floor.
 - FIPS users link microtel against a FIPS-validated OpenSSL provider; behavior is determined by the linked OpenSSL.
 
 ### 12.4 Proxy

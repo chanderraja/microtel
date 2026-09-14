@@ -48,6 +48,7 @@ being explicitly marked unsupported here**. This is that ledger.
 | TLS with a custom CA (`ca_bundle`) | Supported | `TlsCustomCa`, `UntrustedCaFails` in `tests/conformance/{http,grpc}/tls_test.cpp` |
 | mTLS (`client_cert` + `client_key`) | Supported | `MutualTls`, `MutualTlsWithoutClientCertFails`, both suites |
 | SNI override | Supported | `SniOverride`, both suites; [ICP 0022](icps/0022-tls-peer-verification.md) |
+| **TLS 1.0 / 1.1 receivers** | **UNSUPPORTED** | microtel sets `SSL_CTX_set_min_proto_version(TLS1_2_VERSION)` itself rather than inheriting the linked OpenSSL's floor, so a receiver below TLS 1.2 fails the handshake on every build alike; there is no option to lower it. TLS 1.3 is preferred where the receiver offers it. Spec §12.3; issue #216. Evidence: `TlsFloor_ServerLimitedToTls11_ConnectFails` and `TlsFloor_Tls12Server_StillConnects` in `tests/integration/transport/http2_tls_connect_test.cpp`. The negative test is only decisive on an OpenSSL that would otherwise permit the downgrade — a host whose own crypto policy already pins TLS 1.2 (Fedora and Ubuntu both) refuses ahead of microtel. |
 | Static auth headers | Supported | `StaticBearerHeader`, both suites |
 | Auth callback (`WithAuthProvider`) | Supported | `AuthCallback` + `WrongTokenRejected`, both suites; TTL caching in `tests/unit/common/auth/auth_providers_test.cpp` |
 | `insecure = true` | Supported, and **warns** at `Build()` | `SdkBuilderTest.Build_InsecureTls_Warns`. A hard ban is `MICROTEL_FORBID_INSECURE_TLS=ON`, which turns it into `ConfigError::InsecureDisallowed`. |

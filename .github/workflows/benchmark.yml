@@ -69,11 +69,24 @@ jobs:
         run: python3 --version
 
       - name: Install Python dependencies
-        run: pip install plotly
+        run: pip install plotly pytest
 
       - name: Run driver unit tests
         working-directory: bench
         run: python3 -m pytest driver/tests/ -q
+
+      # The sink is the measuring instrument: a sink that miscounts turns every
+      # number this workflow produces into fiction (see #215).  go-version-file
+      # pins the toolchain to the sink's go.mod rather than whatever the runner
+      # image happens to ship.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bench/sink/blackhole/go.mod
+          cache-dependency-path: bench/sink/blackhole/go.sum
+
+      - name: Run blackhole-sink unit tests
+        working-directory: bench/sink/blackhole
+        run: go test ./...
 
       # ---------------------------------------------------------------------------
       # Flamegraph prerequisites — only when --flamegraph=true

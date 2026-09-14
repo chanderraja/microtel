@@ -566,7 +566,9 @@ void EncodeMetricRecord(const internal::MetricRecord& rec, UpbScoMet* sm, upb_Ar
             {
                 EncodeHistogram(data, m, arena);
             }
-            // ExponentialHistogramData deferred to v1.1
+            // ExponentialHistogramData deferred to v1.2, with the rest of the
+            // metrics work: the v1.1 rescope (ICP 0024) kept it there, and
+            // interop-matrix.md §6 dates metrics collector-conformance v1.2.
         },
         rec.data);
 }

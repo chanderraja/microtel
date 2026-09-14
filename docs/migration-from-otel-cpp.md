@@ -242,6 +242,6 @@ Run `ctest --test-dir build -R otelcpp` after configuring with
   bindings milestone (M18, ICP 0013) for microtel's own Python story, which is
   not an opentelemetry-python adapter.
 - **A Tier-1/Tier-2 compatibility matrix** against specific collector or
-  backend versions — that's `docs/interop-matrix.md`, not yet written.
+  backend versions — that's [`docs/interop-matrix.md`](interop-matrix.md).
 - **Auto-instrumentation.** Both opentelemetry-cpp and microtel are manual
   instrumentation only in v1 (spec §3).

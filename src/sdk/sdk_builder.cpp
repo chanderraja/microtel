@@ -520,6 +520,31 @@ struct ExporterPack
     };
 }
 
+/// @brief Build the span processor from the resolved configuration.
+///
+/// No scope is passed: the processor stamps each batch with the scope that
+/// arrived with the span, i.e. the one `GetTracer` was called with (ICP 0023).
+/// The service identity reaches the wire through the Resource.
+///
+/// @param exporter non-owning; must outlive the processor.
+/// @param resource shared with every batch the processor emits.
+/// @param cfg borrowed; read for the batch options and the two memory limits
+///        the processor enforces (`max_record_bytes`, `max_total_queue_bytes`).
+/// @param diag non-owning diagnostics sink.
+[[nodiscard]] std::unique_ptr<sdk::BatchSpanProcessor> BuildSpanProcessor(
+    internal::IExporter* exporter,
+    std::shared_ptr<const Resource> resource,
+    const config::Config& cfg,
+    internal::IDiagnosticsSink* diag)
+{
+    return std::make_unique<sdk::BatchSpanProcessor>(exporter,
+                                                     std::move(resource),
+                                                     cfg.batch,
+                                                     cfg.memory_limits.max_record_bytes,
+                                                     cfg.memory_limits.max_total_queue_bytes,
+                                                     diag);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -662,16 +687,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
 
     // --- Step 10: processor -------------------------------------------------
-    // No scope here: the processor stamps each batch with the scope that
-    // arrived with the span, i.e. the one `GetTracer` was called with
-    // (ICP 0023). The service identity reaches the wire through the Resource.
-    auto processor =
-        std::make_unique<sdk::BatchSpanProcessor>(exporters.exporter.get(),
-                                                  resource,
-                                                  cfg.batch,
-                                                  cfg.memory_limits.max_record_bytes,
-                                                  cfg.memory_limits.max_total_queue_bytes,
-                                                  diagnostics.get());
+    auto processor = BuildSpanProcessor(exporters.exporter.get(), resource, cfg, diagnostics.get());
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);

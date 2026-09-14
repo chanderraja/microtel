@@ -280,6 +280,21 @@ std::ptrdiff_t SslRecv(SSL* ssl, std::uint8_t* buf, std::size_t len) noexcept
 microtel::Expected<void, microtel::Error> LoadSslCtxCredentials(
     SSL_CTX* ctx, const internal::ConnectOptions& opts)
 {
+    // TLS_client_method() on its own means "whatever range this OpenSSL build
+    // permits", so the floor would be set by the linked library and the host
+    // crypto policy rather than by microtel -- the same source linked two ways
+    // negotiating two different security floors. Pin it here: TLS 1.2 minimum,
+    // 1.3 preferred by OpenSSL's own version negotiation. Unconditional,
+    // including under `insecure`: that option skips peer *verification*, which
+    // is a deliberate trust decision, and says nothing about accepting a
+    // downgrade to a protocol version with known weaknesses. See issue #216.
+    //
+    // Unchecked, like the neighbouring `SSL_CTX_set_default_verify_paths` and
+    // `SSL_CTX_set_alpn_protos`: this call only fails when the version is
+    // outside the range the build supports, and every OpenSSL microtel
+    // supports (spec §9.1: 1.1.1 and newer) has TLS 1.2.
+    ::SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+
     if (!opts.ca_bundle.empty())
     {
         if (::SSL_CTX_load_verify_locations(ctx, opts.ca_bundle.string().c_str(), nullptr) != 1)

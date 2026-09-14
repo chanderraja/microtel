@@ -286,6 +286,63 @@ enum class ServerClose : std::uint8_t
     ResetOnFirstRequest,
 };
 
+/// How this server constrains the TLS protocol version it will negotiate.
+///
+/// Both non-default modes exist for issue #216. microtel pins a TLS 1.2 floor,
+/// and a floor is only worth anything if both of its halves hold: a receiver
+/// below it is refused, and a receiver sitting exactly on it still works.
+enum class ServerTls : std::uint8_t
+{
+    Default,   ///< Whatever this OpenSSL build and the host policy permit.
+    Tls11Max,  ///< Refuses TLS 1.2 and up: a legacy receiver, below the floor.
+    Tls12Max,  ///< Refuses TLS 1.3: a receiver sitting exactly on the floor.
+};
+
+/// Cipher list that survives `SECLEVEL=0`, for the pre-1.2 server only.
+constexpr const char* kLegacyCipherList = "ALL:@SECLEVEL=0";
+
+/// Constrain @p ctx per @p tls.
+///
+/// `Tls11Max` has to fight the library to get there, and only the *test
+/// server* does so — it exists to impersonate a legacy receiver, which is
+/// exactly what the client under test must refuse to talk to. A stock
+/// OpenSSL 3.x rejects TLS 1.1 twice over: the default security level (2 on
+/// both Fedora and Ubuntu) excludes it, and the host crypto policy pins
+/// `TLS.MinProtocol = TLSv1.2` into every context built from the system
+/// `openssl.cnf`, which would otherwise leave this context with min > max and
+/// nothing at all to negotiate. Level 0 plus an explicit floor undoes both,
+/// and the cipher list restores the suites TLS 1.1 needs.
+///
+/// @return false when this OpenSSL cannot offer the requested version at all,
+///         which is the case for a build configured with `no-tls1_1`.
+[[nodiscard]] bool ApplyServerTlsVersion(SSL_CTX* ctx, ServerTls tls)
+{
+    if (tls == ServerTls::Default)
+    {
+        return true;
+    }
+    if (tls == ServerTls::Tls12Max)
+    {
+        return ::SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION) == 1;
+    }
+
+    ::SSL_CTX_set_security_level(ctx, 0);
+    return ::SSL_CTX_set_min_proto_version(ctx, TLS1_VERSION) == 1 &&
+           ::SSL_CTX_set_max_proto_version(ctx, TLS1_1_VERSION) == 1 &&
+           ::SSL_CTX_set_cipher_list(ctx, kLegacyCipherList) == 1 &&
+           ::SSL_CTX_get_max_proto_version(ctx) == TLS1_1_VERSION;
+}
+
+/// True when this OpenSSL can be made to offer TLS 1.1 server-side at all.
+///
+/// A build configured with `no-tls1_1` cannot, and there the negative floor
+/// test has no legacy receiver to point the client at.
+[[nodiscard]] bool ServerCanOfferTls11()
+{
+    const SslCtxPtr ctx{::SSL_CTX_new(::TLS_server_method())};
+    return ctx && ApplyServerTlsVersion(ctx.get(), ServerTls::Tls11Max);
+}
+
 /// The wire bytes of "http/1.1", without ALPN's length prefix. Static storage:
 /// OpenSSL keeps the pointer the select callback hands back.
 constexpr std::array<unsigned char, 8> kHttp11Wire{'h', 't', 't', 'p', '/', '1', '.', '1'};
@@ -325,12 +382,16 @@ int SrvAlpnSelect(SSL* /*ssl*/,
 
 /// @param alpn Borrowed; must outlive every connection made on the returned
 ///             context, since OpenSSL passes it to the select callback.
-SslCtxPtr MakeServerCtx(const Credential& cred, const ServerAlpn* alpn)
+SslCtxPtr MakeServerCtx(const Credential& cred, const ServerAlpn* alpn, ServerTls tls)
 {
     SslCtxPtr ctx{::SSL_CTX_new(::TLS_server_method())};
     if (!ctx)
     {
         return ctx;
+    }
+    if (!ApplyServerTlsVersion(ctx.get(), tls))
+    {
+        return SslCtxPtr{};
     }
     if (::SSL_CTX_use_certificate(ctx.get(), cred.cert.get()) != 1 ||
         ::SSL_CTX_use_PrivateKey(ctx.get(), cred.key.get()) != 1)
@@ -369,11 +430,12 @@ public:
     /// assigned port, or -1.
     int Start(const Credential& cred,
               ServerAlpn alpn = ServerAlpn::H2,
-              ServerClose close = ServerClose::HoldOpen)
+              ServerClose close = ServerClose::HoldOpen,
+              ServerTls tls = ServerTls::Default)
     {
         m_alpn = alpn;
         m_close = close;
-        m_ctx = MakeServerCtx(cred, &m_alpn);
+        m_ctx = MakeServerCtx(cred, &m_alpn, tls);
         if (!m_ctx)
         {
             return -1;
@@ -829,6 +891,79 @@ TEST(Http2TlsConnectTest, AlpnNotNegotiated_ConnectFailsWithProtocolError)
     EXPECT_FALSE(outcome.connected) << "no ALPN answer means no agreement to speak h2";
     EXPECT_EQ(outcome.kind, microtel::Error::Kind::Protocol);
     EXPECT_NE(outcome.message.find("none"), std::string::npos) << "error was: " << outcome.message;
+}
+
+// ---------------------------------------------------------------------------
+// The TLS 1.2 floor (issue #216)
+//
+// microtel pins the minimum protocol version itself rather than inheriting
+// whatever the linked OpenSSL happens to permit.  Without that, the same
+// source linked two ways negotiates two different security floors: TLS 1.2
+// against an OpenSSL 3.x under a strict host crypto policy, TLS 1.0 against a
+// default-built OpenSSL 1.1.1 — which spec §9.1 still accepts.
+//
+// Note on what these two prove where.  A host whose OpenSSL refuses TLS 1.1
+// outright — seclevel 2 by default plus `TLS.MinProtocol = TLSv1.2` from the
+// system openssl.cnf, which is Fedora and Ubuntu both — was already doing
+// microtel's job for it, so the negative test passed there before the floor
+// existed in code.  It is load-bearing on the permissive builds, and it is a
+// regression test everywhere: it fails the moment the floor is removed on a
+// host that would otherwise allow the downgrade.
+// ---------------------------------------------------------------------------
+
+TEST(Http2TlsConnectTest, TlsFloor_ServerLimitedToTls11_ConnectFails)
+{
+    if (!ServerCanOfferTls11())
+    {
+        GTEST_SKIP() << "this OpenSSL build cannot offer TLS 1.1 server-side";
+    }
+
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+    const TempPemFile trust{server_cred.cert.get()};
+
+    TlsHttp2Server server;
+    const int port =
+        server.Start(server_cred, ServerAlpn::H2, ServerClose::HoldOpen, ServerTls::Tls11Max);
+    ASSERT_GT(port, 0);
+
+    auto opts = MakeOptions(port);
+    // Trust anchor and name are both in order, so the protocol version is the
+    // only thing left for the client to refuse over.
+    opts.ca_bundle = trust.Path();
+    opts.sni_override = "localhost";
+
+    const auto outcome = ConnectOnce(opts);
+    EXPECT_FALSE(outcome.connected) << "a receiver that will not go above TLS 1.1 must be refused";
+    EXPECT_EQ(outcome.kind, microtel::Error::Kind::Network);
+    EXPECT_NE(outcome.message.find("TLS handshake failed"), std::string::npos)
+        << "the refusal belongs to the handshake, not to certificate verification; error was: "
+        << outcome.message;
+}
+
+// The other half of the floor: 1.2 is the minimum, not the minimum plus one.
+// A receiver capped at exactly TLS 1.2 is an ordinary conservative deployment
+// and must still connect — this fails if the floor is ever raised to
+// TLS1_3_VERSION by mistake.
+TEST(Http2TlsConnectTest, TlsFloor_Tls12Server_StillConnects)
+{
+    const Credential server_cred = MakeSelfSignedCert("localhost", "DNS:localhost");
+    ASSERT_TRUE(server_cred.cert);
+    const TempPemFile trust{server_cred.cert.get()};
+
+    TlsHttp2Server server;
+    const int port =
+        server.Start(server_cred, ServerAlpn::H2, ServerClose::HoldOpen, ServerTls::Tls12Max);
+    ASSERT_GT(port, 0);
+
+    auto opts = MakeOptions(port);
+    opts.ca_bundle = trust.Path();
+    opts.sni_override = "localhost";
+
+    const auto outcome = ConnectOnce(opts);
+    EXPECT_TRUE(outcome.connected) << "error was: " << outcome.message;
+    EXPECT_TRUE(server.WaitForHandshake(kConnectTimeout))
+        << "a TLS 1.2 receiver sits on the floor, not below it";
 }
 
 // ---------------------------------------------------------------------------

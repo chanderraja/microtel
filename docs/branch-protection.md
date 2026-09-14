@@ -8,11 +8,11 @@ The intent is **layered signaling**, not hard blocking. PRs from outside contrib
 
 ## Layer 1: Documentation signals (already in place)
 
-- README.md has a prominent "🚫 Not accepting external implementation PRs until v1.0" banner near the top.
-- CONTRIBUTING.md "Project status" section makes the policy explicit, with a table showing what's welcome vs not.
-- `.github/PULL_REQUEST_TEMPLATE.md` opens with a STOP preamble that any PR author sees as soon as they hit "Open pull request."
+- README.md states the release scope up front — v1.0 is traces; metrics and logs are implemented but experimental.
+- CONTRIBUTING.md "Project status" section says external contributions are welcome, with a table separating what to just send from what wants an Issue or an ICP first.
+- `.github/PULL_REQUEST_TEMPLATE.md` opens with the pre-submission checklist — tests first, format and tidy locally, ICP for interface changes — that any PR author sees as soon as they hit "Open pull request."
 
-These three signals catch maybe 90% of well-meaning contributors. The remaining layers handle the rest.
+These three signals point most well-meaning contributors the right way before they write code. The remaining layers handle what gets opened anyway.
 
 ---
 
@@ -176,23 +176,23 @@ Blank issues are disabled. Anyone opening an issue picks a template, which force
 - **Secrets stay safe.** Forks don't get write tokens or secrets.
 - **You're auto-requested as reviewer for everything.** Via CODEOWNERS.
 - **Nothing merges without green CI.** The 10 required status checks are enforced, admins included. (Approval-based gating is a *target*, not configured today — see Layer 2.)
-- **External contributors who really want to engage are funneled to Issues.** Via templates and config.yml.
+- **External contributors are routed to the right channel** — Issues, Discussions, or an ICP — via templates and config.yml.
 
-This is the right set of layers for a **public** pre-1.0 OSS project. If you keep the repo private until v1.0, none of this matters because no one but invited collaborators can see it anyway.
+This is the right set of layers for a released, publicly developed OSS project.
 
 ---
 
-## When v1.0 ships
+## Now that v1.0 has shipped
 
-Open up the gates:
+The documentation half of opening the gates is done: CONTRIBUTING.md's "Project
+status" section and `.github/PULL_REQUEST_TEMPLATE.md` now describe a project
+that accepts external PRs, and the README carries no "not accepting PRs"
+callout. What's left is on the GitHub settings side:
 
 1. Lift the "code review submission limit" — set back to "anyone with read access."
 2. Lift "interaction limits" if set.
-3. Update README.md to remove the "not accepting PRs" callout.
-4. Update CONTRIBUTING.md's "Project status" section to drop the no-PRs language.
-5. Update `.github/PULL_REQUEST_TEMPLATE.md` to remove the STOP preamble.
-6. Keep all other branch-protection settings — those are still good practice post-1.0.
-7. Update CODEOWNERS to add other track owners as the team grows.
+3. Keep all other branch-protection settings — those are still good practice post-1.0.
+4. Update CODEOWNERS to add other track owners as the team grows.
 
 ---
 

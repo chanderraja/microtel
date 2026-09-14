@@ -8,24 +8,23 @@ This document is intentionally short — the heavy details live in other documen
 
 ## Project status
 
-microtel is **pre-1.0** and currently in the architecture and design phase (milestone M0).
+microtel is **released — v1.0**. The architecture has settled, the interfaces in [docs/interfaces.md](docs/interfaces.md) are locked, and the rules are enforced by CI rather than by review taste.
 
-**External implementation PRs are not being accepted until v1.0 ships.** This is deliberate and not personal. The internal architecture is still being designed; accepting outside implementation contributions during design slows everything down for everyone, including the contributors themselves (work that's based on architecture-in-flux gets reworked or thrown away). The bar for accepting an implementation PR lifts when v1.0 ships and the architecture is stable.
+**External contributions are welcome.** Bugs, fixes, tests, docs and features all take the same route: an Issue or an ICP where one is needed, then a PR that passes CI and a maintainer review. The discipline hasn't loosened — TDD gates, RAII, and the fixed dependency closure are still non-negotiable — but nothing is closed off because of who's typing.
 
-What's welcome right now:
+Where the project most wants help:
 
-| Welcome | Not yet |
+| Especially welcome | Talk first, then code |
 |---|---|
-| Issues for spec ambiguities or contradictions | Implementation PRs |
-| Architecture discussion in Issues / Discussions | New feature PRs |
-| Reviewing interface designs as they're proposed | Refactor PRs against code that doesn't exist yet |
-| Test scenarios for the planned protocols | Forks for vendor-specific exporters |
-| Typo fixes and trivial doc improvements (PRs OK) | Style / formatting PRs that don't change correctness |
-| Comparison data with `opentelemetry-cpp` for benchmarks | New dependencies |
+| Bug reports with a minimal reproduction | Changes to a locked interface — open an [ICP](docs/icps/) |
+| Fixes that arrive with the failing test that proves them | New runtime dependencies — an ICP, and a high bar: the closure is the project's whole reason to exist |
+| Conformance and interop coverage for metrics and logs (implemented, not yet conformance-tested — see [docs/compatibility-matrix.md](docs/compatibility-matrix.md) §2) | Large features that aren't on the [roadmap](microtel-roadmap.md) — file a feature request so scope is agreed before you write code |
+| Platform, compiler and toolchain ports | Vendor-specific exporters — better as your own repo than as a fork of this one |
+| Comparison data with `opentelemetry-cpp` for benchmarks | Style / formatting PRs that don't change correctness — `clang-format` owns that, and CI runs it |
+| Issues for spec ambiguities or contradictions | |
+| Typo fixes and doc improvements | |
 
-If you want to track when contribution opens up, watch the repo or follow the [roadmap](microtel-roadmap.md). M2 (Skeleton & contracts) is when *internal* parallel implementation tracks unblock; **external** PRs become accepted at v1.0 release (M10).
-
-If you have a feature you want in v1.0 that isn't already on the roadmap, file an Issue with the feature-request template — well-argued requests can shape what v1.0 includes.
+The [roadmap](microtel-roadmap.md) says what's coming and roughly when. If you want something that isn't on it, file an Issue with the feature-request template — well-argued requests shape what a release includes.
 
 ---
 
@@ -41,7 +40,7 @@ If you have a feature you want in v1.0 that isn't already on the roadmap, file a
 
 Use GitHub Issues with the **bug report template**. Include:
 
-- microtel version (or commit SHA if pre-release).
+- microtel version (or commit SHA if you're building from `master`).
 - Build configuration (compiler, build type, sanitizers if any).
 - Platform.
 - Minimal reproduction.
@@ -55,9 +54,7 @@ Use GitHub Issues with the **feature request template**. Describe the use case b
 
 ## Submitting code changes
 
-**Pre-1.0:** external implementation PRs are not currently accepted. See the "Project status" section above. This section describes the process that applies once v1.0 ships, and is also the process for the small number of pre-1.0 PRs that are accepted (typo fixes, doc improvements).
-
-The project uses pull requests on GitHub.
+The project uses pull requests on GitHub. The same process applies to everyone, maintainers included.
 
 1. Fork the repo and create a feature branch.
 2. Follow the [coding standards](docs/coding-standards.md) — CI will reject PRs that don't.
@@ -135,4 +132,4 @@ A static snapshot of the community report is committed at [docs/graph-report.md]
 
 ## Questions
 
-For project questions that don't fit an issue, use GitHub Discussions (or, pre-public-release, contact the maintainer directly).
+For project questions that don't fit an issue, use GitHub Discussions.

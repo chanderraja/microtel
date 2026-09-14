@@ -1,19 +1,12 @@
-<!-- Save this file as `.github/PULL_REQUEST_TEMPLATE.md` -->
-
-> ## 🚫 STOP — read before submitting
+> ## Before you submit
 >
-> **This project is pre-1.0 and is not currently accepting external implementation PRs.** The architecture is still being established; accepting outside contributions during the design phase would slow everything down. See the [README](../README.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) for current contribution policy.
+> Thanks for contributing — [CONTRIBUTING.md](../CONTRIBUTING.md) is the full version of what follows.
 >
-> **What we DO accept right now:** typo fixes in docs, fixes to broken links, trivial doc improvements.
+> - **Tests first.** Any change under `src/**/*.{cpp,hpp}` needs a matching change under `tests/` in the same PR. The one override is the `[refactor]` label — spelled with the brackets, applied to the PR — and only for changes that really are behaviour-preserving (also the escape hatch for comment-only and formatting-only diffs). Deletions are exempt automatically.
+> - **Run the gates locally** before pushing: `CLANG_FORMAT=clang-format ci/scripts/format-check.sh`, then `ci/scripts/tidy-check.sh build`. Both fail the build, and unformatted PRs never reach a reviewer.
+> - **Changing a locked interface?** That needs an [Interface Change Proposal](../docs/icps/) — a short markdown document PR'd into `docs/icps/`, not an argument in review comments. Same for any new runtime dependency.
 >
-> **What we DO NOT accept right now:** any change to `src/`, `include/`, `tests/`, build files, or CI config from external contributors.
->
-> If you have a feature you want in v1.0, please **file an Issue first** rather than submitting a PR. Well-argued requests can shape v1.0 scope.
->
-> Maintainer PRs (those by users listed in `CODEOWNERS`) may proceed normally.
->
-> ---
-> If your PR fits the "DO accept" category above, delete this STOP block and continue with the template below.
+> Delete this block once you've read it, and fill in the template below.
 
 ## Description
 <!-- What does this PR do? Brief — one paragraph. -->

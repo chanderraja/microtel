@@ -653,6 +653,32 @@ TEST(BatchSpanProcessorTest, TotalQueueBytes_RecordLargerThanWholeBudget_IsRefus
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));
 }
 
+// A zero-capacity queue with `DropOldest` reached the eviction branch with
+// nothing queued. `config::Validate` does not reject `max_queue_size = 0` — it
+// only requires `max_export_batch_size <= max_queue_size`, which 0 <= 0
+// satisfies — so the configuration is reachable, and `pop_front()` on an empty
+// `std::deque` is undefined. The same `m_queue.empty()` guard the byte cap
+// needs covers it: the record is refused, and nothing is evicted.
+TEST(BatchSpanProcessorTest, ZeroCapacityQueue_DropOldest_RefusesWithoutEvicting)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 0;
+    opts.max_export_batch_size = 0;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.drop_policy = mt::DropPolicy::DropOldest;
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink);
+
+    EndSpan(*bsp, "nowhere-to-go");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
 // ---------------------------------------------------------------------------
 // Drop policy — DropOldest
 // ---------------------------------------------------------------------------

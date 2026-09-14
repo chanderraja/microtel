@@ -128,7 +128,7 @@ open at the time of writing.
   spans by service rather than by instrumentation library. Affects both
   protocols identically. No conformance test asserts on `ScopeSpans.scope` —
   that would enshrine the bug.
-- **`tracestate` does not round-trip** (issue #188, partially fixed). The link
+- **`tracestate` does not round-trip** (issue #208, the follow-up to the fixed #188). The link
   defect is gone: `TraceState::FromHeader` / `ToHeader` / `Size` / `Empty` and
   `W3CTraceContextPropagator::Inject` / `Extract` are now defined in
   `src/api/propagator.cpp` (`microtel_api`), and `traceparent` inject and
@@ -143,10 +143,10 @@ open at the time of writing.
   Giving `TraceState` storage is an ABI change to a public header and would
   put a throwing copy inside `Span::GetContext() const noexcept`; it needs an
   ICP rather than a drive-by fix.
-- **`HealthSnapshot::drop_counters` is nearly all dead for traces** (issue
-  #169). Only 2 of 24 `DropReason` counters are ever incremented, so the
-  negative conformance tests assert `batches_failed` and collector output
-  instead. Do not build alerting on a counter without checking it is wired.
+- **`HealthSnapshot::drop_counters` is live** (issue #169, fixed). 20 of 24
+  `DropReason` counters have producers; the remaining four await their
+  enforcement features (issue #181) and read zero. The conformance tests
+  assert the wired counters directly.
 - **gRPC failures name the status** (issue #171, fixed). Both the
   `grpc-status` name and number and the collector's percent-decoded
   `grpc-message` reach `HealthSnapshot::last_error_message` — e.g.

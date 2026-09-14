@@ -135,6 +135,37 @@ def _binary_bytes(engine: str, image_name: str) -> Optional[int]:
     return None
 
 
+# The emit-app's spans_emitted counts workload *iterations* (one latency
+# sample each), not spans: EMIT_WORKLOAD=realistic_request emits a parent and
+# two children per iteration.  Delivery is spans received over spans sent, so
+# the denominator scales by this factor.
+_SPANS_PER_ITERATION = {
+    "hot_loop":          1,
+    "realistic_request": 3,
+    "hot_loop_metrics":  0,   # emits metric records, no spans
+}
+_DEFAULT_SPANS_PER_ITERATION = 1
+
+
+def _spans_per_iteration(env: dict) -> int:
+    """Spans the emit-app produces per workload iteration, per EMIT_WORKLOAD."""
+    workload = str(env.get("EMIT_WORKLOAD", "hot_loop"))
+    return _SPANS_PER_ITERATION.get(workload, _DEFAULT_SPANS_PER_ITERATION)
+
+
+def _delivery_rate_pct(spans_received: int, spans_expected: int,
+                       signal: str) -> Optional[float]:
+    """Percentage of the spans sent that reached the sink, or None if undefined.
+
+    Delivery is only meaningful for trace profiles: sink.spans_received counts
+    OTLP trace spans.  Metric exports land at /v1/metrics and are not decoded,
+    so spans_received stays 0 for signal=metrics profiles.
+    """
+    if signal != "traces" or spans_expected <= 0:
+        return None
+    return round(spans_received / spans_expected * 100, 2)
+
+
 def _otlp_endpoint(protocol: str) -> str:
     if protocol == "grpc":
         return "http://sink:4317"
@@ -269,6 +300,7 @@ def _run_sut(
         # profile_env is the base; sut.env overrides (sweep values live in sut.env).
         env = {**profile_env, **sut.env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
+        spans_per_iter = _spans_per_iteration(env)
         try:
             c.start(
                 image=image,
@@ -345,16 +377,11 @@ def _run_sut(
                     else None
                 )
                 spans_emitted_n = result["spans_emitted"]
-                # Delivery is only meaningful for trace profiles: sink.spans_received
-                # counts OTLP trace spans. Metric exports land at /v1/metrics and are
-                # not decoded, so spans_received stays 0 for signal=metrics profiles.
-                delivery_rate_pct = (
-                    round(sink_snap["spans_received"] / max(spans_emitted_n, 1) * 100, 2)
-                    if signal == "traces"
-                    else None
-                )
+                spans_expected = spans_emitted_n * spans_per_iter
+                delivery_rate_pct = _delivery_rate_pct(spans_rx, spans_expected, signal)
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
+                    "spans_expected": spans_expected,
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
                     "duration_ns":     dur_ns,

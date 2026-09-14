@@ -34,7 +34,7 @@ headers.
 | [0018](0018-reconnect-after-drop.md) | Reconnect after a mid-connection drop | Accepted | #151, #153 |
 | [0019](0019-connect-on-the-io-thread.md) | Perform `Connect` on the I/O thread | Draft | — |
 | [0020](0020-install-and-package-config.md) | `install()` rules and the exported target set | Accepted | — (M9/M10) |
-| [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | — (scheduled) |
+| [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | #221 |
 | [0022](0022-tls-peer-verification.md) | Enforce TLS server-certificate verification | Accepted | #164 |
 | [0023](0023-span-processor-scope.md) | `ISpanProcessor::OnEnd` carries the `InstrumentationScope` | Accepted | #175 |
 
@@ -61,6 +61,45 @@ milestones, and the evidence for the safety claim did not exist until #156.
 
 Kept here as the worked example of what issue #134 is about: the gap is not
 that a document drifted, it is that nothing ever checked one against the other.
+
+## LOCKED claims cite code (ICP 0021)
+
+> **A LOCKED claim that cannot cite code is a claim about intent, and must be
+> marked as such.**
+
+Every LOCKED marker carries one of two annotations:
+
+```
+(LOCKED — cites `src/sdk/sdk_provider.cpp:Shutdown`)    a claim about code
+(LOCKED — cites `src/a.cpp:Foo`, `src/b.hpp:m_bar`)     several, comma-separated
+(LOCKED — intent)                                       a claim about intent
+```
+
+A citation names a **function or member — never a line number**, because line
+numbers rot: one added in #149 was already stale by #144.
+
+[`ci/scripts/citation-check.py`](../../ci/scripts/citation-check.py) (CI job
+`citation-check`, a required status check) enforces it in two passes:
+
+- **Resolution**, over every document under `docs/`: a cited file must exist and
+  a cited symbol must appear in it. A stale citation fails the build wherever it
+  is written.
+- **Coverage**, only over documents carrying a `**Citation policy:** complete`
+  line in their header: every LOCKED marker must be annotated, `cites` or
+  `intent`. Opt-in is per document because the issue #134 audit of all ~90
+  markers is open work; a document is flipped to `complete` by the pass that
+  reconciles it. [`docs/threading-model.md`](../threading-model.md) is the first.
+
+The check is deliberately weak — it proves a symbol exists, not that the
+sentence around it is true. It is worth its cost because it catches the failure
+mode that is undetectable by reading: `ShutdownState`, named as the shutdown
+"single source of truth" in three normative documents, was present in no commit
+for four milestones. Run it locally with `ci/scripts/citation-check.py`, and
+`--self-test` to see it fail on purpose.
+
+**LOCKED has never meant "verified".** It means changing the claim needs an ICP.
+Every marker in the repository was written in the M0 commit, before there was
+code to check it against; ICP 0021 is what that cost.
 
 ## When an ICP is required
 

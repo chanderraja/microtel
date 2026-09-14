@@ -449,3 +449,21 @@ jobs:
       # gate must fail rather than silently pass.
       - name: Self-test the gate
         run: ci/scripts/version-drift-check.sh --self-test
+
+  # ICP 0021. Resolves the `file:symbol` citations attached to LOCKED markers in
+  # docs/, and requires an annotation on every marker in a document that
+  # declares its citation policy `complete`. Documents and a git checkout are
+  # all it needs — no toolchain, no build.
+  #
+  # The self-test runs first: it proves the gate can fail (stale symbol, missing
+  # file, uncited marker) before its PASS on the real tree means anything.
+  citation-check:
+    runs-on: ubuntu-latest
+    name: citation-check
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the gate
+        run: ci/scripts/citation-check.py --self-test
+      - name: Resolve LOCKED-marker citations
+        run: ci/scripts/citation-check.py

@@ -1,6 +1,7 @@
 # microtel
 
-> A lightweight OpenTelemetry-compatible trace and metrics runtime built on nghttp2.
+> A lightweight OpenTelemetry-compatible trace runtime and OTLP exporter built on nghttp2.
+> Metrics and logs are implemented too, but experimental — not conformance-tested ([status](#status)).
 
 [![license](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![CI](https://github.com/chanderraja/microtel/actions/workflows/ci.yml/badge.svg)](https://github.com/chanderraja/microtel/actions)

@@ -34,7 +34,7 @@ headers.
 | [0018](0018-reconnect-after-drop.md) | Reconnect after a mid-connection drop | Accepted | #151, #153 |
 | [0019](0019-connect-on-the-io-thread.md) | Perform `Connect` on the I/O thread | Draft | — |
 | [0020](0020-install-and-package-config.md) | `install()` rules and the exported target set | Accepted | — (M9/M10) |
-| [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | #221 |
+| [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | #231 |
 | [0022](0022-tls-peer-verification.md) | Enforce TLS server-certificate verification | Accepted | #164 |
 | [0023](0023-span-processor-scope.md) | `ISpanProcessor::OnEnd` carries the `InstrumentationScope` | Accepted | #175 |
 

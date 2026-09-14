@@ -266,7 +266,7 @@ environment variable; the values are plain integer bytes.
 | `.max_total_queue_bytes = n` | — | — | 16 MiB | `BatchSpanProcessor::OnEnd`, against the summed estimate of everything queued (counter `queue_full`) |
 | `.max_record_bytes = n` | — | — | 64 KiB | `BatchSpanProcessor::OnEnd`, before the record is queued (counter `record_too_large`) |
 | `.max_response_bytes = n` | — | — | 1 MiB | the transport, as the response body is accumulated (counter `response_too_large`) |
-| `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`) |
+| `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`); also advertised as `SETTINGS_MAX_HEADER_LIST_SIZE`, which is what bounds the response headers (issue #213) |
 | `.max_decompressed_bytes = n` | — | — | 4 MiB | the wire codec, as a gzipped response inflates (counter `decompression_too_large`) |
 
 Corrections (#196): the five `WithMax…Bytes(n)` setters this section named do

@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <future>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -1239,11 +1240,20 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
              .message = "nghttp2_session_client_new failed"}};
     }
 
-    const nghttp2_settings_entry iv[2] = {
+    // MAX_HEADER_LIST_SIZE is the response *headers* budget (issue #213).
+    // nghttp2 applies no receive-side default of its own, so without this a
+    // peer's HEADERS block is bounded only by what it chooses to send, and
+    // `response_headers` grows in step with it. `max_trailer_bytes` is the
+    // value: trailers are a header list, and the same budget already caps the
+    // other HEADERS frame on the stream. Advertising it makes nghttp2 enforce
+    // the cap and tells the peer the limit rather than discovering it
+    // mid-response.
+    const nghttp2_settings_entry iv[3] = {
         {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, opts.max_concurrent_streams},
         {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, opts.initial_window_size},
+        {NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, opts.max_trailer_bytes},
     };
-    ::nghttp2_submit_settings(session.Get(), NGHTTP2_FLAG_NONE, iv, 2);
+    ::nghttp2_submit_settings(session.Get(), NGHTTP2_FLAG_NONE, iv, std::size(iv));
 
     // Send client connection preface + initial SETTINGS.
     ::nghttp2_session_send(session.Get());

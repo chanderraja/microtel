@@ -59,6 +59,12 @@ struct ConnectOptions
     /// @brief Ceiling on the summed name+value bytes of one response's
     ///        trailers (`MemoryLimitOptions::max_trailer_bytes`). Same
     ///        failure shape as `max_response_bytes`.
+    ///
+    /// Also the value advertised as `SETTINGS_MAX_HEADER_LIST_SIZE` at session
+    /// setup, which is how the response *headers* get a budget: nghttp2 then
+    /// enforces the same ceiling on the non-trailer HEADERS block, which the
+    /// transport does not meter itself (issue #213). Both HEADERS frames on a
+    /// stream are header lists, so one budget covers them.
     std::uint32_t max_trailer_bytes = 64U * 1024U;  // 64 KiB
 };
 

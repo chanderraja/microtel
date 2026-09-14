@@ -146,6 +146,14 @@ public:
         return m_port;
     }
 
+    /// `SETTINGS_MAX_HEADER_LIST_SIZE` as the client advertised it, read out of
+    /// the server session's remote settings once the exchange has completed.
+    /// nghttp2 reports `UINT32_MAX` when the peer never sent the setting.
+    [[nodiscard]] std::uint32_t PeerMaxHeaderListSize() const
+    {
+        return m_peer_max_header_list.load(std::memory_order_acquire);
+    }
+
     bool WaitForHandshake(std::chrono::milliseconds timeout) const
     {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -238,6 +246,10 @@ private:
             }
         }
 
+        m_peer_max_header_list.store(
+            ::nghttp2_session_get_remote_settings(session, NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE),
+            std::memory_order_release);
+
         ::nghttp2_session_del(session);
         m_handshake_done.store(true, std::memory_order_release);
     }
@@ -247,6 +259,7 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_handshake_done{false};
     std::atomic<bool> m_stop{false};
+    std::atomic<std::uint32_t> m_peer_max_header_list{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -456,6 +469,58 @@ TEST(Http2TransportIntegrationTest, Connect_InsecureLoopback_Succeeds)
     }
 
     EXPECT_TRUE(server.WaitForHandshake(std::chrono::milliseconds(5000)));
+
+    (void)t->Close(std::chrono::milliseconds(1000));
+    server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// Response-header byte budget — issue #213, option 1.
+//
+// Bodies and trailers have been metered since #212; the non-trailer header
+// branch of OnResponseHeader was not, and the initial SETTINGS advertised only
+// MAX_CONCURRENT_STREAMS and INITIAL_WINDOW_SIZE. nghttp2 applies no
+// receive-side default of its own for MAX_HEADER_LIST_SIZE (its 64 KiB and
+// 4 KiB defaults are send-side), so a peer answering with an enormous HEADERS
+// block grew `response_headers` in step with it.
+//
+// Advertising the setting tells the peer the limit instead of discovering it
+// mid-response, and nghttp2 enforces it for us. The value is
+// `max_trailer_bytes`: trailers *are* a header list, that budget already caps
+// the other HEADERS frame on the same stream, and reusing it adds nothing to
+// the public API.
+//
+// The setting is read back out of the server's remote settings rather than
+// off the frame, so the assertion is on what nghttp2 recorded as in force.
+// ---------------------------------------------------------------------------
+
+TEST(Http2TransportIntegrationTest, Connect_AdvertisesMaxHeaderListSize)
+{
+    MinimalHttp2Server server;
+    const int port = server.Start();
+    ASSERT_GT(port, 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(port);
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+    // Deliberately not the default, so the assertion cannot pass on a value
+    // that happened to match.
+    opts.max_trailer_bytes = 4096U;
+
+    const auto result = t->Connect(opts);
+    ASSERT_TRUE(result.has_value()) << (result.has_value() ? "" : result.error().message);
+    ASSERT_TRUE(server.WaitForHandshake(std::chrono::milliseconds(5000)));
+
+    EXPECT_EQ(server.PeerMaxHeaderListSize(), opts.max_trailer_bytes)
+        << "the client must advertise SETTINGS_MAX_HEADER_LIST_SIZE; an unset "
+           "setting reads back as UINT32_MAX";
 
     (void)t->Close(std::chrono::milliseconds(1000));
     server.Stop();

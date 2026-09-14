@@ -97,22 +97,39 @@ jobs:
       # gap stayed invisible for as long as this job skipped for want of
       # SONAR_TOKEN: the moment it ran, CMake failed at
       # `pkg_check_modules(libnghttp2)` before a single file compiled.
-      - name: Install toolchain + lcov
+      # Mirrors the `coverage` job in ci.yml, because it runs the same script:
+      # Ubuntu's clang-18 compiles, apt.llvm.org's llvm-cov 21 exports. See
+      # that job's comment and issue #236 for why the exporter version is a
+      # correctness requirement and not a preference.
+      - name: Add the LLVM apt repository (llvm-cov 21)
+        if: steps.token-check.outputs.available == 'true'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg]" \
+               "http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm-21.list
+      - name: Install toolchain + llvm coverage tools
         if: steps.token-check.outputs.available == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13 cmake ninja-build lcov \
+          sudo apt-get install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
 
       # MICROTEL_COVERAGE_ENFORCE=0 because this job wants the tracefile, not a
       # second opinion on the §14.2 floors. The `coverage` job in ci.yml owns
       # that gate; letting a shortfall abort this job too would suppress the
       # Sonar scan exactly when the code most needs looking at.
+      #
+      # clang-18, matching the `coverage` job: coverage.sh measures with clang
+      # source-based instrumentation (issue #198) and refuses to run under gcc.
       - name: Build under coverage (produces compile_commands.json + lcov)
         if: steps.token-check.outputs.available == 'true'
         env:
-          CC:  gcc-13
-          CXX: g++-13
+          CC:                        clang-18
+          CXX:                       clang++-18
+          LLVM_PROFDATA:             llvm-profdata-18
+          LLVM_COV:                  llvm-cov-21
           MICROTEL_COVERAGE_ENFORCE: "0"
         run: ci/scripts/coverage.sh build/coverage
 
@@ -127,6 +144,10 @@ jobs:
       # --include mirrors `sonar.sources` (src,include): a path SonarQube has
       # not indexed cannot be attached to anything, and emitting one only buys
       # an "unresolved path" warning.
+      #
+      # The tracefile now carries BRDA records (clang source-based coverage
+      # measures real conditions), and the converter still emits lines only —
+      # see its header for why that is a separate decision from the CI gate.
       - name: Convert lcov to SonarQube generic coverage XML
         if: steps.token-check.outputs.available == 'true'
         run: |

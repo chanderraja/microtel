@@ -368,7 +368,7 @@ Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the standalone API examples under `examples/`. |
 | `MICROTEL_BUILD_BENCH` | `OFF` | Builds the benchmark harness under `bench/` (needs Podman/Docker). |
 | `MICROTEL_BUILD_FUZZ` | `OFF` | Builds the libFuzzer harnesses (clang only). |
-| `MICROTEL_COVERAGE` | `OFF` | Builds with `--coverage` for lcov/gcov. |
+| `MICROTEL_COVERAGE` | `OFF` | Builds instrumented for coverage: clang source-based (`-fprofile-instr-generate -fcoverage-mapping`), which is what `ci/scripts/coverage.sh` gates on, or gcov `--coverage` under gcc. |
 | `MICROTEL_SANITIZER` | *(empty)* | One of `asan`, `tsan`, `ubsan`. A cache string, not a boolean option. |
 
 Correction (#196): `MICROTEL_BUILD_PYTHON` does not exist — there is no Python

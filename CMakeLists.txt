@@ -78,20 +78,38 @@ if(NOT MICROTEL_SANITIZER STREQUAL "")
     message(STATUS "microtel: ${MICROTEL_SANITIZER} enabled")
 endif()
 
-# Coverage build helper. When ON, attaches gcov-style coverage flags so a
-# CI job (or local run) can collect line/branch coverage via lcov + gcovr +
-# diff-cover. Per spec §14.2, the v1.0 thresholds are 90% line / 85% branch
-# on SDK + encoder code, 80% on transport + exporter — enforced once
-# implementation lands in M3+.
-option(MICROTEL_COVERAGE "Build with --coverage flags for lcov / gcov" OFF)
+# Coverage build helper. Per spec §14.2 the v1.0 thresholds are 90% line /
+# 85% branch on SDK + encoder code and 80% line on transport + exporter;
+# `ci/scripts/coverage.sh` enforces all three.
+#
+# Clang gets **source-based** coverage (`-fprofile-instr-generate
+# -fcoverage-mapping`), which is what the gate measures. Its counters are
+# attached to source *regions* the front end knows about, so a branch record
+# corresponds to a conditional someone wrote. gcov, by contrast, emits an edge
+# for the unwind path out of every potentially-throwing call, which put whole-
+# tree branch coverage at 57.8% against 91.0% line and made the §14.2 branch
+# floor unmeasurable (issue #198).
+#
+# The gcc branch below is a fallback for a local `--coverage` run; it is not
+# what CI gates on. `-fprofile-update=atomic` makes gcov's counter increments
+# atomic — without it, multi-threaded tests (log_sink_test, the
+# BatchSpanProcessor tests) race on shared counters and produce corrupted
+# .gcda files, which lcov surfaces as a negative delta.
+option(MICROTEL_COVERAGE "Build with coverage instrumentation" OFF)
 if(MICROTEL_COVERAGE)
-    # `-fprofile-update=atomic` makes the gcov counter increments atomic.
-    # Without it, multi-threaded tests (log_sink_test, future
-    # BatchSpanProcessor tests) race on shared counters and produce
-    # corrupted .gcda files — lcov surfaces this as a negative delta.
-    add_compile_options(--coverage -fprofile-update=atomic -O0 -g)
-    add_link_options(--coverage)
-    message(STATUS "microtel: coverage enabled")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # -fprofile-update=atomic covers the same multi-threaded counter race
+        # for llvm's instrprof counters that it does for gcov's.
+        add_compile_options(
+            -fprofile-instr-generate -fcoverage-mapping
+            -fprofile-update=atomic -O0 -g)
+        add_link_options(-fprofile-instr-generate)
+        message(STATUS "microtel: clang source-based coverage enabled")
+    else()
+        add_compile_options(--coverage -fprofile-update=atomic -O0 -g)
+        add_link_options(--coverage)
+        message(STATUS "microtel: gcov coverage enabled")
+    endif()
 endif()
 
 # spdlog for internal diagnostic logging. Default ON per spec §9.2 + §9.4;

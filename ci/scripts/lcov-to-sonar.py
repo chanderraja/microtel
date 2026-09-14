@@ -10,10 +10,12 @@ to the C++ analyzer via ``sonar.cfamily.llvm-cov.reportPath``.  That key names a
 *llvm-cov* report, not an lcov tracefile.  The sensor opened the file, found
 nothing it recognised, and imported zero records without emitting a warning —
 the whole project read 0.0% coverage while ``ci/scripts/coverage.sh`` measured
-~91% on the same tracefile.  A second hazard sat behind the first: ``lcov
---capture --directory`` writes **absolute** ``SF:`` paths
+~91% on the same tracefile.  A second hazard sat behind the first: the
+tracefile carries **absolute** ``SF:`` paths
 (``/home/runner/work/microtel/microtel/src/...``), which do not match the
-repo-relative keys SonarQube indexes files under.
+repo-relative keys SonarQube indexes files under — true of ``lcov --capture
+--directory``, which wrote it then, and of ``llvm-cov export``, which writes
+it now.
 
 This script removes both failure modes at once.  It emits the
 language-agnostic generic format, which is imported by
@@ -32,15 +34,21 @@ Reference: https://docs.sonarsource.com/sonarqube-cloud/enriching/test-coverage/
 Lines only, no branches
 -----------------------
 The generic format can carry ``branchesToCover``/``coveredBranches`` per line,
-and lcov's ``BRDA:`` records would supply them.  They are deliberately dropped.
-``ci/scripts/coverage.sh`` documents at length why gcov's branch data on this
-codebase is noise — it counts exception-unwind edges, so whole-tree branch
-coverage reads 57.8% against 91.0% line, with "uncovered" branches on lines
-holding no conditional at all.  SonarQube folds conditions into its single
-``coverage`` measure, so importing them would drag a real 91% down towards the
-gate's 80% floor on the strength of an artefact.  Issue #198 tracks moving to
-clang source-based coverage, which models regions rather than gcov branches;
-when it lands, branch data becomes meaningful and can be emitted here.
+and the tracefile's ``BRDA:`` records would supply them.  They are dropped.
+
+The old reason for dropping them is gone: issue #198 moved the coverage build
+to clang source-based instrumentation, so a ``BRDA`` record now corresponds to
+a conditional someone wrote rather than to gcov's unwind edge out of every
+potentially-throwing call, and ``ci/scripts/coverage.sh`` enforces a branch
+floor on it.  What remains is that importing conditions changes what SonarQube
+*measures* — it folds them into its single ``coverage`` number, so the
+project's coverage and its new-code quality gate would both move — and that is
+a separate decision from the CI gate #198 was about.  Emitting them is a small
+change to :func:`build_xml` when someone wants to make it; nothing here is
+load-bearing against it.
+
+``BRDA`` records are inert rather than special-cased: :func:`parse_lcov`
+dispatches on the ``DA:`` prefix, which ``BRDA:`` does not have.
 
 Silence is the bug, so this script is loud
 ------------------------------------------

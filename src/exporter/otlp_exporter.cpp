@@ -14,6 +14,8 @@
 #include <mutex>
 #include <optional>
 #include <random>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -227,6 +229,20 @@ void OtlpExporter::RecordDropped(DropReason reason, std::uint64_t n) noexcept
     }
 }
 
+void OtlpExporter::RecordDrainFailure(std::string_view what) noexcept
+{
+    if (m_diag == nullptr)
+    {
+        return;
+    }
+    // No `DropReason` names "the encoder threw", and adding one is an ICP
+    // (`docs/interfaces.md` §3.5), so the failed-batch counter and the last
+    // error carry it — which is what an operator reads out of
+    // `GetExporterHealth()`.
+    m_diag->RecordBatchFailed(
+        Error{.kind = Error::Kind::InternalFailure, .message = std::string{what}, .os_errno = 0});
+}
+
 void OtlpExporter::PublishQueueDepth() noexcept
 {
     if (m_diag != nullptr)
@@ -271,9 +287,13 @@ void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
         {
             FanOutAndProcess(batches);
         }
-        // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook added in M3-C
-        catch (const std::exception&)
+        // The batches are gone either way — the worker is `noexcept` and there
+        // is nowhere to put them — but a swallowed failure that nothing counts
+        // leaves GetExporterHealth() reporting a clean pipeline, against
+        // error-model.md §5.1 (issue #224).
+        catch (const std::exception& e)
         {
+            RecordDrainFailure(e.what());
         }
         lock.lock();
         PublishQueueDepth();

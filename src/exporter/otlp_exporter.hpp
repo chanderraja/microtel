@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <random>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -102,6 +103,18 @@ private:
     /// @brief Add `n` to the counter for `reason`. No-op when no sink was
     ///        supplied. Lock-free, so it is safe under `m_mu`.
     void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
+    /// @brief Account for a batch lost to an exception escaping
+    ///        `FanOutAndProcess`. No-op when no sink was supplied.
+    ///
+    /// The worker is `noexcept` and holds nowhere to put the batch, so the
+    /// loss is unavoidable — but it is recorded rather than swallowed, which
+    /// is what `error-model.md` §5.1 requires of the worker's top-level catch
+    /// (issue #224). Counted as a failed batch, not a `DropReason`: no
+    /// existing reason names this, and adding one is an ICP
+    /// (`docs/interfaces.md` §3.5).
+    ///
+    /// @param what the exception's `what()`. Borrowed; copied into the error.
+    void RecordDrainFailure(std::string_view what) noexcept;
     /// @brief Publish the current queue depth. Caller must hold `m_mu`.
     void PublishQueueDepth() noexcept;
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;

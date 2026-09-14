@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace mt = microtel;
@@ -221,6 +222,63 @@ TEST(OtlpMetricExporterTest, Diagnostics_NullSink_IsNotDereferenced)
     mtmk::MockMetricEncoder encoder;
     mtmk::MockWireCodec codec;
     codec.result_to_return.success = true;
+    mte::OtlpMetricExporter exporter{&encoder, &codec};  // no sink
+
+    (void)exporter.Export(MakeBatch());
+    EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+}
+
+// ---------------------------------------------------------------------------
+// Drain-path exception accounting — issue #224.
+//
+// `ProcessBatches` runs with the queue lock released, inside a `noexcept`
+// worker, so `DrainQueue` catches everything it can throw. The catch was empty
+// behind a `NOLINTNEXTLINE(bugprone-empty-catch)` and a "diag hook deferred"
+// comment: the batches vanished and `GetExporterHealth()` reported a clean
+// pipeline. They are still lost — there is nowhere to put them — but the loss
+// is now countable.
+//
+// `RecordBatchFailed` is the surface, not a `DropReason`: no existing reason
+// names "the encoder threw", and adding one is an ICP (interfaces.md §3.5).
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// An encoder that always throws — the only way to reach `DrainQueue`'s catch
+/// from a test, every other collaborator on that path being `noexcept`.
+class ThrowingMetricEncoder final : public mti::IMetricEncoder
+{
+public:
+    [[nodiscard]] mti::EncodedPayload Encode(const mti::MetricBatchHandle& /*batch*/) override
+    {
+        throw std::runtime_error("metric encode blew up");
+    }
+};
+
+}  // namespace
+
+TEST(OtlpMetricExporterTest, Diagnostics_DrainThrows_RecordsBatchFailed)
+{
+    ThrowingMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpMetricExporter exporter{&encoder, &codec, {}, &sink};
+
+    EXPECT_EQ(exporter.Export(MakeBatchOf(2)), mti::ExportResult::Success);
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_failed, 1U) << "a swallowed drain failure must still be countable";
+    EXPECT_EQ(sink.batches_sent, 0U);
+    EXPECT_FALSE(sink.last_error_message.empty())
+        << "GetExporterHealth() must be able to say why the batch was lost";
+    EXPECT_TRUE(sink.last_error_time.has_value());
+}
+
+TEST(OtlpMetricExporterTest, Diagnostics_DrainThrows_WithoutSink_StillDrains)
+{
+    ThrowingMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
     mte::OtlpMetricExporter exporter{&encoder, &codec};  // no sink
 
     (void)exporter.Export(MakeBatch());

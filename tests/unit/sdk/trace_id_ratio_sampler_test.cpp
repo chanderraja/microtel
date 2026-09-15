@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 
 namespace mt = microtel;
@@ -139,6 +140,36 @@ TEST(TraceIdRatioSampler, RatioClampedAboveOne)
     const auto ctx = MakeCtx(MakeTraceIdWithLowerBytes(0xf000'0000'0000'0000ULL));
     EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision,
               mt::internal::SamplingDecision::RecordAndSample);
+}
+
+// #247. `std::clamp(NaN, 0.0, 1.0)` returns NaN — neither comparison is true —
+// so both `ComputeThreshold` guards fell through to
+// `static_cast<std::uint64_t>(NaN * max_d)`, a cast of a non-representable
+// value and undefined behaviour per [conv.fpint]. NaN normalises to 0.0 rather
+// than being rejected: the factory returns a handle, not an `Expected`, and
+// `docs/interfaces.md` §4.5 names "fall back to drop" as the recovery for any
+// sampler anomaly. `Provider::SetSamplerRatio` rejects NaN instead — the
+// asymmetry is deliberate and recorded in ICP 0026 Decision 3.
+TEST(TraceIdRatioSampler, NaNRatioNormalisesToZeroAndAlwaysDrops)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(std::numeric_limits<double>::quiet_NaN());
+    ASSERT_NE(handle.Get(), nullptr);
+    for (const std::uint64_t low : {std::uint64_t{0},
+                                    std::uint64_t{1},
+                                    std::uint64_t{0x8000'0000'0000'0000ULL},
+                                    std::uint64_t{0xffff'ffff'ffff'ffffULL}})
+    {
+        const auto ctx = MakeCtx(MakeTraceIdWithLowerBytes(low));
+        EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision, mt::internal::SamplingDecision::Drop);
+    }
+}
+
+TEST(TraceIdRatioSampler, NaNRatioDescriptionReportsZero)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(std::numeric_limits<double>::quiet_NaN());
+    ASSERT_NE(handle.Get(), nullptr);
+    const std::string desc{handle.Get()->Description()};
+    EXPECT_NE(desc.find("0.000"), std::string::npos);
 }
 
 TEST(TraceIdRatioSampler, DescriptionIncludesRatio)

@@ -307,6 +307,27 @@ a factory in [`microtel/sampler.hpp`](../include/microtel/sampler.hpp):
 | `MakeTraceIdRatioSampler(r)` | sample a deterministic fraction `r` ∈ [0.0, 1.0] of trace IDs |
 | `MakeParentBasedSampler(root)` | follow the parent's decision; use `root` when there is no parent |
 
+`MakeTraceIdRatioSampler` clamps `r` into `[0.0, 1.0]` and normalises NaN to
+`0.0`, so a NaN ratio samples nothing (#247). `Provider::SetSamplerRatio`
+rejects NaN and out-of-range values instead of clamping — see
+[ICP 0026](icps/0026-provider-setters.md) Decision 3.
+
+v1.1 adds rule combinators and chain composition, still code-only:
+
+| Factory | Behaviour |
+|---|---|
+| `MakeAttributeRuleSampler(key, value, on_match, on_no_match)` | delegate by whether an initial attribute equals `value` |
+| `MakeSpanNameRuleSampler(name, on_match, on_no_match)` | delegate by exact span-name match |
+| `MakeSpanKindRuleSampler(kind, on_match, on_no_match)` | delegate by span kind |
+| `MakeChainSampler(children, ChainMode::FirstMatch)` | the first child whose predicate matches decides; a child with no predicate matches unconditionally |
+| `MakeChainSampler(children, ChainMode::AllMustAgree)` | every child must answer `RecordAndSample`, else `Drop` |
+
+There is no sample-on-duration rule: `ShouldSample` runs at span start, so
+duration-based selection is tail sampling and belongs in the collector — see
+[ICP 0024](icps/0024-v1.1-rescope.md). `SamplerHandle` is move-only, so
+`MakeChainSampler` takes a `std::vector<SamplerHandle>` (or a variadic pack)
+rather than an initializer list.
+
 Corrections (#196): there is no `[sampling]` TOML table, and `OTEL_TRACES_SAMPLER`
 / `OTEL_TRACES_SAMPLER_ARG` are read by nothing — so the sampler **names**
 (`always_on`, `parentbased_traceidratio`, …) this section listed as "accepted"

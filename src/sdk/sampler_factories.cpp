@@ -15,6 +15,7 @@
 #include "microtel/trace.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -34,6 +35,14 @@ SamplerHandle::SamplerHandle(std::unique_ptr<internal::ISampler> impl) noexcept
 }
 
 SamplerHandle::~SamplerHandle() noexcept = default;
+
+// Defaulted here rather than in the header: defining a move operation
+// inline would instantiate `~unique_ptr<internal::ISampler>` in every
+// translation unit that sees the declaration, and `ISampler` is incomplete
+// in the public header by design.
+SamplerHandle::SamplerHandle(SamplerHandle&&) noexcept = default;
+
+SamplerHandle& SamplerHandle::operator=(SamplerHandle&&) noexcept = default;
 
 internal::ISampler* SamplerHandle::Get() const noexcept
 {
@@ -131,6 +140,15 @@ namespace
 ///   up).
 /// - `ratio <= 0.0`: never samples.
 /// - `ratio` outside `[0, 1]` is clamped to that range.
+/// - `ratio` is NaN: normalised to `0.0`, so it never samples (#247).
+///   `std::clamp` passes NaN through — neither comparison is true — and
+///   both `ComputeThreshold` guards then fell through to a cast of a
+///   non-representable value, undefined behaviour per [conv.fpint]. The
+///   factory returns a handle rather than an `Expected`, so rejection is
+///   not available to it; `docs/interfaces.md` §4.5 names "fall back to
+///   drop" as the recovery for a sampler anomaly, which picks `0.0` over
+///   `1.0`. `Provider::SetSamplerRatio` rejects NaN instead — the
+///   asymmetry is deliberate, per ICP 0026 Decision 3.
 ///
 /// Description string includes the resolved ratio at three decimals,
 /// matching the substring assertion in
@@ -139,7 +157,7 @@ class TraceIdRatioSampler final : public internal::ISampler
 {
 public:
     explicit TraceIdRatioSampler(double ratio)
-        : m_ratio(std::clamp(ratio, 0.0, 1.0)),
+        : m_ratio(NormaliseRatio(ratio)),
           m_always_sample(m_ratio >= 1.0),
           m_threshold(ComputeThreshold(m_ratio)),
           m_description(std::format("TraceIdRatioSampler{{{:.3f}}}", m_ratio))
@@ -185,6 +203,19 @@ private:
             v = (v << 8U) | static_cast<std::uint64_t>(bytes[8U + i]);
         }
         return v;
+    }
+
+    /// @brief Clamps into `[0.0, 1.0]`, mapping NaN to `0.0`.
+    ///
+    /// `std::clamp` alone is not enough: NaN compares false against both
+    /// bounds and is returned unchanged (#247).
+    static double NormaliseRatio(double ratio) noexcept
+    {
+        if (std::isnan(ratio))
+        {
+            return 0.0;
+        }
+        return std::clamp(ratio, 0.0, 1.0);
     }
 
     static std::uint64_t ComputeThreshold(double ratio) noexcept

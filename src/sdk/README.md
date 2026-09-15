@@ -16,7 +16,11 @@ Track A — Trace SDK.
 - `microtel::Provider` and `SdkBuilder` (declared in [`provider.hpp`](../../include/microtel/provider.hpp), [`sdk_builder.hpp`](../../include/microtel/sdk_builder.hpp))
 - `microtel::Resource` and the resource-merging pipeline (spec §12.7)
 - `internal::ISampler` realisations: `AlwaysOnSampler`,
-  `AlwaysOffSampler`, `TraceIdRatioSampler`, `ParentBasedSampler`
+  `AlwaysOffSampler`, `TraceIdRatioSampler`, `ParentBasedSampler` (all in
+  [`sampler_factories.cpp`](sampler_factories.cpp)), plus the v1.1 rule
+  combinators and chain composition modes — `AttributeRuleSampler`,
+  `SpanNameRuleSampler`, `SpanKindRuleSampler`, `ChainSampler` (in
+  [`sampler_chains.cpp`](sampler_chains.cpp))
 - `internal::ISpanProcessor` realisations: `BatchSpanProcessor`,
   `SimpleSpanProcessor`
 - `internal::IResourceDetector` — the env-var detector and the explicit
@@ -46,6 +50,10 @@ Track A — Trace SDK.
   invokes `Shutdown(small_finite_timeout)` if not already shut down.
 - **`OnEnd` is `noexcept`** — drops record on full queue, never throws.
 - **Sampler hot path must not allocate** in the default case (LOCKED —
-  `memory-model.md` §8.1, ICP 0003 §3.2).
+  `memory-model.md` §8.1, ICP 0003 §3.2). The chain combinators keep that
+  by fixing everything at construction — child vector sized once, each
+  child's dynamic type resolved once, description formatted once — and
+  `tests/unit/sdk/sampler_chain_alloc_test.cpp` counts allocations around
+  `ShouldSample` to prove it stays that way.
 - **Provider holds a `unique_ptr<SslCtx>` indirectly via `Transport`**
   per ICP 0003 §3.1 — no shared ownership of TLS state.

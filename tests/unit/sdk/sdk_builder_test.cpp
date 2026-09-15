@@ -621,10 +621,12 @@ TEST(SdkBuilderTest, WithResourceDetector_SucceedingDetector_BuildSucceeds)
     detector->resource_to_return = microtel::Resource{
         std::vector<microtel::KeyValue>{{.key = "host.name", .value = std::string{"node-7"}}}};
 
-    const auto result = microtel::SdkBuilder()
-                            .WithEndpoint("https://localhost:4318")
-                            .WithResourceDetector(std::move(detector))
-                            .Build();
+    // The builder is a named local, not a temporary: it owns the detector
+    // (interfaces.md §4.10) and destroys it with itself, so reading `observer`
+    // after a `SdkBuilder{}...Build()` one-liner would be a use-after-free.
+    microtel::SdkBuilder builder;
+    builder.WithEndpoint("https://localhost:4318").WithResourceDetector(std::move(detector));
+    const auto result = builder.Build();
 
     ASSERT_TRUE(result.has_value()) << result.error().message;
     EXPECT_EQ(observer->detect_call_count, 1) << "detection is one-shot per interfaces.md §4.10";

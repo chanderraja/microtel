@@ -5,9 +5,8 @@
 // resource composition order in microtel-spec.md §12.7 (detectors first, then
 // environment, then user-supplied; later wins).
 
-#include "microtel/resource.hpp"
-
 #include "microtel/attribute.hpp"
+#include "microtel/resource.hpp"
 
 #include <gtest/gtest.h>
 
@@ -31,6 +30,18 @@ namespace
         }
     }
     return std::nullopt;
+}
+
+/// @brief The value at `key`. An absent key fails the test rather than throwing.
+[[nodiscard]] microtel::AttributeValue Get(const microtel::Resource& res, const std::string& key)
+{
+    const auto value = Lookup(res, key);
+    if (!value.has_value())
+    {
+        ADD_FAILURE() << "missing resource attribute: " << key;
+        return std::string{};
+    }
+    return *value;
 }
 
 /// @brief Count the occurrences of `key` — a merge must never duplicate one.
@@ -66,8 +77,8 @@ TEST(ResourceMergeTest, Merge_DisjointKeys_KeepsBoth)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     ASSERT_EQ(merged.Attributes().size(), 2U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "a")), "1");
-    EXPECT_EQ(StringOf(*Lookup(merged, "b")), "2");
+    EXPECT_EQ(StringOf(Get(merged, "a")), "1");
+    EXPECT_EQ(StringOf(Get(merged, "b")), "2");
 }
 
 TEST(ResourceMergeTest, Merge_KeyCollision_LaterWins)
@@ -78,7 +89,7 @@ TEST(ResourceMergeTest, Merge_KeyCollision_LaterWins)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     EXPECT_EQ(CountKey(merged, "k"), 1U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "k")), "from-overriding");
+    EXPECT_EQ(StringOf(Get(merged, "k")), "from-overriding");
 }
 
 TEST(ResourceMergeTest, Merge_KeyCollision_ReplacesValueOfDifferentType)
@@ -89,7 +100,7 @@ TEST(ResourceMergeTest, Merge_KeyCollision_ReplacesValueOfDifferentType)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     ASSERT_EQ(merged.Attributes().size(), 1U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "k")), "seven");
+    EXPECT_EQ(StringOf(Get(merged, "k")), "seven");
 }
 
 TEST(ResourceMergeTest, Merge_EmptyBase_YieldsOverriding)
@@ -100,7 +111,7 @@ TEST(ResourceMergeTest, Merge_EmptyBase_YieldsOverriding)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     ASSERT_EQ(merged.Attributes().size(), 1U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "b")), "2");
+    EXPECT_EQ(StringOf(Get(merged, "b")), "2");
 }
 
 TEST(ResourceMergeTest, Merge_EmptyOverriding_YieldsBase)
@@ -111,7 +122,7 @@ TEST(ResourceMergeTest, Merge_EmptyOverriding_YieldsBase)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     ASSERT_EQ(merged.Attributes().size(), 1U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "a")), "1");
+    EXPECT_EQ(StringOf(Get(merged, "a")), "1");
 }
 
 TEST(ResourceMergeTest, Merge_BothEmpty_YieldsEmpty)
@@ -150,7 +161,7 @@ TEST(ResourceMergeTest, Merge_DuplicateKeyWithinOverriding_LastOccurrenceWins)
     const microtel::Resource merged = microtel::Resource::Merge(base, overriding);
 
     EXPECT_EQ(CountKey(merged, "k"), 1U);
-    EXPECT_EQ(StringOf(*Lookup(merged, "k")), "second");
+    EXPECT_EQ(StringOf(Get(merged, "k")), "second");
 }
 
 TEST(ResourceMergeTest, Merge_IsAssociativeLeftToRight_SpecPrecedenceChain)
@@ -161,16 +172,17 @@ TEST(ResourceMergeTest, Merge_IsAssociativeLeftToRight_SpecPrecedenceChain)
     const microtel::Resource detectors{{{.key = "host.name", .value = std::string{"detected"}},
                                         {.key = "service.name", .value = std::string{"detected"}},
                                         {.key = "process.pid", .value = std::int64_t{42}}}};
-    const microtel::Resource env{{{.key = "service.name", .value = std::string{"from-env"}},
-                                  {.key = "deployment.environment", .value = std::string{"stage"}}}};
+    const microtel::Resource env{
+        {{.key = "service.name", .value = std::string{"from-env"}},
+         {.key = "deployment.environment", .value = std::string{"stage"}}}};
     const microtel::Resource user{{{.key = "service.name", .value = std::string{"from-user"}}}};
 
     const microtel::Resource merged =
         microtel::Resource::Merge(microtel::Resource::Merge(detectors, env), user);
 
-    EXPECT_EQ(StringOf(*Lookup(merged, "service.name")), "from-user");
-    EXPECT_EQ(StringOf(*Lookup(merged, "deployment.environment")), "stage");
-    EXPECT_EQ(StringOf(*Lookup(merged, "host.name")), "detected");
-    EXPECT_EQ(std::get<std::int64_t>(*Lookup(merged, "process.pid")), 42);
+    EXPECT_EQ(StringOf(Get(merged, "service.name")), "from-user");
+    EXPECT_EQ(StringOf(Get(merged, "deployment.environment")), "stage");
+    EXPECT_EQ(StringOf(Get(merged, "host.name")), "detected");
+    EXPECT_EQ(std::get<std::int64_t>(Get(merged, "process.pid")), 42);
     EXPECT_EQ(CountKey(merged, "service.name"), 1U);
 }

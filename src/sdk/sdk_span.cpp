@@ -22,28 +22,6 @@ namespace microtel::sdk
 namespace
 {
 
-/// @brief Run @p mutate, discarding the change if it cannot be allocated.
-///
-/// Every `Span` method is `noexcept` (`docs/error-model.md` §2.2, LOCKED), yet
-/// each one grows a `std::string` or a `std::vector`. An allocation failure in
-/// a `noexcept` frame calls `std::terminate` — so before this, a telemetry
-/// library could take the host process down at exactly the moment the host was
-/// already under memory pressure. §2.2's actual requirement is to drop the
-/// field and return silently, which is what this does.
-///
-/// Each caller mutates either a local it then discards, or a container whose
-/// own strong/basic guarantee leaves the record intact on throw — so a failed
-/// mutation drops one field or one event, never a half-written span.
-///
-/// Catches `std::exception` rather than `std::bad_alloc` alone: `std::string`
-/// and `std::vector` also throw `std::length_error`, and *any* exception
-/// escaping a `noexcept` frame terminates. Matches the house pattern in
-/// `otlp_exporter.cpp` and `sdk_builder.cpp`.
-///
-/// @note §2.2 also requires incrementing a drop counter. There is no
-///       `DropReason` for allocation failure, and adding one is explicitly
-///       ICP-gated (`provider.hpp`), so the count is deferred rather than
-///       mapped onto an unrelated reason. See issue #134.
 /// @brief Longest prefix of @p s that is at most @p limit bytes and does not
 ///        split a UTF-8 code point.
 ///
@@ -124,6 +102,28 @@ namespace
     return copy;
 }
 
+/// @brief Run @p mutate, discarding the change if it cannot be allocated.
+///
+/// Every `Span` method is `noexcept` (`docs/error-model.md` §2.2, LOCKED), yet
+/// each one grows a `std::string` or a `std::vector`. An allocation failure in
+/// a `noexcept` frame calls `std::terminate` — so before this, a telemetry
+/// library could take the host process down at exactly the moment the host was
+/// already under memory pressure. §2.2's actual requirement is to drop the
+/// field and return silently, which is what this does.
+///
+/// Each caller mutates either a local it then discards, or a container whose
+/// own strong/basic guarantee leaves the record intact on throw — so a failed
+/// mutation drops one field or one event, never a half-written span.
+///
+/// Catches `std::exception` rather than `std::bad_alloc` alone: `std::string`
+/// and `std::vector` also throw `std::length_error`, and *any* exception
+/// escaping a `noexcept` frame terminates. Matches the house pattern in
+/// `otlp_exporter.cpp` and `sdk_builder.cpp`.
+///
+/// @note §2.2 also requires incrementing a drop counter. There is no
+///       `DropReason` for allocation failure, and adding one is explicitly
+///       ICP-gated (`provider.hpp`), so the count is deferred rather than
+///       mapped onto an unrelated reason. See issue #134.
 /// @brief Build one event. May throw; callers run it inside `DropOnBadAlloc`.
 [[nodiscard]] internal::SpanEvent BuildEvent(std::string_view name,
                                              AttributeSpan attributes,

@@ -177,13 +177,14 @@ std::size_t PollForOccurrences(const std::filesystem::path& path,
 /// thing that fails when a limit changes. These are the ones that mean "a span
 /// this test emitted never reached the collector".
 ///
-/// @note Currently a tripwire rather than live coverage. None of these
-///       counters is written anywhere in `src/` — `RecordDrop` has two call
-///       sites, both on the metrics and logs paths (issue #169). The
-///       assertion is kept because it costs nothing and starts meaning
-///       something the day the delivery counters are wired; the real delivery
-///       evidence in each test is the occurrence count read back from the
-///       collector's output file.
+/// @note Live coverage as of issue #181, which closed the last of the §13.5
+///       limits gates: every counter in the list below now has a producer in
+///       `src/` (`transport_busy` at the transport's bounded request queue was
+///       the last). It used to be a tripwire — when this note was written
+///       `RecordDrop` had two call sites, both on the metrics and logs paths
+///       (issue #169). The real delivery evidence in each test is still the
+///       occurrence count read back from the collector's output file; this
+///       assertion says nothing was quietly shed on the way there.
 ///
 /// @param health snapshot to inspect.
 void ExpectNoDeliveryDrops(const microtel::HealthSnapshot& health)

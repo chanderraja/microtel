@@ -11,6 +11,7 @@
 #include "microtel/provider.hpp"
 
 #include "fakes/fake_diagnostics_sink.hpp"
+#include "fakes/fake_reactor.hpp"
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
 #include "wire/grpc/grpc_wire_codec.hpp"
@@ -1484,6 +1485,112 @@ TEST(Http2TransportSendIntegrationTest, GrpcExport_OversizedResponse_IsTerminalA
     EXPECT_GE(
         sink.drop_counters.at(static_cast<std::size_t>(microtel::DropReason::ResponseTooLarge)),
         1U);
+
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
+    server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// Bounded request queue — threading-model.md §3.2, issue #181
+//
+// `Send` pushed onto `m_pending_queue` with no capacity check, so a stalled
+// I/O thread (a peer that stopped reading, a reconnect backing off) let the
+// queue grow for as long as producers kept submitting, and
+// `DropReason::TransportBusy` was declared and never incremented.
+//
+// The I/O thread is the seam these tests need under control: a real reactor
+// drains the queue microseconds after `Send` wakes it, so the depth at which
+// the bound trips is unobservable. `FakeReactor::HoldDispatch()` parks the I/O
+// thread inside `WaitAndDispatch` — engaged before `Create`, so the thread
+// parks on its first iteration and nothing is ever drained — which makes the
+// queue depth exactly what the test pushed.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr std::uint32_t kTinyPendingCap = 2;
+constexpr int kDrainProbeAttempts = 200;
+constexpr auto kDrainProbeInterval = std::chrono::milliseconds(10);
+
+/// @brief Wait for the released I/O thread to empty the request queue.
+///
+/// The queue depth is not observable from outside the transport, so its
+/// emptiness is read the only way a caller can: `Send` starts being accepted
+/// again. Accepted probes are appended to @p probes, which must outlive the
+/// call — `RequestSpec::payload` is borrowed (`memory-model.md` §3.3).
+[[nodiscard]] bool WaitForQueueToDrain(mtt::Http2Transport& transport,
+                                       const std::string& authority,
+                                       std::span<const std::byte> payload,
+                                       std::vector<mti::RequestHandle>& probes)
+{
+    for (int attempt = 0; attempt < kDrainProbeAttempts; ++attempt)
+    {
+        probes.push_back(transport.Send(MakeRequestSpec(authority, payload)));
+        if (probes.back().Id() != 0)
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(kDrainProbeInterval);
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST(Http2TransportSendIntegrationTest, Send_PendingQueueAtCapacity_RefusesWithTransportBusy)
+{
+    MinimalHttp2RequestServer server;
+    const int port = server.Start();
+    ASSERT_GT(port, 0);
+
+    auto reactor = std::make_unique<mtfk::FakeReactor>();
+    auto* const held = reactor.get();
+    held->HoldDispatch();  // released at the end, before the transport dies
+
+    auto transport_result = mtt::Http2Transport::Create(std::move(reactor));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    auto opts = MakeConnectOptions(port);
+    opts.max_pending_requests = kTinyPendingCap;
+    ASSERT_TRUE(t->Connect(opts).has_value());
+
+    // EXPECT, not ASSERT, from here on: an early return would leave the I/O
+    // thread parked and the transport's destructor would never join it.
+    const std::array<std::byte, kSmallPayloadBytes> payload{};
+    const std::string authority = "127.0.0.1:" + std::to_string(port);
+
+    std::vector<mti::RequestHandle> accepted;
+    for (std::uint32_t i = 0; i < kTinyPendingCap; ++i)
+    {
+        accepted.push_back(t->Send(MakeRequestSpec(authority, payload)));
+        EXPECT_NE(accepted.back().Id(), 0U) << "request " << i << " should have been queued";
+    }
+
+    auto refused = t->Send(MakeRequestSpec(authority, payload));
+    EXPECT_EQ(refused.Id(), 0U) << "a refused request never gets a stream, so it has no id";
+    // Checked before `get()`, never asserted around it: a transport that
+    // queued the request instead of refusing it leaves a future nothing will
+    // resolve while the I/O thread is held, and `get()` would hang CI rather
+    // than fail it.
+    const bool resolved =
+        refused.Future().wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    EXPECT_TRUE(resolved) << "the refusal must resolve immediately, not hang the worker";
+
+    const auto result = resolved ? refused.Future().get() : mti::TransportResult{};
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.transport_busy) << "the failure must name the queue, not look like a reset";
+    EXPECT_EQ(ErrorKind(result), microtel::Error::Kind::ResourceExhausted);
+    EXPECT_NE(ErrorMessage(result).find("max_pending_requests"), std::string::npos)
+        << "observed message: " << ErrorMessage(result);
+
+    // The bound is a high-water mark, not a one-way latch: once the I/O thread
+    // drains the queue, `Send` accepts again. A transport that stayed busy
+    // after the pressure passed would turn one stall into a dead exporter.
+    held->ReleaseDispatch();
+    EXPECT_TRUE(WaitForQueueToDrain(*t, authority, payload, accepted))
+        << "the queue drained; the transport must accept work again";
 
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     server.Stop();

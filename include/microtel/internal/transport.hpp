@@ -66,6 +66,23 @@ struct ConnectOptions
     /// transport does not meter itself (issue #213). Both HEADERS frames on a
     /// stream are header lists, so one budget covers them.
     std::uint32_t max_trailer_bytes = 64U * 1024U;  // 64 KiB
+
+    /// @brief Ceiling on how many requests may sit in the transport's request
+    ///        queue waiting for the I/O thread to attach them to a stream
+    ///        (`docs/threading-model.md` §3.2).
+    ///
+    /// `Send` refuses beyond it rather than queueing: the future resolves
+    /// immediately with `TransportResult::transport_busy`, and the codec counts
+    /// `DropReason::TransportBusy`. Without a bound, an I/O thread that stalls
+    /// — a peer that stopped reading, a reconnect in backoff — lets the queue
+    /// grow for as long as producers keep submitting.
+    ///
+    /// The default is generous on purpose. v1 has at most three exporter
+    /// workers (traces, metrics, logs) and each blocks on its own completion,
+    /// so a healthy process never queues more than three; the headroom is for
+    /// the deadline-and-retry churn that accumulates while the I/O thread is
+    /// the thing that is stuck, which is the case the bound exists for.
+    std::uint32_t max_pending_requests = 64;
 };
 
 /// @brief HTTP/2 header (name, value) pair.
@@ -108,6 +125,14 @@ struct TransportResult
     /// makes this a terminal `response_too_large` rather than a retry
     /// (`docs/error-model.md` §7.1).
     bool response_too_large = false;
+    /// @brief The transport refused the request because its request queue was
+    ///        already at `ConnectOptions::max_pending_requests`.
+    ///
+    /// `success` is false, `error` is `ResourceExhausted`, and nothing was
+    /// queued or sent. Distinguished from an ordinary transport failure so the
+    /// codec can count `DropReason::TransportBusy`; the classification is
+    /// unchanged — a full queue is transient, so the request stays retryable.
+    bool transport_busy = false;
 };
 
 /// @brief Move-only handle to an in-flight request.

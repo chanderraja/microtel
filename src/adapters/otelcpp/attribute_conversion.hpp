@@ -49,16 +49,17 @@ namespace detail
 /// Hex rather than base64: unambiguous, no padding, and a debugging reader
 /// can eyeball it (ICP 0015, "Rationale & alternatives").
 ///
-/// @warning Output is 2 chars per input byte. If `span_limits.
-/// attribute_value_length_limit` (default 4096 chars) is ever enforced on
-/// string attributes, a naive byte-offset truncation of this output can land
-/// on an odd nibble boundary — the truncated string is *still valid hex*,
-/// but decodes to a different final byte than the application set. That is
-/// silent corruption, not mere data loss. Truncation of this output must
-/// round down to an even length (or omit above the limit, per ICP 0015's own
-/// preserve-or-omit principle), never truncate at an arbitrary offset. As of
-/// this writing `attribute_value_length_limit` has no enforcement anywhere
-/// in the codebase, so this is not yet a live bug — see ICP 0015's addendum.
+/// @warning Output is 2 chars per input byte, so any byte span over 2048 bytes
+/// renders longer than the 4096-byte default `attribute_value_length_limit`.
+/// **That limit is now enforced** (issue #181): `SdkSpan::SetAttribute`
+/// truncates the value to the limit, backing up only over UTF-8 continuation
+/// bytes. Hex is ASCII, so the cut is an exact byte cut and can land on an odd
+/// nibble boundary — the truncated string decodes to a different final byte
+/// than the application set, which is silent corruption rather than mere data
+/// loss. ICP 0015's addendum asks for an even-length cut (or omission above the
+/// limit, per its own preserve-or-omit principle) for this one producer; the
+/// SDK's generic string truncation cannot tell hex from any other string, so
+/// the rounding has to happen here. Tracked in issue #238.
 [[nodiscard]] inline std::string RenderBytesAsHex(
     opentelemetry::nostd::span<const std::uint8_t> bytes)
 {

@@ -667,7 +667,7 @@ microtel::Expected<void, microtel::Error> Http2Transport::Connect(
         m_state.store(prior, std::memory_order_release);
     };
 
-    AdoptResponseBudget(opts);
+    AdoptBudgets(opts);
 
     auto ep = ParseEndpoint(opts.endpoint, opts.insecure);
     if (!ep)
@@ -782,16 +782,33 @@ microtel::Status Http2Transport::Close(std::chrono::milliseconds timeout) noexce
 // ITransport — request handling
 // ---------------------------------------------------------------------------
 
+namespace
+{
+
+/// @brief An already-resolved handle for a request the transport would not
+///        take: no stream, no id, a future the caller can read immediately.
+///
+/// Handle id 0 is the "never reached the wire" id — `Cancel` ignores it,
+/// because there is nothing on the wire to reset.
+[[nodiscard]] internal::RequestHandle RefuseRequest(microtel::Error error, bool busy) noexcept
+{
+    std::promise<internal::TransportResult> p;
+    internal::TransportResult result;
+    result.error = std::move(error);
+    result.transport_busy = busy;
+    p.set_value(std::move(result));
+    return internal::RequestHandle{0, p.get_future()};
+}
+
+}  // namespace
+
 internal::RequestHandle Http2Transport::Send(internal::RequestSpec spec) noexcept
 {
     if (m_state.load(std::memory_order_acquire) != microtel::ConnectionState::Connected)
     {
-        std::promise<internal::TransportResult> p;
-        internal::TransportResult result;
-        result.error =
-            microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"};
-        p.set_value(std::move(result));
-        return internal::RequestHandle{0, p.get_future()};
+        return RefuseRequest(
+            microtel::Error{.kind = microtel::Error::Kind::Network, .message = "not connected"},
+            false);
     }
 
     const std::uint64_t id = m_next_handle_id.fetch_add(1, std::memory_order_relaxed);
@@ -799,6 +816,16 @@ internal::RequestHandle Http2Transport::Send(internal::RequestSpec spec) noexcep
     auto future = p.get_future();
     {
         const std::scoped_lock lk{m_pending_mu};
+        // Bounded per threading-model.md §3.2. The check is inside the same
+        // lock as the push, so concurrent submitters (ICP 0009) cannot both
+        // see room for the last slot.
+        if (m_pending_queue.size() >= m_max_pending_requests.load(std::memory_order_relaxed))
+        {
+            return RefuseRequest(
+                microtel::Error{.kind = microtel::Error::Kind::ResourceExhausted,
+                                .message = "transport request queue full (max_pending_requests)"},
+                true);
+        }
         m_pending_queue.push_back(
             PendingRequest{.spec = std::move(spec), .promise = std::move(p), .handle_id = id});
     }
@@ -1071,10 +1098,11 @@ bool Http2Transport::FinishGoawayDrainIfIdle() noexcept
                                            std::memory_order_acquire);
 }
 
-void Http2Transport::AdoptResponseBudget(const internal::ConnectOptions& opts) noexcept
+void Http2Transport::AdoptBudgets(const internal::ConnectOptions& opts) noexcept
 {
     m_max_response_bytes.store(opts.max_response_bytes, std::memory_order_relaxed);
     m_max_trailer_bytes.store(opts.max_trailer_bytes, std::memory_order_relaxed);
+    m_max_pending_requests.store(opts.max_pending_requests, std::memory_order_relaxed);
 }
 
 void Http2Transport::FailOversizedStream(std::int32_t stream_id,

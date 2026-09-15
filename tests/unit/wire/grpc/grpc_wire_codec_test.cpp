@@ -594,6 +594,32 @@ TEST(GrpcWireCodecTest, Send_TrailersTooLarge_CountsResponseTooLarge)
     EXPECT_EQ(DropCount(sink, mt::DropReason::ResponseTooLarge), 1U);
 }
 
+// The `transport_busy` row of error-model.md §3: the transport refused to
+// queue the request because its request queue was at `max_pending_requests`.
+// Counted, but *retryable* — a full queue drains, unlike an oversized response
+// the peer will send again.
+TEST(GrpcWireCodecTest, Send_TransportBusy_IsRetryableAndCounted)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::ResourceExhausted,
+                           .message = "transport request queue full"},
+        .response_too_large = false,
+        .transport_busy = true,
+    };
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::TransportBusy), 1U);
+}
+
 TEST(GrpcWireCodecTest, Diagnostics_ConnectFails_CountsConnectFailure)
 {
     mtfk::FakeTransport transport;

@@ -325,7 +325,7 @@ The span limits from `microtel-spec.md` §5.6 are normative.
 | `event_attribute_count_limit` | 128 |
 | `link_attribute_count_limit` | 128 |
 
-**Behaviour on overflow.** The new attribute / event / link is **dropped and counted**. Existing values are not evicted (no LRU in v1). Drop counters: `span_attribute_limit`, `span_event_limit`, `span_link_limit`. String values exceeding `attribute_value_length_limit` are truncated and the truncation is counted.
+**Behaviour on overflow.** The new attribute / event / link is **dropped and counted**. Existing values are not evicted (no LRU in v1). Drop counters: `span_attribute_limit`, `span_event_limit`, `span_link_limit`. String values exceeding `attribute_value_length_limit` are truncated and the truncation is counted (`attribute_value_truncated`) — the attribute itself is kept, so this is the one limit that shortens a record rather than shedding part of it. The limit is a **byte** budget and the cut backs up to a UTF-8 code point boundary: an OTLP attribute is a proto3 `string`, and a cut through a multi-byte sequence would make the whole batch unparseable at the collector. Each element of a string array is measured and counted separately.
 
 **Where enforced.** In the API layer, at the `SetAttribute` / `AddEvent` / `AddLink` call site, before the value is recorded on the span. Enforcement at the API ensures unsampled spans never spend memory on enforcement state — the unsampled `Span` object is a no-op for these methods.
 

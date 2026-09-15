@@ -170,20 +170,29 @@ transport.
 said SPSC until that ICP was applied; it had been wrong since M12, when the
 metrics pipeline began sharing the transport with traces.
 
-**Unbounded.** `Send` performs no capacity check and `m_pending_queue` is a
-plain `std::vector`. This section previously described a bounded queue with
-`transport_busy` backpressure — see the Backpressure note below.
+**Bounded** at `ConnectOptions::max_pending_requests` (default 64), adopted per
+connection alongside the response budgets. `m_pending_queue` is a plain
+`std::vector`; the bound is the depth `Send` will push to, not a reserved
+capacity.
 
 **Producer-side contract.** An exporter worker calls into the transport synchronously; the transport acquires the request-queue lock (`m_pending_mu`), pushes a request descriptor (carrying a borrowed `std::span<const std::byte>` over the `EncodedPayload` bytes — see `memory-model.md` §3.3), wakes the I/O thread via eventfd, releases the lock, returns to the worker. The worker then awaits a completion (described in §3.3 below).
 
 **Consumer-side contract.** The I/O thread's reactor wakes on the eventfd, drains pending requests under the same lock, attaches each to a new nghttp2 stream, and returns to its reactor sleep until socket activity or another wake.
 
-**Backpressure — not implemented.** This section described the transport
-returning a `transport_busy` failure when the request queue is full. There is
-no such path: `Send` never checks capacity, and `DropReason::TransportBusy` is
-declared and never incremented (one of the dead counters catalogued in #134).
-Bounding this queue is unresolved work, not a shipped behaviour, and is
-recorded as such rather than left as a promise.
+**Backpressure.** At `max_pending_requests` the transport refuses rather than
+queues: `Send` returns a handle whose id is 0 and whose future is already
+resolved with `TransportResult::transport_busy` and a `ResourceExhausted`
+error. Nothing is queued and nothing reaches the wire. The codec turns that
+into `DropReason::TransportBusy` and keeps the request **retryable** — a full
+queue drains, unlike an oversized response the peer will send again. The
+capacity check is made under `m_pending_mu`, in the same critical section as
+the push, so concurrent submitters (ICP 0009) cannot both claim the last slot.
+
+The bound exists for the case where the I/O thread is the thing that is stuck —
+a peer that stopped reading, a reconnect in backoff. A healthy process never
+approaches it: each of the three exporter workers blocks on its own completion,
+so the steady-state depth is at most three. `Send` refusing is not a latch —
+once the I/O thread drains, the next `Send` is accepted (issue #181).
 
 ### 3.3 I/O thread → exporter worker — request completion
 

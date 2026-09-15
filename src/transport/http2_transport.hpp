@@ -177,13 +177,13 @@ private:
     ///        that allocates would throw out of a `noexcept` frame — see #150.
     void AbandonInFlight(const char* message) noexcept;
 
-    /// @brief Take this connection's response memory budget from @p opts.
+    /// @brief Take this connection's memory and queue budgets from @p opts.
     ///
     /// Called at the top of `Connect`, before anything can read from the
     /// socket, so the caps govern the very first response the connection
     /// carries — and so a reconnect picks up whatever the caller passed this
     /// time rather than inheriting the previous connection's.
-    void AdoptResponseBudget(const internal::ConnectOptions& opts) noexcept;
+    void AdoptBudgets(const internal::ConnectOptions& opts) noexcept;
 
     /// @brief Stop buffering an over-budget response and reset its stream.
     ///
@@ -295,6 +295,11 @@ private:
     /// scalars guarding nothing else, so relaxed ordering is enough.
     std::atomic<std::uint32_t> m_max_response_bytes{internal::ConnectOptions{}.max_response_bytes};
     std::atomic<std::uint32_t> m_max_trailer_bytes{internal::ConnectOptions{}.max_trailer_bytes};
+    /// Request-queue bound for the current connection (`threading-model.md`
+    /// §3.2). Same ownership story as the two response budgets, except the
+    /// readers are the submitting threads rather than the I/O thread.
+    std::atomic<std::uint32_t> m_max_pending_requests{
+        internal::ConnectOptions{}.max_pending_requests};
     /// The GOAWAY diagnostic, formatted once on receipt.
     ///
     /// The transport owns no diagnostics sink — "its callers record what they

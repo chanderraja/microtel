@@ -23,6 +23,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace mt = microtel;
 namespace mti = microtel::internal;
@@ -363,6 +365,193 @@ TEST(SdkSpanTest, Diagnostics_NullSink_IsNotDereferenced)
     span->AddLink(MakeValidContext(), mt::AttributeSpan{&kv, 1});
     span->AddLink(MakeValidContext());
     span->End();
+}
+
+// ---------------------------------------------------------------------------
+// Attribute value length limit (spec §5.6; issue #181)
+//
+// `attribute_value_length_limit` truncates a string value rather than dropping
+// the attribute: the key and the type survive, the tail does not. One
+// `AttributeValueTruncated` per truncated string — a string array counts each
+// element it truncated, because each element is a value that lost bytes.
+// ---------------------------------------------------------------------------
+
+TEST(SdkSpanTest, SetAttribute_StringOverValueLengthLimit_TruncatesAndCounts)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 4;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("k", std::string{"abcdefgh"});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    const auto& attrs = proc.received_spans[0].attributes;
+    ASSERT_EQ(attrs.size(), 1U);
+    EXPECT_EQ(attrs[0].key, "k");
+    EXPECT_EQ(std::get<std::string>(attrs[0].value), "abcd");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+TEST(SdkSpanTest, SetAttribute_StringAtValueLengthLimit_IsUntouched)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 4;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("k", std::string{"abcd"});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(proc.received_spans[0].attributes[0].value), "abcd");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 0U);
+}
+
+TEST(SdkSpanTest, SetAttribute_NonStringValue_IsNeverTruncated)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 1;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("n", std::int64_t{123456});
+    span->SetAttribute("v", std::vector<std::int64_t>{1, 2, 3});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    EXPECT_EQ(std::get<std::int64_t>(proc.received_spans[0].attributes[0].value), 123456);
+    EXPECT_EQ(
+        std::get<std::vector<std::int64_t>>(proc.received_spans[0].attributes[1].value).size(), 3U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 0U);
+}
+
+// The limit is a byte budget, and the cut backs up to a UTF-8 code point
+// boundary: proto3 `string` fields must hold valid UTF-8, so a cut through a
+// multi-byte sequence would turn one truncated attribute into a whole export
+// the collector refuses to parse. "é" is two bytes, so a 5-byte budget over
+// "ab" + "é" + "é" keeps "abé" (4 bytes), not "abé\xC3".
+TEST(SdkSpanTest, SetAttribute_TruncationStopsOnAUtf8Boundary)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 5;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("k", std::string{"ab\xC3\xA9\xC3\xA9"});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(proc.received_spans[0].attributes[0].value), "ab\xC3\xA9");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+TEST(SdkSpanTest, SetAttribute_StringArray_TruncatesEachOversizedElement)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 3;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("k", std::vector<std::string>{"aaaaa", "bb", "ccccc"});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    const auto& arr =
+        std::get<std::vector<std::string>>(proc.received_spans[0].attributes[0].value);
+    ASSERT_EQ(arr.size(), 3U);
+    EXPECT_EQ(arr[0], "aaa");
+    EXPECT_EQ(arr[1], "bb");
+    EXPECT_EQ(arr[2], "ccc");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 2U);
+}
+
+TEST(SdkSpanTest, AddEvent_AttributeOverValueLengthLimit_TruncatesAndCounts)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 2;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "a", .value = std::string{"xyz"}},
+    };
+    span->AddEvent("e1", mt::AttributeSpan{attrs.data(), attrs.size()});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    ASSERT_EQ(proc.received_spans[0].events.size(), 1U);
+    const auto& ev_attrs = proc.received_spans[0].events[0].attributes;
+    ASSERT_EQ(ev_attrs.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(ev_attrs[0].value), "xy");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+TEST(SdkSpanTest, AddLink_AttributeOverValueLengthLimit_TruncatesAndCounts)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 2;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "a", .value = std::string{"xyz"}},
+    };
+    span->AddLink(MakeValidContext(), mt::AttributeSpan{attrs.data(), attrs.size()});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    ASSERT_EQ(proc.received_spans[0].links.size(), 1U);
+    const auto& lk_attrs = proc.received_spans[0].links[0].attributes;
+    ASSERT_EQ(lk_attrs.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(lk_attrs[0].value), "xy");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+// A zero limit is a legal configuration: every string value empties. Guards
+// the back-up loop against underflowing past the start of the string.
+TEST(SdkSpanTest, SetAttribute_ZeroValueLengthLimit_EmptiesTheValue)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 0;
+    mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink sink;
+    auto span = MakeSpan(proc, lim, &sink);
+
+    span->SetAttribute("k", std::string{"\xC3\xA9zz"});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(proc.received_spans[0].attributes[0].value), "");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+// No sink is a supported configuration; truncation must still happen.
+TEST(SdkSpanTest, Truncation_NullSink_IsNotDereferenced)
+{
+    mt::SpanLimitOptions lim;
+    lim.attribute_value_length_limit = 1;
+    mtfk::FakeSpanProcessor proc;
+    auto span = MakeSpan(proc, lim);  // no sink
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "a", .value = std::string{"xyz"}},
+    };
+    span->SetAttribute("k", std::string{"xyz"});
+    span->AddEvent("e1", mt::AttributeSpan{attrs.data(), attrs.size()});
+    span->AddLink(MakeValidContext(), mt::AttributeSpan{attrs.data(), attrs.size()});
+    span->End();
+
+    ASSERT_EQ(proc.received_spans.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(proc.received_spans[0].attributes[0].value), "x");
 }
 
 // ---------------------------------------------------------------------------

@@ -22,8 +22,10 @@
 
 #include "microtel/trace.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -107,14 +109,7 @@ constexpr char kValueHighestChar = '~';  ///< %x7E
 /// @pre @p component is non-empty.
 [[nodiscard]] bool HasValidKeyTail(std::string_view component) noexcept
 {
-    for (const char c : component.substr(1U))
-    {
-        if (!IsKeyTailChar(c))
-        {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(component.substr(1U), IsKeyTailChar);
 }
 
 /// @brief `simple-key`, and also `system-id` at its own length limit.
@@ -170,14 +165,7 @@ constexpr char kValueHighestChar = '~';  ///< %x7E
     {
         return false;
     }
-    for (const char c : value)
-    {
-        if (!IsValueChar(c))
-        {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(value, IsValueChar);
 }
 
 /// @brief Strips leading and trailing `OWS` from a list member.
@@ -197,14 +185,25 @@ constexpr char kValueHighestChar = '~';  ///< %x7E
 /// @brief True if @p entries already carries @p key.
 [[nodiscard]] bool Contains(const std::vector<Entry>& entries, std::string_view key) noexcept
 {
-    for (const Entry& entry : entries)
+    return std::ranges::any_of(entries, [key](const Entry& entry) { return entry.key == key; });
+}
+
+/// @brief Appends every entry of @p source whose key differs from @p key.
+///
+/// @param source Borrowed entry list, or nullptr for the empty state.
+void AppendExcept(const Impl* source, std::string_view key, std::vector<Entry>& destination)
+{
+    if (source == nullptr)
     {
-        if (entry.key == key)
+        return;
+    }
+    for (const Entry& entry : source->entries)
+    {
+        if (entry.key != key)
         {
-            return true;
+            destination.push_back(entry);
         }
     }
-    return false;
 }
 
 /// @brief Splits one already-trimmed, non-empty list member.
@@ -238,8 +237,7 @@ constexpr char kValueHighestChar = '~';  ///< %x7E
     {
         const std::size_t comma = header.find(kListSeparator);
         const std::string_view member = TrimOptionalWhitespace(header.substr(0U, comma));
-        header = (comma == std::string_view::npos) ? std::string_view{}
-                                                   : header.substr(comma + 1U);
+        header = (comma == std::string_view::npos) ? std::string_view{} : header.substr(comma + 1U);
 
         if (member.empty())  // `list-member = ... / OWS`
         {
@@ -335,16 +333,7 @@ TraceState TraceState::Set(std::string_view key, std::string_view value) const
     impl->entries.reserve(Size() + 1U);
     // W3C §3.3.1: the new or modified member leads the list.
     impl->entries.push_back(Entry{.key = std::string(key), .value = std::string(value)});
-    if (m_entries != nullptr)
-    {
-        for (const Entry& entry : m_entries->entries)
-        {
-            if (entry.key != key)
-            {
-                impl->entries.push_back(entry);
-            }
-        }
-    }
+    AppendExcept(m_entries.get(), key, impl->entries);
 
     TraceState state;
     state.m_entries = std::move(impl);
@@ -364,13 +353,7 @@ TraceState TraceState::Erase(std::string_view key) const
 
     auto impl = std::make_shared<Impl>();
     impl->entries.reserve(Size() - 1U);
-    for (const Entry& entry : m_entries->entries)
-    {
-        if (entry.key != key)
-        {
-            impl->entries.push_back(entry);
-        }
-    }
+    AppendExcept(m_entries.get(), key, impl->entries);
 
     TraceState state;
     state.m_entries = std::move(impl);

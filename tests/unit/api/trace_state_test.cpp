@@ -38,6 +38,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -180,7 +181,8 @@ TEST(TraceStateTest, SkipsEmptyListMembers)
 
 TEST(TraceStateTest, AcceptsExactlyThirtyTwoMembers)
 {
-    const mt::TraceState state = mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
+    const mt::TraceState state =
+        mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
     EXPECT_EQ(state.Size(), mt::TraceState::kMaxEntries);
 }
 
@@ -211,18 +213,18 @@ TEST(TraceStateTest, FromHeaderDoesNotAliasItsArgument)
 TEST(TraceStateTest, AcceptsEveryValidKeyVector)
 {
     constexpr std::string_view kValidKeys[] = {
-        "a",                      // the shortest simple-key
-        "foo",                    //
-        "foo123",                 // DIGIT in the tail
-        "foo_bar",                // "_"
-        "foo-bar",                // "-"
-        "foo*bar",                // "*"
-        "foo/bar",                // "/"
-        "f_-*/0",                 // every tail character at once
-        "fw529a3039@dt",          // the spec's own multi-tenant example
-        "1a2b3c4d5e@dt",          // tenant-id may open with a DIGIT
-        "9@a",                    // shortest multi-tenant-key
-        "a-b_c*d/1@x-y_z*0/2",    // tail charset on both halves
+        "a",                    // the shortest simple-key
+        "foo",                  //
+        "foo123",               // DIGIT in the tail
+        "foo_bar",              // "_"
+        "foo-bar",              // "-"
+        "foo*bar",              // "*"
+        "foo/bar",              // "/"
+        "f_-*/0",               // every tail character at once
+        "fw529a3039@dt",        // the spec's own multi-tenant example
+        "1a2b3c4d5e@dt",        // tenant-id may open with a DIGIT
+        "9@a",                  // shortest multi-tenant-key
+        "a-b_c*d/1@x-y_z*0/2",  // tail charset on both halves
     };
 
     for (const std::string_view key : kValidKeys)
@@ -237,23 +239,23 @@ TEST(TraceStateTest, AcceptsEveryValidKeyVector)
 TEST(TraceStateTest, RejectsEveryInvalidKeyVector)
 {
     constexpr std::string_view kInvalidKeys[] = {
-        "",              // empty key
-        "1foo",          // simple-key must open with lcalpha
-        "_foo",          // ditto
-        "FOO",           // upper case is not lcalpha
-        "fOo",           //
-        "foo bar",       // SP is not a key character
-        "foo\tbar",      // HTAB likewise
-        "foo.bar",       // "." is not in the tail charset
-        "foo+bar",       // nor "+"
-        "foo@",          // empty system-id
-        "@foo",          // empty tenant-id
-        "@",             //
-        "foo@bar@baz",   // "@" is not a system-id character
-        "_@dt",          // tenant-id must open with lcalpha / DIGIT
-        "dt@1x",         // system-id must open with lcalpha
-        "dt@_x",         // ditto
-        "föö",           // non-ASCII
+        "",             // empty key
+        "1foo",         // simple-key must open with lcalpha
+        "_foo",         // ditto
+        "FOO",          // upper case is not lcalpha
+        "fOo",          //
+        "foo bar",      // SP is not a key character
+        "foo\tbar",     // HTAB likewise
+        "foo.bar",      // "." is not in the tail charset
+        "foo+bar",      // nor "+"
+        "foo@",         // empty system-id
+        "@foo",         // empty tenant-id
+        "@",            //
+        "foo@bar@baz",  // "@" is not a system-id character
+        "_@dt",         // tenant-id must open with lcalpha / DIGIT
+        "dt@1x",        // system-id must open with lcalpha
+        "dt@_x",        // ditto
+        "föö",          // non-ASCII
     };
 
     for (const std::string_view key : kInvalidKeys)
@@ -295,15 +297,15 @@ TEST(TraceStateTest, EnforcesTheSystemIdLengthLimit)
 TEST(TraceStateTest, AcceptsEveryValidValueVector)
 {
     constexpr std::string_view kValidValues[] = {
-        "v",                     // the shortest value
-        "t61rcWkgMzE",           // the spec's own example — upper case is fine
-        "00f067aa0ba902b7",      //
-        "a b",                   // an interior SP is a `chr`
-        " a",                    // ... including a leading one
-        "!#$%&'()*+",            // %x21-2B
-        "-./0123456789:;<",      // %x2D-3C
-        ">?@[\\]^_`{|}~",        // %x3E-7E
-        "0",                     //
+        "v",                 // the shortest value
+        "t61rcWkgMzE",       // the spec's own example — upper case is fine
+        "00f067aa0ba902b7",  //
+        "a b",               // an interior SP is a `chr`
+        " a",                // ... including a leading one
+        "!#$%&'()*+",        // %x21-2B
+        "-./0123456789:;<",  // %x2D-3C
+        ">?@[\\]^_`{|}~",    // %x3E-7E
+        "0",                 //
     };
 
     for (const std::string_view value : kValidValues)
@@ -317,7 +319,7 @@ TEST(TraceStateTest, AcceptsEveryValidValueVector)
 
 TEST(TraceStateTest, RejectsEveryInvalidValueVector)
 {
-    const std::string kInvalidValues[] = {
+    const std::string invalid_values[] = {
         "",                      // `value` requires at least one nblk-chr
         "a\tb",                  // HTAB is not a `chr`
         "a,b",                   // %x2C is excluded — it is the list separator
@@ -327,7 +329,7 @@ TEST(TraceStateTest, RejectsEveryInvalidValueVector)
         "aéb",                   // non-ASCII
     };
 
-    for (const std::string& value : kInvalidValues)
+    for (const std::string& value : invalid_values)
     {
         ExpectHeaderRejected("k=" + value);
     }
@@ -459,7 +461,8 @@ TEST(TraceStateTest, SetRefusesToGrowBeyondTheLimit)
     // A 33rd member is not representable, and evicting somebody else's entry
     // to make room would lose state the sender asked us to carry. The
     // mutation is refused instead.
-    const mt::TraceState full = mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
+    const mt::TraceState full =
+        mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
     ASSERT_EQ(full.Size(), mt::TraceState::kMaxEntries);
 
     const mt::TraceState attempted = full.Set("fresh", "1");
@@ -470,7 +473,8 @@ TEST(TraceStateTest, SetRefusesToGrowBeyondTheLimit)
 TEST(TraceStateTest, SetMayUpdateAnExistingKeyOnAFullState)
 {
     // Updating does not grow the list, so the limit does not bite.
-    const mt::TraceState full = mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
+    const mt::TraceState full =
+        mt::TraceState::FromHeader(MembersHeader(mt::TraceState::kMaxEntries));
     const mt::TraceState updated = full.Set("k5", "updated");
     EXPECT_EQ(updated.Size(), mt::TraceState::kMaxEntries);
     EXPECT_EQ(updated.Get("k5"), std::string_view("updated"));
@@ -538,8 +542,9 @@ TEST(TraceStateTest, GetBorrowsFromTheStateAndSurvivesAnIntermediateCopy)
     const mt::TraceState original = mt::TraceState::FromHeader(kSpecExample);
     std::string_view borrowed;
     {
+        // NOLINTNEXTLINE(performance-unnecessary-copy-initialization) — the copy is the point.
         const mt::TraceState copy = original;
-        borrowed = *copy.Get("rojo");
+        borrowed = copy.Get("rojo").value_or(std::string_view{});
     }
     EXPECT_EQ(borrowed, std::string_view("00f067aa0ba902b7"));
 }

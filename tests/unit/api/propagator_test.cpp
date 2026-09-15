@@ -426,8 +426,7 @@ TEST(W3CPropagatorInjectTest, RoundTripsTracestateThroughExtract)
     // microtel hop byte for byte, alongside the traceparent.
     const Headers upstream{{std::string(kTraceparent), std::string(kCanonical)},
                            {std::string(kTracestate), std::string(kSpecTracestate)}};
-    const mt::SpanContext extracted =
-        mt::W3CTraceContextPropagator().Extract(GetterFor(upstream));
+    const mt::SpanContext extracted = mt::W3CTraceContextPropagator().Extract(GetterFor(upstream));
 
     Headers downstream;
     mt::W3CTraceContextPropagator().Inject(extracted, SetterFor(downstream));

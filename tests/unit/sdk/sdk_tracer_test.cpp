@@ -17,8 +17,12 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <set>
+#include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace mt = microtel;
 namespace mtfk = microtel::testing;
@@ -26,6 +30,27 @@ namespace mtfk = microtel::testing;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A valid, sampled `SpanContext` whose ids are distinguishable by @p seed.
+mt::SpanContext MakeParentContext(std::uint8_t seed)
+{
+    mt::TraceId::Bytes trace_bytes{};
+    trace_bytes[0] = seed;
+    mt::SpanId::Bytes span_bytes{};
+    span_bytes[0] = seed;
+    return mt::SpanContext{
+        .trace_id = mt::TraceId{trace_bytes},
+        .span_id = mt::SpanId{span_bytes},
+        .trace_flags = mt::TraceFlags{mt::TraceFlags::kSampled},
+        .trace_state = {},
+        .remote = false,
+    };
+}
+
+}  // namespace
 
 struct TracerFixture
 {
@@ -268,14 +293,255 @@ TEST(SdkTracerTest, OnStart_NotCalled_WhenDropped)
 }
 
 // ---------------------------------------------------------------------------
-// StartAsCurrentSpan — stub (deferred to v1.1)
+// Implicit parent from the current context (#221, ICP 0025 §3 contracts 1-2)
 // ---------------------------------------------------------------------------
 
-TEST(SdkTracerTest, StartAsCurrentSpan_BehavesLikeStartSpan)
+TEST(SdkTracerTest, StartSpan_UnsetParent_InheritsFromTheCurrentContext)
 {
     TracerFixture f;
     auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
-    const auto h = t.StartAsCurrentSpan("op");
+
+    const mt::SpanContext installed = MakeParentContext(0x5A);
+    const mt::ScopedContext scope{mt::Context{installed}};
+
+    auto h = t.StartSpan("child");
     ASSERT_NE(h, nullptr);
-    EXPECT_TRUE(h->IsSampled());
+    EXPECT_EQ(h->GetContext().trace_id.AsBytes(), installed.trace_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartSpan_UnsetParent_RecordsTheCurrentSpanAsParent)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::SpanContext installed = MakeParentContext(0x5B);
+    {
+        const mt::ScopedContext scope{mt::Context{installed}};
+        auto h = t.StartSpan("child");
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    EXPECT_EQ(f.proc.received_spans[0].parent_context.span_id.AsBytes(),
+              installed.span_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartSpan_ExplicitParent_WinsOverTheCurrentContext)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::SpanContext installed = MakeParentContext(0x11);
+    const mt::SpanContext explicit_parent = MakeParentContext(0x22);
+    const mt::ScopedContext scope{mt::Context{installed}};
+
+    auto h = t.StartSpan("child",
+                         {.kind = mt::SpanKind::Internal,
+                          .parent = explicit_parent,
+                          .start_time = {},
+                          .attributes = {}});
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(h->GetContext().trace_id.AsBytes(), explicit_parent.trace_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartSpan_ExplicitInvalidParent_IsARootDespiteTheCurrentContext)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::SpanContext installed = MakeParentContext(0x33);
+    const mt::ScopedContext scope{mt::Context{installed}};
+
+    // Set-but-invalid is how the otel-cpp shim asks for an explicit root.
+    auto h = t.StartSpan("root",
+                         {.kind = mt::SpanKind::Internal,
+                          .parent = mt::SpanContext{},
+                          .start_time = {},
+                          .attributes = {}});
+    ASSERT_NE(h, nullptr);
+    EXPECT_NE(h->GetContext().trace_id.AsBytes(), installed.trace_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartSpan_NoCurrentContext_StillStartsARoot)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    {
+        auto h = t.StartSpan("root");
+        h->End();
+    }
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    EXPECT_FALSE(f.proc.received_spans[0].parent_context.IsValid());
+}
+
+// ---------------------------------------------------------------------------
+// StartAsCurrentSpan — ScopedSpan (#221, ICP 0025 §3)
+// ---------------------------------------------------------------------------
+
+static_assert(std::is_nothrow_move_constructible_v<mt::ScopedSpan>,
+              "StartAsCurrentSpan returns a ScopedSpan by value from a noexcept method");
+static_assert(std::is_nothrow_default_constructible_v<mt::ScopedSpan>);
+static_assert(std::is_nothrow_destructible_v<mt::ScopedSpan>);
+static_assert(!std::is_copy_constructible_v<mt::ScopedSpan>);
+static_assert(!std::is_move_assignable_v<mt::ScopedSpan>);
+
+TEST(SdkTracerTest, StartAsCurrentSpan_ReturnsAUsableSpan)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto scoped = t.StartAsCurrentSpan("op");
+    ASSERT_NE(scoped.Get(), nullptr);
+    EXPECT_TRUE(scoped->IsSampled());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_InstallsItselfAsCurrent)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto scoped = t.StartAsCurrentSpan("op");
+    EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(),
+              scoped->GetContext().span_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_RestoresOnScopeExit)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    {
+        const auto scoped = t.StartAsCurrentSpan("op");
+        ASSERT_TRUE(mt::CurrentContext().active_span_context.IsValid());
+    }
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_ChildParentsToTheEnclosingScope)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    {
+        const auto parent = t.StartAsCurrentSpan("parent");
+        const auto child = t.StartAsCurrentSpan("child");
+        EXPECT_EQ(child->GetContext().trace_id.AsBytes(), parent->GetContext().trace_id.AsBytes());
+        EXPECT_NE(child->GetContext().span_id.AsBytes(), parent->GetContext().span_id.AsBytes());
+    }
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_NestedScopesUnwindInReverse)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto outer = t.StartAsCurrentSpan("outer");
+    const mt::SpanId::Bytes outer_id = outer->GetContext().span_id.AsBytes();
+    {
+        const auto inner = t.StartAsCurrentSpan("inner");
+        ASSERT_NE(mt::CurrentContext().active_span_context.span_id.AsBytes(), outer_id);
+    }
+    EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(), outer_id);
+}
+
+// The span is ended while its scope — and a nested scope — are still live.
+// `End()` is a span-lifecycle operation; it does not pop the context slot.
+// The ended span therefore stays current until its ScopedSpan is destroyed.
+TEST(SdkTracerTest, StartAsCurrentSpan_EndBeforeScopeExit_LeavesTheContextInstalled)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    {
+        const auto scoped = t.StartAsCurrentSpan("op");
+        const mt::SpanId::Bytes id = scoped->GetContext().span_id.AsBytes();
+        scoped->End();
+        ASSERT_EQ(f.proc.received_spans.size(), 1U);
+        EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(), id);
+
+        // A span started after the early End() still parents to it.
+        auto late = t.StartSpan("late");
+        EXPECT_EQ(late->GetContext().trace_id.AsBytes(), scoped->GetContext().trace_id.AsBytes());
+    }
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+}
+
+// Out-of-order *end* across nested scopes: the outer span is ended while the
+// inner scope is still live. The inner scope still restores the outer span's
+// context on destruction — an ended-but-current span, which is legal: OTel
+// permits starting a child of an ended span.
+TEST(SdkTracerTest, StartAsCurrentSpan_OuterEndedEarly_InnerStillRestoresIt)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto outer = t.StartAsCurrentSpan("outer");
+    const mt::SpanId::Bytes outer_id = outer->GetContext().span_id.AsBytes();
+    {
+        const auto inner = t.StartAsCurrentSpan("inner");
+        outer->End();
+    }
+    EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(), outer_id);
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_MoveTransfersTheScope)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    {
+        auto original = t.StartAsCurrentSpan("op");
+        const mt::SpanId::Bytes id = original->GetContext().span_id.AsBytes();
+        {
+            const mt::ScopedSpan moved{std::move(original)};
+            EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(), id);
+        }
+        // `moved` restored; the moved-from husk must not restore a second time.
+        EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+    }
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+}
+
+// ICP 0025 §3 contract 3: the sampler dropped the span, so the handle is the
+// no-op singleton — but the computed context is installed anyway, so children
+// of an unsampled span stay in the same trace.
+TEST(SdkTracerTest, StartAsCurrentSpan_Dropped_StillInstallsTheComputedContext)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
+    const auto scoped = t.StartAsCurrentSpan("op");
+    ASSERT_NE(scoped.Get(), nullptr);
+    EXPECT_FALSE(scoped->IsSampled());
+    EXPECT_TRUE(mt::CurrentContext().active_span_context.IsValid());
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.trace_flags.IsSampled());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_Dropped_ChildContinuesTheSameTrace)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
+    const auto scoped = t.StartAsCurrentSpan("parent");
+    const mt::TraceId::Bytes trace = mt::CurrentContext().active_span_context.trace_id.AsBytes();
+    ASSERT_TRUE(mt::CurrentContext().active_span_context.trace_id.IsValid());
+
+    const auto child = t.StartAsCurrentSpan("child");
+    EXPECT_EQ(mt::CurrentContext().active_span_context.trace_id.AsBytes(), trace);
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_Dropped_RestoresOnScopeExit)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
+    {
+        const auto scoped = t.StartAsCurrentSpan("op");
+        ASSERT_TRUE(mt::CurrentContext().active_span_context.IsValid());
+    }
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_DoesNotLeakIntoANewThread)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto scoped = t.StartAsCurrentSpan("op");
+
+    bool worker_saw_a_span = true;
+    std::thread worker(
+        [&worker_saw_a_span]
+        { worker_saw_a_span = mt::CurrentContext().active_span_context.IsValid(); });
+    worker.join();
+
+    EXPECT_FALSE(worker_saw_a_span);
 }

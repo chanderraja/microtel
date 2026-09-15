@@ -451,7 +451,20 @@ These three seams collectively make every cross-thread contract in this document
 | `Provider` | Thread-safe (lifecycle methods may be called from any caller thread) | `@threadsafety Thread-safe` |
 | `SdkBuilder` | **Externally synchronised** — caller serialises chained `WithXxx` calls | `@threadsafety Externally synchronized` |
 | `Resource` | Immutable after construction; thread-safe for read | `@threadsafety Thread-safe` |
+| `Context` | Immutable value; thread-safe for read. Copying is `noexcept` and allocation-free — `TraceState` is a `shared_ptr` refcount bump | `@threadsafety Thread-safe` |
+| `ScopedContext` | **Thread-confined** — constructed and destroyed on one thread, never shared. Restore is positional: destroy scopes in reverse order of creation (LOCKED — cites `src/api/context.cpp:ScopedContext`) | `@threadsafety Thread-confined` |
+| `ScopedSpan` | **Thread-confined**, for the `ScopedContext` it holds. Ends its span before restoring the context (LOCKED — cites `include/microtel/span.hpp:ScopedSpan`) | `@threadsafety Thread-confined` |
 | `LogSink` (callback) | Caller-supplied; microtel makes no thread-safety assumption beyond "may be called from any internal thread" | documented in `log_sink.hpp` |
+
+**The current-context slot.** `CurrentContext()` returns a reference into one
+`thread_local Context` defined in a single translation unit
+(`src/api/context.cpp`), so a process that links `microtel_api` once has exactly
+one slot per thread. There is **no cross-thread inheritance**: a newly created
+thread starts from a default-constructed `Context`, and a caller that wants
+context on a worker copies `CurrentContext()` across the hand-off and installs
+it there with `ScopedContext`. §7 (fork) is unaffected — a `Context` is a value
+holding no thread, fd, or lock, so the child simply keeps the forking thread's.
+See [ICP 0025](icps/0025-propagation-core.md) §3.
 
 For every internal interface, the corresponding contract is in `interfaces.md`.
 

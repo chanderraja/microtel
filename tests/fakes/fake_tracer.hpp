@@ -52,10 +52,12 @@ public:
                                     microtel::internal::SpanDeleter{.deleter = nullptr}};
     }
 
-    [[nodiscard]] microtel::SpanHandle StartAsCurrentSpan(
+    [[nodiscard]] microtel::ScopedSpan StartAsCurrentSpan(
         std::string_view name, const microtel::StartSpanOptions& opts) noexcept override
     {
-        return StartSpan(name, opts);
+        microtel::SpanHandle handle = StartSpan(name, opts);
+        microtel::Context ctx{handle->GetContext()};
+        return microtel::ScopedSpan{std::move(handle), std::move(ctx)};
     }
 };
 

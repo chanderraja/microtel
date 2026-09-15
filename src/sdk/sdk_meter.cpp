@@ -319,12 +319,14 @@ SdkMeter::SdkMeter(internal::InstrumentationScope scope,
                    std::shared_ptr<MetricProducer> producer,
                    std::size_t max_cardinality,
                    internal::IDiagnosticsSink* diag,
-                   std::shared_ptr<const ViewRegistry> registry) noexcept
+                   std::shared_ptr<const ViewRegistry> registry,
+                   const internal::ICurrentSpanSource* span_source) noexcept
     : m_scope(std::move(scope)),
       m_producer(std::move(producer)),
       m_max_cardinality(max_cardinality),
       m_diag(diag),
-      m_registry(std::move(registry))
+      m_registry(std::move(registry)),
+      m_span_source(span_source)
 {
 }
 
@@ -334,7 +336,8 @@ std::shared_ptr<microtel::Counter<std::int64_t>> SdkMeter::DoCreateCounterI64(
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<SumStorage<std::int64_t>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -354,7 +357,8 @@ std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Counter, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<SumStorage<double>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -373,7 +377,8 @@ std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownC
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<SumStorage<std::int64_t>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -392,7 +397,8 @@ std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounter
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::UpDownCounter, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<SumStorage<double>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -412,7 +418,8 @@ std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::s
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<GaugeStorage<std::int64_t>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -432,7 +439,8 @@ std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::stri
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Gauge, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<GaugeStorage<double>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -451,7 +459,8 @@ std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI6
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<HistogramStorage<std::int64_t>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -470,7 +479,8 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::Histogram, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<HistogramStorage<double>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -493,7 +503,8 @@ SdkMeter::DoCreateExponentialHistogramI64(std::string name,
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<ExponentialHistogramStorage<std::int64_t>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)
@@ -516,7 +527,8 @@ SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
     const InstrumentDescriptor desc{
         .name = name, .kind = InstrumentKind::ExponentialHistogram, .meter_name = m_scope.name};
     const auto specs = ResolveStreamSpecs(name, m_registry.get(), desc);
-    const StorageOptions opts{.max_cardinality = m_max_cardinality, .diag = m_diag};
+    const StorageOptions opts{
+        .max_cardinality = m_max_cardinality, .span_source = m_span_source, .diag = m_diag};
     std::vector<StorageSlot<ExponentialHistogramStorage<double>>> slots;
     slots.reserve(specs.size());
     for (const auto& spec : specs)

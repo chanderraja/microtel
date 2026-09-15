@@ -56,6 +56,22 @@ std::shared_ptr<mt::Provider> MakeProvider()
     });
 }
 
+/// Holds the provider alongside the meter it handed out.
+///
+/// `SdkMeter` borrows provider-owned state by raw pointer — the diagnostics
+/// sink, and since v1.1 packet 2.3b the `ICurrentSpanSource` that drives
+/// exemplars — so the provider must outlive every meter and instrument it
+/// creates. That is `sdk_meter.hpp`'s documented lifetime rule and
+/// `src/sdk/README.md`'s "an instrument must not be used after the provider
+/// that owns it is destroyed". Writing `MakeProvider()->GetMeter(...)` drops
+/// the provider at the end of the full expression and leaves those pointers
+/// dangling; TSAN reports it as a heap-use-after-free on the first `Add`.
+struct MeterFixture
+{
+    std::shared_ptr<mt::Provider> provider = MakeProvider();
+    std::shared_ptr<mt::Meter> meter = provider->GetMeter("test.lib");
+};
+
 }  // namespace
 
 // ── Provider::GetMeter ─────────────────────────────────────────────────────────
@@ -86,13 +102,15 @@ TEST(MeterApiTest, GetMeter_DifferentNamesReturnDifferentInstances)
 
 TEST(MeterApiTest, CreateCounterI64_ReturnsNonNull)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     EXPECT_NE(meter->CreateCounter<std::int64_t>("req.count", "Requests", "1"), nullptr);
 }
 
 TEST(MeterApiTest, CounterI64_Add_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto counter = meter->CreateCounter<std::int64_t>("req.count", "Requests", "1");
     counter->Add(42, {});
 }
@@ -101,13 +119,15 @@ TEST(MeterApiTest, CounterI64_Add_DoesNotCrash)
 
 TEST(MeterApiTest, CreateCounterDouble_ReturnsNonNull)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     EXPECT_NE(meter->CreateCounter<double>("latency", "Latency", "s"), nullptr);
 }
 
 TEST(MeterApiTest, CounterDouble_Add_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto counter = meter->CreateCounter<double>("latency", "Latency", "s");
     counter->Add(1.5, {});
 }
@@ -116,7 +136,8 @@ TEST(MeterApiTest, CounterDouble_Add_DoesNotCrash)
 
 TEST(MeterApiTest, UpDownCounterI64_Add_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto c =
         meter->CreateUpDownCounter<std::int64_t>("active.conn", "Active connections", "1");
     c->Add(-1, {});
@@ -126,7 +147,8 @@ TEST(MeterApiTest, UpDownCounterI64_Add_DoesNotCrash)
 
 TEST(MeterApiTest, UpDownCounterDouble_Add_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto c = meter->CreateUpDownCounter<double>("queue.size", "Queue size", "by");
     c->Add(-0.5, {});
 }
@@ -135,7 +157,8 @@ TEST(MeterApiTest, UpDownCounterDouble_Add_DoesNotCrash)
 
 TEST(MeterApiTest, GaugeI64_Record_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto g = meter->CreateGauge<std::int64_t>("cpu.temp", "CPU temperature", "cel");
     g->Record(72, {});
 }
@@ -144,7 +167,8 @@ TEST(MeterApiTest, GaugeI64_Record_DoesNotCrash)
 
 TEST(MeterApiTest, GaugeDouble_Record_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto g = meter->CreateGauge<double>("cpu.util", "CPU utilisation", "1");
     g->Record(0.87, {});
 }
@@ -153,7 +177,8 @@ TEST(MeterApiTest, GaugeDouble_Record_DoesNotCrash)
 
 TEST(MeterApiTest, HistogramDouble_DefaultBoundaries_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h = meter->CreateHistogram<double>("duration", "Duration", "s");
     h->Record(0.5, {});
 }
@@ -162,7 +187,8 @@ TEST(MeterApiTest, HistogramDouble_DefaultBoundaries_DoesNotCrash)
 
 TEST(MeterApiTest, HistogramI64_DefaultBoundaries_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h = meter->CreateHistogram<std::int64_t>("response.size", "Response size", "by");
     h->Record(1024, {});
 }
@@ -171,7 +197,8 @@ TEST(MeterApiTest, HistogramI64_DefaultBoundaries_DoesNotCrash)
 
 TEST(MeterApiTest, HistogramDouble_CustomBoundaries_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h = meter->CreateHistogram<double>(
         "payload.size", "Payload size", "by", {100.0, 1'000.0, 10'000.0});
     h->Record(500.0, {});
@@ -181,7 +208,8 @@ TEST(MeterApiTest, HistogramDouble_CustomBoundaries_DoesNotCrash)
 
 TEST(MeterApiTest, ExpHistogramDouble_DefaultScale_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h = meter->CreateExponentialHistogram<double>("rpc.duration", "RPC duration", "ms");
     h->Record(1.5, {});
 }
@@ -190,7 +218,8 @@ TEST(MeterApiTest, ExpHistogramDouble_DefaultScale_DoesNotCrash)
 
 TEST(MeterApiTest, ExpHistogramI64_DefaultScale_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h =
         meter->CreateExponentialHistogram<std::int64_t>("response.size", "Response size", "by");
     h->Record(4096, {});
@@ -200,7 +229,8 @@ TEST(MeterApiTest, ExpHistogramI64_DefaultScale_DoesNotCrash)
 
 TEST(MeterApiTest, ExpHistogramDouble_CustomScaleBuckets_DoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     const auto h =
         meter->CreateExponentialHistogram<double>("payload.size", "Payload size", "by", 10, 80);
     h->Record(256.0, {});
@@ -210,13 +240,15 @@ TEST(MeterApiTest, ExpHistogramDouble_CustomScaleBuckets_DoesNotCrash)
 
 TEST(MeterApiTest, CreateExpHistogramDouble_ReturnsNonNull)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     EXPECT_NE(meter->CreateExponentialHistogram<double>("x", "", ""), nullptr);
 }
 
 TEST(MeterApiTest, CreateExpHistogramI64_ReturnsNonNull)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     EXPECT_NE(meter->CreateExponentialHistogram<std::int64_t>("x", "", ""), nullptr);
 }
 
@@ -224,7 +256,8 @@ TEST(MeterApiTest, CreateExpHistogramI64_ReturnsNonNull)
 
 TEST(MeterApiTest, ObservableCounterI64_CreateDoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     auto handle = meter->CreateObservableCounter<std::int64_t>(
         "process.cpu_time",
         "CPU time",
@@ -237,7 +270,8 @@ TEST(MeterApiTest, ObservableCounterI64_CreateDoesNotCrash)
 
 TEST(MeterApiTest, ObservableCounterDouble_CreateDoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     auto handle = meter->CreateObservableCounter<double>("cache.hit_ratio",
                                                          "Cache hit ratio",
                                                          "1",
@@ -250,7 +284,8 @@ TEST(MeterApiTest, ObservableCounterDouble_CreateDoesNotCrash)
 
 TEST(MeterApiTest, ObservableUpDownCounterI64_CreateDoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     auto handle = meter->CreateObservableUpDownCounter<std::int64_t>(
         "process.open_fds",
         "Open file descriptors",
@@ -263,7 +298,8 @@ TEST(MeterApiTest, ObservableUpDownCounterI64_CreateDoesNotCrash)
 
 TEST(MeterApiTest, ObservableGaugeDouble_CreateDoesNotCrash)
 {
-    const auto meter = MakeProvider()->GetMeter("test.lib");
+    const MeterFixture fixture;
+    const auto& meter = fixture.meter;
     auto handle = meter->CreateObservableGauge<double>("system.memory.usage",
                                                        "Memory usage",
                                                        "by",

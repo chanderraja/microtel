@@ -177,8 +177,14 @@ example trace.
 - Captured fields: `trace_id`, `span_id`, timestamp, value, and any filtered
   attributes.
 - **Dependency:** exemplars read the current span from the thread-local
-  `Context`, which is the machinery `tracer.hpp` notes is fleshed out in v1.1
-  (`StartAsCurrentSpan`). M12 depends on that v1.1 work being complete.
+  `Context`. That machinery landed in v1.1 packet 2.3b
+  ([ICP 0025](icps/0025-propagation-core.md) §3, issue #221):
+  `sdk::CurrentSpanSource` applies the `trace_based` filter — it returns the
+  current `SpanContext` only when it is valid **and** sampled — and
+  `SdkProvider` hands it to every `SdkMeter`, which sets it as
+  `StorageOptions::span_source` on every stream it registers. The seam is no
+  longer `nullptr`; `tests/integration/sdk/exemplar_wiring_test.cpp` asserts
+  exported exemplars carry the enclosing span's real trace and span ids.
 
 ## §8 Instrument API surface
 

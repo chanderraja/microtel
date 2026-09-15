@@ -5,6 +5,7 @@
 
 #include "microtel/internal/batch.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/meter.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
@@ -53,11 +54,17 @@ public:
     /// @param diag Non-owning pointer to the provider's diagnostics sink;
     ///        null disables overflow drop accounting. Lifetime: the owning
     ///        provider outlives every SdkMeter it creates.
+    /// @param span_source Non-owning pointer to the provider's current-span
+    ///        source; null disables exemplar capture. Forwarded to the
+    ///        `StorageOptions` of every stream this meter registers
+    ///        ([ICP 0025](../../docs/icps/0025-propagation-core.md) §3).
+    ///        Same lifetime rule as @p diag.
     explicit SdkMeter(internal::InstrumentationScope scope,
                       std::shared_ptr<MetricProducer> producer,
                       std::size_t max_cardinality = kDefaultMaxCardinality,
                       internal::IDiagnosticsSink* diag = nullptr,
-                      std::shared_ptr<const ViewRegistry> registry = nullptr) noexcept;
+                      std::shared_ptr<const ViewRegistry> registry = nullptr,
+                      const internal::ICurrentSpanSource* span_source = nullptr) noexcept;
 
     SdkMeter(const SdkMeter&) = delete;
     SdkMeter& operator=(const SdkMeter&) = delete;
@@ -147,6 +154,8 @@ private:
     std::size_t m_max_cardinality;
     internal::IDiagnosticsSink* m_diag;
     std::shared_ptr<const ViewRegistry> m_registry;
+    /// Non-owning; null disables exemplar capture on every stream below.
+    const internal::ICurrentSpanSource* m_span_source;
 };
 
 }  // namespace microtel::sdk

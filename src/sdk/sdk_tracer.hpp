@@ -53,11 +53,26 @@ public:
     [[nodiscard]] SpanHandle StartSpan(std::string_view name,
                                        const StartSpanOptions& opts = {}) noexcept override;
 
-    /// @brief Stub — thread-local context machinery deferred to v1.1.
-    [[nodiscard]] SpanHandle StartAsCurrentSpan(
+    [[nodiscard]] ScopedSpan StartAsCurrentSpan(
         std::string_view name, const StartSpanOptions& opts = {}) noexcept override;
 
 private:
+    /// @brief The whole of span creation, with the computed `SpanContext`
+    ///        published to @p started.
+    ///
+    /// The two public entry points differ only in what they do with that
+    /// context: `StartSpan` discards it, `StartAsCurrentSpan` installs it.
+    /// It cannot be read back off the returned handle, because the unsampled
+    /// path returns the process-wide no-op singleton whose `GetContext()` is
+    /// invalid — and that is exactly the path ICP 0025 §3 contract 3 needs a
+    /// real context for.
+    ///
+    /// @param started non-owning out-parameter, or `nullptr` to discard. When
+    ///        non-null it is always written, including on the drop path.
+    [[nodiscard]] SpanHandle StartSpanInternal(std::string_view name,
+                                               const StartSpanOptions& opts,
+                                               SpanContext* started) noexcept;
+
     internal::ISampler* m_sampler;
     internal::ISpanProcessor* m_processor;
     std::shared_ptr<const Resource> m_resource;

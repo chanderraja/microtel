@@ -43,6 +43,12 @@ public:
     /// allocation. The returned handle is always valid; the caller may
     /// always call `SetAttribute`, `AddEvent`, `End`, etc.
     ///
+    /// If `opts.parent` is unset, the parent is the `active_span_context` of
+    /// the calling thread's `CurrentContext()`; if it is set and valid, that
+    /// context is the parent; if it is set but **invalid**, the span is an
+    /// explicit root with a fresh trace id and the current context is not
+    /// consulted ([ICP 0025](../../docs/icps/0025-propagation-core.md) §3).
+    ///
     /// @param name borrowed; copied into the span record on the sampled path.
     /// @param opts initial attributes, parent, kind, start time.
     ///
@@ -54,13 +60,27 @@ public:
     [[nodiscard]] virtual SpanHandle StartSpan(std::string_view name,
                                                const StartSpanOptions& opts = {}) noexcept = 0;
 
-    /// @brief Convenience: start a span and make it the current span in the
-    /// thread-local context.
+    /// @brief Start a span and make it the calling thread's current span.
     ///
-    /// The returned handle restores the previous current span on destruction.
-    /// (To be added in v1.1 once the `Context` machinery is fully fleshed
-    /// out; placeholder declaration for M0 surface review.)
-    [[nodiscard]] virtual SpanHandle StartAsCurrentSpan(
+    /// Resolves the parent exactly as `StartSpan` does, and additionally
+    /// installs the new span's context for the returned scope's lifetime. The
+    /// returned `ScopedSpan` ends the span and restores the previous context
+    /// on destruction, in that order.
+    ///
+    /// The install happens on the unsampled path too: the handle is then the
+    /// no-op singleton, but the installed context carries the real trace id
+    /// with the sampled flag cleared, so children of an unsampled span stay in
+    /// the same trace (ICP 0025 §3 contract 3).
+    ///
+    /// The scope is **thread-confined** — destroy it on the thread that
+    /// created it, and in reverse order relative to any other scope on that
+    /// thread. There is no cross-thread inheritance: a worker thread starts
+    /// from the root context unless the caller hands `CurrentContext()` across
+    /// explicitly and installs it with `ScopedContext`.
+    ///
+    /// @threadsafety Thread-safe to call; the returned scope is thread-confined.
+    /// @noexcept Always succeeds.
+    [[nodiscard]] virtual ScopedSpan StartAsCurrentSpan(
         std::string_view name, const StartSpanOptions& opts = {}) noexcept = 0;
 };
 

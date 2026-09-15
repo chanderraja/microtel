@@ -29,6 +29,13 @@ Track A — Trace SDK.
   composition that merges them with the config lives in
   [`resource_builder.cpp`](resource_builder.cpp); k8s and cloud
   detectors are future work
+- `internal::ICurrentSpanSource` — `CurrentSpanSource` in
+  [`current_span_source.hpp`](current_span_source.hpp), which reads the API's
+  thread-local context slot and applies the `trace_based` filter (valid **and**
+  sampled, else an invalid context). `SdkProvider` owns one and lends it to
+  every `SdkMeter` (as `StorageOptions::span_source`, which turns on the
+  exemplar reservoirs) and every `SdkLogger` (log↔trace correlation) —
+  issue #221, [ICP 0025](../../docs/icps/0025-propagation-core.md) §3
 - The diagnostics sink (`internal::IDiagnosticsSink`)
 
 ## Depends on
@@ -43,6 +50,8 @@ Track A — Trace SDK.
 
 - `tests/unit/sdk/` — one file per type. `BatchSpanProcessor` gets
   several files (timing, drop policy, shutdown).
+- `tests/integration/sdk/exemplar_wiring_test.cpp` — the two
+  `ICurrentSpanSource` seams driven through a real `SdkProvider`.
 - `tests/integration/sdk_export_pipeline/` — end-to-end against fakes.
 - `tests/conformance/` — against a real OpenTelemetry Collector (shared
   with `src/exporter/`).

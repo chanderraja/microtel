@@ -363,7 +363,8 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
             m_metric_producer,
             m_metric_max_cardinality,
             m_diagnostics.get(),
-            m_view_registry);
+            m_view_registry,
+            &m_current_span_source);
     }
     return entry;
 }
@@ -396,7 +397,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
             m_log_processor.get(),
             internal::InstrumentationScope{.name = std::string{name},
                                            .version = std::string{version}},
-            nullptr,  // ICurrentSpanSource — trace-correlation seam, wired later
+            &m_current_span_source,  // trace-correlation seam (ICP 0025 §3)
             m_diagnostics.get(),
             LogLimitOptions{});
     }

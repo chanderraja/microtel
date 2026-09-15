@@ -32,6 +32,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mt = microtel;
@@ -156,8 +157,8 @@ protected:
                                          mt::SpanContext parent = {})
     {
         mti::SpanRecord rec{
-            .context = ctx,
-            .parent_context = parent,
+            .context = std::move(ctx),
+            .parent_context = std::move(parent),
             .name = name,
             .kind = mt::SpanKind::Internal,
             .status_code = mt::StatusCode::Unset,

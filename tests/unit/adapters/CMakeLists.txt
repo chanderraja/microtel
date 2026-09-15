@@ -29,10 +29,13 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
     # M17 L2 — TraceId / SpanId / SpanContext bridging, both directions.
+    # microtel_api provides microtel::TraceState's out-of-line definitions,
+    # which the tracestate leg of the bridge calls (issue #208); the shim
+    # target itself is header-only.
     microtel_add_test(
         NAME    otelcpp_context_conversion_test
         SOURCES otelcpp_context_conversion_test.cpp
-        LIBS    microtel_otelcpp_shim)
+        LIBS    microtel_otelcpp_shim microtel_api)
     target_include_directories(otelcpp_context_conversion_test
         PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

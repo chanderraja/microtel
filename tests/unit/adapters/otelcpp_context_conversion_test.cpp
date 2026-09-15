@@ -2,21 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Covers the microtel ↔ otel-cpp identity bridging: TraceId, SpanId, flags,
-// and the remote bit. TraceState deliberately does not round-trip — microtel's
-// TraceState carries no storage yet — so both directions produce the empty
-// default and that is asserted, not glossed over.
+// the remote bit, and — since issue #208 gave microtel's TraceState storage —
+// tracestate in both directions.
 
 #include "adapters/otelcpp/context_conversion.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace
 {
 
 using microtel::adapters::otelcpp::ToMicrotelSpanContext;
 using microtel::adapters::otelcpp::ToOtelSpanContext;
+
+/// @brief The W3C Trace Context specification's own example `tracestate`.
+constexpr std::string_view kSpecTracestate = "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE";
 
 [[nodiscard]] microtel::SpanContext MakeMicrotelContext(bool sampled, bool remote)
 {
@@ -89,13 +93,54 @@ TEST(OtelCppContextConversion, InvalidContextConvertsToInvalid)
     EXPECT_FALSE(back.IsValid());
 }
 
-TEST(OtelCppContextConversion, TraceStateIsEmptyDefaultBothWays)
+TEST(OtelCppContextConversion, AnEmptyTraceStateStaysEmptyBothWays)
 {
-    // microtel::TraceState has no storage yet (issue #188 defined its methods
-    // but not a data member); the bridge must not pretend otherwise. Both
-    // directions yield the empty default.
-    const auto otel = ToOtelSpanContext(MakeMicrotelContext(true, false));
-    EXPECT_TRUE(otel.trace_state()->ToHeader().empty());
+    const auto otel = ToOtelSpanContext(MakeMicrotelContext(/*sampled=*/true, /*remote=*/false));
+    EXPECT_TRUE(otel.trace_state()->Empty());
+
+    EXPECT_TRUE(ToMicrotelSpanContext(otel).trace_state.Empty());
+}
+
+TEST(OtelCppContextConversion, TraceStateCrossesToOtelCpp)
+{
+    // Issue #208 / ICP 0025 packet 2.3a: before microtel's TraceState had
+    // storage this was asserted to be empty in both directions. Both
+    // implementations speak the same W3C §3.3 grammar, so the header string is
+    // the bridge.
+    auto source = MakeMicrotelContext(/*sampled=*/true, /*remote=*/false);
+    source.trace_state = microtel::TraceState::FromHeader(kSpecTracestate);
+
+    const auto otel = ToOtelSpanContext(source);
+    EXPECT_FALSE(otel.trace_state()->Empty());
+    EXPECT_EQ(otel.trace_state()->ToHeader(), std::string(kSpecTracestate));
+
+    std::string value;
+    EXPECT_TRUE(otel.trace_state()->Get("rojo", value));
+    EXPECT_EQ(value, "00f067aa0ba902b7");
+}
+
+TEST(OtelCppContextConversion, TraceStateCrossesBackFromOtelCpp)
+{
+    const opentelemetry::trace::SpanContext otel{
+        opentelemetry::trace::TraceId{},
+        opentelemetry::trace::SpanId{},
+        opentelemetry::trace::TraceFlags{},
+        /*is_remote=*/true,
+        opentelemetry::trace::TraceState::FromHeader(std::string(kSpecTracestate))};
+
+    const auto back = ToMicrotelSpanContext(otel);
+    EXPECT_EQ(back.trace_state.Size(), 2U);
+    EXPECT_EQ(back.trace_state.ToHeader(), kSpecTracestate);
+}
+
+TEST(OtelCppContextConversion, TraceStateSurvivesAFullRoundTrip)
+{
+    auto source = MakeMicrotelContext(/*sampled=*/true, /*remote=*/true);
+    source.trace_state = microtel::TraceState::FromHeader(kSpecTracestate);
+
+    const auto round_tripped = ToMicrotelSpanContext(ToOtelSpanContext(source));
+    EXPECT_EQ(round_tripped.trace_state.ToHeader(), kSpecTracestate);
+    EXPECT_EQ(round_tripped.trace_id.AsBytes(), source.trace_id.AsBytes());
 }
 
 }  // namespace

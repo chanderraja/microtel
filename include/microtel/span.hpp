@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/context.hpp"
 #include "microtel/trace.hpp"
 
 #include <chrono>
@@ -146,5 +147,75 @@ struct SpanDeleter
 ///
 /// @see docs/icps/0003-m0-deferred-decisions.md §3.2
 using SpanHandle = std::unique_ptr<Span, internal::SpanDeleter>;
+
+/// @brief A span that is also the calling thread's current span for the
+/// lifetime of this object. Returned by `Tracer::StartAsCurrentSpan`.
+///
+/// Owns the `SpanHandle` and the `ScopedContext` that installed the span's
+/// context. On destruction the span is ended **first**, while it is still the
+/// current one, and the caller's previous context is restored after that.
+///
+/// Move-constructible so a `noexcept` factory can return one; not copyable and
+/// not move-assignable, for the same reason `ScopedContext` is not — either
+/// would let a context restore land out of order.
+///
+/// @threadsafety **Thread-confined**, like the `ScopedContext` it holds:
+///               construct and destroy on one thread, and do not share it.
+///
+/// @see docs/icps/0025-propagation-core.md §3
+/// @see docs/threading-model.md §10
+class ScopedSpan
+{
+public:
+    /// @brief An inert scope: no span, and it restores nothing.
+    ScopedSpan() noexcept = default;
+
+    /// @brief Takes ownership of @p span and installs @p ctx as current.
+    ///
+    /// @param span the handle to own; ended by this object's destructor.
+    /// @param ctx  the context to install — normally one whose
+    ///             `active_span_context` is @p span's own context. On the
+    ///             unsampled path the handle is the no-op singleton but @p ctx
+    ///             still carries the computed trace and span ids, so children
+    ///             stay in the same trace (ICP 0025 §3 contract 3).
+    ScopedSpan(SpanHandle span, Context ctx) noexcept
+        : m_scope(std::move(ctx)), m_span(std::move(span))
+    {
+    }
+
+    /// Member declaration order is load-bearing: members are destroyed in
+    /// reverse declaration order, so `m_span` is released — ending the span —
+    /// while the span is still current, and `m_scope` restores the caller's
+    /// context after that. The defaulted destructor is exactly that order.
+    ~ScopedSpan() noexcept = default;
+
+    ScopedSpan(ScopedSpan&&) noexcept = default;
+    ScopedSpan& operator=(ScopedSpan&&) = delete;
+    ScopedSpan(const ScopedSpan&) = delete;
+    ScopedSpan& operator=(const ScopedSpan&) = delete;
+
+    /// @brief Borrowed pointer to the span; owned by this object. Null only on
+    ///        a default-constructed or moved-from `ScopedSpan`.
+    [[nodiscard]] Span* Get() const noexcept
+    {
+        return m_span.get();
+    }
+
+    /// @brief Borrowed; owned by this object. Undefined if `Get()` is null.
+    Span* operator->() const noexcept
+    {
+        return m_span.get();
+    }
+
+    /// @brief Borrowed; owned by this object. Undefined if `Get()` is null.
+    Span& operator*() const noexcept
+    {
+        return *m_span;
+    }
+
+private:
+    ScopedContext m_scope;
+    SpanHandle m_span;
+};
 
 }  // namespace microtel

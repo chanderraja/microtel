@@ -214,6 +214,35 @@ namespace
     return {};
 }
 
+/// Apply MICROTEL_RESOURCE_DETECTORS_STRICT to cfg if the env var is set.
+///
+/// Unlike `OTEL_EXPORTER_OTLP_COMPRESSION`, an unrecognised value is rejected
+/// rather than read as "off": the whole point of the setting is to turn a
+/// silently-skipped detector into a loud failure, and a typo that quietly left
+/// it disabled would defeat that.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceDetectorsStrict(Config& cfg)
+{
+    const auto v = GetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT");
+    if (v.empty())
+    {
+        return {};
+    }
+    if (v == "true" || v == "1")
+    {
+        cfg.resource_detectors_strict = true;
+        return {};
+    }
+    if (v == "false" || v == "0")
+    {
+        cfg.resource_detectors_strict = false;
+        return {};
+    }
+    return microtel::make_unexpected(
+        ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                    .field = "MICROTEL_RESOURCE_DETECTORS_STRICT",
+                    .message = R"(expected "true"/"1" or "false"/"0")"});
+}
+
 }  // namespace
 
 microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
@@ -262,6 +291,12 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
 
     // OTEL_RESOURCE_ATTRIBUTES
     if (auto r = OverlayResourceAttrs(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+
+    // MICROTEL_RESOURCE_DETECTORS_STRICT
+    if (auto r = OverlayResourceDetectorsStrict(cfg); !r)
     {
         return microtel::make_unexpected(r.error());
     }

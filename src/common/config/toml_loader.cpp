@@ -267,13 +267,20 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(
-            *sec,
-            "sdk",
-            {"max_queue_size", "max_export_batch_size", "schedule_delay_ms", "drop_policy"},
-            cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(*sec,
+                                "sdk",
+                                {"max_queue_size",
+                                 "max_export_batch_size",
+                                 "schedule_delay_ms",
+                                 "drop_policy",
+                                 "resource_detectors_strict"},
+                                cfg.unknown_key_mode))
     {
         return err;
+    }
+    if (const auto v = (*sec)["resource_detectors_strict"].value<bool>())
+    {
+        cfg.resource_detectors_strict = *v;
     }
     if (const auto v = (*sec)["max_queue_size"].value<std::uint32_t>())
     {

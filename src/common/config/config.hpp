@@ -63,6 +63,26 @@ struct Config
     std::string service_version;
     std::vector<KeyValue> resource_attrs;
 
+    /// @brief True when `service_name` holds the `unknown_service` placeholder
+    ///        `Validate()` supplies rather than a value someone configured.
+    ///
+    /// The placeholder is a built-in default, the lowest tier in §12.1, and so
+    /// sits *below* a resource detector's contribution in the §12.7 merge
+    /// order. The resource builder cannot tell the two apart from the string
+    /// alone — a user is free to configure `unknown_service` themselves — so
+    /// `Validate()` records which one it is.
+    bool service_name_defaulted{false};
+
+    /// @brief Strict resource-detector policy: a failing detector fails `Build()`.
+    ///
+    /// Default (`false`) is lenient: a detector returning a `ConfigError` is
+    /// logged at Warn and skipped, and the rest of the pipeline is built. Set
+    /// via `sdk.resource_detectors_strict` in TOML or
+    /// `MICROTEL_RESOURCE_DETECTORS_STRICT` in the environment.
+    ///
+    /// @see docs/interfaces.md §4.10, docs/configuration.md §3.2
+    bool resource_detectors_strict{false};
+
     // Nested option structs (defined in microtel/sdk_builder.hpp)
     TlsOptions tls;
     BatchOptions batch;

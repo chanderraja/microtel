@@ -364,7 +364,11 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
     // resolving the placeholder here rather than at resource-assembly time
     // keeps one owner for the default and leaves `Config` a complete record of
     // what the pipeline will actually report.
-    if (cfg.service_name.empty())
+    // `service_name_defaulted` records which of the two it is, because the
+    // §12.7 merge order puts a built-in default below a detector's
+    // contribution and a configured name above it.
+    cfg.service_name_defaulted = cfg.service_name.empty();
+    if (cfg.service_name_defaulted)
     {
         cfg.service_name = std::string{kUnknownService};
     }

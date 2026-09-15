@@ -7,7 +7,8 @@
 #   delivery_rate_pct >= 99.0%  (sink received / emitted)
 #   drop_rate_pct     <= 1.0%   (SUT internal drop counter / emitted)
 #
-# Any SUT that violates either threshold fails the job.
+# A microtel SUT that violates either threshold fails the job. The otelcpp
+# SUTs are comparison baselines and report informationally only.
 #
 # Results are uploaded as artifacts for 90 days. No baseline comparison is
 # done here — the soak job is about absolute stability, not relative change.
@@ -67,13 +68,23 @@ jobs:
 
           doc = json.loads(results_path.read_text())
           failed = []
+          gated = 0
 
+          # Thresholds gate microtel SUTs only. The otelcpp entries are
+          # comparison baselines: their delivery is not this project's to
+          # fix, and the first complete soak run showed them below 99%
+          # (otelcpp-http at 87.5%) while every microtel SUT passed.
           for sut in doc.get("suts", []):
               name    = sut["name"]
               summary = sut.get("summary", {})
               delivery = summary.get("delivery_rate_pct", 0.0)
               drop     = summary.get("drop_rate_pct",     100.0)
 
+              if not name.startswith("microtel"):
+                  print(f"  baseline {name}: delivery={delivery:.4f}% drop={drop:.4f}% (informational)")
+                  continue
+
+              gated += 1
               if delivery < 99.0:
                   failed.append(f"  {name}: delivery_rate_pct={delivery:.4f}% < 99.0%")
               if drop > 1.0:
@@ -85,7 +96,11 @@ jobs:
                   print(line)
               sys.exit(1)
 
-          print(f"PASS — all {len(doc.get('suts', []))} SUTs within soak thresholds.")
+          if gated == 0:
+              print("ERROR: no microtel SUT found in results — gate would be vacuous")
+              sys.exit(2)
+
+          print(f"PASS — all {gated} microtel SUT(s) within soak thresholds.")
           EOF
 
       - name: Upload results

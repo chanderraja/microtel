@@ -3,6 +3,7 @@
 **Status:** M0 deliverable. Normative for which threads exist, what they own, and how data crosses them in v1.
 **Companion documents:** `architecture.md` (layered structure), `memory-model.md` (resource ownership), `error-model.md` (no-exceptions-across-threads rule), `interfaces.md` (per-method threading tags).
 **Source of truth for rationale:** `microtel-spec.md` §5.1, §5.3.
+**Citation policy:** complete — per ICP 0021, every LOCKED marker below cites the code that makes it true, or is marked `intent`. Enforced by `ci/scripts/citation-check.py`.
 
 ---
 
@@ -17,13 +18,43 @@ This document is the canonical answer to:
 
 Doxygen `@threadsafety` tags on individual methods reference categories defined here.
 
-Some rules are non-negotiable in v1; they are flagged **(LOCKED)**. Changing a (LOCKED) rule requires an ICP.
+Some rules are non-negotiable in v1; they are flagged **LOCKED**. Changing a LOCKED rule requires an ICP.
+
+Per ICP 0021, each marker also says what makes it true:
+
+```
+(LOCKED — cites `src/sdk/sdk_provider.cpp:Shutdown`)    a claim about code
+(LOCKED — intent)                                       a claim about intent
+```
+
+A citation names a **function or member, never a line number** — line numbers rot, and one added in #149 was already stale by #144. `ci/scripts/citation-check.py` (CI job `citation-check`) fails the build when a cited symbol is absent from the cited file, and when a marker in a document whose citation policy is `complete` carries neither annotation.
+
+The check is deliberately weak: it proves a symbol exists, not that the sentence around it is true. It exists because **LOCKED has never meant "verified"** — every marker in this document was written in the M0 commit, before there was code to check it against, and six of them turned out to describe a system that does not exist (ICP 0021, issue #134).
 
 ---
 
-## 2. The three threads
+## 2. The threads
 
-v1 has exactly three thread roles. There is no thread pool, no fiber scheduler, no work-stealing in v1.
+v1 has **four thread roles** — producer, processor worker, exporter worker, I/O — and a fully-configured single `Provider` runs **seven threads** in six of its own classes plus the transport. There is no thread pool, no fiber scheduler, no work-stealing in v1.
+
+This section said "exactly three thread roles" until ICP 0021 checked it. Both halves were wrong: the count, and the taxonomy behind it — §2.2 described one "exporter worker" that drained the span queue *and* encoded *and* sent. Those are two threads, one per side of a hand-off.
+
+**Thread inventory** (LOCKED — cites `src/sdk/batch_span_processor.hpp:m_worker`, `src/sdk/batch_log_record_processor.hpp:m_worker`, `src/sdk/periodic_exporting_metric_reader.hpp:m_thread`, `src/exporter/otlp_exporter.hpp:m_worker`, `src/exporter/otlp_metric_exporter.hpp:m_worker`, `src/exporter/otlp_log_exporter.hpp:m_worker`, `src/transport/http2_transport.hpp:m_io_thread`).
+
+| Role | Thread | Loop | Signal |
+|---|---|---|---|
+| Producer | any application thread | — (owned by the application) | all |
+| Processor worker | `BatchSpanProcessor::m_worker` | `WorkerLoop` | traces |
+| Processor worker | `BatchLogRecordProcessor::m_worker` | `WorkerLoop` | logs |
+| Processor worker (timer-driven) | `PeriodicExportingMetricReader::m_thread` | `RunLoop` | metrics |
+| Exporter worker | `OtlpExporter::m_worker` | `WorkerLoop` | traces |
+| Exporter worker | `OtlpMetricExporter::m_worker` | `WorkerLoop` | metrics |
+| Exporter worker | `OtlpLogExporter::m_worker` | `WorkerLoop` | logs |
+| I/O | `Http2Transport::m_io_thread` | `IoThreadLoop` | all (one shared transport) |
+
+Seven, not eight: the producer row is the application's own thread, not one microtel creates. The metric reader is grouped with the processor workers because it plays their part in the metrics pipeline — it collects and hands off to an exporter — but it is woken by an interval rather than by an enqueue, which is why it is called out.
+
+The inventory is the maximum. A `Provider` with no `GetMeter` and no `GetLogger` call has only the trace pipeline's two workers plus the I/O thread: the metrics and logs pipelines are built lazily (`SdkProvider::GetMeter`, `SdkProvider::GetLogger`) and spawn nothing until they are.
 
 ### 2.1 Caller thread (any application thread)
 
@@ -35,22 +66,31 @@ v1 has exactly three thread roles. There is no thread pool, no fiber scheduler, 
 
 **May not:** access the SDK's internal queues, the encoder, the wire codec, the transport, or any internal interface directly. Caller-thread code never includes a header from `include/microtel/internal/`.
 
-**Hot-path guarantee (LOCKED).** `StartSpan`, `SetAttribute`, `AddEvent`, `AddLink`, `End` are `noexcept` and never wait on I/O. See §8 for the precise contract.
+**Hot-path guarantee** (LOCKED — cites `include/microtel/tracer.hpp:StartSpan`, `include/microtel/span.hpp:SetAttribute`). `StartSpan`, `SetAttribute`, `AddEvent`, `AddLink`, `End` are `noexcept` and never wait on I/O. See §8 for the precise contract.
 
-### 2.2 Exporter worker thread (one per `Provider`)
+### 2.2 Pipeline worker threads — processor workers and exporter workers
 
-**Identity.** Owned by the `BatchSpanProcessor`. Created at `Provider` construction; joined at `Provider::Shutdown` or destruction.
+**One worker per pipeline** (LOCKED — cites `src/sdk/batch_span_processor.cpp:WorkerLoop`, `src/sdk/batch_log_record_processor.cpp:WorkerLoop`, `src/exporter/otlp_exporter.cpp:WorkerLoop`, `src/exporter/otlp_metric_exporter.cpp:WorkerLoop`, `src/exporter/otlp_log_exporter.cpp:WorkerLoop`), of which a fully-configured single `Provider` has **five**: a processor worker and an exporter worker each for traces and logs, and an exporter worker for metrics (whose producer side is the reader thread of §2, not a queue drain).
 
-**v1 always has exactly one worker per process** (LOCKED). Multi-profile (multiple `Provider` instances per process) is a v1.1 feature; v1 supports a single global `Provider` only.
+This section said "v1 always has exactly one worker per process", justified by multi-profile being a v1.1 feature. The justification was a non-sequitur even when it was written: the multiplicity comes from **three signals inside one `Provider`**, not from multiple `Provider` instances. One `Provider` is still the v1 supported configuration.
 
-**Owns:** batch construction state, retry orchestration state for the in-flight batch, the per-thread randomness source for backoff jitter.
+The two roles are separated by a queue, and conflating them is what the old text did:
 
-**Drains:** the span queue (consumer side; multiple producers).
-**Calls into:** `IOtlpEncoder::Encode` (synchronously), `IWireCodec::Send` (synchronously, but the I/O it triggers happens on the I/O thread), `IDiagnosticsSink::Record*`.
+**Processor worker.** Owned by a `BatchSpanProcessor` / `BatchLogRecordProcessor`. Created at processor construction; joined at `Shutdown` or destruction.
 
-**May not:** call any caller-facing API. The worker thread never invokes `Tracer::StartSpan` or any other public API; doing so would risk a queue self-feed.
+- **Owns:** batch construction state — the record queue and its batching deadline.
+- **Drains:** the record queue (consumer side; multiple producers).
+- **Calls into:** `IExporter::Export` / `ILogExporter::Export`, which **enqueues** to the exporter's own queue and returns (`BatchSpanProcessor::ExportBatch`). The hand-off is where this thread's work ends.
+- **Sleep state.** Waits on a condition variable when the queue is short of `max_export_batch_size` and no batch deadline is pending. Wake sources: enqueue notification, batch-deadline timer, `ForceFlush` request, `Shutdown` request.
 
-**Sleep state.** The worker waits on a condition variable (or eventfd) when the queue is empty and no batch deadline is pending. Wake sources: enqueue notification, batch-deadline timer, `ForceFlush` request, `Shutdown` request.
+**Exporter worker.** Owned by an `OtlpExporter` / `OtlpMetricExporter` / `OtlpLogExporter`. Created at exporter construction; joined at `Shutdown` or destruction.
+
+- **Owns:** retry orchestration state for the in-flight batch, the per-thread randomness source for backoff jitter.
+- **Drains:** the exporter's batch queue, filled by the processor worker (or, for metrics, by the reader thread).
+- **Calls into:** `IOtlpEncoder::Encode` (synchronously), `IWireCodec::Send` (synchronously, but the I/O it triggers happens on the I/O thread), `IDiagnosticsSink::Record*`.
+- **Sleep state.** Waits on a condition variable when its queue is empty. Wake sources: enqueue notification, `ForceFlush` request, `Shutdown` request.
+
+**Neither may** call any caller-facing API. A worker thread never invokes `Tracer::StartSpan` or any other public API; doing so would risk a queue self-feed.
 
 ### 2.3 I/O thread (one per process)
 
@@ -60,7 +100,7 @@ code. The loop starts polling immediately and runs whether or not a
 connection exists; `IoThreadLoop` simply finds `m_nghttp2_session` invalid and
 skips the drain steps. Joined at `Transport::Close`, which is accurate.
 
-**v1 always has exactly one I/O thread per process** (LOCKED). One nghttp2 session, one socket, one reactor.
+**v1 always has exactly one I/O thread per process** (LOCKED — cites `src/transport/http2_transport.hpp:m_io_thread`, `src/sdk/sdk_builder.cpp:Build`). One nghttp2 session, one socket, one reactor: `Http2Transport` holds a single `m_io_thread`, and `SdkBuilder::Build` constructs one transport, shared by every pipeline.
 
 **Reads:** the OpenSSL `SslCtx` reference, the `SslSession`, the
 `Nghttp2Session`, the socket fd (a `common::raii::UniqueFd` — there is no
@@ -93,14 +133,14 @@ shutdown signals. The two separate eventfds this section named do not exist.
 
 Three channels, in canonical order. Each has a fixed shape, owner, and synchronisation contract.
 
-### 3.1 Caller → exporter worker — the span queue
+### 3.1 Caller → processor worker — the span queue
 
 **Producer:** any caller thread, on `End()`.
-**Consumer:** the exporter worker, in batches.
+**Consumer:** the **processor** worker (`BatchSpanProcessor`), in batches — not the exporter worker, which sits one queue further down (§2.2). This section named the exporter worker until ICP 0021.
 
 **Shape.** Bounded MPSC queue. Capacity is `max_queue_size` from the batch processor configuration (default 8192 records; spec §6.1).
 
-**Backpressure (LOCKED).** When the queue is full, the producer **drops the incoming record** by default (`drop_newest`). The producer never blocks. The drop is recorded against the `queue_full` counter (`error-model.md` §3). Drop-oldest is an opt-in alternative (spec §5.4); when configured, the worker thread (not the producer) is responsible for shedding the oldest entry on overflow.
+**Backpressure** (LOCKED — cites `src/sdk/batch_span_processor.cpp:OnEnd`). When the queue is full, the producer **drops the incoming record** by default (`drop_newest`). The producer never blocks. The drop is recorded against the `queue_full` counter (`error-model.md` §3). Drop-oldest is an opt-in alternative (spec §5.4); when configured, the worker thread (not the producer) is responsible for shedding the oldest entry on overflow.
 
 **Producer-side synchronisation contract.** The enqueue path:
 
@@ -111,7 +151,7 @@ Three channels, in canonical order. Each has a fixed shape, owner, and synchroni
 
 The exact data-structure choice (lock-free atomic ring vs. mutex-protected ring vs. linked list with per-thread freelists) is a v1 implementation decision pinned during M3 against benchmark evidence. The architectural contract M0 commits to is the four numbered guarantees above plus:
 
-- **Producer never waits on I/O** (LOCKED).
+- **Producer never waits on I/O** (LOCKED — cites `src/sdk/batch_span_processor.cpp:OnEnd`).
 - **Producer never holds a lock spanning the move-into-slot step** if a mutex implementation is chosen — the lock window is bounded to slot acquisition, not the move payload work.
 - **Allocation in the producer path is bounded to `O(1)` and may be zero** depending on implementation; see `memory-model.md` §8.2.
 
@@ -150,7 +190,9 @@ recorded as such rather than left as a promise.
 **Producer:** the I/O thread, when nghttp2 emits the response (HEADERS + DATA + trailer HEADERS, or trailer-only HEADERS).
 **Consumer:** the exporter worker, which is parked waiting on the completion.
 
-**Shape.** A per-request completion future. The exporter worker, after handing a request to the transport (§3.2), waits on a `std::condition_variable` keyed to the in-flight request. The I/O thread, on completion, copies the response bytes from nghttp2's owned buffers into the codec's response buffer (sized at `max_response_bytes` from `memory-model.md` §6), populates the completion record, and signals the condvar.
+**Shape.** A per-request `std::promise` / `std::future` pair — `Http2Transport::StreamState::promise`, handed to the caller as `RequestHandle::Future()`. The exporter worker, after handing a request to the transport (§3.2), blocks in `future::wait_for` with the request's deadline. The I/O thread, on completion, copies the response bytes from nghttp2's owned buffers into the codec's response buffer (sized at `max_response_bytes` from `memory-model.md` §6), fills in the `TransportResult`, and fulfils the promise.
+
+This section described "a `std::condition_variable` keyed to the in-flight request" until ICP 0021. Functionally equivalent, but the wording was load-bearing elsewhere: §4's lock table listed a per-request `m_completion` mutex on the strength of this one sentence, and no such lock exists — the completion path takes no lock at all.
 
 **Why copy at the boundary.** nghttp2 owns its receive buffers and may recycle them on subsequent reads. Copying the bytes into a codec-owned buffer (bounded by `max_response_bytes`) means the worker can parse the response without holding a reference into nghttp2 internals. Copy cost is well within the budget — responses are tiny relative to the request and the parse work.
 
@@ -162,30 +204,31 @@ recorded as such rather than left as a promise.
 
 ## 4. Lock-ordering rules
 
-Locks in v1, from leaf to root in the partial order:
+Every mutex in v1, by owner. This table named five locks until ICP 0021; three of those names appeared in no source file, and two of them — `m_completion` and `m_shutdown` — were not mutexes at all, which made the two rules stated over them unfalsifiable. The real inventory:
 
 | Lock | Owner | Held during |
 |---|---|---|
-| `m_diag` | `IDiagnosticsSink` | counter increment, ring-buffer write |
-| `m_queue` | `BatchSpanProcessor` | enqueue / dequeue (if a mutex implementation is chosen) |
-| `m_transport_request` | `Transport` | request-queue push / drain |
-| `m_completion` | per-request | completion record fill / wait |
-| `m_shutdown` | `Provider` and `Transport` | shutdown state machine transitions |
+| `m_error_mu` | `DiagnosticsCounters` | last-error timestamp + message write |
+| `m_mu` | `BatchSpanProcessor` | span queue enqueue / drain, flush bookkeeping |
+| `m_mu` | `BatchLogRecordProcessor` | log queue enqueue / drain, flush bookkeeping |
+| `m_mu` | `OtlpExporter`, `OtlpMetricExporter`, `OtlpLogExporter` | batch queue enqueue / drain, flush bookkeeping |
+| `m_mu`, `m_collect_mu` | `PeriodicExportingMetricReader` | wake flag; one collect+export cycle (`CollectSlot`) |
+| `m_mu` | `MetricProducer` | snapshot of the scope / stream structure |
+| `m_mu` | `SumStorage`, `GaugeStorage`, `HistogramStorage`, `ExponentialHistogramStorage` | one point update, or one collect |
+| `m_meter_mu`, `m_logger_mu` | `SdkProvider` | lazy construction of the metrics / logs pipeline |
+| `m_mu` | `CallbackAuthProvider` | cached-token read / refresh |
+| `m_mu` | `EpollReactor` | `m_callbacks` register / unregister / dispatch lookup |
+| `m_pending_mu`, `m_cancel_mu` | `Http2Transport` | request-queue push / drain; cancel-queue push / drain |
+| `m_io_done_mu` | `Http2Transport` | the I/O-loop-exited flag `Close` waits on |
 
-**Rules (LOCKED).**
+There is **no completion lock and no shutdown lock**: request completion is a `std::promise` / `std::future` pair (§3.3), and shutdown is a set of atomic flags (§5.3).
 
-1. **`m_diag` is a leaf** — no lock from this table is acquired while `m_diag` is held. Diagnostic counters are designed so the increment path is short and self-contained. Where a counter increment can be done with `std::atomic<uint64_t>::fetch_add`, no lock is taken at all.
-2. **A thread holds at most one of `{m_queue, m_transport_request}` at a time.** The queue lock is dropped before the transport lock is acquired, and vice versa.
+**Rules.** Each is LOCKED and cites the code that keeps it true.
 
-   Per ICP 0009, the transport's request lock (`m_pending_mu` in the code — the
-   table's `m_transport_request` is one of several names in this table that do
-   not match the source; see #134) is a **leaf** that *any* submitting thread
-   may take. No caller holds another non-leaf lock while calling `Send`: the
-   exporter drains its own queue to empty and releases before submitting.
-3. **`m_completion` is acquired *after* `m_transport_request`** when the transport pushes a new request, *or* without `m_transport_request` when the I/O thread completes a request (it locates the completion record by request ID, which is itself stored under `m_transport_request`, but releases that lock before acquiring the per-request `m_completion`).
-4. **`m_shutdown` is acquired only at state transitions** (start of `Shutdown`, observation of shutdown by worker / I/O thread). It is never held while `m_queue`, `m_transport_request`, or `m_completion` is held.
-
-The rules collapse to a simple practical statement: **at most one non-leaf lock is held at any time**. v1's design intentionally avoids nested locks. Any future code that wants to break this needs an ICP.
+1. **`m_error_mu` is a leaf** (LOCKED — cites `src/sdk/diagnostics_counters.cpp:RecordBatchFailed`) — no other lock is acquired while it is held. It guards two fields, a timestamp and a bounded string; every counter is a `std::atomic<uint64_t>` and takes no lock at all (`RecordDrop`).
+2. **A thread holds at most one non-leaf lock at a time** (LOCKED — cites `src/sdk/metric_producer.cpp:SnapshotScopes`, `src/exporter/otlp_exporter.cpp:DrainQueue`, `src/sdk/batch_span_processor.cpp:ExportBatch`). v1 intentionally has no nested locks, and the code is written to keep it that way: `MetricProducer::Collect` snapshots the structure under `m_mu` and releases it before calling `IMetricStream::Collect`, which takes its own; `OtlpExporter::DrainQueue` unlocks before `FanOutAndProcess`; `BatchSpanProcessor` releases `m_mu` when `WaitAndCollect` returns, before `ExportBatch`. Any future code that wants to break this needs an ICP.
+3. **The transport's queue locks are leaves** (LOCKED — cites `src/transport/http2_transport.cpp:Send`, `src/transport/http2_transport.cpp:DrainPendingRequests`). Per ICP 0009, `m_pending_mu` is a leaf *any* submitting thread may take — three exporter workers do. `m_cancel_mu` is the same shape for cancellations. Both are held only for a push or a drain, never across a call-out.
+4. **Completion and shutdown take no lock** (LOCKED — cites `src/transport/http2_transport.hpp:StreamState`, `src/sdk/sdk_provider.hpp:m_shut_down`). The I/O thread fulfils a `std::promise` and the waiting worker is parked in `future::wait_for`; `SdkProvider::m_shut_down`, `OtlpExporter::m_shutdown` and `Http2Transport::m_state` are atomics, read and written without a mutex. The old rules 3 and 4 governed a `m_completion` and an `m_shutdown` mutex that have never existed.
 
 ---
 
@@ -196,13 +239,13 @@ Two wakeup mechanisms, used uniformly:
 ### 5.1 In-process wakeups for waiting threads
 
 - **Exporter worker:** waits on `std::condition_variable_any` paired with the queue's wakeup state. The worker's wait predicate is `(queue_non_empty || deadline_reached || shutdown_requested)`.
-- **I/O thread:** waits in `epoll_wait` / `kevent`. Two file descriptors are registered besides the socket: `m_request_eventfd` (woken when the transport request queue gets a new entry) and `m_shutdown_eventfd` (woken when shutdown is requested).
+- **I/O thread:** waits in `epoll_wait`. **One** file descriptor is registered besides the socket — `EpollReactor::m_wake_fd`, an eventfd written by `EpollReactor::Wake()` and shared by every wake reason: a new transport request, a cancellation, and shutdown. The two descriptors this section named, `m_request_eventfd` and `m_shutdown_eventfd`, have never existed; one fd carries them all, because the loop re-checks every queue after any wake rather than deciding what to do from which descriptor fired.
 
 ### 5.2 Cross-thread wakeups for completions
 
-The I/O thread signals a per-request `m_completion` condvar when a request completes. The waiting worker is parked on that condvar.
+The I/O thread fulfils the request's `std::promise` when it completes (§3.3). The waiting worker is parked in `future::wait_for` on the matching `std::future`, not on a condition variable — there is no `m_completion` lock.
 
-### 5.3 Shutdown signal (LOCKED — single-source-of-truth)
+### 5.3 Shutdown signal (LOCKED — cites `src/sdk/sdk_provider.cpp:Shutdown`)
 
 There is no shutdown state machine and no single ground-truth variable. Shutdown
 is **a flag, then an ordered sequence of per-component shutdowns**, each component
@@ -238,7 +281,7 @@ m_shut_down = true
   in-flight request and closing the socket. Those contracts belong to the
   components, not to a Provider-level state machine.
 
-`Shutdown` is **idempotent** (LOCKED) — but by composition, not by a
+`Shutdown` is **idempotent** (LOCKED — cites `src/sdk/sdk_provider.cpp:WorseOf`) — but by composition, not by a
 Provider-level short-circuit. A second call re-runs the whole sequence; each
 component observes its own already-shut-down state and returns
 `AlreadyShutDown`, and the fold above turns six of them back into one.
@@ -275,7 +318,7 @@ The worker treats a `ForceFlush` request as a synthesised batch deadline of "now
 
 After `Shutdown` returns, no further records are accepted; producers see `post_shutdown` drops.
 
-**Destructor of `Provider`.** Invokes `Shutdown(small_finite_timeout)` if not already shut down. The destructor itself is `noexcept` (LOCKED) — if `Shutdown` returns `TimedOut` or `Failed`, the destructor logs a diagnostic and returns. It does not block indefinitely.
+**Destructor of `Provider`.** Invokes `Shutdown(small_finite_timeout)` if not already shut down. The destructor itself is `noexcept` (LOCKED — cites `src/sdk/sdk_provider.cpp:~SdkProvider`) — if `Shutdown` returns `TimedOut` or `Failed`, the destructor logs a diagnostic and returns. It does not block indefinitely.
 
 The full sequence diagram for `Shutdown` is `docs/sequences/shutdown-drain.md`.
 
@@ -285,7 +328,7 @@ The full sequence diagram for `Shutdown` is `docs/sequences/shutdown-drain.md`.
 
 Forking a process that has microtel running raises real correctness questions because the child inherits half-finished state (mid-flight nghttp2 stream, half-written socket buffers, locked mutexes that the worker thread no longer exists to release).
 
-**Rule (LOCKED).** After `fork()`, the child process starts with **exporter workers disabled** until the application explicitly reinitialises microtel.
+**Rule** (LOCKED — cites `src/sdk/sdk_provider.cpp:ForkChildHandler`). After `fork()`, the child process starts with **exporter workers disabled** until the application explicitly reinitialises microtel.
 
 Concretely:
 
@@ -321,7 +364,7 @@ The fork-survival sequence diagram is `docs/sequences/fork-survival.md`.
 Signals belong in the same register as fork: process-wide state a library
 shares with a host it does not own.
 
-**Rule (LOCKED).** microtel installs **no signal handler** and changes **no
+**Rule** (LOCKED — cites `src/transport/nosignal_io.hpp:SendNoSignal`). microtel installs **no signal handler** and changes **no
 process-global signal disposition**. Nothing in the runtime calls `signal`,
 `sigaction`, or `pthread_sigmask` — not for `SIGPIPE`, not for anything else.
 A host that has its own handlers keeps them; a host that has none still has
@@ -352,7 +395,7 @@ the signal mask of threads it did not create. See issue #177.
 
 ## 8. What `noexcept` and non-blocking on the hot path mean
 
-This section is the precise contract the API delivers to caller threads. The numbered guarantees are (LOCKED).
+This section is the precise contract the API delivers to caller threads. The numbered guarantees are (LOCKED — cites `include/microtel/span.hpp:SetAttribute`, `include/microtel/tracer.hpp:StartSpan`).
 
 For every method on `Tracer` and `Span` listed in §2.1:
 

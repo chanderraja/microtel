@@ -174,9 +174,10 @@ The call is **two phases, never nested**: retune the span processor; then,
 under `m_logger_mu`, store `m_log_batch_opts` (the seed a later `GetLogger`
 builds from) and read the borrowed log-processor pointer; release
 `m_logger_mu`; then retune the log processor. That is the shape
-`SdkProvider::LogProcessorPtr` exists for, and its Doxygen already gives the
-reason: *"taking `m_meter_mu` and then the reader's own lock would nest two
-non-leaf locks, which `docs/threading-model.md` §4 forbids."* The consequence,
+`SdkProvider::LogProcessorPtr` exists for — its Doxygen defers to
+`MetricReaderPtr`'s, which gives the reason: *"taking `m_meter_mu` and then the
+reader's own lock would nest two non-leaf locks, which
+`docs/threading-model.md` §4 forbids."* The consequence,
 stated rather than hidden: **the change is not atomic across the two
 pipelines** — for the duration of one call a span batch may be cut under the
 new options while a log batch is still under the old.

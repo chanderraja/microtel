@@ -39,6 +39,7 @@ headers.
 | [0023](0023-span-processor-scope.md) | `ISpanProcessor::OnEnd` carries the `InstrumentationScope` | Accepted | #175 |
 | [0024](0024-v1.1-rescope.md) | v1.1 rescope — hot reload without a socket | Accepted | — |
 | [0025](0025-propagation-core.md) | Propagation core — baggage, `TraceState` storage, `StartAsCurrentSpan` | Accepted | — (v1.1 packets 2.3a–c) |
+| [0026](0026-provider-setters.md) | The four hot-reload `Provider` setters | Accepted | — (v1.1 packets 2.2, 2.4) |
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.
 A dash means the link was not determinable from commit messages, **not** that

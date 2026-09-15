@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // src/api/ — the W3C Trace Context propagator declared in
-// include/microtel/propagator.hpp, and the TraceState methods declared in
-// include/microtel/trace.hpp. Issue #188: both were declared in the public
-// headers and defined in no shipped translation unit.
+// include/microtel/propagator.hpp. Issue #188: it was declared in the public
+// header and defined in no shipped translation unit. `microtel::TraceState`,
+// which used to share this file, moved to trace_state.cpp when it gained
+// storage (issue #208 / ICP 0025 packet 2.3a).
 //
 // Dependency-free by design: the public headers plus the standard library.
 
@@ -216,51 +217,12 @@ template <std::size_t N>
 
 }  // namespace
 
-// ── TraceState ───────────────────────────────────────────────────────────────
-//
-// `TraceState` as declared in include/microtel/trace.hpp carries no data
-// member and declares no mutation methods, so the shipped type cannot hold an
-// entry: every `TraceState` is the empty state. `FromHeader` therefore returns
-// the empty state for every input — which is also its documented return for a
-// parse failure ("failures are silently elided per the W3C 'be liberal in what
-// you accept' guidance", trace.hpp:99-100) — and performs no validation,
-// because the result of validating would be unobservable.
-//
-// Giving `TraceState` storage is an ABI change to a public header, and any
-// heap-backed representation would place a throwing copy inside
-// `Span::GetContext() const noexcept` (src/sdk/sdk_span.cpp:154). That is ICP
-// work, deliberately outside the issue #188 link fix, and is tracked in
-// docs/compatibility-matrix.md §5. tests/unit/api/trace_state_test.cpp locks
-// the contract as declared.
-
-TraceState TraceState::FromHeader(std::string_view /*header*/)
-{
-    return {};
-}
-
-// NOLINTBEGIN(readability-convert-member-functions-to-static)
-// These three are locked public API (include/microtel/trace.hpp:104-110); the
-// storage-free implementation happens not to need `this`, but the signatures
-// are not ours to change.
-
-std::string TraceState::ToHeader() const
-{
-    return {};
-}
-
-std::size_t TraceState::Size() const noexcept
-{
-    return 0U;
-}
-
-bool TraceState::Empty() const noexcept
-{
-    return true;
-}
-
-// NOLINTEND(readability-convert-member-functions-to-static)
-
 // ── W3CTraceContextPropagator ────────────────────────────────────────────────
+//
+// `TraceState` itself — storage, the W3C §3.3 grammar, and the copy-on-write
+// mutators — lives in trace_state.cpp as of issue #208 / ICP 0025 packet 2.3a.
+// Both directions below round-trip a vendor's `tracestate` for real; the
+// header is no longer dropped across a microtel hop.
 
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
 // Locked public API (include/microtel/propagator.hpp:43,50). The propagator is

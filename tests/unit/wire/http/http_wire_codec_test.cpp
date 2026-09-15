@@ -7,6 +7,8 @@
 
 #include "wire/http/http_wire_codec.hpp"
 
+#include "microtel/error.hpp"
+#include "microtel/expected.hpp"
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/wire_result.hpp"
 #include "microtel/provider.hpp"
@@ -24,8 +26,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mt = microtel;
@@ -492,6 +496,58 @@ TEST(HttpWireCodecTest, Send_WithAuth_NoValue_NoAuthorizationHeader)
     {
         EXPECT_NE(h.name, "authorization");
     }
+}
+
+// Issue #250 / interfaces.md §4.9: an auth provider that fails drops the
+// batch. Sending it without the header is worse than not sending it — the
+// receiver either rejects it one hop later with a message that blames the
+// credential, or accepts it unauthenticated and nothing is seen at all.
+TEST(HttpWireCodecTest, Send_AuthProviderError_DropsBatchWithoutSending)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtfk::FakeAuthProvider auth;
+    auth.static_value = mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::Network, .message = "token fetch failed"});
+    mtfk::FakeSteadyClock clock;
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), &auth, nullptr, &clock};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable) << "non_retryable_failure per interfaces.md §4.9";
+    ASSERT_TRUE(result.error.has_value());
+    EXPECT_EQ(result.error->kind, mt::Error::Kind::Network) << "the provider's kind survives";
+    EXPECT_NE(result.error->message.find("authorization"), std::string::npos)
+        << "last_error_message must name auth, not the receiver: " << result.error->message;
+    EXPECT_NE(result.error->message.find("token fetch failed"), std::string::npos);
+    EXPECT_TRUE(transport.sent_specs.empty())
+        << "an unauthenticated request must never reach the wire";
+}
+
+TEST(HttpWireCodecTest, SendAll_AuthProviderError_DropsOnlyTheAffectedBatch)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = OkResponse();
+    mtfk::FakeAuthProvider auth;
+    auth.scripted_responses.push_back(std::optional<std::string>{"Bearer tok"});
+    auth.scripted_responses.push_back(mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::InternalFailure, .message = "callback threw"}));
+    auth.scripted_responses.push_back(std::optional<std::string>{"Bearer tok"});
+    mtfk::FakeSteadyClock clock;
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), &auth, nullptr, &clock};
+
+    std::vector<mti::EncodedPayload> payloads;
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+    payloads.push_back(MakePayload());
+
+    const auto results = codec.SendAll(std::move(payloads), std::chrono::milliseconds(1000));
+    ASSERT_EQ(results.size(), 3U);
+    EXPECT_TRUE(results[0].success);
+    EXPECT_FALSE(results[1].success);
+    EXPECT_FALSE(results[1].retryable);
+    EXPECT_TRUE(results[2].success) << "the fan-out continues past the failed batch";
+    EXPECT_EQ(transport.sent_specs.size(), 2U);
 }
 
 // ---------------------------------------------------------------------------

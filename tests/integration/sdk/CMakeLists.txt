@@ -12,3 +12,14 @@ microtel_add_integration_test(
     NAME    retry_budget_test
     SOURCES retry_budget_test.cpp
     LIBS    microtel_sdk)
+
+# Issues #250 / #251: real exporter + real HTTP codec + real auth provider
+# against a FakeTransport, so the blast radius of an auth failure is visible.
+microtel_add_integration_test(
+    NAME    auth_failure_export_test
+    SOURCES auth_failure_export_test.cpp
+    LIBS    microtel_exporter microtel_http_wire microtel_config)
+
+# Same relaxation as tests/unit/exporter: SpanRecord is built field-by-field.
+target_compile_options(auth_failure_export_test PRIVATE
+    -Wno-missing-field-initializers)

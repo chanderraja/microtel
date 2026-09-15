@@ -8,11 +8,14 @@
 
 #include "wire/grpc/grpc_wire_codec.hpp"
 
+#include "microtel/error.hpp"
+#include "microtel/expected.hpp"
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/internal/wire_result.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 
+#include "fakes/fake_auth_provider.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_transport.hpp"
 #include "helpers/gunzip.hpp"
@@ -25,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -722,6 +726,46 @@ TEST(GrpcWireCodecTest, Send_BuildsRequiredGrpcHeaders)
     EXPECT_EQ(FindHeader(headers, "te"), "trailers");
     EXPECT_EQ(FindHeader(headers, "content-type"), "application/grpc+proto");
     EXPECT_FALSE(FindHeader(headers, "user-agent").empty());
+}
+
+// ---------------------------------------------------------------------------
+// Auth provider (issue #250, interfaces.md §4.9)
+// ---------------------------------------------------------------------------
+
+TEST(GrpcWireCodecTest, Send_WithAuth_AddsAuthorizationHeader)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtfk::FakeAuthProvider auth;
+    auth.static_value = std::optional<std::string>{"Bearer tok"};
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), &auth};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    EXPECT_EQ(FindHeader(transport.sent_specs.front().headers, "authorization"), "Bearer tok");
+}
+
+// The batch is dropped, not shipped bare: sending without auth is worse than
+// not sending (interfaces.md §4.9).
+TEST(GrpcWireCodecTest, Send_AuthProviderError_DropsBatchWithoutSending)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtfk::FakeAuthProvider auth;
+    auth.static_value = mt::make_unexpected(
+        mt::Error{.kind = mt::Error::Kind::Network, .message = "token fetch failed"});
+    mtw::GrpcWireCodec codec{&transport, MakeConfig(), &auth};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.retryable) << "non_retryable_failure per interfaces.md §4.9";
+    ASSERT_TRUE(result.error.has_value());
+    EXPECT_EQ(result.error->kind, mt::Error::Kind::Network);
+    EXPECT_NE(result.error->message.find("authorization"), std::string::npos)
+        << "last_error_message must name auth: " << result.error->message;
+    EXPECT_NE(result.error->message.find("token fetch failed"), std::string::npos);
+    EXPECT_TRUE(transport.sent_specs.empty())
+        << "an unauthenticated request must never reach the wire";
 }
 
 // ---------------------------------------------------------------------------

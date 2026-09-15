@@ -248,6 +248,8 @@ TEST(TraceStateTest, RejectsEveryInvalidKeyVector)
         "foo\tbar",     // HTAB likewise
         "foo.bar",      // "." is not in the tail charset
         "foo+bar",      // nor "+"
+        "foo{bar",      // nor "{", which sits just above lcalpha
+        "a.b@dt",       // a well-formed tenant-id opener with a bad tail
         "foo@",         // empty system-id
         "@foo",         // empty tenant-id
         "@",            //
@@ -320,13 +322,14 @@ TEST(TraceStateTest, AcceptsEveryValidValueVector)
 TEST(TraceStateTest, RejectsEveryInvalidValueVector)
 {
     const std::string invalid_values[] = {
-        "",                      // `value` requires at least one nblk-chr
-        "a\tb",                  // HTAB is not a `chr`
-        "a,b",                   // %x2C is excluded — it is the list separator
-        "a=b",                   // %x3D is excluded — it is the member separator
-        "a\nb",                  // control characters are not `chr`
-        std::string("a\0b", 3),  // NUL likewise
-        "aéb",                   // non-ASCII
+        "",                             // `value` requires at least one nblk-chr
+        "a\tb",                         // HTAB is not a `chr`
+        "a,b",                          // %x2C is excluded — it is the list separator
+        "a=b",                          // %x3D is excluded — it is the member separator
+        "a\nb",                         // control characters are not `chr`
+        std::string{'a', '\x7F', 'b'},  // DEL sits just above %x7E
+        std::string("a\0b", 3),         // NUL likewise
+        "aéb",                          // non-ASCII
     };
 
     for (const std::string& value : invalid_values)

@@ -26,6 +26,7 @@
 #include "microtel/internal/log_batch.hpp"
 #include "microtel/internal/metric_batch.hpp"
 #include "microtel/internal/metric_exporter.hpp"
+#include "microtel/internal/processor.hpp"
 #include "microtel/log_record.hpp"
 #include "microtel/logger.hpp"
 #include "microtel/meter.hpp"
@@ -37,19 +38,20 @@
 
 #include "fakes/fake_log_exporter.hpp"
 #include "mocks/mock_exporter.hpp"
-#include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
 #include "sdk/diagnostics_counters.hpp"
 #include "sdk/sdk_provider.hpp"
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -139,6 +141,31 @@ private:
     std::vector<mti::MetricBatchHandle> m_batches;
 };
 
+/// Stateless `ISpanProcessor`. The span pipeline is not what this file asserts
+/// on, and a call-counting mock would itself be the data race in the
+/// concurrency test below.
+class NoopSpanProcessor : public mti::ISpanProcessor
+{
+public:
+    void OnStart(mt::Span& /*span*/, const mt::Context& /*parent*/) noexcept override {}
+
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
+    void OnEnd(mti::SpanRecord&& /*record*/,
+               const mti::InstrumentationScope& /*scope*/) noexcept override
+    {
+    }
+
+    [[nodiscard]] mt::Status ForceFlush(std::chrono::milliseconds /*timeout*/) noexcept override
+    {
+        return mt::Status::Completed;
+    }
+
+    [[nodiscard]] mt::Status Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
+    {
+        return mt::Status::Completed;
+    }
+};
+
 /// Owns the provider plus the borrowed exporter pointers the assertions read.
 struct PipelineFixture
 {
@@ -160,7 +187,7 @@ struct PipelineFixture
             .transport = std::make_unique<mtm::MockTransport>(),
             .codec = nullptr,
             .exporter = std::make_unique<mtm::MockExporter>(),
-            .processor = std::make_unique<mtm::MockSpanProcessor>(),
+            .processor = std::make_unique<NoopSpanProcessor>(),
             .resource = std::make_shared<mt::Resource>(),
             .sampler = mt::MakeAlwaysOnSampler(),
             .span_limits = {},
@@ -178,6 +205,20 @@ struct PipelineFixture
         ASSERT_EQ(provider->ForceFlush(kFlushTimeout), mt::Status::Completed);
     }
 };
+
+/// Opens a span scope and records one measurement inside it, over and over,
+/// until @p stop is set. The body of each recorder thread in the concurrency
+/// test below.
+void RecordUntilStopped(const std::shared_ptr<mt::Tracer>& tracer,
+                        const std::shared_ptr<mt::Counter<std::int64_t>>& counter,
+                        const std::atomic<bool>& stop)
+{
+    while (!stop.load(std::memory_order_relaxed))
+    {
+        const auto scoped = tracer->StartAsCurrentSpan("work");
+        counter->Add(1, {});
+    }
+}
 
 }  // namespace
 
@@ -253,7 +294,7 @@ TEST(ExemplarWiringTest, CounterRecordedUnderAnUnsampledSpan_HasNoExemplar)
         .transport = std::make_unique<mtm::MockTransport>(),
         .codec = nullptr,
         .exporter = std::make_unique<mtm::MockExporter>(),
-        .processor = std::make_unique<mtm::MockSpanProcessor>(),
+        .processor = std::make_unique<NoopSpanProcessor>(),
         .resource = std::make_shared<mt::Resource>(),
         .sampler = mt::MakeAlwaysOffSampler(),
         .span_limits = {},
@@ -274,6 +315,43 @@ TEST(ExemplarWiringTest, CounterRecordedUnderAnUnsampledSpan_HasNoExemplar)
     ASSERT_EQ(provider->ForceFlush(kFlushTimeout), mt::Status::Completed);
 
     EXPECT_TRUE(metrics->ExemplarsFor("requests").empty());
+}
+
+// Recorders race collection: four threads each open a span scope and record
+// into the same instrument while the test thread repeatedly forces a collect.
+// Under TSAN (-DMICROTEL_SANITIZER=tsan) this covers the whole exemplar path —
+// the thread-local slot read in CurrentSpanSource, the storage mutex, and the
+// reader's snapshot — at once.
+TEST(ExemplarWiringTest, ConcurrentRecordingAndCollection_IsRaceFree)
+{
+    constexpr int kRecorders = 4;
+    constexpr int kFlushes = 20;
+
+    const PipelineFixture f;
+    const auto meter = f.provider->GetMeter("exemplar.lib");
+    const auto counter = meter->CreateCounter<std::int64_t>("requests", "", "1");
+    const auto tracer = f.provider->GetTracer("exemplar.lib");
+
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> recorders;
+    recorders.reserve(kRecorders);
+    for (int i = 0; i < kRecorders; ++i)
+    {
+        recorders.emplace_back([&stop, &tracer, &counter]
+                               { RecordUntilStopped(tracer, counter, stop); });
+    }
+
+    for (int i = 0; i < kFlushes; ++i)
+    {
+        EXPECT_EQ(f.provider->ForceFlush(kFlushTimeout), mt::Status::Completed);
+    }
+    stop.store(true, std::memory_order_relaxed);
+    for (auto& recorder : recorders)
+    {
+        recorder.join();
+    }
+
+    EXPECT_FALSE(f.metrics->ExemplarsFor("requests").empty());
 }
 
 // ---------------------------------------------------------------------------

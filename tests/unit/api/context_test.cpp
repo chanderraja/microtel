@@ -23,11 +23,13 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace mt = microtel;
 
@@ -52,6 +54,54 @@ mt::SpanContext MakeSpanContext(std::uint8_t seed)
 std::uint8_t CurrentSeed()
 {
     return mt::CurrentContext().active_span_context.trace_id.AsBytes()[0];
+}
+
+/// Seed unique to a (thread, depth) pair. `base` is 1..15 and `depth` 1..15,
+/// so the low nibble carries the depth and the high nibble the thread.
+constexpr int kNibble = 16;
+std::uint8_t SeedFor(std::uint8_t base, int depth)
+{
+    return static_cast<std::uint8_t>((base * kNibble) + depth);
+}
+
+/// Builds a scope stack @p depth deep on the calling thread, checking on the
+/// way down and again on the way back up that the slot holds this thread's own
+/// seed for this level.
+///
+/// Deliberately recursive: a loop cannot create nested block scopes, and "each
+/// level's context lives in a real stack frame" is precisely the shape
+/// ICP 0025 §3 chose over a thread-local container. Depth is a bounded
+/// compile-time constant.
+// NOLINTNEXTLINE(misc-no-recursion)
+void PushVerifyPop(std::uint8_t base, int depth, std::atomic<int>& mismatches)
+{
+    if (depth == 0)
+    {
+        return;
+    }
+    const std::uint8_t seed = SeedFor(base, depth);
+    const mt::ScopedContext scope{mt::Context{MakeSpanContext(seed)}};
+    if (CurrentSeed() != seed)
+    {
+        mismatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    PushVerifyPop(base, depth - 1, mismatches);
+    if (CurrentSeed() != seed)
+    {
+        mismatches.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+constexpr int kStackDepth = 12;
+constexpr int kStackRounds = 40;
+
+/// The body of each worker thread in the concurrency test below.
+void RunScopeStackRounds(std::uint8_t base, std::atomic<int>& mismatches)
+{
+    for (int round = 0; round < kStackRounds; ++round)
+    {
+        PushVerifyPop(base, kStackDepth, mismatches);
+    }
 }
 
 }  // namespace
@@ -151,24 +201,41 @@ TEST(ContextTest, ScopedContext_MovedFromScopeRestoresNothing)
 // Out-of-order destruction — a documented programming error (ICP 0025 §3)
 // ---------------------------------------------------------------------------
 
+// Run on a worker thread precisely because it ends with the slot corrupted:
+// the misuse leaves a context installed that no live scope will ever restore,
+// and the only way back to a clean slot is for the thread to end. That is
+// itself part of the contract worth stating out loud.
 TEST(ContextTest, ScopedContext_OutOfOrderDestruction_RestoresAStaleContext)
 {
-    std::optional<mt::ScopedContext> first;
-    std::optional<mt::ScopedContext> second;
-    first.emplace(mt::Context{MakeSpanContext(0x0A)});
-    second.emplace(mt::Context{MakeSpanContext(0x0B)});
-    ASSERT_EQ(CurrentSeed(), 0x0B);
+    bool root_after_first_reset = false;
+    std::uint8_t seed_after_second_reset = 0;
 
-    // Destroying the *outer* scope first writes back what it displaced (the
-    // root) even though `second` is still live.
-    first.reset();
+    std::thread worker(
+        [&root_after_first_reset, &seed_after_second_reset]
+        {
+            std::optional<mt::ScopedContext> first;
+            std::optional<mt::ScopedContext> second;
+            first.emplace(mt::Context{MakeSpanContext(0x0A)});
+            second.emplace(mt::Context{MakeSpanContext(0x0B)});
+            ASSERT_EQ(CurrentSeed(), 0x0B);
+
+            // Destroying the *outer* scope first writes back what it displaced
+            // (the root) even though `second` is still live.
+            first.reset();
+            root_after_first_reset = !mt::CurrentContext().active_span_context.IsValid();
+
+            // And `second` then writes back what *it* displaced — 0x0A, a
+            // context whose scope is already gone. Restore is positional; this
+            // is the defined consequence, not a crash and not a silent no-op.
+            second.reset();
+            seed_after_second_reset = CurrentSeed();
+        });
+    worker.join();
+
+    EXPECT_TRUE(root_after_first_reset);
+    EXPECT_EQ(seed_after_second_reset, 0x0A);
+    // The spawning thread's own slot was never touched.
     EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
-
-    // And `second` then writes back what *it* displaced — 0x0A, a context
-    // whose scope is already gone. Restore is positional; this is the defined
-    // consequence, not a crash and not a silent no-op.
-    second.reset();
-    EXPECT_EQ(CurrentSeed(), 0x0A);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +272,31 @@ TEST(ContextTest, ScopedContext_OnAWorkerThreadDoesNotDisturbTheSpawner)
 
     EXPECT_EQ(worker_seed, 0x99);
     EXPECT_EQ(CurrentSeed(), 0x66);
+}
+
+// Every thread drives its own deep scope stack at the same time. Run under
+// TSAN (-DMICROTEL_SANITIZER=tsan) this is the guard that the slot really is
+// thread_local: a shared slot would show up both as a TSAN data race and as a
+// non-zero mismatch count here.
+TEST(ContextTest, ConcurrentScopeStacks_StayIndependentPerThread)
+{
+    constexpr int kThreads = 8;
+
+    std::atomic<int> mismatches{0};
+    std::vector<std::thread> workers;
+    workers.reserve(kThreads);
+    for (int t = 1; t <= kThreads; ++t)
+    {
+        workers.emplace_back([t, &mismatches]
+                             { RunScopeStackRounds(static_cast<std::uint8_t>(t), mismatches); });
+    }
+    for (auto& worker : workers)
+    {
+        worker.join();
+    }
+
+    EXPECT_EQ(mismatches.load(), 0);
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
 }
 
 TEST(ContextTest, CurrentContext_ExplicitHandOffIsHowAWorkerJoinsTheTrace)

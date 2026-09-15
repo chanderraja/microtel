@@ -19,6 +19,13 @@ microtel_add_test(
     SOURCES propagator_test.cpp
     LIBS    microtel_api)
 
+# v1.1 — Resource::Merge precedence (spec §12.7). Header-only: the merge is an
+# inline member of the public `Resource`, so this needs no library beyond the
+# header target microtel_add_test already links.
+microtel_add_test(
+    NAME    resource_merge_test
+    SOURCES resource_merge_test.cpp)
+
 microtel_add_test(
     NAME    meter_api_test
     SOURCES meter_api_test.cpp

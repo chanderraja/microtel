@@ -5,6 +5,8 @@
 
 #include "microtel/attribute.hpp"
 
+#include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace microtel
@@ -38,6 +40,40 @@ public:
     [[nodiscard]] const std::vector<KeyValue>& Attributes() const noexcept
     {
         return m_attributes;
+    }
+
+    /// @brief Key-level merge of two resources — `overriding` wins.
+    ///
+    /// This is the primitive the SDK composes the §12.7 precedence chain out
+    /// of: `Merge(Merge(detectors, env), user)`. Applied left to right, each
+    /// later layer overrides the ones before it, and every key no later layer
+    /// names survives.
+    ///
+    /// Key collisions resolve to the value in `overriding`, whatever the two
+    /// value types are; the key keeps the position it held in `base`, so the
+    /// resolved Resource is stable between runs. A key repeated *within*
+    /// `overriding` resolves to its last occurrence — `Resource`'s constructor
+    /// is shallow, and this is where "last one wins" is enforced.
+    ///
+    /// @param base the lower-precedence layer.
+    /// @param overriding the higher-precedence layer.
+    /// @return a new Resource; neither argument is modified.
+    [[nodiscard]] static Resource Merge(const Resource& base, const Resource& overriding)
+    {
+        std::vector<KeyValue> merged = base.m_attributes;
+        for (const auto& kv : overriding.m_attributes)
+        {
+            const auto it = std::ranges::find(merged, kv.key, &KeyValue::key);
+            if (it == merged.end())
+            {
+                merged.push_back(kv);
+            }
+            else
+            {
+                it->value = kv.value;
+            }
+        }
+        return Resource{std::move(merged)};
     }
 
 private:

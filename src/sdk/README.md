@@ -23,8 +23,12 @@ Track A — Trace SDK.
   [`sampler_chains.cpp`](sampler_chains.cpp))
 - `internal::ISpanProcessor` realisations: `BatchSpanProcessor`,
   `SimpleSpanProcessor`
-- `internal::IResourceDetector` — the env-var detector and the explicit
-  one (full detectors arrive in v1.1+)
+- `internal::IResourceDetector` — the `process` and `host` detectors in
+  [`resource_detectors.cpp`](resource_detectors.cpp), behind the public
+  `MakeProcessDetector` / `MakeHostDetector` factories. The spec §12.7
+  composition that merges them with the config lives in
+  [`resource_builder.cpp`](resource_builder.cpp); k8s and cloud
+  detectors are future work
 - The diagnostics sink (`internal::IDiagnosticsSink`)
 
 ## Depends on

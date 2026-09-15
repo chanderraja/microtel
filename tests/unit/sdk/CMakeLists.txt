@@ -384,3 +384,21 @@ target_include_directories(view_registry_test
 # fields in InstrumentSelector and ViewTransform match any value.
 target_compile_options(view_registry_test PRIVATE
     -Wno-missing-field-initializers)
+
+# v1.1 — built-in resource detectors (process, host). Runs against fixture
+# trees under a temp directory via the detectors' injected path root, so it
+# never depends on the host's real /proc, /etc or /var.
+microtel_add_test(
+    NAME    resource_detectors_test
+    SOURCES resource_detectors_test.cpp
+    LIBS    microtel_sdk)
+
+# v1.1 — the spec §12.7 composition order (defaults, detectors, env, user) and
+# the strict/lenient detector policy. Reaches into src/sdk/resource_builder.hpp
+# and src/common/config/config.hpp directly.
+microtel_add_test(
+    NAME    resource_builder_test
+    SOURCES resource_builder_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(resource_builder_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -86,9 +86,11 @@ The `service.name` resource attribute is always present. When nothing supplies
 a value, `config::Validate` resolves it to `unknown_service`, the placeholder
 the OTel resource semantic conventions specify so that a backend always has
 something to group on. microtel does not append an executable name — the OTel
-conventions permit `unknown_service:<process name>`, but v1 has no process-name
-or resource-detector machinery to derive one from, so the plain form is what it
-emits. `service.version` has no such requirement and stays absent when unset.
+conventions permit `unknown_service:<process name>`, but the plain form is what
+it emits. Since v1.1 the placeholder is a *default* rather than a final answer:
+it sits below the detector layer in the §3.2 composition order, so a detector
+that supplies `service.name` replaces it. `service.version` has no such
+requirement and stays absent when unset.
 
 (Before #203 landed, no fallback existed and the attribute was omitted
 entirely.)
@@ -98,6 +100,42 @@ entirely.)
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
 | `[resource]` table | `WithResource({...})` | `OTEL_RESOURCE_ATTRIBUTES` (csv `k=v,k=v`) | — | empty | Detector contributions merge per spec §12.7 (detectors first, then env, then user). |
+| — | `WithResourceDetector(d)` | — | — | no detectors | Registration order is significant; a later detector overrides an earlier one. |
+| `sdk.resource_detectors_strict` | — | — | `MICROTEL_RESOURCE_DETECTORS_STRICT` | `false` (lenient) | `true`/`1` or `false`/`0`; any other env value is `ConfigError::EnvParseFailure`. |
+
+**Composition order.** `Build()` merges four layers, key by key, each
+overriding the one before it (`Resource::Merge`):
+
+1. Built-in defaults — the `unknown_service` placeholder, and only when nothing
+   configured a service name.
+2. Detectors, in `WithResourceDetector` registration order.
+3. Environment (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`).
+4. File and code (`[resource]`, `WithResource`, `WithServiceName`).
+
+A detector therefore cannot override anything an operator configured, but it
+*can* replace the `unknown_service` placeholder, which is a default rather than
+a configured value.
+
+**Built-in detectors**, from `microtel/resource_detectors.hpp` — neither is
+registered automatically:
+
+| Factory | Attributes |
+|---|---|
+| `MakeProcessDetector(root = "/")` | `process.pid`, `process.executable.path`, `process.executable.name`, `process.command`, `process.command_args` |
+| `MakeHostDetector(root = "/")` | `host.name`, `host.id` |
+
+Both take a path root that every filesystem source is resolved against — `/proc/self/exe`,
+`/proc/self/cmdline`, `/etc/machine-id` with a `/var/lib/dbus/machine-id`
+fallback. It defaults to the real filesystem and exists so tests can point a
+detector at a fixture tree; it is string composition, not a chroot, and does not
+affect `getpid(2)` or `gethostname(2)`.
+
+**Strict vs lenient.** Under the default lenient policy a detector that returns
+a `ConfigError` is logged at `Warn` and skipped, and the rest of the pipeline
+builds. Under `resource_detectors_strict` the first such failure fails `Build()`
+with that detector's error and no later detector runs. An attribute a detector
+merely *omits* — a hidden `/proc/self/exe`, a container with no machine-id — is
+not a failure under either policy.
 
 ### 3.3 Exporter — endpoint and protocol
 
@@ -239,6 +277,9 @@ in TOML under the **`[sdk]` table** — not `[batch]`, which is an unknown key.
 | `max_export_batch_size` | `.max_export_batch_size = N` | — | — | 512 |
 | `schedule_delay_ms` | `.schedule_delay = d` | — | — | 5000 ms |
 | `drop_policy` | `.drop_policy = p` | — | — | `"newest"` / `DropPolicy::DropNewest` |
+
+The `[sdk]` table also carries `resource_detectors_strict`, which is not a batch
+setting — see §3.2.
 
 ```toml
 [sdk]

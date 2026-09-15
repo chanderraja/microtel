@@ -19,6 +19,7 @@
 #include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
+#include "microtel/resource_detectors.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"

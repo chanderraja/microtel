@@ -863,3 +863,117 @@ TEST(OverlayEnvTest, OtelMetricTemporalityPreference_Unset_LeavesDefault)
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(cfg.metric_temporality, mt::TemporalityPreference::Cumulative);
 }
+
+// ---------------------------------------------------------------------------
+// Resource-detector strict/lenient policy (v1.1)
+// ---------------------------------------------------------------------------
+
+TEST(ParseTomlStringTest, ResourceDetectorsStrict_DefaultsToLenient)
+{
+    const auto result = mc::ParseTomlString("[sdk]\nmax_queue_size = 100\n");
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(result->resource_detectors_strict);
+}
+
+TEST(ParseTomlStringTest, ResourceDetectorsStrict_TrueInToml_Parses)
+{
+    const auto result = mc::ParseTomlString("[sdk]\nresource_detectors_strict = true\n");
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(result->resource_detectors_strict);
+}
+
+TEST(ParseTomlStringTest, ResourceDetectorsStrict_FalseInToml_Parses)
+{
+    const auto result = mc::ParseTomlString("[sdk]\nresource_detectors_strict = false\n");
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(result->resource_detectors_strict);
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_True_Enables)
+{
+    const EnvGuard guard{{"MICROTEL_RESOURCE_DETECTORS_STRICT"}};
+    SetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT", "true");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(cfg.resource_detectors_strict);
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_One_Enables)
+{
+    const EnvGuard guard{{"MICROTEL_RESOURCE_DETECTORS_STRICT"}};
+    SetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT", "1");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(cfg.resource_detectors_strict);
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_False_OverridesFileValue)
+{
+    const EnvGuard guard{{"MICROTEL_RESOURCE_DETECTORS_STRICT"}};
+    SetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT", "false");
+    mc::Config cfg;
+    cfg.resource_detectors_strict = true;  // as if set in microtel.toml
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(cfg.resource_detectors_strict);
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_Zero_Disables)
+{
+    const EnvGuard guard{{"MICROTEL_RESOURCE_DETECTORS_STRICT"}};
+    SetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT", "0");
+    mc::Config cfg;
+    cfg.resource_detectors_strict = true;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(cfg.resource_detectors_strict);
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_Garbage_ReturnsEnvParseFailure)
+{
+    // A typo that silently left strict mode off would be the worst outcome:
+    // the setting exists precisely to turn a silent skip into a loud failure.
+    const EnvGuard guard{{"MICROTEL_RESOURCE_DETECTORS_STRICT"}};
+    SetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT", "yes-please");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
+    EXPECT_EQ(result.error().field, "MICROTEL_RESOURCE_DETECTORS_STRICT");
+}
+
+TEST(OverlayEnvTest, ResourceDetectorsStrict_Unset_LeavesFileValue)
+{
+    UnsetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT");
+    mc::Config cfg;
+    cfg.resource_detectors_strict = true;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(cfg.resource_detectors_strict);
+}
+
+// ---------------------------------------------------------------------------
+// Validate — service.name provenance (v1.1; feeds the §12.7 merge order)
+// ---------------------------------------------------------------------------
+
+TEST(ValidateTest, NoServiceName_MarksTheResolvedNameAsDefaulted)
+{
+    // `unknown_service` is a built-in default, which sits *below* a detector
+    // contribution in the precedence chain. Without this flag the resource
+    // builder cannot tell it apart from a user who typed that same string.
+    mc::Config cfg = MinimalValidConfig();
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(cfg.service_name_defaulted);
+}
+
+TEST(ValidateTest, ServiceNameSet_IsNotMarkedAsDefaulted)
+{
+    mc::Config cfg = MinimalValidConfig();
+    cfg.service_name = "checkout";
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(cfg.service_name_defaulted);
+}

@@ -29,6 +29,7 @@
 
 #include <microtel/error.hpp>
 #include <microtel/provider.hpp>
+#include <microtel/resource_detectors.hpp>
 #include <microtel/sdk_builder.hpp>
 #include <microtel/span.hpp>
 #include <microtel/status.hpp>
@@ -90,11 +91,18 @@ int main()
                                             .flush = kFlushTimeout,
                                             .shutdown = kShutdownTimeout};
 
+    // The two built-in resource detectors, reached through the installed
+    // <microtel/resource_detectors.hpp> and handed to the installed
+    // WithResourceDetector. Both are v1.1 public surface, so both are export-set
+    // material: an unresolved MakeProcessDetector here is exactly the kind of
+    // missing-archive defect this gate exists to catch.
     auto built = microtel::SdkBuilder{}
                      .WithEndpoint(kDeadEndpoint)
                      .WithProtocol(microtel::Protocol::Grpc)
                      .WithServiceName("microtel-consumer-smoke")
                      .WithServiceVersion("0.1.0")
+                     .WithResourceDetector(microtel::MakeProcessDetector())
+                     .WithResourceDetector(microtel::MakeHostDetector())
                      .WithTimeouts(timeouts)
                      .Build();
 

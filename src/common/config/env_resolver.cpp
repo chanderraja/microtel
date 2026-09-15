@@ -214,9 +214,38 @@ namespace
     return {};
 }
 
-}  // namespace
+/// Apply MICROTEL_RESOURCE_DETECTORS_STRICT to cfg if the env var is set.
+///
+/// Unlike `OTEL_EXPORTER_OTLP_COMPRESSION`, an unrecognised value is rejected
+/// rather than read as "off": the whole point of the setting is to turn a
+/// silently-skipped detector into a loud failure, and a typo that quietly left
+/// it disabled would defeat that.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceDetectorsStrict(Config& cfg)
+{
+    const auto v = GetEnv("MICROTEL_RESOURCE_DETECTORS_STRICT");
+    if (v.empty())
+    {
+        return {};
+    }
+    if (v == "true" || v == "1")
+    {
+        cfg.resource_detectors_strict = true;
+        return {};
+    }
+    if (v == "false" || v == "0")
+    {
+        cfg.resource_detectors_strict = false;
+        return {};
+    }
+    return microtel::make_unexpected(
+        ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                    .field = "MICROTEL_RESOURCE_DETECTORS_STRICT",
+                    .message = R"(expected "true"/"1" or "false"/"0")"});
+}
 
-microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
+/// The exporter half of the overlay: endpoint, protocol, headers, timeout,
+/// compression and CA bundle.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayExporterEnv(Config& cfg)
 {
     // OTEL_EXPORTER_OTLP_ENDPOINT
     if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT"); !v.empty())
@@ -254,6 +283,13 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
         cfg.tls.ca_bundle = v;
     }
 
+    return {};
+}
+
+/// The resource and metrics half: service identity, resource attributes, the
+/// detector policy, and the two metric-pipeline settings.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceAndMetricEnv(Config& cfg)
+{
     // OTEL_SERVICE_NAME
     if (const auto v = GetEnv("OTEL_SERVICE_NAME"); !v.empty())
     {
@@ -262,6 +298,12 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
 
     // OTEL_RESOURCE_ATTRIBUTES
     if (auto r = OverlayResourceAttrs(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+
+    // MICROTEL_RESOURCE_DETECTORS_STRICT
+    if (auto r = OverlayResourceDetectorsStrict(cfg); !r)
     {
         return microtel::make_unexpected(r.error());
     }
@@ -279,6 +321,17 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     return {};
+}
+
+}  // namespace
+
+microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
+{
+    if (auto r = OverlayExporterEnv(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+    return OverlayResourceAndMetricEnv(cfg);
 }
 
 }  // namespace microtel::config

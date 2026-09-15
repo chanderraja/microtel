@@ -740,7 +740,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. The `CallbackAuthProv
 
 #### Purpose
 
-Produces a partial `Resource` at SDK initialisation. v1 ships a minimal env-var detector and an explicit-config "detector"; full detectors (process, host, k8s, cloud) arrive in v1.1+. The interface is locked in M0 so v1.1 detectors do not break the contract.
+Produces a partial `Resource` at SDK initialisation. The interface was locked in M0 so that later detectors would not break the contract, and they have not: v1.1 added the `process` and `host` detectors (`microtel::MakeProcessDetector` / `MakeHostDetector`, registered through `SdkBuilder::WithResourceDetector`) against this same signature. k8s and cloud detectors remain future work. Environment variables and explicit configuration are not detectors — the config layer resolves them, and `sdk::BuildResource` merges them *above* every detector per spec §12.7.
 
 #### Contract
 
@@ -772,7 +772,7 @@ Created by `SdkBuilder` (or by user code passed to it). Owned by the builder unt
 
 #### Error model
 
-- `microtel::Expected<Resource, ConfigError>`. A failed detector yields a `ConfigError` if strict mode is configured; otherwise the detector's contribution is empty and a diagnostic is logged.
+- `microtel::Expected<Resource, ConfigError>`. A failed detector yields a `ConfigError` if strict mode is configured; otherwise the detector's contribution is empty and a diagnostic is logged. Strict mode is `sdk.resource_detectors_strict` in `microtel.toml` or `MICROTEL_RESOURCE_DETECTORS_STRICT` in the environment, lenient by default (docs/configuration.md §3.2). An attribute a detector merely *omits* is not a failure under either policy.
 
 #### Allocation behavior
 

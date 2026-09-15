@@ -1,7 +1,7 @@
 # ICP 0027: multi-profile — named `Provider`s, and the threading model that allows them
 
-**Status:** Proposed — **two decisions below await maintainer confirmation**
-(the registry capacity, and the shape of the lookup accessor). The
+**Status:** Accepted — decided 2026-09-15, including both decisions recorded
+below (the registry capacity, and the shape of the lookup accessor). The
 `docs/threading-model.md` amendments in §1 are applied by this PR because
 amending LOCKED text is what an ICP is for; everything else is scheduled work
 landing in v1.1 packet 3.1.
@@ -104,8 +104,8 @@ told about a method before the method exists.
 `src/sdk/provider_registry.{hpp,cpp}`, internal to `microtel_sdk`.
 
 ```cpp
-/// PROPOSED capacity — see "Decisions awaiting confirmation". One edit here
-/// changes it; nothing else in the tree hard-codes a profile count.
+/// One edit here changes the capacity; nothing else in the tree hard-codes a
+/// profile count. See "The two open decisions, as decided" for the pricing.
 inline constexpr std::size_t kMaxProfiles = 8;
 
 /// Slots are plain atomic pointers and nothing else. The name lives in the
@@ -297,25 +297,28 @@ Three things stay process-wide, and full independence does not reach them:
    profile is reachable through instrumentation written against otel-cpp. Other
    profiles are reached through microtel's own API.
 
-## Decisions awaiting confirmation
+## The two open decisions, as decided
 
-Both are marked **PROPOSED, maintainer confirmation pending**; the status line
-above stays `Proposed` until they are settled.
+Both were drafted as proposals and **confirmed by the maintainer on
+2026-09-15, each as recommended**. The pricing is kept as written: it is why
+each number and shape is what it is, and it is what a later reviewer needs in
+order to change one.
 
-1. **`kMaxProfiles = 8.`** A fixed capacity is forced by §2 (a fork child
-   handler cannot walk a container). The *number* is a guess with one datum
-   behind it: the deployments this feature is for — an application splitting
-   audit telemetry from operational telemetry, or fanning to a local collector
-   and a vendor endpoint — want two or three, and 8 leaves room without making
-   the child handler's loop or the eight-pointer array worth a thought.
+1. **`kMaxProfiles = 8` — confirmed.** A fixed capacity is forced by §2 (a
+   fork child handler cannot walk a container). The *number* is a judgement
+   call with one datum behind it: the deployments this feature is for — an
+   application splitting audit telemetry from operational telemetry, or
+   fanning to a local collector and a vendor endpoint — want two or three, and
+   8 leaves room without making the child handler's loop or the eight-pointer
+   array worth a thought.
    Guessing low costs a `ProfileLimitExceeded` at startup; guessing high costs
    eight pointers of BSS. Flipping it is a **one-line edit** to
    `kMaxProfiles` in `src/sdk/provider_registry.hpp`, and because the constant
    is internal, no consumer recompile is implied by changing it later.
-2. **`Provider* GetProvider(std::string_view name = kDefaultProfileName)`** as
-   a free function returning a borrowed pointer. Recommended: it matches hard
-   rule 7 (a returned `T*` is borrowed), keeps `shared_ptr` out of a path that
-   does not need it (rule 8), needs no vtable slot, and reads the same way as
+2. **`Provider* GetProvider(std::string_view name = kDefaultProfileName)` —
+   confirmed**, as a free function returning a borrowed pointer. It matches
+   hard rule 7 (a returned `T*` is borrowed), keeps `shared_ptr` out of a path
+   that does not need it (rule 8), needs no vtable slot, and reads the same way as
    `CurrentContext()`, the other free-function accessor for process-scoped
    state ([ICP 0025](0025-propagation-core.md)) — **microtel has no
    provider-returning global accessor today**, so this defines the shape rather
@@ -395,8 +398,9 @@ Nothing to do today; this ICP amends two sentences and schedules the rest.
   could deadlock in `BatchSpanProcessor::OnEnd`.
 - **Last-wins on a duplicate name** — rejected; §5.
 - **No lookup function at all** (the host keeps its own `shared_ptr`s) —
-  rejected, but it is the closest alternative and it is why `GetProvider`'s
-  shape is still open. A host that builds its profiles in one place can always
+  rejected, but it is the closest alternative and the one that kept
+  `GetProvider`'s shape open until it was decided. A host that builds its
+  profiles in one place can always
   pass the `shared_ptr` where it is needed, and would never call `GetProvider`.
   The lookup earns its place for instrumentation that cannot reach the host's
   wiring — library code, a plugin, a callback — which is the same argument

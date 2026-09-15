@@ -1,8 +1,9 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Unit tests for SdkTracer: sampling decisions, ID generation, parent
-// propagation, and StartAsCurrentSpan stub.
+// Unit tests for SdkTracer: sampling decisions, ID generation, explicit and
+// implicit parent propagation, and StartAsCurrentSpan's ScopedSpan semantics
+// (issue #221, ICP 0025 §3).
 
 #include "sdk/sdk_tracer.hpp"
 
@@ -538,9 +539,8 @@ TEST(SdkTracerTest, StartAsCurrentSpan_DoesNotLeakIntoANewThread)
     const auto scoped = t.StartAsCurrentSpan("op");
 
     bool worker_saw_a_span = true;
-    std::thread worker(
-        [&worker_saw_a_span]
-        { worker_saw_a_span = mt::CurrentContext().active_span_context.IsValid(); });
+    std::thread worker([&worker_saw_a_span]
+                       { worker_saw_a_span = mt::CurrentContext().active_span_context.IsValid(); });
     worker.join();
 
     EXPECT_FALSE(worker_saw_a_span);

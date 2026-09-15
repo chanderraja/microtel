@@ -181,9 +181,8 @@ TEST(ContextTest, CurrentContext_NewThreadStartsFromTheRootContext)
     ASSERT_EQ(CurrentSeed(), 0x77);
 
     bool worker_saw_a_span = true;
-    std::thread worker(
-        [&worker_saw_a_span]
-        { worker_saw_a_span = mt::CurrentContext().active_span_context.IsValid(); });
+    std::thread worker([&worker_saw_a_span]
+                       { worker_saw_a_span = mt::CurrentContext().active_span_context.IsValid(); });
     worker.join();
 
     EXPECT_FALSE(worker_saw_a_span);
@@ -211,11 +210,12 @@ TEST(ContextTest, ScopedContext_OnAWorkerThreadDoesNotDisturbTheSpawner)
 TEST(ContextTest, CurrentContext_ExplicitHandOffIsHowAWorkerJoinsTheTrace)
 {
     const mt::ScopedContext scope{mt::Context{MakeSpanContext(0x31)}};
-    const mt::Context carried = mt::CurrentContext();
 
     std::uint8_t worker_seed = 0;
+    // The hand-off: the context is copied here, on the spawning thread, and
+    // installed over there. microtel grows no thread-creation hook of its own.
     std::thread worker(
-        [carried, &worker_seed]
+        [carried = mt::CurrentContext(), &worker_seed]
         {
             const mt::ScopedContext worker_scope{carried};
             worker_seed = CurrentSeed();

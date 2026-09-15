@@ -53,8 +53,8 @@ public:
     [[nodiscard]] SpanHandle StartSpan(std::string_view name,
                                        const StartSpanOptions& opts = {}) noexcept override;
 
-    [[nodiscard]] ScopedSpan StartAsCurrentSpan(std::string_view name,
-                                                const StartSpanOptions& opts = {}) noexcept override;
+    [[nodiscard]] ScopedSpan StartAsCurrentSpan(
+        std::string_view name, const StartSpanOptions& opts = {}) noexcept override;
 
 private:
     /// @brief The whole of span creation, with the computed `SpanContext`

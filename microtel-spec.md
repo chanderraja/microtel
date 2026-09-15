@@ -246,13 +246,15 @@ provider.shutdown(timeout_s=5)
 
 Bindings via **nanobind**, covering traces, metrics, and logs. `microtel.__capabilities__` exposes the binding scope at runtime; any surface not yet bound raises `NotImplementedError` with the version when it's expected.
 
-> **The example above is the M18 target shape, not a description of today.**
-> `start_as_current_span` requires a thread-local current-span slot, which the
-> SDK does not yet have — `SdkTracer::StartAsCurrentSpan` currently delegates to
-> `StartSpan`, so the `with` block ends the span correctly but child spans are
-> not implicitly parented. The same missing slot is why log↔trace correlation
-> does not fire (`ICurrentSpanSource` is wired to `nullptr`). Both are
-> prerequisites for M18. See [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
+> **The example above is the M18 target shape, not a description of today** —
+> no Python binding exists yet. The two C++ prerequisites it named are now in
+> place: v1.1 packet 2.3b gave the SDK a thread-local current-span slot, so
+> `SdkTracer::StartAsCurrentSpan` returns a `ScopedSpan` that implicitly
+> parents child spans, and `ICurrentSpanSource` is wired for both log↔trace
+> correlation and metrics exemplars
+> ([ICP 0025](docs/icps/0025-propagation-core.md) §3, issue #221). What remains
+> for M18 is the binding layer itself. See
+> [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
 ### 6.3 Compatibility shims (experimental; not yet implemented)
 

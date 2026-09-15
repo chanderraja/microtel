@@ -100,18 +100,26 @@ public:
         const std::scoped_lock lock{m_mu};
         for (const auto& batch : m_batches)
         {
-            for (const auto& record : batch.Metrics())
-            {
-                if (record.name == metric_name)
-                {
-                    CollectExemplars(record.data, found);
-                }
-            }
+            CollectFromBatch(batch, metric_name, found);
         }
         return found;
     }
 
 private:
+    /// Appends the exemplars of every stream in @p batch named @p metric_name.
+    static void CollectFromBatch(const mti::MetricBatchHandle& batch,
+                                 const std::string& metric_name,
+                                 std::vector<mti::Exemplar>& out)
+    {
+        for (const auto& record : batch.Metrics())
+        {
+            if (record.name == metric_name)
+            {
+                CollectExemplars(record.data, out);
+            }
+        }
+    }
+
     /// Appends the exemplars of every point in @p data, whichever aggregation
     /// shape it holds.
     static void CollectExemplars(const mti::MetricData& data, std::vector<mti::Exemplar>& out)

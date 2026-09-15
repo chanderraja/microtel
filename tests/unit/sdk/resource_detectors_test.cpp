@@ -286,6 +286,20 @@ TEST(ProcessDetectorTest, Detect_MissingCmdline_ReturnsConfigError)
     EXPECT_FALSE(res.error().message.empty());
 }
 
+TEST(ProcessDetectorTest, Detect_CmdlineIsNotAFile_ReturnsConfigError)
+{
+    // A directory opens fine under O_RDONLY and then fails the read with
+    // EISDIR: the open check alone is not enough to call the source readable.
+    const FixtureRoot root{"dircmd"};
+    std::filesystem::create_directories(root.Path() / "proc/self/cmdline");
+
+    const auto detector = microtel::MakeProcessDetector(root.Path());
+    const auto res = detector->Detect();
+
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error().kind, microtel::ConfigError::Kind::Unspecified);
+}
+
 TEST(ProcessDetectorTest, Name_IdentifiesTheDetector)
 {
     const auto detector = microtel::MakeProcessDetector();

@@ -169,8 +169,8 @@ TEST(SamplerChainAllocation, CounterObservesARealAllocation)
 TEST(SamplerChainAllocation, AttributeRuleDoesNotAllocate)
 {
     std::vector<mt::KeyValue> attrs;
-    attrs.push_back(mt::KeyValue{.key = "http.method",
-                                 .value = mt::AttributeValue{std::string{"GET"}}});
+    attrs.push_back(
+        mt::KeyValue{.key = "http.method", .value = mt::AttributeValue{std::string{"GET"}}});
     const auto ctx = MakeCtx("GET /orders", mt::SpanKind::Server, mt::AttributeSpan{attrs});
 
     const auto rule = mt::MakeAttributeRuleSampler("http.method",
@@ -199,8 +199,8 @@ TEST(SamplerChainAllocation, SpanKindRuleDoesNotAllocate)
 TEST(SamplerChainAllocation, FirstMatchChainDoesNotAllocate)
 {
     std::vector<mt::KeyValue> attrs;
-    attrs.push_back(mt::KeyValue{.key = "http.route",
-                                 .value = mt::AttributeValue{std::string{"/orders"}}});
+    attrs.push_back(
+        mt::KeyValue{.key = "http.route", .value = mt::AttributeValue{std::string{"/orders"}}});
     const auto ctx = MakeCtx("GET /orders", mt::SpanKind::Server, mt::AttributeSpan{attrs});
 
     std::vector<mt::SamplerHandle> children;
@@ -220,12 +220,12 @@ TEST(SamplerChainAllocation, FirstMatchChainDoesNotAllocate)
 TEST(SamplerChainAllocation, AllMustAgreeChainDoesNotAllocate)
 {
     const auto ctx = MakeCtx("GET /orders", mt::SpanKind::Server, {});
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(),
-                     mt::MakeSpanKindRuleSampler(mt::SpanKind::Server,
-                                                 mt::MakeAlwaysOnSampler(),
-                                                 mt::MakeAlwaysOffSampler())),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(),
+                                          mt::MakeSpanKindRuleSampler(mt::SpanKind::Server,
+                                                                      mt::MakeAlwaysOnSampler(),
+                                                                      mt::MakeAlwaysOffSampler())),
+                             mt::ChainMode::AllMustAgree);
     ExpectNoAllocation(chain, ctx);
 }
 
@@ -234,17 +234,17 @@ TEST(SamplerChainAllocation, AllMustAgreeChainDoesNotAllocate)
 TEST(SamplerChainAllocation, ShortCircuitingAllMustAgreeChainDoesNotAllocate)
 {
     const auto ctx = MakeCtx("GET /orders", mt::SpanKind::Server, {});
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOffSampler(), mt::MakeAlwaysOnSampler()),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOffSampler(), mt::MakeAlwaysOnSampler()),
+                             mt::ChainMode::AllMustAgree);
     ExpectNoAllocation(chain, ctx);
 }
 
 TEST(SamplerChainAllocation, DescriptionDoesNotAllocate)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::FirstMatch);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::FirstMatch);
     ASSERT_NE(chain.Get(), nullptr);
     const std::string_view warmup = chain.Get()->Description();
     EXPECT_FALSE(warmup.empty());

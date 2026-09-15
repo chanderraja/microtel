@@ -71,8 +71,8 @@ mti::SamplingContext MakeEmptyCtx()
 std::vector<mt::KeyValue> MethodAttributes(std::string value)
 {
     std::vector<mt::KeyValue> attrs;
-    attrs.push_back(
-        mt::KeyValue{.key = std::string{kMethodKey}, .value = mt::AttributeValue{std::move(value)}});
+    attrs.push_back(mt::KeyValue{.key = std::string{kMethodKey},
+                                 .value = mt::AttributeValue{std::move(value)}});
     return attrs;
 }
 
@@ -371,8 +371,8 @@ TEST(ChainSamplerFirstMatch, NoRuleMatchesDrops)
 
 TEST(ChainSamplerFirstMatch, EmptyChainDrops)
 {
-    const auto chain = mt::MakeChainSampler(std::vector<mt::SamplerHandle>{},
-                                            mt::ChainMode::FirstMatch);
+    const auto chain =
+        mt::MakeChainSampler(std::vector<mt::SamplerHandle>{}, mt::ChainMode::FirstMatch);
     ASSERT_NE(chain.Get(), nullptr);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::Drop);
 }
@@ -381,26 +381,26 @@ TEST(ChainSamplerFirstMatch, EmptyChainDrops)
 
 TEST(ChainSamplerAllMustAgree, AllSamplingChildrenSample)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOnSampler()),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOnSampler()),
+                             mt::ChainMode::AllMustAgree);
     ASSERT_NE(chain.Get(), nullptr);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::RecordAndSample);
 }
 
 TEST(ChainSamplerAllMustAgree, OneDroppingChildDrops)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::AllMustAgree);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::Drop);
 }
 
 TEST(ChainSamplerAllMustAgree, FirstChildDroppingDrops)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOffSampler(), mt::MakeAlwaysOnSampler()),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOffSampler(), mt::MakeAlwaysOnSampler()),
+                             mt::ChainMode::AllMustAgree);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::Drop);
 }
 
@@ -408,9 +408,9 @@ TEST(ChainSamplerAllMustAgree, FirstChildDroppingDrops)
 TEST(ChainSamplerAllMustAgree, RecordOnlyChildDrops)
 {
     auto probe = MakeProbe(mti::SamplingDecision::RecordOnly);
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), std::move(probe.handle)),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), std::move(probe.handle)),
+                             mt::ChainMode::AllMustAgree);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::Drop);
 }
 
@@ -437,9 +437,9 @@ TEST(ChainSamplerAllMustAgree, EveryChildIsConsultedWhenAllAgree)
     const auto* const first_probe = first.mock;
     const auto* const second_probe = second.mock;
 
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(std::move(first.handle), std::move(second.handle)),
-        mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(std::move(first.handle), std::move(second.handle)),
+                             mt::ChainMode::AllMustAgree);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::RecordAndSample);
     EXPECT_EQ(first_probe->should_sample_call_count, 1);
     EXPECT_EQ(second_probe->should_sample_call_count, 1);
@@ -465,8 +465,8 @@ TEST(ChainSamplerAllMustAgree, RuleChildContributesItsNoMatchDelegate)
 
 TEST(ChainSamplerAllMustAgree, EmptyChainDrops)
 {
-    const auto chain = mt::MakeChainSampler(std::vector<mt::SamplerHandle>{},
-                                            mt::ChainMode::AllMustAgree);
+    const auto chain =
+        mt::MakeChainSampler(std::vector<mt::SamplerHandle>{}, mt::ChainMode::AllMustAgree);
     ASSERT_NE(chain.Get(), nullptr);
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::Drop);
 }
@@ -480,7 +480,7 @@ TEST(ChainSampler, EmptyChildHandlesAreDroppedAtConstruction)
 {
     std::vector<mt::SamplerHandle> children;
     children.reserve(2);
-    children.push_back(mt::SamplerHandle{});
+    children.emplace_back();
     children.push_back(mt::MakeAlwaysOnSampler());
 
     const auto chain = mt::MakeChainSampler(std::move(children), mt::ChainMode::AllMustAgree);
@@ -499,34 +499,33 @@ TEST(ChainSampler, VariadicOverloadForwardsIntoTheVector)
 
 TEST(ChainSampler, VariadicOverloadAcceptsASingleChild)
 {
-    const auto chain =
-        mt::MakeChainSampler(mt::ChainMode::FirstMatch, mt::MakeAlwaysOnSampler());
+    const auto chain = mt::MakeChainSampler(mt::ChainMode::FirstMatch, mt::MakeAlwaysOnSampler());
     EXPECT_EQ(DecisionOf(chain, MakeEmptyCtx()), mti::SamplingDecision::RecordAndSample);
 }
 
 TEST(ChainSampler, DescriptionNamesModeAndEveryChild)
 {
-    const auto first_match = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::FirstMatch);
+    const auto first_match =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::FirstMatch);
     const std::string desc{first_match.Get()->Description()};
     EXPECT_NE(desc.find("ChainSampler"), std::string::npos);
     EXPECT_NE(desc.find("FirstMatch"), std::string::npos);
     EXPECT_NE(desc.find("AlwaysOnSampler"), std::string::npos);
     EXPECT_NE(desc.find("AlwaysOffSampler"), std::string::npos);
 
-    const auto all_agree = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::AllMustAgree);
+    const auto all_agree =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::AllMustAgree);
     const std::string all_desc{all_agree.Get()->Description()};
     EXPECT_NE(all_desc.find("AllMustAgree"), std::string::npos);
 }
 
 TEST(ChainSampler, DescriptionIsStableAcrossCalls)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::FirstMatch);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::FirstMatch);
     const std::string_view first = chain.Get()->Description();
     const std::string_view second = chain.Get()->Description();
     EXPECT_EQ(first.data(), second.data());
@@ -535,9 +534,9 @@ TEST(ChainSampler, DescriptionIsStableAcrossCalls)
 
 TEST(ChainSampler, NestedChainsCompose)
 {
-    auto inner = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOnSampler()),
-        mt::ChainMode::AllMustAgree);
+    auto inner =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOnSampler()),
+                             mt::ChainMode::AllMustAgree);
     const auto outer = mt::MakeChainSampler(
         MakeChildren(std::move(inner), mt::MakeAlwaysOffSampler()), mt::ChainMode::FirstMatch);
     // FirstMatch: the inner chain carries no predicate, so it decides.
@@ -545,6 +544,23 @@ TEST(ChainSampler, NestedChainsCompose)
 }
 
 // --- Concurrency ---------------------------------------------------------
+
+/// @brief Asks `chain` for a decision `iterations` times, counting the
+/// sampled answers. Lives outside the test body to keep the thread lambda
+/// within the project's three-level nesting limit.
+void CountSampled(const mt::SamplerHandle& chain,
+                  std::size_t iterations,
+                  std::atomic<std::size_t>& sampled)
+{
+    const auto ctx = MakeCtx("span", mt::SpanKind::Server, {});
+    for (std::size_t i = 0; i < iterations; ++i)
+    {
+        if (DecisionOf(chain, ctx) == mti::SamplingDecision::RecordAndSample)
+        {
+            sampled.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+}
 
 // `ShouldSample` is called from the caller thread on the hot path and must be
 // thread-safe (`docs/interfaces.md` §4.5, LOCKED). The chain is immutable
@@ -555,30 +571,19 @@ TEST(ChainSampler, ConcurrentShouldSampleCallsAgree)
     constexpr std::size_t kThreads = 4;
     constexpr std::size_t kIterations = 200;
 
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeSpanKindRuleSampler(mt::SpanKind::Server,
-                                                 mt::MakeAlwaysOnSampler(),
-                                                 mt::MakeAlwaysOffSampler()),
-                     mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::FirstMatch);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeSpanKindRuleSampler(mt::SpanKind::Server,
+                                                                      mt::MakeAlwaysOnSampler(),
+                                                                      mt::MakeAlwaysOffSampler()),
+                                          mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::FirstMatch);
 
     std::atomic<std::size_t> sampled{0};
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
     for (std::size_t t = 0; t < kThreads; ++t)
     {
-        threads.emplace_back(
-            [&chain, &sampled]()
-            {
-                const auto ctx = MakeCtx("span", mt::SpanKind::Server, {});
-                for (std::size_t i = 0; i < kIterations; ++i)
-                {
-                    if (DecisionOf(chain, ctx) == mti::SamplingDecision::RecordAndSample)
-                    {
-                        sampled.fetch_add(1, std::memory_order_relaxed);
-                    }
-                }
-            });
+        threads.emplace_back([&chain, &sampled]() { CountSampled(chain, kIterations, sampled); });
     }
     for (std::thread& thread : threads)
     {

@@ -36,6 +36,14 @@ SamplerHandle::SamplerHandle(std::unique_ptr<internal::ISampler> impl) noexcept
 
 SamplerHandle::~SamplerHandle() noexcept = default;
 
+// Defaulted here rather than in the header: defining a move operation
+// inline would instantiate `~unique_ptr<internal::ISampler>` in every
+// translation unit that sees the declaration, and `ISampler` is incomplete
+// in the public header by design.
+SamplerHandle::SamplerHandle(SamplerHandle&&) noexcept = default;
+
+SamplerHandle& SamplerHandle::operator=(SamplerHandle&&) noexcept = default;
+
 internal::ISampler* SamplerHandle::Get() const noexcept
 {
     return m_impl.get();

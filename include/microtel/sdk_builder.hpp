@@ -118,6 +118,14 @@ struct MemoryLimitOptions
 /// @brief Callback returning the current `Authorization` header value.
 ///
 /// Called per-export-batch with results cached for a configurable TTL.
+///
+/// **On failure the batch is dropped, not sent unauthenticated** — an error
+/// return and a throw cost the same one batch, counted as
+/// `non_retryable_failure` with the callback's message in
+/// `HealthSnapshot::last_error_message` (`docs/interfaces.md` §4.9). A throw
+/// is caught at the provider boundary and converted to
+/// `Error::Kind::InternalFailure`; returning the error is still preferable,
+/// since the kind then survives to the health snapshot.
 using AuthCallback = std::function<Expected<std::string, Error>()>;
 
 /// @brief Fluent builder for configuring and constructing a `Provider`.

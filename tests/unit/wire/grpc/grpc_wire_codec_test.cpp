@@ -760,10 +760,12 @@ TEST(GrpcWireCodecTest, Send_AuthProviderError_DropsBatchWithoutSending)
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.retryable) << "non_retryable_failure per interfaces.md §4.9";
     ASSERT_TRUE(result.error.has_value());
+    // NOLINTBEGIN(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
     EXPECT_EQ(result.error->kind, mt::Error::Kind::Network);
     EXPECT_NE(result.error->message.find("authorization"), std::string::npos)
         << "last_error_message must name auth: " << result.error->message;
     EXPECT_NE(result.error->message.find("token fetch failed"), std::string::npos);
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_TRUE(transport.sent_specs.empty())
         << "an unauthenticated request must never reach the wire";
 }

@@ -516,10 +516,12 @@ TEST(HttpWireCodecTest, Send_AuthProviderError_DropsBatchWithoutSending)
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.retryable) << "non_retryable_failure per interfaces.md §4.9";
     ASSERT_TRUE(result.error.has_value());
+    // NOLINTBEGIN(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
     EXPECT_EQ(result.error->kind, mt::Error::Kind::Network) << "the provider's kind survives";
     EXPECT_NE(result.error->message.find("authorization"), std::string::npos)
         << "last_error_message must name auth, not the receiver: " << result.error->message;
     EXPECT_NE(result.error->message.find("token fetch failed"), std::string::npos);
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_TRUE(transport.sent_specs.empty())
         << "an unauthenticated request must never reach the wire";
 }
@@ -529,10 +531,10 @@ TEST(HttpWireCodecTest, SendAll_AuthProviderError_DropsOnlyTheAffectedBatch)
     mtfk::FakeTransport transport;
     transport.default_response = OkResponse();
     mtfk::FakeAuthProvider auth;
-    auth.scripted_responses.push_back(std::optional<std::string>{"Bearer tok"});
-    auth.scripted_responses.push_back(mt::make_unexpected(
+    auth.scripted_responses.emplace_back(std::optional<std::string>{"Bearer tok"});
+    auth.scripted_responses.emplace_back(mt::make_unexpected(
         mt::Error{.kind = mt::Error::Kind::InternalFailure, .message = "callback threw"}));
-    auth.scripted_responses.push_back(std::optional<std::string>{"Bearer tok"});
+    auth.scripted_responses.emplace_back(std::optional<std::string>{"Bearer tok"});
     mtfk::FakeSteadyClock clock;
     mtw::HttpWireCodec codec{&transport, MakeConfig(), &auth, nullptr, &clock};
 

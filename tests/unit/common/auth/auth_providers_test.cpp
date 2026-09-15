@@ -223,6 +223,7 @@ TEST(CallbackAuthProviderTest, ThrowingCallback_NonStdException_ConvertsToIntern
     // Not hypothetical: anything that escapes here unwinds through the wire
     // codec into the exporter worker, which catches std::exception only and is
     // `noexcept` — std::terminate rather than one dropped batch.
+    // NOLINTNEXTLINE(hicpp-exception-baseclass) — a non-std throw is the case under test
     mc::CallbackAuthProvider provider{[]() -> mt::Expected<std::string, mt::Error> { throw 42; },
                                       std::chrono::seconds(60)};
 

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "microtel/error.hpp"
+#include "microtel/expected.hpp"
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
@@ -128,9 +130,19 @@ private:
                                    std::vector<std::byte>& storage) const noexcept;
 
     [[nodiscard]] std::string ResolvePath() const noexcept;
-    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(std::size_t content_length,
-                                                                  bool compressed) const noexcept;
-    void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
+    /// @brief Builds the complete request header block, `authorization`
+    ///        included.
+    /// @return the headers, or the auth provider's `Error` — a batch whose
+    ///         header block cannot be completed is dropped rather than sent
+    ///         without the header (`docs/interfaces.md` §4.9, issue #250).
+    [[nodiscard]] microtel::Expected<std::vector<internal::HeaderField>, Error> BuildHeaders(
+        std::size_t content_length, bool compressed) const;
+    /// @brief Appends `authorization` from the auth provider, if there is one.
+    /// @return `nullopt` when the header was appended, or when there is no
+    ///         provider or it has no value to give; otherwise the provider's
+    ///         `Error`.
+    [[nodiscard]] std::optional<Error> AppendAuthHeader(
+        std::vector<internal::HeaderField>& headers) const;
     [[nodiscard]] static std::string BuildExcerpt(std::span<const std::byte> body);
     /// @brief Turn a completed transport response into a `WireResult`.
     ///

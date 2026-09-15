@@ -12,10 +12,6 @@
 //   - a callback that throws is converted to `InternalFailure` at the provider
 //     boundary and costs the same one batch, not the whole drain.
 
-#include "common/config/auth_providers.hpp"
-#include "exporter/otlp_exporter.hpp"
-#include "wire/http/http_wire_codec.hpp"
-
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
 #include "microtel/internal/auth_provider.hpp"
@@ -25,12 +21,16 @@
 #include "microtel/resource.hpp"
 #include "microtel/status.hpp"
 
+#include "common/config/auth_providers.hpp"
+#include "exporter/otlp_exporter.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_transport.hpp"
 #include "mocks/mock_otlp_encoder.hpp"
+#include "wire/http/http_wire_codec.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -91,14 +91,8 @@ std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason re
 
 bool HasAuthHeader(const mti::RequestSpec& spec)
 {
-    for (const auto& h : spec.headers)
-    {
-        if (h.name == "authorization")
-        {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(spec.headers,
+                               [](const mti::HeaderField& h) { return h.name == "authorization"; });
 }
 
 /// Exports three batches through the pipeline and waits for the drain.

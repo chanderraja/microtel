@@ -5,25 +5,25 @@ blank_issues_enabled: false
 
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/TBD-org/microtel/security/advisories/new
+    url: https://github.com/chanderraja/microtel/security/advisories/new
     about: Please report security vulnerabilities privately, not as public issues. See SECURITY.md.
 
   - name: Question or design discussion
-    url: https://github.com/TBD-org/microtel/discussions
+    url: https://github.com/chanderraja/microtel/discussions
     about: Use GitHub Discussions for questions and design conversations.
 
   - name: Interface Change Proposal (ICP)
-    url: https://github.com/TBD-org/microtel/blob/main/docs/icps/README.md
+    url: https://github.com/chanderraja/microtel/blob/master/docs/icps/README.md
     about: For breaking changes to locked interfaces, use the ICP process — not an issue.
 
   - name: Spec
-    url: https://github.com/TBD-org/microtel/blob/main/microtel-spec.md
+    url: https://github.com/chanderraja/microtel/blob/master/microtel-spec.md
     about: For questions about what's in or out of v1, read the spec first.
 
   - name: Roadmap
-    url: https://github.com/TBD-org/microtel/blob/main/microtel-roadmap.md
+    url: https://github.com/chanderraja/microtel/blob/master/microtel-roadmap.md
     about: For questions about what's coming after v1.0, see the roadmap.
 
   - name: Contributing
-    url: https://github.com/TBD-org/microtel/blob/main/CONTRIBUTING.md
+    url: https://github.com/chanderraja/microtel/blob/master/CONTRIBUTING.md
     about: For questions about contributing, see CONTRIBUTING.md.

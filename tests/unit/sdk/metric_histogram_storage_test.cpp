@@ -28,6 +28,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace mt = microtel;
@@ -68,7 +69,7 @@ class FakeSpanSource : public mti::ICurrentSpanSource
 public:
     void SetSpan(mt::SpanContext ctx) noexcept
     {
-        m_span = ctx;
+        m_span = std::move(ctx);
     }
     [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
     {

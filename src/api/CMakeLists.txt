@@ -6,7 +6,8 @@
 
 add_library(microtel_api STATIC
     propagator.cpp
-    trace.cpp)
+    trace.cpp
+    trace_state.cpp)
 
 target_link_libraries(microtel_api
     PUBLIC microtel_headers)

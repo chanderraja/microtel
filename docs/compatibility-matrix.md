@@ -130,21 +130,24 @@ open at the time of writing.
   spans by service rather than by instrumentation library. Affects both
   protocols identically. No conformance test asserts on `ScopeSpans.scope` —
   that would enshrine the bug.
-- **`tracestate` does not round-trip** (issue #208, the follow-up to the fixed #188). The link
-  defect is gone: `TraceState::FromHeader` / `ToHeader` / `Size` / `Empty` and
-  `W3CTraceContextPropagator::Inject` / `Extract` are now defined in
-  `src/api/propagator.cpp` (`microtel_api`), and `traceparent` inject and
-  extract are complete and W3C-conformant.
-  What remains is the type itself: `microtel::TraceState` as declared in
-  `include/microtel/trace.hpp` has **no data member and no mutation methods**,
-  so it cannot hold an entry. `FromHeader` therefore returns the empty state
-  for every input and `Inject` never emits a `tracestate` header, so a
-  vendor's `tracestate` is dropped rather than forwarded across a microtel
-  hop. `traceparent` — the trace id, parent id and sampled flag — is
-  unaffected.
-  Giving `TraceState` storage is an ABI change to a public header and would
-  put a throwing copy inside `Span::GetContext() const noexcept`; it needs an
-  ICP rather than a drive-by fix.
+- **`tracestate` round-trips** (issue #208, fixed in v1.1; follow-up to the
+  fixed #188). `microtel::TraceState` holds a real entry list, so a vendor's
+  `tracestate` now survives a microtel hop instead of being dropped: `Extract`
+  populates `SpanContext::trace_state` and `Inject` emits the header whenever
+  it is non-empty. Parsing and serialisation follow the W3C Trace Context §3.3
+  key and value grammars and the 32-member limit; §4.3's whole-header option
+  is the one microtel takes, so one malformed member, one duplicate key, or a
+  33rd member discards the header rather than half-forwarding it — and never
+  costs the `traceparent`. `Get` / `Set` / `Erase` are copy-on-write, with the
+  mutated member moved to the front per §3.3.1.
+  The storage sits behind a `shared_ptr` to an immutable list so that
+  `SpanContext`'s copy stays `noexcept` inside
+  `Span::GetContext() const noexcept`; that made it the v1.0 → v1.1 ABI event
+  sanctioned by `microtel-spec.md` §19 and specified in
+  [ICP 0025](icps/0025-propagation-core.md) §1. Consumers recompile; no
+  consumer source changes. Evidence: `tests/unit/api/trace_state_test.cpp`
+  (W3C vector suite), `tests/unit/api/propagator_test.cpp`,
+  `tests/unit/adapters/otelcpp_context_conversion_test.cpp`.
 - **`HealthSnapshot::drop_counters` is live** (issue #169, fixed). 20 of 24
   `DropReason` counters have producers; the remaining four await their
   enforcement features (issue #181) and read zero. The conformance tests

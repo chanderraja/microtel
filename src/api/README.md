@@ -20,14 +20,18 @@ Track A — Trace SDK (per [`docs/development.md`](../../docs/development.md) §
 - `microtel::TraceId::ToHex` / `microtel::SpanId::ToHex`
   ([`trace.cpp`](trace.cpp), declared in
   [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)).
-- `microtel::W3CTraceContextPropagator::Inject` / `Extract` and
-  `microtel::TraceState::FromHeader` / `ToHeader` / `Size` / `Empty`
+- `microtel::W3CTraceContextPropagator::Inject` / `Extract`
   ([`propagator.cpp`](propagator.cpp), declared in
-  [`include/microtel/propagator.hpp`](../../include/microtel/propagator.hpp)
-  and [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)) —
-  issue #188. `traceparent` inject/extract is complete; `TraceState` has no
-  data member in its public declaration and so cannot hold an entry, which
-  `docs/compatibility-matrix.md` §5 tracks as the remaining gap.
+  [`include/microtel/propagator.hpp`](../../include/microtel/propagator.hpp)) —
+  issue #188. Both `traceparent` and `tracestate` are complete.
+- `microtel::TraceState` — storage, the W3C Trace Context §3.3 grammar, and
+  copy-on-write `Get` / `Set` / `Erase`
+  ([`trace_state.cpp`](trace_state.cpp), declared in
+  [`include/microtel/trace.hpp`](../../include/microtel/trace.hpp)) — issue
+  #208, [ICP 0025](../../docs/icps/0025-propagation-core.md) §1. The entry
+  list is immutable behind a `shared_ptr`, which is what keeps `SpanContext`'s
+  copy `noexcept`; `internal::TraceStateImpl` is defined in that one
+  translation unit and nowhere else, so its layout is not part of the ABI.
 - `microtel::Tracer` (declared in [`include/microtel/tracer.hpp`](../../include/microtel/tracer.hpp))
 - `microtel::Span`   (declared in [`include/microtel/span.hpp`](../../include/microtel/span.hpp))
 - The unsampled-`Span` no-op singleton + `internal::SpanDeleter` per

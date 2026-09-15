@@ -26,6 +26,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace mt = microtel;
 
@@ -34,6 +35,9 @@ namespace
 
 /// @brief The W3C Trace Context specification's own example `traceparent`.
 constexpr std::string_view kCanonical = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+/// @brief The specification's own example `tracestate`, two members.
+constexpr std::string_view kSpecTracestate = "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE";
 
 constexpr std::string_view kTraceparent = "traceparent";
 constexpr std::string_view kTracestate = "tracestate";
@@ -262,6 +266,38 @@ TEST(W3CPropagatorExtractTest, ParsesTraceparentAlongsideATracestate)
     const mt::SpanContext context = mt::W3CTraceContextPropagator().Extract(GetterFor(headers));
     ASSERT_TRUE(context.IsValid());
     EXPECT_TRUE(context.remote);
+    EXPECT_EQ(context.trace_state.Get("vendor"), std::string_view("value"));
+}
+
+TEST(W3CPropagatorExtractTest, PopulatesEveryTracestateMemberInOrder)
+{
+    // Issue #208: before TraceState had storage this arrived empty, so a
+    // vendor's state was dropped on the microtel hop.
+    const Headers headers{{std::string(kTraceparent), std::string(kCanonical)},
+                          {std::string(kTracestate), std::string(kSpecTracestate)}};
+    const mt::SpanContext context = mt::W3CTraceContextPropagator().Extract(GetterFor(headers));
+    ASSERT_TRUE(context.IsValid());
+    EXPECT_EQ(context.trace_state.Size(), 2U);
+    EXPECT_EQ(context.trace_state.Get("rojo"), std::string_view("00f067aa0ba902b7"));
+    EXPECT_EQ(context.trace_state.Get("congo"), std::string_view("t61rcWkgMzE"));
+    EXPECT_EQ(context.trace_state.ToHeader(), kSpecTracestate);
+}
+
+TEST(W3CPropagatorExtractTest, LeavesTraceStateEmptyWhenTheHeaderIsAbsent)
+{
+    EXPECT_TRUE(Extract(kCanonical).trace_state.Empty());
+}
+
+TEST(W3CPropagatorExtractTest, LeavesTraceStateEmptyWhenTheHeaderIsMalformed)
+{
+    // A bad tracestate must not cost us the traceparent: W3C §4.3 discards the
+    // unparseable header, not the whole context.
+    const Headers headers{{std::string(kTraceparent), std::string(kCanonical)},
+                          {std::string(kTracestate), "NOT A VALID=list"}};
+    const mt::SpanContext context = mt::W3CTraceContextPropagator().Extract(GetterFor(headers));
+    ASSERT_TRUE(context.IsValid());
+    EXPECT_TRUE(context.remote);
+    EXPECT_TRUE(context.trace_state.Empty());
 }
 
 // ── Inject ────────────────────────────────────────────────────────────────────
@@ -355,11 +391,72 @@ TEST(W3CPropagatorInjectTest, ToleratesAnEmptySetter)
 TEST(W3CPropagatorInjectTest, WritesNoTracestateForAnEmptyTraceState)
 {
     // An empty `tracestate` is not a legal header value, so none is written.
-    // microtel's TraceState carries no storage today (issue #188), so this is
-    // every context — see trace_state_test.cpp.
     Headers headers;
     mt::W3CTraceContextPropagator().Inject(Extract(kCanonical), SetterFor(headers));
     EXPECT_EQ(headers.count(std::string(kTracestate)), 0U);
 }
+
+TEST(W3CPropagatorInjectTest, WritesTheTracestateHeaderWhenTheStateIsNonEmpty)
+{
+    mt::SpanContext context = Extract(kCanonical);
+    context.trace_state = mt::TraceState::FromHeader(kSpecTracestate);
+
+    Headers headers;
+    mt::W3CTraceContextPropagator().Inject(context, SetterFor(headers));
+    ASSERT_EQ(headers.count(std::string(kTracestate)), 1U);
+    EXPECT_EQ(headers.at(std::string(kTracestate)), kSpecTracestate);
+}
+
+TEST(W3CPropagatorInjectTest, WritesNoTracestateForAnInvalidContext)
+{
+    // The whole-carrier rule: an invalid context writes nothing at all, and a
+    // non-empty trace state does not buy it an exception.
+    mt::SpanContext context;
+    context.trace_state = mt::TraceState::FromHeader(kSpecTracestate);
+    ASSERT_FALSE(context.IsValid());
+
+    Headers headers;
+    mt::W3CTraceContextPropagator().Inject(context, SetterFor(headers));
+    EXPECT_TRUE(headers.empty());
+}
+
+TEST(W3CPropagatorInjectTest, RoundTripsTracestateThroughExtract)
+{
+    // The interop story issue #208 was about: a vendor's state survives the
+    // microtel hop byte for byte, alongside the traceparent.
+    const Headers upstream{{std::string(kTraceparent), std::string(kCanonical)},
+                           {std::string(kTracestate), std::string(kSpecTracestate)}};
+    const mt::SpanContext extracted = mt::W3CTraceContextPropagator().Extract(GetterFor(upstream));
+
+    Headers downstream;
+    mt::W3CTraceContextPropagator().Inject(extracted, SetterFor(downstream));
+    EXPECT_EQ(downstream.at(std::string(kTraceparent)), kCanonical);
+    EXPECT_EQ(downstream.at(std::string(kTracestate)), kSpecTracestate);
+}
+
+TEST(W3CPropagatorInjectTest, CarriesAMutatedTraceStateDownstream)
+{
+    // The ordinary vendor flow: extract, record your own member, forward.
+    // W3C §3.3.1 puts the mutating system's member at the front.
+    const Headers upstream{{std::string(kTraceparent), std::string(kCanonical)},
+                           {std::string(kTracestate), std::string(kSpecTracestate)}};
+    mt::SpanContext context = mt::W3CTraceContextPropagator().Extract(GetterFor(upstream));
+    context.trace_state = context.trace_state.Set("microtel", "1");
+
+    Headers downstream;
+    mt::W3CTraceContextPropagator().Inject(context, SetterFor(downstream));
+    EXPECT_EQ(downstream.at(std::string(kTracestate)),
+              "microtel=1,rojo=00f067aa0ba902b7,congo=t61rcWkgMzE");
+}
+
+// ── The noexcept guard the whole design exists for ───────────────────────────
+//
+// `Span::GetContext() const noexcept` hands a `SpanContext` back by value, and
+// Inject takes it by const reference from there. Storage behind a shared_ptr
+// is what keeps that copy from allocating (ICP 0025 §1).
+
+static_assert(std::is_nothrow_copy_constructible_v<mt::SpanContext>,
+              "SpanContext copy must stay noexcept — see ICP 0025 §1");
+static_assert(std::is_nothrow_copy_constructible_v<mt::TraceState>);
 
 }  // namespace

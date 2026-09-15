@@ -30,6 +30,7 @@
 #include <limits>
 #include <string>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -79,7 +80,7 @@ class FakeSpanSource : public mti::ICurrentSpanSource
 public:
     void SetSpan(mt::SpanContext ctx) noexcept
     {
-        m_span = ctx;
+        m_span = std::move(ctx);
     }
     [[nodiscard]] mt::SpanContext GetCurrentSpan() const override
     {

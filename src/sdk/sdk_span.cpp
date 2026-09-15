@@ -212,8 +212,10 @@ SdkSpan::SdkSpan(SpanContext context,
       m_limits(limits),
       m_diagnostics(diagnostics)
 {
-    m_record.context = context;
-    m_record.parent_context = parent_context;
+    // Sink parameters: both are consumed here, and since #208 gave TraceState
+    // storage a SpanContext copy is no longer free.
+    m_record.context = std::move(context);
+    m_record.parent_context = std::move(parent_context);
     DropOnBadAlloc([this, &name] { m_record.name = std::string{name}; });
     m_record.kind = kind;
     m_record.start_time = (start_time == std::chrono::system_clock::time_point{})

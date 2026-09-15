@@ -83,15 +83,21 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 **Theme:** Make v1 actually nice to operate, layer on the ergonomics that v1.0 deliberately deferred.
 
 - **Sugar layer** (`microtel::sugar`): function-scoped spans via `std::source_location`, RAII scoped spans with inline attributes, traced-lambda helpers, exception recording, scoped timers (active once metrics arrive in v1.2), pre-bound `AttrKey` for hot paths. Python equivalents using decorators and context managers. See §5 below for full sugar evolution.
-- **Control plane** — Unix-domain-socket server with length-prefixed JSON wire (per spec §13 in earlier drafts), `microtelctl` Go binary with REPL and tab completion. Hot-reloadable settings: sampler ratio, batch sizes, internal log level. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1.
+- **Hot reload via public setters.** Four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — driven from whatever administrative surface the host application already has. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1. The Unix-domain-socket server, its length-prefixed JSON wire, and the `microtelctl` client are deferred to **v1.2**; see [ICP 0024](docs/icps/0024-v1.1-rescope.md) and `docs/control-plane-design.md`.
 - **W3C Baggage propagation.** Inject + extract.
-- **Composable sampler chains.** `microtel::sampler::Chain({...})` with built-in rule-based combinators (sample-on-attribute, sample-on-duration, etc.).
+- **Composable sampler chains.** `microtel::sampler::Chain({...})` with built-in rule-based combinators over what a head sampler can see at `ShouldSample` time — sample-on-attribute, sample-on-name, sample-on-kind. **Not** sample-on-duration: the decision is made before the span runs, so duration-based selection is tail sampling and belongs in the collector.
 - **Multi-profile within one process.** Named providers with independent endpoints, samplers, and Resources.
-- **Built-in auth providers.** OAuth2 client credentials, AWS SigV4. mTLS rotation likely v1.2 (more involved).
+- **Auth recipes, not built-in providers.** OAuth2 client credentials and AWS SigV4 ship as documented `AuthCallback` recipes — the shipped `WithAuthProvider` surface already carries both, and neither needs code in the runtime. mTLS rotation likely v1.2 (more involved).
 - **Resource detectors:** process (`process.pid`, `process.executable.name`, `process.command_line`) and host (`host.name`, `host.id`).
-- **`microtelctl` packaging:** standalone Go binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package — reconciles the v1.0 "single shared library + Python wheel" claim.
+- **`microtelctl` packaging — deferred to v1.2** with the socket server it drives: standalone Go binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package — reconciles the v1.0 "single shared library + Python wheel" claim.
 
-**Ships when:** sugar layer has a stable API, control plane has a documented threat model, hot reload is fuzz-tested.
+**Ships when:**
+
+1. The sugar layer has a stable API, recorded in ICP 0028 and shipped as installed headers.
+2. The hot-reload setters pass a TSAN-built concurrent hammer test — all four setters racing span/log emission, the BSP/BLRP workers, and metric collection — and their input validation is fuzz-tested by a harness driving randomized values and interleavings against a live provider in the standing fuzz job.
+3. The propagation core passes W3C test vectors for traceparent, tracestate, and baggage, including grammar limits, and the baggage header parser has a fuzz target.
+4. Roadmap and spec are amended for the socket/microtelctl deferral (threat-model + hot-reload-socket-fuzz gates move with it to v1.2), the OAuth2/SigV4 → AuthCallback-recipes substitution, and the sample-on-duration correction.
+5. Every issue on the v1.1 milestone is closed or explicitly re-milestoned with a recorded reason.
 
 **Anti-goals in v1.1:** still no metrics, no logs, no full SDK conformance claim, no Windows.
 
@@ -280,8 +286,8 @@ The v1.0 footprint targets in spec §10.5 are stretch numbers pending prototype.
 | Release | Core exporter (`libmicrotel-exporter.so`) | Full SDK (`libmicrotel-sdk.so`) | Total dynamic closure |
 |---|---|---|---|
 | v1.0 | < 800 KB stretch | < 1.5 MB stretch | < 3 MB stretch |
-| v1.1 | + control plane (separate so) | + sugar (header-only-ish) | + spdlog, Go ctl binary |
-| v1.2 | unchanged | + metrics SDK | unchanged |
+| v1.1 | unchanged | + sugar (header-only-ish) | + spdlog |
+| v1.2 | + control plane (separate so) | + metrics SDK | + Go ctl binary |
 | v1.3 | unchanged | + logs SDK | unchanged |
 | v1.4 | unchanged | + extension surface | + auto-instr packages (separate) |
 | v1.5 | refined | refined | + nghttp3 (optional) |
@@ -298,8 +304,8 @@ The v1.0 footprint targets in spec §10.5 are stretch numbers pending prototype.
 How the pitch to potential users evolves:
 
 - **v1.0:** *"OTLP/gRPC and OTLP/HTTP wire compat, no gRPC library, < 3 MB closure."* Best for: embedded Linux, edge, CNF, air-gapped, anyone whose pain point is the gRPC dependency closure.
-- **v1.1:** *"…plus a real operational surface — preflight, hot reload, sane control plane."* Adds: ops-heavy deployments where the gRPC closure isn't the only friction.
-- **v1.2:** *"…plus production-quality metrics with explicit cardinality control."* Adds: teams currently using the OTLP/HTTP exporter or Prometheus push gateway and wanting cleaner aggregation.
+- **v1.1:** *"…plus a real operational surface — preflight, and hot reload you drive from the admin surface you already have."* Adds: ops-heavy deployments where the gRPC closure isn't the only friction.
+- **v1.2:** *"…plus production-quality metrics with explicit cardinality control, and out-of-process administration."* Adds: teams currently using the OTLP/HTTP exporter or Prometheus push gateway and wanting cleaner aggregation.
 - **v1.3:** *"…plus logs with built-in trace correlation."* Adds: full-signal users currently running stock OTel-cpp and wanting the footprint reduction.
 - **v1.4:** *"…plus auto-instrumentation for major libraries and a beta compat shim."* Adds: teams that want to migrate from stock OTel-cpp without code changes.
 - **v2.0:** *"…plus a leaf library for embedded fleets."* Adds: the constrained-device fleet audience the project's embedded positioning was always aimed at.
@@ -313,7 +319,7 @@ What we're explicitly **not** doing in each phase:
 
 | Phase | Not doing |
 |---|---|
-| v1.x core | Windows; full SDK conformance claim; leaf/embedded; control plane (until v1.1); auto-instrumentation (until v1.4) |
+| v1.x core | Windows; full SDK conformance claim; leaf/embedded; control plane (until v1.2); auto-instrumentation (until v1.4) |
 | v2.x | Full SDK conformance claim; profiles signal; formal RTOS integrations as core; leaf-side sampling; concentrator-side persistence beyond optional disk queue |
 | v3.0 | Nothing meaningful left as anti-goals — coverage is full |
 | All phases | Vendor-specific exporters (Datadog, New Relic, etc.) — collectors handle that; semantic-convention helper packages tied to specific OTel spec versions (we stay out of the semconv treadmill in core, may ship as separate optional package) |
@@ -339,8 +345,8 @@ The `bench/` directory evolves alongside the project:
 
 ### Documentation
 - **v1.0:** spec, migration guide, README, compatibility matrix, interop matrix.
-- **v1.1:** control plane operator guide, threat model.
-- **v1.2:** metrics design doc (M11 from v1 spec).
+- **v1.1:** hot-reload setter guide — what is reloadable, what is not, and why.
+- **v1.2:** metrics design doc (M11 from v1 spec); control plane operator guide, threat model.
 - **v1.3:** logs cookbook with bridge examples.
 - **v1.4:** conformance matrix, extension-author guide, auto-instrumentation cookbook.
 - **v2.0:** leaf programming guide, concentrator deployment guide, embedded examples.
@@ -397,8 +403,9 @@ Brief notes on decisions whose rationale spans multiple releases and influences 
 | Sugar in v1.1, not v1.0 | v0.9 spec | v1.0 messaging is "drop-in for OTel-cpp users"; sugar layer competes with that pitch. Sugar arrives once core is proven. | v1.1+ |
 | Control plane in v1.1, not v1.0 | v0.9 spec | Adds Unix socket server, JSON wire, CLI, REPL, attack surface, threat model. Too much for v1.0 alongside transport correctness. | v1.1+ |
 | Leaf encoder is upb first, nanopb later | v0.5 spec | Larger embedded targets are most of the addressable audience and reuse microtel's existing encoder closure. nanopb adds reach to true MCU class. | v2.0, v2.1 |
+| Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](docs/icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
 
-This log is appended to, never rewritten. When a decision is reversed (none yet), the original entry stays and a new entry records the reversal with rationale.
+This log is appended to, never rewritten. When a decision is reversed, the original entry stays and a new entry records the reversal with rationale — the control-plane deferral is the first.
 
 ---
 

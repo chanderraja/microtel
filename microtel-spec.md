@@ -348,7 +348,7 @@ No long-running Unix socket server, no `microtelctl`, no JSON wire protocol, no 
 | Internal diagnostic logging | ✅ | spdlog or minimal stderr |
 | **Metrics** | ❌ | v1.1 / v1.2, after a metrics design doc |
 | **Logs** | ❌ | after metrics |
-| **Control plane** (UDS, microtelctl, hot reload) | ❌ | v1.1 / v2 |
+| **Control plane** (UDS, microtelctl) | ❌ | v1.2 / v2; v1.1 hot reload is public setters, no socket |
 | **Sugar layer** (`microtel::sugar`) | ❌ | v1.1 |
 | **Compat shims** (otel-cpp / otel-python) | experimental | not v1 load-bearing |
 | **Auth providers** beyond static + callback | ❌ | OAuth2 / SigV4 / mTLS-rotation are adapter packages or v1.x |
@@ -463,7 +463,7 @@ Component-separated to keep claims defensible:
 | `libmicrotel-sdk.so` (stripped, full v1 surface) | < 1.5 MB |
 | Total transitive dynamic closure | < 3 MB |
 | Python extension | measured separately |
-| Control-plane component | excluded from core size target (deferred to v1.1) |
+| Control-plane component | excluded from core size target (deferred to v1.2) |
 
 Benchmarks report both **dynamic-link** and **mostly-static** configurations. Dependency closure is measured with `lddtree` for dynamic and package artifact size for static. Realistic floors will be set after M0 and M2; the table above is stretch.
 
@@ -931,7 +931,7 @@ The compatibility matrix is the source of truth — claims of "drop-in" beyond w
 ### 18.1 v1.1 — Operational and ergonomic expansion
 
 - **Sugar layer** (`microtel::sugar`): function tracing via `std::source_location`, scoped spans, traced lambdas, exception recording, scoped timers, pre-bound attribute keys; Python decorator/context-manager equivalents. Sugar APIs are explicitly non-goals for compatibility testing — conformance tests target the OTel-like API and wire output, not convenience wrappers.
-- **Control plane:** Unix-socket server with length-prefixed JSON wire, `microtelctl` Go binary (REPL + single-shot), hot-reloadable settings (sampler, batch sizes, log level), config reload via SIGHUP. Scope and threat model finalized as part of v1.1 design.
+- **Hot reload:** four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — called by the host application from its own administrative surface. The Unix-socket server, its length-prefixed JSON wire, `microtelctl`, `SIGHUP` reload, and the threat model for all of them are deferred to **v1.2**, per [ICP 0024](docs/icps/0024-v1.1-rescope.md).
 - **Multi-profile within one process.**
 - **Composable sampler chains.**
 
@@ -974,7 +974,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 - **Compatibility policy:** semantic versioning; the public C++ API is stable within a major version. Wire compatibility is tracked against a pinned OTel spec version, with changes called out per release.
 - **ABI policy:** No stable C++ ABI guarantee before 1.0. After 1.0, public headers follow semver source compatibility. Binary ABI compatibility is best-effort within a minor release, **not** guaranteed across minor releases unless explicitly stated. Users requiring strict binary compatibility should pin to a specific minor version.
 - **Maintainer model:** CODEOWNERS required for core transport, encoder, SDK, Python, and packaging directories.
-- **Threat model** (initial): enumerated for the v1.1 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M9 (Hardening).
+- **Threat model** (initial): enumerated for the v1.2 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M9 (Hardening).
 - **License scanning:** CI runs license scanning over vendored and generated code (upb, opentelemetry-proto). Release artifacts include third-party notices auto-generated from `third_party/*/README.md` license entries.
 - **CI quality gates** (per §14): test coverage thresholds, sanitizer-clean builds, clang-tidy with SonarQube-aligned rules, SonarQube Cloud OSS-tier scan with no critical/blocker issues, no flaky tests in queue beyond two weeks, RAII pattern enforcement, generated-code zero-diff verification.
 

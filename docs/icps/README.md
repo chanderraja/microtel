@@ -37,6 +37,7 @@ headers.
 | [0021](0021-threading-model-reconciliation.md) | Reconcile `threading-model.md`; make LOCKED checkable | Accepted | #231 |
 | [0022](0022-tls-peer-verification.md) | Enforce TLS server-certificate verification | Accepted | #164 |
 | [0023](0023-span-processor-scope.md) | `ISpanProcessor::OnEnd` carries the `InstrumentationScope` | Accepted | #175 |
+| [0024](0024-v1.1-rescope.md) | v1.1 rescope — hot reload without a socket | Accepted | — |
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.
 A dash means the link was not determinable from commit messages, **not** that

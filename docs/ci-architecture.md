@@ -24,6 +24,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `test-presence` | `test-presence` | ❌ (see below) |
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
+| `ci.yml` | `version-drift-check` | `version-drift-check` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
 | `fuzz.yml`, `soak.yml`, `interop.yml`, `benchmark.yml` | — | scheduled / on-demand | ❌ |
@@ -228,6 +229,41 @@ form (`symbol-scan.sh [build-dir]`) for the quicker local loop.
 **Pass condition:** zero forbidden symbols and zero unprefixed vendored symbols
 across every installed `libmicrotel_*.a` and the installed `microtel-preflight`
 binary.
+
+### `version-drift-check` (job in `.github/workflows/ci.yml`)
+
+[`ci/scripts/version-drift-check.sh`](../ci/scripts/version-drift-check.sh)
+compares every hand-written version literal against `project(microtel VERSION …)`
+in the top-level `CMakeLists.txt`, which is the authority. The literals are
+`kVersionString` and the `kVersionMajor`/`Minor`/`Patch` triple in
+`include/microtel/version.hpp`, the gRPC `kUserAgent` in
+`src/wire/grpc/grpc_wire_codec.cpp`, and `kVersion` in
+`tools/preflight/preflight.cpp`. The last two reach collectors — as the
+`user-agent` export header (spec §7.2) and the `microtel.version` span attribute
+(spec §6.4) — which is why drift is a wire-visible bug and not bookkeeping.
+
+**It is a check, not a generator.** Deriving `version.hpp` from `PROJECT_VERSION`
+at configure time would turn a public header into a build artifact that the
+header-only `microtel_headers` target, the M0 header check, and the install
+surface all read as plain source. [`RELEASING.md`](../RELEASING.md) records that
+decision, the full bump procedure, and why `master` carries no `-dev` suffix.
+
+Zero matches and duplicate matches are both hard failures (exit 2), not passes:
+a pattern that stops matching after an unrelated rename would otherwise turn the
+gate into a no-op that still reports green — the same principle as `symbol-scan`
+failing when it finds no artifacts.
+
+**Steps:**
+1. `ci/scripts/version-drift-check.sh` — the gate.
+2. `ci/scripts/version-drift-check.sh --self-test` — the gate checking itself
+   against synthetic fixture trees: one per drift shape, plus the missing- and
+   duplicate-literal cases, asserting the exit code for each.
+
+The job installs no toolchain and builds nothing; it reads source text and
+answers in seconds.
+
+**Pass condition:** every literal equals `PROJECT_VERSION`, and the self-test's
+nine cases all produce their expected exit codes.
 
 **Deliberate non-violations.** The scan anchors its patterns at the start of the
 demangled name, which is what keeps the generated accessors legal: upb emits C

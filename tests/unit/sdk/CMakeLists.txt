@@ -115,6 +115,27 @@ microtel_add_test(
     SOURCES parent_based_sampler_test.cpp
     LIBS    microtel_sdk)
 
+# v1.1 — rule combinators (attribute / name / kind) and the two chain
+# composition modes. Uses tests/mocks/mock_sampler.hpp as the invocation probe
+# for the short-circuit tests, hence tests/ on the include path.
+microtel_add_test(
+    NAME    sampler_chain_test
+    SOURCES sampler_chain_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(sampler_chain_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+
+# v1.1 — the no-allocation half of the sampler-chain contract. Replaces global
+# operator new with a counting one, which is process-wide, so it needs its own
+# binary; skipped under sanitizers for the same reason as
+# noexcept_alloc_failure_test (asan/tsan install their own new/delete).
+if(MICROTEL_SANITIZER STREQUAL "")
+microtel_add_test(
+    NAME    sampler_chain_alloc_test
+    SOURCES sampler_chain_alloc_test.cpp
+    LIBS    microtel_sdk)
+endif()
+
 microtel_add_test(
     NAME    simple_span_processor_test
     SOURCES simple_span_processor_test.cpp

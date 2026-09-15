@@ -33,6 +33,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <memory>
@@ -80,6 +81,13 @@ mti::SamplingDecision DecisionOf(const mt::SamplerHandle& handle, const mti::Sam
 {
     return handle.Get()->ShouldSample(ctx).decision;
 }
+
+/// @brief A span kind and the name its description should carry.
+struct KindName
+{
+    mt::SpanKind kind = mt::SpanKind::Internal;
+    std::string_view name;
+};
 
 /// @brief A `MockSampler` wrapped in a handle, with a borrowed pointer kept so
 /// the test can read back how many times the chain reached it.
@@ -263,6 +271,47 @@ TEST(SpanKindRuleSampler, DescriptionNamesKindAndBothDelegates)
     EXPECT_NE(desc.find("Producer"), std::string::npos);
     EXPECT_NE(desc.find("AlwaysOnSampler"), std::string::npos);
     EXPECT_NE(desc.find("AlwaysOffSampler"), std::string::npos);
+}
+
+TEST(SpanKindRuleSampler, DescriptionNamesEveryKind)
+{
+    const std::array<KindName, 5> kinds{{
+        {.kind = mt::SpanKind::Internal, .name = "Internal"},
+        {.kind = mt::SpanKind::Server, .name = "Server"},
+        {.kind = mt::SpanKind::Client, .name = "Client"},
+        {.kind = mt::SpanKind::Producer, .name = "Producer"},
+        {.kind = mt::SpanKind::Consumer, .name = "Consumer"},
+    }};
+    for (const KindName& entry : kinds)
+    {
+        const auto rule = mt::MakeSpanKindRuleSampler(
+            entry.kind, mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler());
+        const std::string desc{rule.Get()->Description()};
+        EXPECT_NE(desc.find(entry.name), std::string::npos) << "kind missing: " << entry.name;
+    }
+}
+
+// --- Empty delegates ----------------------------------------------------
+
+// An empty `SamplerHandle` is a contract violation. Dereferencing one inside
+// a `noexcept` hot-path frame would take the host process down, so a rule
+// with an empty delegate answers `Drop` on that branch — and says so in its
+// description rather than pretending the delegate is a sampler.
+TEST(SpanKindRuleSampler, EmptyDelegateAnswersDrop)
+{
+    const auto rule = mt::MakeSpanKindRuleSampler(
+        mt::SpanKind::Server, mt::SamplerHandle{}, mt::MakeAlwaysOnSampler());
+    ASSERT_NE(rule.Get(), nullptr);
+
+    const auto server = MakeCtx("span", mt::SpanKind::Server, {});
+    EXPECT_EQ(DecisionOf(rule, server), mti::SamplingDecision::Drop);
+
+    // The other delegate is intact and still answers.
+    const auto client = MakeCtx("span", mt::SpanKind::Client, {});
+    EXPECT_EQ(DecisionOf(rule, client), mti::SamplingDecision::RecordAndSample);
+
+    const std::string desc{rule.Get()->Description()};
+    EXPECT_NE(desc.find("<null>"), std::string::npos);
 }
 
 // --- Rules delegate to arbitrary samplers, not just the constants --------

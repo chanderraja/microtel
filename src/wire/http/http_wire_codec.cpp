@@ -215,10 +215,16 @@ enum class BodyError : std::uint8_t
 /// peer, read timeout are exactly what the retry engine exists for. The one
 /// exception is a response the transport refused to buffer: the peer answers
 /// the retry with the same oversized response, so it is terminal and counted
-/// (`docs/error-model.md` §3 and §7.1).
+/// (`docs/error-model.md` §3 and §7.1). A request the transport refused to
+/// *queue* stays retryable — a full request queue drains — but is counted too,
+/// because the batch behind it was not delivered on this attempt.
 [[nodiscard]] internal::WireResult TransportFailure(const internal::TransportResult& result,
                                                     internal::IDiagnosticsSink* diag)
 {
+    if (result.transport_busy && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::TransportBusy);
+    }
     if (!result.response_too_large)
     {
         return {

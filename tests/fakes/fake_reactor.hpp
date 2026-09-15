@@ -8,8 +8,10 @@
 #include "microtel/internal/clock.hpp"
 #include "microtel/internal/reactor.hpp"
 
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 
@@ -46,6 +48,37 @@ public:
     /// no scripted events. Useful for shutdown-deadline tests.
     bool return_immediately = false;
 
+    /// @brief Park every `WaitAndDispatch` call until `ReleaseDispatch()`.
+    ///
+    /// `Http2Transport`'s I/O thread is the only caller of `WaitAndDispatch`,
+    /// so holding the dispatch holds the I/O thread: nothing is drained from
+    /// the transport's request queue and nothing is submitted to nghttp2. That
+    /// is what lets a test fill the request queue to an exact depth instead of
+    /// racing the drain.
+    ///
+    /// `Wake()` deliberately does **not** release the hold: `Send` wakes the
+    /// reactor on every call, and a hold any `Send` could lift would not be a
+    /// hold. Engage it before `Http2Transport::Create` so the I/O thread parks
+    /// on its first iteration.
+    ///
+    /// @warning Release before the transport is destroyed. `Close()` joins the
+    ///          I/O thread, which cannot exit while it is parked here.
+    void HoldDispatch() noexcept
+    {
+        const std::scoped_lock lk{m_hold_mu};
+        m_held = true;
+    }
+
+    /// @brief Let a held `WaitAndDispatch` proceed, and stop holding.
+    void ReleaseDispatch() noexcept
+    {
+        {
+            const std::scoped_lock lk{m_hold_mu};
+            m_held = false;
+        }
+        m_hold_cv.notify_all();
+    }
+
     [[nodiscard]] microtel::Expected<void, microtel::Error> Register(
         int fd, internal::EventMask mask, internal::EventCallback cb) override
     {
@@ -69,6 +102,10 @@ public:
 
     std::size_t WaitAndDispatch(internal::TimePointSteady /*deadline*/) override
     {
+        {
+            std::unique_lock lk{m_hold_mu};
+            m_hold_cv.wait(lk, [this] { return !m_held; });
+        }
         ++wait_dispatch_count;
         if (scripted_events.empty() || return_immediately)
         {
@@ -102,6 +139,10 @@ private:
     };
 
     std::unordered_map<int, Entry> m_callbacks;
+
+    std::mutex m_hold_mu;
+    std::condition_variable m_hold_cv;
+    bool m_held = false;
 };
 
 }  // namespace microtel::testing

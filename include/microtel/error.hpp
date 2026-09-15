@@ -31,10 +31,12 @@ public:
         /// it is permanent and the exporter does not retry it; from a response
         /// status, retryability follows the status.
         Protocol = 2,
-        ResourceExhausted = 3,  ///< peer signalled overload; retryable per RetryInfo
-        Cancelled = 4,          ///< local cancel (timeout, shutdown)
-        Malformed = 5,          ///< unparseable response or trailer
-        InternalFailure = 6,    ///< microtel internal bug; should not occur
+        /// Peer signalled overload (retryable per RetryInfo), or a local
+        /// transport queue refused the work at its bound.
+        ResourceExhausted = 3,
+        Cancelled = 4,        ///< local cancel (timeout, shutdown)
+        Malformed = 5,        ///< unparseable response or trailer
+        InternalFailure = 6,  ///< microtel internal bug; should not occur
     };
 
     Kind kind = Kind::Unspecified;

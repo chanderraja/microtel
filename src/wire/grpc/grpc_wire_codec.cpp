@@ -822,13 +822,19 @@ void WarnMissingGrpcStatusOnce(int http_status, bool& already_warned)
 ///
 /// A response the transport refused to buffer is the exception. The peer sends
 /// the same oversized response on the retry, so it is terminal and counted
-/// (`docs/error-model.md` §3 and §7.1).
+/// (`docs/error-model.md` §3 and §7.1). A request the transport refused to
+/// *queue* stays retryable — a full request queue drains — but is counted too,
+/// because the batch behind it was not delivered on this attempt.
 [[nodiscard]] internal::WireResult ClassifyTransportFailure(const internal::TransportResult& tr,
                                                             internal::IDiagnosticsSink* diag)
 {
     if (tr.response_too_large && diag != nullptr)
     {
         diag->RecordDrop(DropReason::ResponseTooLarge);
+    }
+    if (tr.transport_busy && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::TransportBusy);
     }
     return internal::WireResult{
         .success = false,

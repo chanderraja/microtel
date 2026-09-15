@@ -48,7 +48,7 @@ Exporter Worker     Wire Codec     I/O Thread     nghttp2     Peer
 2. **nghttp2 surfaces this automatically.** No microtel code reads the GOAWAY frame directly. nghttp2 marks the session as draining and refuses to open new streams. Existing streams complete normally if their IDs are ≤ last.
 3. **The I/O thread observes the session-level signal** (via nghttp2 callback) and triggers a reconnect: closes the current session, releases `SslSession` and `Socket`, opens a new TCP connection, runs the TLS + ALPN + SETTINGS handshake again. The reconnect path is the same as initial connect (`connection-establishment.md`).
 4. **The exporter worker is decoupled from the reconnect.** It blocks on the next `Send` only because the I/O thread is reconnecting; once `Connected`, the next batch proceeds. No drop occurs solely from observing GOAWAY — only the in-flight stream(s) that were rejected (next variant).
-5. **Backoff on reconnect.** If reconnect fails, the I/O thread enters the same exponential-backoff-with-jitter loop as the initial connect. The exporter's `Send` calls during this period observe `transport_busy` or block on the request queue.
+5. **Backoff on reconnect.** If reconnect fails, the I/O thread enters the same exponential-backoff-with-jitter loop as the initial connect. `Send` calls during this period fail fast with `not connected` — the state is not `Connected`, so nothing is queued and `transport_busy` is not what they see. `transport_busy` is the *other* refusal: the connection is up and the request queue is at `max_pending_requests` (`threading-model.md` §3.2).
 
 ---
 

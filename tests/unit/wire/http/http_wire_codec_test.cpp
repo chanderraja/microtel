@@ -313,6 +313,32 @@ TEST(HttpWireCodecTest, Send_TrailersTooLarge_CountsResponseTooLarge)
               1U);
 }
 
+// The `transport_busy` row of error-model.md §3: the transport refused to
+// queue the request because its request queue was at `max_pending_requests`.
+// Counted, but *retryable* — unlike an oversized response, a full queue is
+// transient and the retry engine is exactly what should handle it.
+TEST(HttpWireCodecTest, Send_TransportBusy_IsRetryableAndCounted)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    transport.default_response = mti::TransportResult{
+        .success = false,
+        .response_headers = {},
+        .response_trailers = {},
+        .response_body = {},
+        .error = mt::Error{.kind = mt::Error::Kind::ResourceExhausted,
+                           .message = "transport request queue full"},
+        .response_too_large = false,
+        .transport_busy = true,
+    };
+    mtw::HttpWireCodec codec{&transport, MakeConfig(), nullptr, &sink};
+
+    const auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.retryable);
+    EXPECT_EQ(sink.drop_counters.at(static_cast<std::size_t>(mt::DropReason::TransportBusy)), 1U);
+}
+
 // An ordinary transport failure stays retryable and uncounted — the cap flag,
 // not the mere presence of an error, is what changes the classification.
 TEST(HttpWireCodecTest, Send_OrdinaryTransportFailure_StaysRetryable)

@@ -106,7 +106,7 @@ entirely.)
 | `exporter.endpoint` | `WithEndpoint(s)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | none (required) | If unset, `Build` fails with `ConfigError::EndpointMalformed`. |
 | `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | **`http`**, or `grpc` for a `grpc://` / `grpcs://` endpoint | `http` or `grpc`. See "Endpoint scheme and protocol" below. |
 | `exporter.compression` | `WithCompressionGzip(b)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | off | TOML/env value is `gzip` to enable; anything else is off. The code setter is a `bool`, not a codec name — gzip is the only compression v1 implements. Controls **requests**: gzip request bodies with `content-encoding: gzip` (HTTP) or frame flag `0x01` with `grpc-encoding: gzip` (gRPC). Responses are independent — `accept-encoding` / `grpc-accept-encoding: gzip` is advertised whatever this is set to, and a compressed response is inflated under `MemoryLimitOptions::max_decompressed_bytes`. |
-| `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers; runtime auth via `WithAuthProvider` is separate. |
+| `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers, fixed for the process lifetime; runtime auth via `WithAuthProvider` is separate. `WithAuthProvider` has no TOML or env surface — it takes a callable. See [`auth-callback-recipes.md`](auth-callback-recipes.md) for OAuth2 and SigV4, and for what the callback runs on (an exporter worker) before you put I/O in it. |
 
 **Endpoint scheme and protocol.** Four schemes are accepted. Two of them are
 microtel shorthand that carries a protocol; two say nothing about it.

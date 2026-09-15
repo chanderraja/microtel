@@ -184,6 +184,7 @@ cd bench && ./bench.sh                        # hot-loop-traces profile
 - **[microtel-roadmap.md](microtel-roadmap.md)** — roadmap v1.0 → v3.0.
 - **[docs/metrics-design.md](docs/metrics-design.md)** — metrics design decisions (M11, signed off).
 - **[docs/interfaces.md](docs/interfaces.md)** — locked internal interface contracts.
+- **[docs/auth-callback-recipes.md](docs/auth-callback-recipes.md)** — OAuth2 and AWS SigV4 over `WithAuthProvider`, and what the callback cannot do.
 - **[docs/](docs/)** — architecture, threading model, memory model, error model, coding standards, sequence diagrams.
 - **[CLAUDE.md](CLAUDE.md)** — rules for AI coding agents (and humans) working on this project.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — contribution process.

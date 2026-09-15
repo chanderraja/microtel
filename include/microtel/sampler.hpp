@@ -53,7 +53,13 @@ private:
 /// @brief TraceId-ratio sampler.
 ///
 /// Samples a fraction of traces based on the trace ID, deterministically.
-/// `ratio` is clamped to `[0.0, 1.0]`.
+/// `ratio` is clamped to `[0.0, 1.0]`; NaN is normalised to `0.0` and so
+/// samples nothing (#247). `Provider::SetSamplerRatio` rejects NaN and
+/// out-of-range values rather than clamping them — at reload time a bad
+/// ratio is an operator-visible bug, at build time it is a documented
+/// convenience (ICP 0026 Decision 3).
+///
+/// @param ratio fraction of traces to sample.
 [[nodiscard]] SamplerHandle MakeTraceIdRatioSampler(double ratio);
 
 /// @brief Parent-based sampler.

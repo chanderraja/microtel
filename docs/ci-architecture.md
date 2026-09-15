@@ -120,7 +120,7 @@ Two independent coverage measurements, both against the same filtered lcov trace
 
 **Steps:**
 1. Checkout at `fetch-depth: 0` — the diff gate needs `origin/master` as a base.
-2. [`ci/scripts/coverage.sh build`](../ci/scripts/coverage.sh) configures with `-DMICROTEL_COVERAGE=ON` (gcc `--coverage`), builds, runs `ctest`, and captures + filters an lcov report.
+2. [`ci/scripts/coverage.sh build`](../ci/scripts/coverage.sh) configures with `-DMICROTEL_COVERAGE=ON` (clang `-fprofile-instr-generate -fcoverage-mapping`), builds, runs `ctest` with `LLVM_PROFILE_FILE` pointed at a per-process `.profraw`, merges them with `llvm-profdata`, and exports a filtered lcov tracefile with `llvm-cov export -format=lcov`. `llvm-profdata` must be exactly the compiler's major version and `llvm-cov` at least 21; the script checks both and refuses to run otherwise.
 3. The same script then enforces the aggregate floors, and **fails the job** below them. It reduces the tracefile to one row per file (`build/coverage.per-file.tsv`, uploaded with the report) and sums those rows into two groups. The group mapping is stated in the script's header; briefly:
 
    | Group | Paths | Floor |
@@ -131,7 +131,15 @@ Two independent coverage measurements, both against the same filtered lcov trace
    Nothing that survives the tracefile filter is exempt. A path matching neither rule is gated as `sdk-encoder` — the stricter floor — and named in the output, so a new directory cannot dodge the gate by going unmentioned.
 4. `diff-cover` (pip, PR events only) against the same tracefile with `--compare-branch origin/<base>` and `--fail-under=80`.
 
-**Branch coverage is measured and printed but not enforced.** gcov's branch data on this codebase counts exception-unwind edges rather than program logic: `include/microtel/meter.hpp` measures 100% line and 50% branch, and its "uncovered" branches sit on lines containing no conditional at all — they are the throw path out of a potentially-throwing call. Whole-tree branch coverage reads 57.8% against 91.0% line for the same reason. The 85% threshold in the script is **not** lowered; it is gated behind `MICROTEL_COVERAGE_ENFORCE_BRANCH=1` until branches are measured in a way that means something (clang source-based coverage models regions rather than gcov branches, and is the likely fix). Spec §13.5 gate 11 is therefore discharged for line coverage and open for branch.
+**Branch coverage is enforced** (issue #198). It was not, under gcov: gcov records an edge for the unwind path out of every potentially-throwing call, so `include/microtel/meter.hpp` measured 100% line and 50% branch with its "uncovered" branches on lines holding no conditional at all, and whole-tree branch coverage read 57.8% against 91.0% line. Clang's source-based coverage attaches counters to source *regions* the front end knows about — the same `meter.hpp` now reports **0 branch records**, because it contains no conditional — so the §14.2 branch floor measures program logic and fails the job like the line floors do. The 85% threshold was never lowered while it was unenforceable, and it is not raised now. Spec §13.5 gate 11 is discharged for line and branch.
+
+**Why clang-only.** The gate's numbers are the compiler's numbers, so the compiler is part of the gate. `coverage.sh` refuses to run under gcc rather than silently measuring something else, and checks its llvm tools rather than surfacing a version skew as a corrupt-looking file three steps later.
+
+**Why the exporter is newer than the compiler** (issue #236). The build uses Ubuntu's `clang-18`, the same compiler as the `compile` matrix; the export uses `llvm-cov` **21** from `apt.llvm.org`, and `coverage.sh` refuses to run below that. Up to `llvm-cov` 20, `export` emits one set of branch records per *template instantiation* while emitting line records already merged across them — so the gate would compare a merged line percentage against a per-instantiation branch percentage, which §14.2 states as if the two were commensurable. `llvm-cov` 21 applies the same merge to both. Bisected on one `clang-19` object and profile, a function template with one `if` instantiated twice: `llvm-cov` 19 and 20 emit 4 `BRDA` records, 21 and 22 emit 2. On this tree that is `sdk-encoder` reading 81.48% (1219/1496) versus 85.59% (1099/1284) branch, from identical line coverage of 4757/5189. Newer llvm tools read older coverage-mapping and profile formats, so the built code is unchanged.
+
+`llvm-profdata`, by contrast, must match the compiler **exactly**: it reads the *raw* profiles the instrumented binaries write, and that format is locked to the compiler's release in both directions — `llvm-profdata-21` rejects `clang-18`'s raw version 9 with "raw profile version mismatch … expected version = 10" and then "no profile can be merged". So the job installs `clang-18`, `llvm-18` and `llvm-21`, and pairs `clang-18` + `llvm-profdata-18` + `llvm-cov-21`. `llvm-cov` reads the *indexed* profile and the coverage mapping, both of which a newer reader accepts.
+
+The LLVM apt repository is added to the two jobs that run `coverage.sh` — `coverage` here and `scan` in `sonarqube.yml` — and deliberately to no others; `clang-format` and `clang-tidy` stay on their pinned Ubuntu 18 packages. The tradeoff is that `apt.llvm.org` becomes a network dependency of a required check: if it flakes, re-run the job.
 
 **Why `--fail-under=80` when §14.2 names two diff thresholds.** `diff-cover` takes a single threshold and does not partition by path. 80 is the floor that holds everywhere; the 90 for SDK/encoder is carried by the aggregate gate in step 3, which *is* measured per group. A PR that drags `sdk-encoder` below 90 fails step 3 whatever step 4 reports.
 
@@ -372,7 +380,7 @@ The workflow also carries a `workflow_dispatch` trigger, so a scan can be fired 
 
 `ci/scripts/coverage.sh` runs here with `MICROTEL_COVERAGE_ENFORCE=0`: this job wants the tracefile, not a second opinion on the §14.2 floors. The `coverage` job owns that gate, and letting a shortfall abort this job too would suppress the Sonar scan exactly when the code most needs looking at.
 
-**Coverage import (issue #211).** The tracefile is *not* handed to the C++ analyzer. It is converted by `ci/scripts/lcov-to-sonar.py` into SonarQube's [generic test coverage XML](https://docs.sonarsource.com/sonarqube-cloud/enriching/test-coverage/generic-test-data/) and imported via `sonar.coverageReportPaths`. The previous configuration passed the lcov `.info` to `sonar.cfamily.llvm-cov.reportPath`, which names an *llvm-cov* report: the sensor parsed the file in ~81 ms, imported nothing, and warned about nothing, so the whole project read 0.0% coverage against `coverage.sh`'s measured ~91% and the default gate's `new_coverage ≥ 80` condition failed on every PR. Compounding it, `lcov --capture --directory` writes absolute `SF:` paths that do not match the repo-relative keys SonarQube indexes files under; the converter rebases them. It emits **lines only** — gcov's branch data on this codebase counts exception-unwind edges (see `coverage.sh`'s header and issue #198), and SonarQube folds conditions into its single `coverage` measure, so importing them would depress a real number with an artefact. `--include src --include include` mirrors `sonar.sources`. The converter exits non-zero rather than writing an empty report, so the silent-zero failure mode cannot recur unnoticed.
+**Coverage import (issue #211).** The tracefile is *not* handed to the C++ analyzer. It is converted by `ci/scripts/lcov-to-sonar.py` into SonarQube's [generic test coverage XML](https://docs.sonarsource.com/sonarqube-cloud/enriching/test-coverage/generic-test-data/) and imported via `sonar.coverageReportPaths`. The previous configuration passed the lcov `.info` to `sonar.cfamily.llvm-cov.reportPath`, which names an *llvm-cov* report: the sensor parsed the file in ~81 ms, imported nothing, and warned about nothing, so the whole project read 0.0% coverage against `coverage.sh`'s measured ~91% and the default gate's `new_coverage ≥ 80` condition failed on every PR. Compounding it, the tracefile carries absolute `SF:` paths that do not match the repo-relative keys SonarQube indexes files under; the converter rebases them. It emits **lines only**. That used to be because gcov's branch data was an artefact; since issue #198 the `BRDA` records are real, and what remains is that importing conditions moves SonarQube's own `coverage` measure and its new-code gate — a separate decision from the CI gate, left open in the converter's header. `--include src --include include` mirrors `sonar.sources`. The converter exits non-zero rather than writing an empty report, so the silent-zero failure mode cannot recur unnoticed.
 
 **Configuration:**
 - `sonar-project.properties` (at the repo root — required by SonarCloud's automatic analysis discovery) — project key, organization, source paths, exclusions, coverage report path.
@@ -436,11 +444,13 @@ ci/scripts/test-presence.sh origin/master
 # ... simulating the [refactor] label
 MICROTEL_PR_LABELS='[refactor]' ci/scripts/test-presence.sh origin/master
 
-# coverage build + the aggregate §14.2 gate (10-15 min)
-ci/scripts/coverage.sh build/coverage
+# coverage build + the aggregate §14.2 gate (10-15 min). Clang only, and
+# llvm-profdata / llvm-cov must be at least the compiler's major version.
+CC=clang CXX=clang++ ci/scripts/coverage.sh build/coverage
 
 # ... reporting the numbers without failing on a shortfall
-MICROTEL_COVERAGE_ENFORCE=0 ci/scripts/coverage.sh build/coverage
+CC=clang CXX=clang++ MICROTEL_COVERAGE_ENFORCE=0 \
+    ci/scripts/coverage.sh build/coverage
 
 # diff coverage, the way the coverage job runs it
 pip install diff-cover

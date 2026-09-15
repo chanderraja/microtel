@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace mc = microtel::config;
@@ -194,6 +195,67 @@ TEST(CallbackAuthProviderTest, CallbackError_DoesNotCache_NextCallRetries)
 
     fail = false;
     const auto result = provider.GetAuthorization(clock.Now());  // retries, call_count = 2
+    ASSERT_EQ(call_count, 2);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->value(), "Bearer recovered");  // NOLINT(bugprone-unchecked-optional-access)
+}
+
+// ---------------------------------------------------------------------------
+// CallbackAuthProvider — throwing callback (issue #251, interfaces.md §4.9)
+// ---------------------------------------------------------------------------
+
+TEST(CallbackAuthProviderTest, ThrowingCallback_ConvertsToInternalFailure)
+{
+    mc::CallbackAuthProvider provider{[]() -> mt::Expected<std::string, mt::Error>
+                                      { throw std::runtime_error{"token service unreachable"}; },
+                                      std::chrono::seconds(60)};
+
+    const mtfk::FakeSteadyClock clock;
+    const auto result = provider.GetAuthorization(clock.Now());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::Error::Kind::InternalFailure);
+    EXPECT_NE(result.error().message.find("token service unreachable"), std::string::npos)
+        << "the operator needs what the callback said: " << result.error().message;
+}
+
+TEST(CallbackAuthProviderTest, ThrowingCallback_NonStdException_ConvertsToInternalFailure)
+{
+    // Not hypothetical: anything that escapes here unwinds through the wire
+    // codec into the exporter worker, which catches std::exception only and is
+    // `noexcept` — std::terminate rather than one dropped batch.
+    // NOLINTNEXTLINE(hicpp-exception-baseclass) — a non-std throw is the case under test
+    mc::CallbackAuthProvider provider{[]() -> mt::Expected<std::string, mt::Error> { throw 42; },
+                                      std::chrono::seconds(60)};
+
+    const mtfk::FakeSteadyClock clock;
+    const auto result = provider.GetAuthorization(clock.Now());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::Error::Kind::InternalFailure);
+}
+
+TEST(CallbackAuthProviderTest, ThrowingCallback_DoesNotCache_NextCallRetries)
+{
+    int call_count = 0;
+    bool throwing = true;
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          if (throwing)
+                                          {
+                                              throw std::runtime_error{"transient"};
+                                          }
+                                          return std::string{"Bearer recovered"};
+                                      },
+                                      std::chrono::seconds(60)};
+
+    const mtfk::FakeSteadyClock clock;
+    (void)provider.GetAuthorization(clock.Now());
+    ASSERT_EQ(call_count, 1);
+
+    // The throw must also leave the provider usable: the cache mutex is
+    // released on the unwind, and no half-written cache entry is kept.
+    throwing = false;
+    const auto result = provider.GetAuthorization(clock.Now());
     ASSERT_EQ(call_count, 2);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->value(), "Bearer recovered");  // NOLINT(bugprone-unchecked-optional-access)

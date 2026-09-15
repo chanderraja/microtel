@@ -10,6 +10,7 @@
 #include "microtel/version.hpp"
 
 #include "common/internal_log.hpp"
+#include "wire/auth_failure.hpp"
 #include "wire/grpc/grpc_status.hpp"
 #include "wire/gzip.hpp"
 #include "wire/otlp_response.hpp"
@@ -911,7 +912,8 @@ GrpcWireCodec::GrpcWireCodec(internal::ITransport* transport,
 {
 }
 
-std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders(bool compressed) const
+microtel::Expected<std::vector<internal::HeaderField>, microtel::Error> GrpcWireCodec::BuildHeaders(
+    bool compressed) const
 {
     std::vector<internal::HeaderField> headers;
     headers.push_back({.name = ":method", .value = "POST"});
@@ -936,27 +938,33 @@ std::vector<internal::HeaderField> GrpcWireCodec::BuildHeaders(bool compressed) 
     {
         headers.push_back(h);
     }
+    if (auto err = AppendAuthHeader(headers))
+    {
+        return microtel::make_unexpected(std::move(*err));
+    }
     return headers;
 }
 
-void GrpcWireCodec::AppendAuthHeader(std::vector<internal::HeaderField>& headers) const
+std::optional<microtel::Error> GrpcWireCodec::AppendAuthHeader(
+    std::vector<internal::HeaderField>& headers) const
 {
     if (m_auth == nullptr)
     {
-        return;
+        return std::nullopt;
     }
     const auto now = (m_clock != nullptr) ? m_clock->Now() : std::chrono::steady_clock::now();
-    const auto auth_result = m_auth->GetAuthorization(now);
+    auto auth_result = m_auth->GetAuthorization(now);
     if (!auth_result.has_value())
     {
-        return;
+        return std::move(auth_result.error());
     }
     const auto& token_opt = auth_result.value();
     if (!token_opt.has_value())
     {
-        return;
+        return std::nullopt;
     }
     headers.push_back({.name = "authorization", .value = token_opt.value()});
+    return std::nullopt;
 }
 
 std::optional<internal::WireResult> GrpcWireCodec::EnsureConnected()
@@ -1024,9 +1032,14 @@ internal::WireResult GrpcWireCodec::Send(internal::EncodedPayload&& payload,
     }
     const auto framed = FramePayload(body, did_compress);
     auto headers = BuildHeaders(did_compress);
-    AppendAuthHeader(headers);
+    if (!headers)
+    {
+        // The auth provider failed: drop the batch rather than send it without
+        // the header (`docs/interfaces.md` §4.9, issue #250).
+        return AuthFailure(headers.error());
+    }
     internal::RequestSpec spec{
-        .headers = std::move(headers),
+        .headers = std::move(*headers),
         .payload = std::span<const std::byte>{framed.data(), framed.size()},
         .deadline = deadline,
     };

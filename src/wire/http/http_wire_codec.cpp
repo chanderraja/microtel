@@ -8,6 +8,7 @@
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_result.hpp"
 
+#include "wire/auth_failure.hpp"
 #include "wire/gzip.hpp"
 #include "wire/otlp_response.hpp"
 
@@ -278,8 +279,8 @@ std::string HttpWireCodec::ResolvePath() const noexcept
     return m_config.path + std::string{kV1TracesPath};
 }
 
-std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(std::size_t content_length,
-                                                               bool compressed) const noexcept
+microtel::Expected<std::vector<internal::HeaderField>, Error> HttpWireCodec::BuildHeaders(
+    std::size_t content_length, bool compressed) const
 {
     std::vector<internal::HeaderField> headers;
     headers.reserve(kBuiltInHeaderCount + m_config.extra_headers.size());
@@ -305,29 +306,36 @@ std::vector<internal::HeaderField> HttpWireCodec::BuildHeaders(std::size_t conte
         headers.push_back(h);
     }
 
+    if (auto err = AppendAuthHeader(headers))
+    {
+        return microtel::make_unexpected(std::move(*err));
+    }
+
     return headers;
 }
 
-void HttpWireCodec::AppendAuthHeader(std::vector<internal::HeaderField>& headers) const
+std::optional<Error> HttpWireCodec::AppendAuthHeader(
+    std::vector<internal::HeaderField>& headers) const
 {
     if (m_auth == nullptr)
     {
-        return;
+        return std::nullopt;
     }
     const auto now = (m_clock != nullptr)
                          ? m_clock->Now()
                          : internal::TimePointSteady{std::chrono::steady_clock::now()};
-    const auto auth_result = m_auth->GetAuthorization(now);
+    auto auth_result = m_auth->GetAuthorization(now);
     if (!auth_result.has_value())
     {
-        return;
+        return std::move(auth_result.error());
     }
     const auto& token_opt = auth_result.value();
     if (!token_opt.has_value())
     {
-        return;
+        return std::nullopt;
     }
     headers.push_back({.name = "authorization", .value = token_opt.value()});
+    return std::nullopt;
 }
 
 std::string HttpWireCodec::BuildExcerpt(std::span<const std::byte> body)
@@ -415,10 +423,15 @@ internal::WireResult HttpWireCodec::Send(internal::EncodedPayload&& payload,
     const Body body = PrepareBody(owned.Bytes(), compressed);
 
     auto headers = BuildHeaders(body.bytes.size(), body.compressed);
-    AppendAuthHeader(headers);
+    if (!headers)
+    {
+        // The auth provider failed: drop the batch rather than send it without
+        // the header (`docs/interfaces.md` §4.9, issue #250).
+        return AuthFailure(headers.error());
+    }
 
     internal::RequestSpec spec{
-        .headers = std::move(headers),
+        .headers = std::move(*headers),
         .payload = body.bytes,
         .deadline = deadline,
     };
@@ -541,9 +554,15 @@ std::vector<internal::WireResult> HttpWireCodec::SendAll(
         const Body body = PrepareBody(payloads[i].Bytes(), compressed);
 
         auto headers = BuildHeaders(body.bytes.size(), body.compressed);
-        AppendAuthHeader(headers);
+        if (!headers)
+        {
+            // This batch alone: the rest of the fan-out is unaffected, and
+            // `results[i]` already lines up with `payloads[i]`.
+            results[i] = AuthFailure(headers.error());
+            continue;
+        }
         internal::RequestSpec spec{
-            .headers = std::move(headers),
+            .headers = std::move(*headers),
             .payload = body.bytes,
             .deadline = deadline,
         };

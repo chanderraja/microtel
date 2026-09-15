@@ -107,29 +107,28 @@ expiry. Two consequences:
 
 ## 3. What happens when the callback fails
 
-Behaviour **as built**, which diverges from `interfaces.md` §4.9 in two places
-— issues #250 and #251. Both matter when you design a failure path.
+Both failure shapes cost **the one batch the callback was called for**, and
+nothing else. This is `interfaces.md` §4.9's contract; it was not what the code
+did until issues #250 and #251 were fixed.
 
-| Your callback | What microtel does today |
+| Your callback | What microtel does |
 |---|---|
 | Returns a value | `authorization: <value>` is appended to the batch's headers. |
-| Returns `make_unexpected(Error{…})` | **The header is omitted and the batch is sent anyway** — `AppendAuthHeader` returns early on `!auth_result.has_value()`. No counter is incremented for the auth failure itself, and the `Error` you constructed is discarded unread (#250). |
-| Throws | The exception escapes the provider, unwinds through the codec into the exporter worker's wide `catch (const std::exception&)` — `OtlpExporter::FanOutAndProcess`, and the same shape in the metric and log exporters — which records a drain failure and drops **every batch in that drain**, not just this one (#251). |
+| Returns `make_unexpected(Error{…})` | **The batch is dropped, not sent** — sending without auth is worse than not sending. `BuildHeaders` fails in the codec, nothing reaches the wire, and the exporter records one `non_retryable_failure` plus one `batches_failed`. Your `Error`'s kind survives and its message reaches `GetExporterHealth().last_error_message`, prefixed `authorization header unavailable:` (#250). |
+| Throws | Caught at the provider boundary and converted to `Error::Kind::InternalFailure` carrying `what()`, then handled exactly as the row above. The rest of the drain still ships (#251). |
 
-`interfaces.md` §4.9 says the codec records `non_retryable_failure` and drops
-the batch on a callback error ("sending without auth is worse than not
-sending"), and that the provider catches at the boundary and converts a throw
-to `Error::Kind::InternalFailure`. Neither is implemented. Until that is
-reconciled, write your callback to these three rules:
+Write your callback to these three rules:
 
-1. **Never throw.** Wrap the body in `try` / `catch (const std::exception&)`
-   and return `make_unexpected` instead. A throw is the expensive failure mode.
-2. **Expect an unauthenticated batch, not a dropped one.** A returned error
-   sends the batch bare, the receiver answers 401 / `UNAUTHENTICATED`, and
-   *that* is what shows up — as `batches_failed` plus
-   `DropReason::NonRetryableFailure` in `GetExporterHealth()`. Your signal is
-   one hop removed from the cause, so log the cause yourself inside the
-   callback.
+1. **Prefer returning `make_unexpected` to throwing.** Both cost one batch, but
+   a returned error keeps your `Error::Kind` — a throw arrives at
+   `GetExporterHealth()` as `InternalFailure` whatever went wrong. Wrap the
+   body in `try` / `catch (const std::exception&)` and convert.
+2. **Expect a dropped batch.** The spans in it are gone; there is no retry,
+   because an unauthenticated retry is the same request. `batches_failed` plus
+   `DropReason::NonRetryableFailure` move at the moment of failure and the
+   message names auth, so the signal is no longer one hop removed in a
+   receiver's 401 — but it is still worth logging the cause inside the
+   callback, where you know which credential failed.
 3. **Back off yourself.** An error is not cached
    (`CallbackAuthProviderTest.CallbackError_DoesNotCache_NextCallRetries`), so
    a down token endpoint means one callback invocation per batch with no
@@ -395,9 +394,9 @@ and the exporter workers keep calling it until `Shutdown` returns.
 ### 4.2 Startup, and why `Start()` fetches synchronously
 
 If the refresh thread's first fetch were allowed to race the first export, the
-earliest batches would leave before any token existed. Per §3 they leave
-**without an `authorization` header**, the receiver rejects them, and you lose
-the first seconds of telemetry to a 401 that reads like a misconfiguration.
+earliest batches would be built before any token existed. Per §3 they are
+**dropped** — the callback has nothing to return, so nothing goes to the wire —
+and you lose the first seconds of telemetry.
 `Start()` does that first fetch on the caller thread at startup, where blocking
 is free, and only then launches the refresher.
 
@@ -642,18 +641,16 @@ The callback is ordinary application code and needs no microtel test harness:
 Filed against the auth surface while writing this document. Each is a real
 divergence, not a doc nit:
 
-- **Issue #250 — callback error sends the batch unauthenticated.**
-  `AppendAuthHeader` returns early and the batch ships with no `authorization`
-  header, against `interfaces.md` §4.9's "the batch is dropped — sending
-  without auth is worse than not sending". See §3.
-- **Issue #251 — a throwing callback is not caught at the provider boundary.**
-  `interfaces.md` §4.9 promises conversion to `Error::Kind::InternalFailure`;
-  `CallbackAuthProvider::GetAuthorization` has no `try` block, so the throw
-  reaches the exporter worker and takes the whole drain with it. See §3.
-- **Issue #252 — the auth surface's own docs are stale.** §4.9's "in practice
-  only one caller" predates the metric and log pipelines, and the roadmap's
-  claim that `WithAuthProvider` already carries SigV4 is not supportable. See
-  §2.2 and §5.1.
+- **Issue #250 — callback error sent the batch unauthenticated.** *Fixed.* The
+  codec's `BuildHeaders` now fails as a unit, so a batch whose `authorization`
+  header cannot be built is dropped rather than shipped bare. See §3.
+- **Issue #251 — a throwing callback was not caught at the provider boundary.**
+  *Fixed.* `CallbackAuthProvider` converts any throw to
+  `Error::Kind::InternalFailure`, so it costs the one batch instead of the
+  whole drain. See §3.
+- **Issue #252 — the auth surface's own docs are stale.** Still open. §4.9's
+  "in practice only one caller" predates the metric and log pipelines, and the
+  roadmap's claim that `WithAuthProvider` already carries SigV4 is not
+  supportable. See §2.2 and §5.1.
 
-Until they are resolved, this document describes behaviour as built, and the
-recipes are written to be correct under it.
+This document describes behaviour as built.

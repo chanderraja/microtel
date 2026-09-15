@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "microtel/error.hpp"
+#include "microtel/expected.hpp"
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
@@ -96,8 +98,19 @@ public:
                                             std::chrono::milliseconds deadline) override;
 
 private:
-    [[nodiscard]] std::vector<internal::HeaderField> BuildHeaders(bool compressed) const;
-    void AppendAuthHeader(std::vector<internal::HeaderField>& headers) const;
+    /// @brief Builds the complete request header block, `authorization`
+    ///        included.
+    /// @return the headers, or the auth provider's `Error` — a batch whose
+    ///         header block cannot be completed is dropped rather than sent
+    ///         without the header (`docs/interfaces.md` §4.9, issue #250).
+    [[nodiscard]] microtel::Expected<std::vector<internal::HeaderField>, microtel::Error>
+    BuildHeaders(bool compressed) const;
+    /// @brief Appends `authorization` from the auth provider, if there is one.
+    /// @return `nullopt` when the header was appended, or when there is no
+    ///         provider or it has no value to give; otherwise the provider's
+    ///         `Error`.
+    [[nodiscard]] std::optional<microtel::Error> AppendAuthHeader(
+        std::vector<internal::HeaderField>& headers) const;
     /// @brief Connects `m_transport` if it isn't already (ICP 0017).
     /// @return `nullopt` when the transport is connected (already, or newly);
     ///         otherwise the retryable `WireResult` to return immediately.

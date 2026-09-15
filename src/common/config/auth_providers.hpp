@@ -47,7 +47,9 @@ private:
 /// retries the callback.
 ///
 /// The user-supplied callback may be invoked on the exporter worker thread;
-/// it must be thread-safe.
+/// it must be thread-safe. It may throw: the throw is caught here and
+/// converted to `Error::Kind::InternalFailure`, which drops the batch being
+/// built and nothing else (`docs/interfaces.md` §4.9).
 ///
 /// @threadsafety Thread-safe.
 class CallbackAuthProvider final : public internal::IAuthProvider
@@ -65,6 +67,11 @@ public:
         internal::TimePointSteady now) override;
 
 private:
+    /// @brief Invokes the user callback, converting anything it throws to an
+    /// `Error::Kind::InternalFailure` (LOCKED — `docs/interfaces.md` §4.9).
+    /// Nothing thrown by user code leaves this function.
+    [[nodiscard]] microtel::Expected<std::string, microtel::Error> InvokeCallback() const;
+
     AuthCallback m_cb;
     std::chrono::milliseconds m_ttl;
 

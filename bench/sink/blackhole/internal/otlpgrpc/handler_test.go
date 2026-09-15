@@ -4,16 +4,24 @@
 package otlpgrpc_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/tls"
+	"encoding/binary"
+	"io"
 	"net"
+	"net/http"
 	"testing"
 
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/chanderraja/microtel/bench/sink/blackhole/internal/counters"
 	"github.com/chanderraja/microtel/bench/sink/blackhole/internal/otlpgrpc"
@@ -132,6 +140,135 @@ func TestGRPC_MultipleRequests_Accumulate(t *testing.T) {
 	}
 	if snap.RequestsReceived != 3 {
 		t.Errorf("requests_received: want 3, got %d", snap.RequestsReceived)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// grpc-encoding: gzip  (microtel-grpc-gzip SUT)
+//
+// microtel is not a grpc-go client: it frames the request itself over
+// nghttp2.  These tests therefore speak raw HTTP/2 so the sink is exercised
+// on exactly the bytes microtel puts on the wire — a CF=0x01 length-prefixed
+// message plus `grpc-encoding: gzip` — rather than through a grpc-go client
+// whose own compressor registration would mask a missing one on the server.
+// ---------------------------------------------------------------------------
+
+const traceExportPath = "/opentelemetry.proto.collector.trace.v1.TraceService/Export"
+
+// newRawServer starts a TraceService on a bufconn listener and returns an
+// HTTP/2 transport (prior-knowledge cleartext) wired to it.
+func newRawServer(t *testing.T) (*http2.Transport, *counters.Counters) {
+	t.Helper()
+	c := counters.New()
+	lis := bufconn.Listen(bufSize)
+	srv := grpc.NewServer()
+	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, 0))
+	t.Cleanup(func() { srv.Stop() })
+	go srv.Serve(lis) //nolint:errcheck
+
+	return &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		},
+	}, c
+}
+
+// grpcFrame wraps payload in a gRPC length-prefixed message.
+func grpcFrame(payload []byte, compressed bool) []byte {
+	frame := make([]byte, 5, 5+len(payload))
+	if compressed {
+		frame[0] = 1
+	}
+	binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
+	return append(frame, payload...)
+}
+
+func gzipBytes(t *testing.T, b []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(b); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// grpcStatus returns the response's grpc-status.  An error status arrives in
+// a trailers-only HEADERS frame (resp.Header); a success status arrives in the
+// trailers, which are only populated once the body has been drained.
+func grpcStatus(t *testing.T, resp *http.Response) (string, string) {
+	t.Helper()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if s := resp.Header.Get("Grpc-Status"); s != "" {
+		return s, resp.Header.Get("Grpc-Message")
+	}
+	return resp.Trailer.Get("Grpc-Status"), resp.Trailer.Get("Grpc-Message")
+}
+
+func exportRaw(t *testing.T, tr *http2.Transport, body []byte, encoding string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "http://bufnet"+traceExportPath,
+		bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/grpc+proto")
+	req.Header.Set("TE", "trailers")
+	req.Header.Set("Grpc-Accept-Encoding", "gzip")
+	if encoding != "" {
+		req.Header.Set("Grpc-Encoding", encoding)
+	}
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+func TestGRPC_GzipEncodedMessage_CountsSpans(t *testing.T) {
+	tr, c := newRawServer(t)
+	payload, err := proto.Marshal(buildTraceRequest(2))
+	if err != nil {
+		t.Fatalf("proto.Marshal: %v", err)
+	}
+
+	resp := exportRaw(t, tr, grpcFrame(gzipBytes(t, payload), true), "gzip")
+	if status, msg := grpcStatus(t, resp); status != "0" {
+		t.Fatalf("grpc-status: want 0, got %q (%s)", status, msg)
+	}
+
+	snap := c.Snapshot()
+	if snap.SpansReceived != 2 {
+		t.Errorf("spans_received: want 2, got %d", snap.SpansReceived)
+	}
+	if snap.GRPCRequestsReceived != 1 {
+		t.Errorf("grpc_requests_received: want 1, got %d", snap.GRPCRequestsReceived)
+	}
+}
+
+// The identity path over the same raw framing — guards against the gzip fix
+// regressing the uncompressed SUTs.
+func TestGRPC_RawUncompressedMessage_CountsSpans(t *testing.T) {
+	tr, c := newRawServer(t)
+	payload, err := proto.Marshal(buildTraceRequest(5))
+	if err != nil {
+		t.Fatalf("proto.Marshal: %v", err)
+	}
+
+	resp := exportRaw(t, tr, grpcFrame(payload, false), "")
+	if status, msg := grpcStatus(t, resp); status != "0" {
+		t.Fatalf("grpc-status: want 0, got %q (%s)", status, msg)
+	}
+
+	if snap := c.Snapshot(); snap.SpansReceived != 5 {
+		t.Errorf("spans_received: want 5, got %d", snap.SpansReceived)
 	}
 }
 

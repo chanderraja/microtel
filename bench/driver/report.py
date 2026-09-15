@@ -137,11 +137,14 @@ def _delivery_rate_from_sink(samples: list[dict]):
     # and delivery is undefined — return None so callers can print N/A.
     if all(s.get("delivery_rate_pct") is None for s in samples):
         return None
-    total_emitted = sum(s["spans_emitted"] for s in samples)
+    # spans_expected is the span count actually sent; spans_emitted counts
+    # workload iterations, which is 3x smaller on realistic-request.  Results
+    # documents written before spans_expected existed fall back to it.
+    total_expected = sum(s.get("spans_expected", s["spans_emitted"]) for s in samples)
     total_received = sum(s["sink"]["spans_received"] for s in samples)
-    if total_emitted == 0:
+    if total_expected == 0:
         return 100.0
-    return round(total_received / total_emitted * 100, 4)
+    return round(total_received / total_expected * 100, 4)
 
 
 # ---------------------------------------------------------------------------

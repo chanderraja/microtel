@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace mt = microtel;
@@ -204,6 +205,51 @@ TEST(OtlpLogExporterTest, DiagnosticsNullSinkIsNotDereferenced)
     mtmk::MockLogEncoder encoder;
     mtmk::MockWireCodec codec;
     codec.result_to_return.success = true;
+    mte::OtlpLogExporter exporter{&encoder, &codec};  // no sink
+
+    (void)exporter.Export(MakeBatch());
+    EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+}
+
+// ---------------------------------------------------------------------------
+// Drain-path exception accounting — issue #224, mirroring the metrics
+// exporter. `DrainQueue`'s catch was empty behind a "diag hook deferred"
+// comment, so a batch lost to a throwing encoder left `GetExporterHealth()`
+// reporting a clean pipeline. The batch is still lost; the loss is countable.
+// ---------------------------------------------------------------------------
+
+/// An encoder that always throws — the only way to reach `DrainQueue`'s catch
+/// from a test, every other collaborator on that path being `noexcept`.
+class ThrowingLogEncoder final : public mti::ILogEncoder
+{
+public:
+    [[nodiscard]] mti::EncodedPayload Encode(const mti::LogBatchHandle& /*batch*/) override
+    {
+        throw std::runtime_error("log encode blew up");
+    }
+};
+
+TEST(OtlpLogExporterTest, DiagnosticsDrainThrowsRecordsBatchFailed)
+{
+    ThrowingLogEncoder encoder;
+    mtmk::MockWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpLogExporter exporter{&encoder, &codec, {}, &sink};
+
+    EXPECT_EQ(exporter.Export(MakeBatchOf(2)), mti::ExportResult::Success);
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_failed, 1U) << "a swallowed drain failure must still be countable";
+    EXPECT_EQ(sink.batches_sent, 0U);
+    EXPECT_FALSE(sink.last_error_message.empty())
+        << "GetExporterHealth() must be able to say why the batch was lost";
+    EXPECT_TRUE(sink.last_error_time.has_value());
+}
+
+TEST(OtlpLogExporterTest, DiagnosticsDrainThrowsWithoutSinkStillDrains)
+{
+    ThrowingLogEncoder encoder;
+    mtmk::MockWireCodec codec;
     mte::OtlpLogExporter exporter{&encoder, &codec};  // no sink
 
     (void)exporter.Export(MakeBatch());

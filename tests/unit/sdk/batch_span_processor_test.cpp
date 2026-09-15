@@ -77,11 +77,12 @@ static std::unique_ptr<mt::sdk::BatchSpanProcessor> MakeBsp(
     mtfk::FakeExporter& exp,
     mt::BatchOptions opts = mt::BatchOptions{},
     mtfk::FakeDiagnosticsSink* sink = nullptr,
-    std::uint32_t max_record_bytes = mt::MemoryLimitOptions{}.max_record_bytes)
+    std::uint32_t max_record_bytes = mt::MemoryLimitOptions{}.max_record_bytes,
+    std::uint64_t max_total_queue_bytes = mt::MemoryLimitOptions{}.max_total_queue_bytes)
 {
     auto resource = std::make_shared<const mt::Resource>();
     return std::make_unique<mt::sdk::BatchSpanProcessor>(
-        &exp, std::move(resource), opts, max_record_bytes, sink);
+        &exp, std::move(resource), opts, max_record_bytes, max_total_queue_bytes, sink);
 }
 
 static std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
@@ -500,6 +501,179 @@ TEST(BatchSpanProcessorTest, RecordTooLarge_WithoutSink_IsStillDropped)
 
     bsp->OnEnd(std::move(record), mti::InstrumentationScope{.name = "test", .version = ""});
 
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+// ---------------------------------------------------------------------------
+// Aggregate queue-byte budget — spec §13.5, part of issue #181.
+// `max_total_queue_bytes` was declared in `MemoryLimitOptions` and enforced
+// nowhere, so `max_queue_size` bounded the queue in *records* only: 2048 fat
+// records still fit whatever their size. `OnEnd` is the detection point, next
+// to the per-record cap that already runs there.
+//
+// Overflow counts as `queue_full`, not a new `DropReason` — adding one is an
+// ICP (interfaces.md §3.5), and `queue_full` is accurate: the queue is full,
+// by the budget that filled first.
+//
+// Sizes come from `EstimateRecordBytes` rather than hard-coded numbers, for
+// the same reason the `max_record_bytes` tests above do it. Equal-length names
+// keep every fat record the same size.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Byte estimate of one `MakeFatRecord`; every 3-character name costs the same.
+std::uint64_t FatRecordBytes()
+{
+    return static_cast<std::uint64_t>(mt::sdk::EstimateRecordBytes(MakeFatRecord("aaa")));
+}
+
+/// Queue options with the *count* cap far out of the way, so only the byte
+/// budget can refuse a record.
+mt::BatchOptions ByteBudgetOptions(mt::DropPolicy policy)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 512;
+    opts.max_export_batch_size = 512;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.drop_policy = policy;
+    return opts;
+}
+
+void EndFatSpan(mt::sdk::BatchSpanProcessor& bsp, const std::string& name)
+{
+    bsp.OnEnd(MakeFatRecord(name), mti::InstrumentationScope{.name = "test", .version = ""});
+}
+
+/// Names of every span the exporter received, in arrival order.
+std::vector<std::string> ExportedNames(const mtfk::FakeExporter& exp)
+{
+    std::vector<std::string> names;
+    for (const auto& batch : exp.received_batches)
+    {
+        for (const auto& span : batch.Spans())
+        {
+            names.push_back(span.name);
+        }
+    }
+    return names;
+}
+
+}  // namespace
+
+TEST(BatchSpanProcessorTest, TotalQueueBytes_OverBudget_DropNewestCountsQueueFull)
+{
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp,
+                       ByteBudgetOptions(mt::DropPolicy::DropNewest),
+                       &sink,
+                       mt::MemoryLimitOptions{}.max_record_bytes,
+                       2U * FatRecordBytes());
+
+    EndFatSpan(*bsp, "aaa");
+    EndFatSpan(*bsp, "bbb");
+    EndFatSpan(*bsp, "ccc");  // a third would put the queue over budget
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RecordTooLarge), 0U)
+        << "no single record is over max_record_bytes — the aggregate is what overflowed";
+
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 2U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, TotalQueueBytes_OverBudget_DropOldestEvictsUntilItFits)
+{
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp,
+                       ByteBudgetOptions(mt::DropPolicy::DropOldest),
+                       &sink,
+                       mt::MemoryLimitOptions{}.max_record_bytes,
+                       2U * FatRecordBytes());
+
+    EndFatSpan(*bsp, "aaa");  // evicted to make room for "ccc"
+    EndFatSpan(*bsp, "bbb");
+    EndFatSpan(*bsp, "ccc");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(ExportedNames(exp), (std::vector<std::string>{"bbb", "ccc"}));
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, TotalQueueBytes_ReleasedOnDrain_AdmitsLaterRecords)
+{
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp,
+                       ByteBudgetOptions(mt::DropPolicy::DropNewest),
+                       &sink,
+                       mt::MemoryLimitOptions{}.max_record_bytes,
+                       FatRecordBytes());  // room for exactly one at a time
+
+    EndFatSpan(*bsp, "aaa");
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+
+    // The budget is what the queue *holds*, not what it has ever held: a drain
+    // gives the bytes back. A counter that only ever grew would wedge the queue
+    // shut after the first budget's worth of spans.
+    EndFatSpan(*bsp, "bbb");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 0U);
+
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(ExportedNames(exp), (std::vector<std::string>{"aaa", "bbb"}));
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+TEST(BatchSpanProcessorTest, TotalQueueBytes_RecordLargerThanWholeBudget_IsRefused)
+{
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    // Admissible per-record, inadmissible in aggregate: nothing the processor
+    // can evict makes room, and an evict-until-it-fits loop must stop rather
+    // than spin on an empty queue.
+    auto bsp = MakeBsp(exp,
+                       ByteBudgetOptions(mt::DropPolicy::DropOldest),
+                       &sink,
+                       mt::MemoryLimitOptions{}.max_record_bytes,
+                       FatRecordBytes() - 1U);
+
+    EndFatSpan(*bsp, "aaa");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
+    EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    EXPECT_EQ(TotalExported(exp), 0U);
+    (void)bsp->Shutdown(std::chrono::milliseconds(2000));
+}
+
+// A zero-capacity queue with `DropOldest` reached the eviction branch with
+// nothing queued. `config::Validate` does not reject `max_queue_size = 0` — it
+// only requires `max_export_batch_size <= max_queue_size`, which 0 <= 0
+// satisfies — so the configuration is reachable, and `pop_front()` on an empty
+// `std::deque` is undefined. The same `m_queue.empty()` guard the byte cap
+// needs covers it: the record is refused, and nothing is evicted.
+TEST(BatchSpanProcessorTest, ZeroCapacityQueue_DropOldest_RefusesWithoutEvicting)
+{
+    mt::BatchOptions opts;
+    opts.max_queue_size = 0;
+    opts.max_export_batch_size = 0;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.drop_policy = mt::DropPolicy::DropOldest;
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    auto bsp = MakeBsp(exp, opts, &sink);
+
+    EndSpan(*bsp, "nowhere-to-go");
+
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 1U);
     EXPECT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
     EXPECT_EQ(TotalExported(exp), 0U);
     (void)bsp->Shutdown(std::chrono::milliseconds(2000));

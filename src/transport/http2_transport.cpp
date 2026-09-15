@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <future>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -142,6 +143,31 @@ microtel::Expected<EndpointInfo, microtel::Error> ParseEndpoint(const std::strin
             {.kind = microtel::Error::Kind::Network, .message = "malformed endpoint"}};
     }
     return EndpointInfo{.host = std::move(host), .port = std::move(port), .use_tls = use_tls};
+}
+
+/// @brief Submit the client's initial SETTINGS frame.
+///
+/// `SETTINGS_MAX_HEADER_LIST_SIZE` is the response *headers* budget (issue
+/// #213). nghttp2 applies no receive-side default of its own — the 64 KiB and
+/// 4 KiB defaults in its docs are send-side — so without it a peer's HEADERS
+/// block is bounded only by what it chooses to send, and `response_headers`
+/// grows in step with it. `max_trailer_bytes` is the value: trailers are a
+/// header list, and that budget already caps the other HEADERS frame on the
+/// stream. Advertising it makes nghttp2 enforce the cap, and tells the peer
+/// the limit rather than leaving it to be discovered mid-response.
+///
+/// @param session borrowed; not retained.
+/// @param opts borrowed; read for the three advertised values.
+void SubmitClientSettings(nghttp2_session* session,
+                          const microtel::internal::ConnectOptions& opts) noexcept
+{
+    const nghttp2_settings_entry iv[3] = {
+        {.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
+         .value = opts.max_concurrent_streams},
+        {.settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, .value = opts.initial_window_size},
+        {.settings_id = NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, .value = opts.max_trailer_bytes},
+    };
+    ::nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, iv, std::size(iv));
 }
 
 // Disable Nagle's algorithm: batching is done at the BSP/exporter layer;
@@ -1239,11 +1265,7 @@ microtel::Expected<common::raii::Nghttp2Session, microtel::Error> Http2Transport
              .message = "nghttp2_session_client_new failed"}};
     }
 
-    const nghttp2_settings_entry iv[2] = {
-        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, opts.max_concurrent_streams},
-        {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, opts.initial_window_size},
-    };
-    ::nghttp2_submit_settings(session.Get(), NGHTTP2_FLAG_NONE, iv, 2);
+    SubmitClientSettings(session.Get(), opts);
 
     // Send client connection preface + initial SETTINGS.
     ::nghttp2_session_send(session.Get());

@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <exception>
 #include <mutex>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -142,6 +144,20 @@ void OtlpMetricExporter::RecordDropped(DropReason reason, std::uint64_t n) noexc
     }
 }
 
+void OtlpMetricExporter::RecordDrainFailure(std::string_view what) noexcept
+{
+    if (m_diag == nullptr)
+    {
+        return;
+    }
+    // No `DropReason` names "the encoder threw", and adding one is an ICP
+    // (`docs/interfaces.md` §3.5), so the failed-batch counter and the last
+    // error carry it — which is what an operator reads out of
+    // `GetExporterHealth()`.
+    m_diag->RecordBatchFailed(
+        Error{.kind = Error::Kind::InternalFailure, .message = std::string{what}, .os_errno = 0});
+}
+
 void OtlpMetricExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
 {
     while (!m_queue.empty())
@@ -157,9 +173,12 @@ void OtlpMetricExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
         {
             ProcessBatches(batches);
         }
-        // NOLINTNEXTLINE(bugprone-empty-catch) — intentional drop; diag hook deferred
-        catch (const std::exception&)
+        // The batches are gone either way — the worker is `noexcept` and there
+        // is nowhere to put them — but a swallowed failure that nothing counts
+        // leaves GetExporterHealth() reporting a clean pipeline (issue #224).
+        catch (const std::exception& e)
         {
+            RecordDrainFailure(e.what());
         }
         lock.lock();
     }

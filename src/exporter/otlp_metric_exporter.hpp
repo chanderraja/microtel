@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 namespace microtel::exporter
@@ -89,6 +90,17 @@ private:
     /// @brief Add `n` to the counter for `reason`. No-op without a sink.
     ///        Lock-free, so it is safe under `m_mu`.
     void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
+    /// @brief Account for a batch lost to an exception escaping
+    ///        `ProcessBatches`. No-op without a sink.
+    ///
+    /// The worker is `noexcept` and holds nowhere to put the batch, so the
+    /// loss is unavoidable — but it is recorded rather than swallowed, so
+    /// `GetExporterHealth()` does not report a clean pipeline (issue #224).
+    /// Counted as a failed batch, not a `DropReason`: no existing reason names
+    /// this, and adding one is an ICP (`docs/interfaces.md` §3.5).
+    ///
+    /// @param what the exception's `what()`. Borrowed; copied into the error.
+    void RecordDrainFailure(std::string_view what) noexcept;
 
     internal::IMetricEncoder* m_encoder;
     internal::IWireCodec* m_codec;

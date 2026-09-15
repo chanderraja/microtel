@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace mt = microtel;
@@ -348,6 +349,55 @@ TEST(OtlpExporterTest, Retry_BudgetExhausted_StopsAfterFirstAttempt)
     EXPECT_EQ(codec.send_call_count.load(), 1);
 }
 
+// Issue #195 — the retry-budget look-ahead.
+// `docs/sequences/retry-after-failure.md` §4 says the loop exits when the
+// *upcoming* sleep would push elapsed time past `retry_budget`; the code
+// checked only whether the budget was already spent, so a failure path that
+// returns quickly still bought one full backoff sleep beyond the budget.
+//
+// The fake clock never advances on its own, so "already spent" is never true
+// once the loop is running: without the look-ahead every attempt is made and
+// every backoff slept. With it, attempt 1 is made (the budget was not spent
+// on entry) and the loop exits rather than sleeping a full second against a
+// 1 ms budget.
+TEST(OtlpExporterTest, Retry_BackoffWouldOutlastBudget_ExitsWithoutSleeping)
+{
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.default_result = mti::WireResult{.success = false, .retryable = true};
+    mtmk::FakeSteadyClock clock;  // time = epoch, never advances
+
+    mte::OtlpExporterConfig cfg;
+    cfg.retry_policy = mte::RetryPolicyConfig{
+        .max_attempts = 4,
+        .initial_backoff = std::chrono::seconds{1},
+        .max_backoff = std::chrono::seconds{1},
+        .backoff_multiplier = 1.0,
+        .jitter_fraction = 0.0,
+        .retry_budget = std::chrono::milliseconds{1},
+    };
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink, &clock};
+
+    const auto started = std::chrono::steady_clock::now();
+    (void)exporter.Export(MakeBatch());
+    // Long enough that a loop still sleeping its way through the backoffs
+    // drains rather than times out — the assertions below are the diagnosis,
+    // not a flush timeout.
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::milliseconds{5000}), mt::Status::Completed);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    // Attempt 0 is the fan-out; attempt 1 is the single retry the budget lets
+    // the loop start. The backoff after it costs 1 s against a 1 ms budget, so
+    // the loop exits instead of taking it.
+    EXPECT_EQ(codec.send_call_count.load(), 2);
+    // And it exits *before* the sleep: without the look-ahead the loop spends
+    // two whole seconds of backoff on a budget of one millisecond.
+    EXPECT_LT(elapsed, std::chrono::milliseconds{400});
+    // Budget exhaustion is still the terminal outcome the operator sees.
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RetryBudgetExhausted), 1U);
+}
+
 TEST(OtlpExporterTest, Retry_SuccessOnFirstAttempt_NeverRetries)
 {
     mtmk::MockOtlpEncoder encoder;
@@ -585,6 +635,61 @@ TEST(OtlpExporterTest, Diagnostics_FailureWithNoErrorPayload_StillCountsAndNames
     EXPECT_EQ(sink.batches_failed, 1U);
     EXPECT_FALSE(sink.last_error_message.empty());
     EXPECT_EQ(DropCount(sink, mt::DropReason::NonRetryableFailure), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Drain-path exception accounting — issue #224.
+//
+// `FanOutAndProcess` runs with the queue lock released, inside a `noexcept`
+// worker, so `DrainQueue` catches everything it can throw. The catch was empty
+// under a comment claiming the diag hook had been added in M3-C; it had not,
+// so a batch lost this way left `GetExporterHealth()` reporting a clean
+// pipeline against error-model.md §5.1 ("recorded as a diagnostic, and the
+// worker continues"). The batch is still lost — there is nowhere to put it —
+// but the loss is countable.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// An encoder that always throws — the only way to reach `DrainQueue`'s catch
+/// from a test, every other collaborator on that path being `noexcept`.
+class ThrowingOtlpEncoder final : public mti::IOtlpEncoder
+{
+public:
+    [[nodiscard]] mti::EncodedPayload Encode(const mti::BatchHandle& /*batch*/) override
+    {
+        throw std::runtime_error("trace encode blew up");
+    }
+};
+
+}  // namespace
+
+TEST(OtlpExporterTest, Diagnostics_DrainThrows_RecordsBatchFailed)
+{
+    ThrowingOtlpEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporter exporter{&encoder, &codec, {}, &sink};
+
+    EXPECT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    ASSERT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    EXPECT_EQ(sink.batches_failed, 1U) << "a swallowed drain failure must still be countable";
+    EXPECT_EQ(sink.batches_sent, 0U);
+    EXPECT_FALSE(sink.last_error_message.empty())
+        << "GetExporterHealth() must be able to say why the batch was lost";
+    EXPECT_TRUE(sink.last_error_time.has_value());
+}
+
+TEST(OtlpExporterTest, Diagnostics_DrainThrows_WithoutSink_StillDrains)
+{
+    ThrowingOtlpEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mte::OtlpExporter exporter{&encoder, &codec};  // no sink
+
+    (void)exporter.Export(MakeBatch());
+    EXPECT_EQ(exporter.ForceFlush(kFlushTimeout), mt::Status::Completed);
 }
 
 TEST(OtlpExporterTest, Diagnostics_NullSink_IsNotDereferenced)

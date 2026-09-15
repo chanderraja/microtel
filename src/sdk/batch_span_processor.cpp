@@ -95,11 +95,13 @@ BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
                                        std::shared_ptr<const Resource> resource,
                                        BatchOptions opts,
                                        std::uint32_t max_record_bytes,
+                                       std::uint64_t max_total_queue_bytes,
                                        internal::IDiagnosticsSink* diag) noexcept
     : m_exporter(exporter),
       m_resource(std::move(resource)),
       m_opts(opts),
       m_max_record_bytes(max_record_bytes),
+      m_max_total_queue_bytes(max_total_queue_bytes),
       m_diag(diag),
       m_worker([this] { WorkerLoop(); })
 {
@@ -144,25 +146,48 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
         RecordDropped(DropReason::RecordTooLarge);
         return;
     }
-    if (m_queue.size() >= m_opts.max_queue_size)
+    if (!MakeRoomFor(record_bytes))
     {
-        // One span is lost either way; the policy chooses which one, not how
-        // many, so the counter moves once before the branch.
-        RecordDropped(DropReason::QueueFull);
-        if (m_opts.drop_policy == DropPolicy::DropOldest)
-        {
-            m_queue.pop_front();
-        }
-        else
-        {
-            return;  // DropNewest: discard incoming record
-        }
+        return;
     }
-    m_queue.push_back(QueuedSpan{.record = std::move(record), .scope = scope});
+    m_queue_bytes += record_bytes;
+    m_queue.push_back(
+        QueuedSpan{.record = std::move(record), .scope = scope, .bytes = record_bytes});
     if (m_queue.size() >= m_opts.max_export_batch_size)
     {
         m_cv.notify_one();
     }
+}
+
+bool BatchSpanProcessor::MakeRoomFor(std::size_t record_bytes) noexcept
+{
+    // Two caps, one queue: `max_queue_size` counts records and
+    // `max_total_queue_bytes` counts their estimated bytes (issue #181, spec
+    // §5.5). Whichever fills first refuses the record, and both report it as
+    // `QueueFull` — the queue is full, and a new `DropReason` would be an ICP
+    // (`docs/interfaces.md` §3.5) for a distinction an operator reads the same
+    // way. The byte cap can need more than one eviction, so this loops where
+    // the count cap alone never had to.
+    while (m_queue.size() >= m_opts.max_queue_size ||
+           m_queue_bytes + record_bytes > m_max_total_queue_bytes)
+    {
+        // One span is lost per turn of the loop; the policy chooses which one.
+        RecordDropped(DropReason::QueueFull);
+        if (m_opts.drop_policy != DropPolicy::DropOldest)
+        {
+            return false;  // DropNewest: discard incoming record
+        }
+        if (m_queue.empty())
+        {
+            // A record larger than the whole budget: there is nothing left to
+            // evict, so evicting more cannot help and the incoming record is
+            // the one that goes. Without this the loop would spin forever.
+            return false;
+        }
+        m_queue_bytes -= m_queue.front().bytes;
+        m_queue.pop_front();
+    }
+    return true;
 }
 
 microtel::Status BatchSpanProcessor::ForceFlush(std::chrono::milliseconds timeout) noexcept
@@ -224,6 +249,7 @@ BatchSpanProcessor::WakeResult BatchSpanProcessor::WaitAndCollect() noexcept
     batch.reserve(count);
     for (std::size_t i = 0; i < count; ++i)
     {
+        m_queue_bytes -= m_queue.front().bytes;
         batch.push_back(std::move(m_queue.front()));
         m_queue.pop_front();
     }

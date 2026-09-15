@@ -168,10 +168,11 @@ Caller-provided timeouts to `ForceFlush(timeout)` and `Shutdown(timeout)` overri
 single batch; the remaining retry parameters (attempt count, backoff shape,
 jitter) are not configurable in v1 and keep the OTLP-recommended defaults in
 `RetryPolicyConfig`. The budget is checked between attempts, not enforced
-against one in flight: the loop stops once the budget is *already* spent, so
-the last attempt and the backoff preceding it can carry total elapsed time past
-it. Treat `retry_budget` as the point at which microtel stops starting new
-attempts, not as a hard deadline.
+against one in flight: before each backoff the loop looks ahead and stops if
+that sleep would reach or pass the budget, so no backoff ever runs beyond it
+(issue #195). An attempt already in flight still can — it is bounded by
+`per_export`, not by `retry_budget`. Treat `retry_budget` as the point at which
+microtel stops starting new attempts, not as a hard deadline.
 
 ### 3.5 Exporter — TLS
 
@@ -262,10 +263,10 @@ environment variable; the values are plain integer bytes.
 
 | Code (`WithMemoryLimits({…})`) | TOML | Env | Default | Enforced at |
 |---|---|---|---|---|
-| `.max_total_queue_bytes = n` | — | — | 16 MiB | **nowhere yet** — issue #181; the span queue is bounded by `sdk.max_queue_size` in records only |
+| `.max_total_queue_bytes = n` | — | — | 16 MiB | `BatchSpanProcessor::OnEnd`, against the summed estimate of everything queued (counter `queue_full`) |
 | `.max_record_bytes = n` | — | — | 64 KiB | `BatchSpanProcessor::OnEnd`, before the record is queued (counter `record_too_large`) |
 | `.max_response_bytes = n` | — | — | 1 MiB | the transport, as the response body is accumulated (counter `response_too_large`) |
-| `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`) |
+| `.max_trailer_bytes = n` | — | — | 64 KiB | the transport, as the trailers are accumulated (also counter `response_too_large`); also advertised as `SETTINGS_MAX_HEADER_LIST_SIZE`, which is what bounds the response headers (issue #213) |
 | `.max_decompressed_bytes = n` | — | — | 4 MiB | the wire codec, as a gzipped response inflates (counter `decompression_too_large`) |
 
 Corrections (#196): the five `WithMax…Bytes(n)` setters this section named do

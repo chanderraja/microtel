@@ -40,11 +40,14 @@ headers.
 | [0024](0024-v1.1-rescope.md) | v1.1 rescope — hot reload without a socket | Accepted | — |
 | [0025](0025-propagation-core.md) | Propagation core — baggage, `TraceState` storage, `StartAsCurrentSpan` | Accepted | — (v1.1 packets 2.3a–c) |
 | [0026](0026-provider-setters.md) | The four hot-reload `Provider` setters | Accepted | — (v1.1 packets 2.2, 2.4) |
+| [0027](0027-multi-profile-threading.md) | Multi-profile — named `Provider`s at full independence | Proposed | — (v1.1 packet 3.1) |
 | [0028](0028-sugar-surface.md) | The sugar layer's public surface — `microtel::sugar` | Accepted | — (v1.1 sugar packet) |
 
-**0027 is reserved, not missing.** [ICP 0024](0024-v1.1-rescope.md) files it as
-the forthcoming `docs/threading-model.md` amendment for the control-plane
-design's §9 (the fourth thread role), which survives the socket's deferral.
+**0027 is not the amendment [ICP 0024](0024-v1.1-rescope.md) forecast for it.**
+0024 filed the number against `docs/control-plane-design.md` §9 (the fourth
+thread role). That amendment is still unwritten and now travels with the v1.2
+socket; 0027 went to the other `docs/threading-model.md` amendment v1.1 needs,
+which is multi-profile's.
 
 "Implemented by" is recorded only where a commit explicitly applies the ICP.
 A dash means the link was not determinable from commit messages, **not** that

@@ -70,9 +70,9 @@ The inventory is the maximum. A `Provider` with no `GetMeter` and no `GetLogger`
 
 ### 2.2 Pipeline worker threads — processor workers and exporter workers
 
-**One worker per pipeline** (LOCKED — cites `src/sdk/batch_span_processor.cpp:WorkerLoop`, `src/sdk/batch_log_record_processor.cpp:WorkerLoop`, `src/exporter/otlp_exporter.cpp:WorkerLoop`, `src/exporter/otlp_metric_exporter.cpp:WorkerLoop`, `src/exporter/otlp_log_exporter.cpp:WorkerLoop`), of which a fully-configured single `Provider` has **five**: a processor worker and an exporter worker each for traces and logs, and an exporter worker for metrics (whose producer side is the reader thread of §2, not a queue drain).
+**One worker per pipeline, and every pipeline belongs to one `Provider`** (LOCKED — cites `src/sdk/batch_span_processor.cpp:WorkerLoop`, `src/sdk/batch_log_record_processor.cpp:WorkerLoop`, `src/exporter/otlp_exporter.cpp:WorkerLoop`, `src/exporter/otlp_metric_exporter.cpp:WorkerLoop`, `src/exporter/otlp_log_exporter.cpp:WorkerLoop`), of which a fully-configured `Provider` has **five**: a processor worker and an exporter worker each for traces and logs, and an exporter worker for metrics (whose producer side is the reader thread of §2, not a queue drain). The count is **per `Provider`, not per process**: a process running N named profiles runs N such sets, sharing no thread, queue, or transport between them.
 
-This section said "v1 always has exactly one worker per process", justified by multi-profile being a v1.1 feature. The justification was a non-sequitur even when it was written: the multiplicity comes from **three signals inside one `Provider`**, not from multiple `Provider` instances. One `Provider` is still the v1 supported configuration.
+This section said "v1 always has exactly one worker per process", justified by multi-profile being a v1.1 feature. The justification was a non-sequitur even when it was written: the multiplicity comes from **three signals inside one `Provider`**, not from multiple `Provider` instances. One `Provider` was v1.0's supported configuration; from v1.1 a process may run several named ones ([ICP 0027](icps/0027-multi-profile-threading.md), taking effect with packet 3.1). Neither fact touches the per-pipeline rule, which was always a statement about one `Provider`'s internals.
 
 The two roles are separated by a queue, and conflating them is what the old text did:
 
@@ -92,7 +92,7 @@ The two roles are separated by a queue, and conflating them is what the old text
 
 **Neither may** call any caller-facing API. A worker thread never invokes `Tracer::StartSpan` or any other public API; doing so would risk a queue self-feed.
 
-### 2.3 I/O thread (one per process)
+### 2.3 I/O thread (one per `Provider`)
 
 **Identity.** Owned by the `Transport`. Created in `Http2Transport::Create()`
 — **not** at `Connect`, as this line said until it was checked against the
@@ -100,7 +100,9 @@ code. The loop starts polling immediately and runs whether or not a
 connection exists; `IoThreadLoop` simply finds `m_nghttp2_session` invalid and
 skips the drain steps. Joined at `Transport::Close`, which is accurate.
 
-**v1 always has exactly one I/O thread per process** (LOCKED — cites `src/transport/http2_transport.hpp:m_io_thread`, `src/sdk/sdk_builder.cpp:Build`). One nghttp2 session, one socket, one reactor: `Http2Transport` holds a single `m_io_thread`, and `SdkBuilder::Build` constructs one transport, shared by every pipeline.
+**Exactly one I/O thread per `Provider`** (LOCKED — cites `src/transport/http2_transport.hpp:m_io_thread`, `src/sdk/sdk_builder.cpp:Build`). One nghttp2 session, one socket, one reactor: `Http2Transport` holds a single `m_io_thread`, and each `SdkBuilder::Build` constructs one transport, shared by every pipeline of the `Provider` it builds.
+
+This said "one I/O thread per process" until [ICP 0027](icps/0027-multi-profile-threading.md). It is the same claim while a process has one `Provider`, which is v1.0's only supported configuration; the rescoping takes effect with packet 3.1, when a process may hold several named `Provider`s. Each of them builds its own transport and therefore owns its own socket, its own reactor, its own `SslCtx` ([ICP 0003](icps/0003-m0-deferred-decisions.md) §3.1 having already put that ownership on the `Transport`), and its own I/O thread. Nothing is shared across profiles.
 
 **Reads:** the OpenSSL `SslCtx` reference, the `SslSession`, the
 `Nghttp2Session`, the socket fd (a `common::raii::UniqueFd` — there is no

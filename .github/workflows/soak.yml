@@ -39,7 +39,7 @@ jobs:
         run: python3 --version
 
       - name: Install Python dependencies
-        run: pip install plotly
+        run: pip install plotly pytest
 
       - name: Run driver unit tests
         working-directory: bench

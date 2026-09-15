@@ -243,9 +243,9 @@ namespace
                     .message = R"(expected "true"/"1" or "false"/"0")"});
 }
 
-}  // namespace
-
-microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
+/// The exporter half of the overlay: endpoint, protocol, headers, timeout,
+/// compression and CA bundle.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayExporterEnv(Config& cfg)
 {
     // OTEL_EXPORTER_OTLP_ENDPOINT
     if (const auto v = GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT"); !v.empty())
@@ -283,6 +283,13 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
         cfg.tls.ca_bundle = v;
     }
 
+    return {};
+}
+
+/// The resource and metrics half: service identity, resource attributes, the
+/// detector policy, and the two metric-pipeline settings.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayResourceAndMetricEnv(Config& cfg)
+{
     // OTEL_SERVICE_NAME
     if (const auto v = GetEnv("OTEL_SERVICE_NAME"); !v.empty())
     {
@@ -314,6 +321,17 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     }
 
     return {};
+}
+
+}  // namespace
+
+microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
+{
+    if (auto r = OverlayExporterEnv(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+    return OverlayResourceAndMetricEnv(cfg);
 }
 
 }  // namespace microtel::config

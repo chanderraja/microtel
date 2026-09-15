@@ -10,8 +10,12 @@
 #include "microtel/log_sink.hpp"
 #include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
+#include "microtel/resource.hpp"
+#include "microtel/resource_detectors.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/status.hpp"
+
+#include "fakes/fake_resource_detector.hpp"
 
 #include <gtest/gtest.h>
 
@@ -575,4 +579,99 @@ TEST(SdkBuilderTest, Build_VerifiedTls_DoesNotWarnAboutInsecure)
 
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(capture.WarnedAbout(kInsecureNeedle));
+}
+
+// ---------------------------------------------------------------------------
+// WithResourceDetector (v1.1)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// RAII guard for the strict-detector env var.
+struct StrictEnvGuard
+{
+    StrictEnvGuard() = default;
+    StrictEnvGuard(const StrictEnvGuard&) = delete;
+    StrictEnvGuard& operator=(const StrictEnvGuard&) = delete;
+    StrictEnvGuard(StrictEnvGuard&&) = delete;
+    StrictEnvGuard& operator=(StrictEnvGuard&&) = delete;
+    ~StrictEnvGuard() noexcept
+    {
+        (void)unsetenv("MICROTEL_RESOURCE_DETECTORS_STRICT");
+    }
+};
+
+[[nodiscard]] std::unique_ptr<microtel::testing::FakeResourceDetector> MakeFailingDetector()
+{
+    auto fake = std::make_unique<microtel::testing::FakeResourceDetector>();
+    fake->name = "broken";
+    fake->failure = microtel::ConfigError{.kind = microtel::ConfigError::Kind::Unspecified,
+                                          .field = "resource.detectors.broken",
+                                          .message = "detector is deliberately broken"};
+    return fake;
+}
+
+}  // namespace
+
+TEST(SdkBuilderTest, WithResourceDetector_SucceedingDetector_BuildSucceeds)
+{
+    auto detector = std::make_unique<microtel::testing::FakeResourceDetector>();
+    auto* const observer = detector.get();
+    detector->resource_to_return = microtel::Resource{
+        std::vector<microtel::KeyValue>{{.key = "host.name", .value = std::string{"node-7"}}}};
+
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithResourceDetector(std::move(detector))
+                            .Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(observer->detect_call_count, 1) << "detection is one-shot per interfaces.md §4.10";
+}
+
+TEST(SdkBuilderTest, WithResourceDetector_BuiltInDetectors_BuildSucceeds)
+{
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithResourceDetector(microtel::MakeProcessDetector())
+                            .WithResourceDetector(microtel::MakeHostDetector())
+                            .Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+}
+
+TEST(SdkBuilderTest, WithResourceDetector_FailingDetector_LenientByDefault_BuildSucceeds)
+{
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithResourceDetector(MakeFailingDetector())
+                            .Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+}
+
+TEST(SdkBuilderTest, WithResourceDetector_FailingDetector_StrictViaEnv_BuildFails)
+{
+    const StrictEnvGuard guard;
+    (void)setenv("MICROTEL_RESOURCE_DETECTORS_STRICT", "true", 1);
+
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithResourceDetector(MakeFailingDetector())
+                            .Build();
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(result.error().message.find("broken"), std::string::npos);
+}
+
+TEST(SdkBuilderTest, WithResourceDetector_NullDetector_IsIgnored)
+{
+    // A moved-from or failed factory result must not crash Build().
+    const auto result = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithResourceDetector(nullptr)
+                            .Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
 }

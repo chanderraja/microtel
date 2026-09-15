@@ -6,6 +6,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/internal/resource_detector.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"
@@ -153,6 +154,26 @@ public:
     SdkBuilder& WithServiceName(std::string name);
     SdkBuilder& WithServiceVersion(std::string version);
     SdkBuilder& WithResource(std::vector<KeyValue> attrs);
+
+    /// @brief Register a resource detector.
+    ///
+    /// Call once per detector; registration order is significant. `Build()`
+    /// runs each detector exactly once, on the calling thread, and merges their
+    /// contributions per `microtel-spec.md` §12.7: detectors first (a later one
+    /// overriding an earlier one), then the environment, then the file or code
+    /// configuration. A key set by `WithResource` therefore always beats the
+    /// same key from a detector.
+    ///
+    /// A detector that returns a `ConfigError` is logged at Warn and skipped.
+    /// Setting `sdk.resource_detectors_strict` in `microtel.toml`, or
+    /// `MICROTEL_RESOURCE_DETECTORS_STRICT` in the environment, makes the same
+    /// failure fail `Build()` instead.
+    ///
+    /// `microtel::MakeProcessDetector()` and `microtel::MakeHostDetector()` in
+    /// `microtel/resource_detectors.hpp` supply the built-in detectors.
+    ///
+    /// @param detector ownership is moved in; `nullptr` is ignored.
+    SdkBuilder& WithResourceDetector(std::unique_ptr<internal::IResourceDetector> detector);
 
     SdkBuilder& WithSampler(SamplerHandle sampler);
     SdkBuilder& WithBatch(BatchOptions opts);

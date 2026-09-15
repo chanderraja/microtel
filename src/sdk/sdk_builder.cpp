@@ -30,6 +30,7 @@
 #include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/metric_attribute_set.hpp"
+#include "sdk/resource_builder.hpp"
 #include "sdk/sdk_provider.hpp"
 #include "sdk/view_registry.hpp"
 #include "transport/epoll_reactor.hpp"
@@ -66,6 +67,8 @@ struct SdkBuilder::Impl
     std::optional<std::string> service_name;
     std::optional<std::string> service_version;
     std::optional<std::vector<KeyValue>> resource_attrs;
+    /// Registration-ordered; `Build` runs each exactly once (interfaces.md §4.10).
+    std::vector<std::unique_ptr<internal::IResourceDetector>> resource_detectors;
     SamplerHandle sampler;
     std::optional<BatchOptions> batch;
     std::optional<SpanLimitOptions> span_limits;
@@ -146,6 +149,18 @@ SdkBuilder& SdkBuilder::WithServiceVersion(std::string version)
 SdkBuilder& SdkBuilder::WithResource(std::vector<KeyValue> attrs)
 {
     m_impl->resource_attrs = std::move(attrs);
+    return *this;
+}
+
+SdkBuilder& SdkBuilder::WithResourceDetector(std::unique_ptr<internal::IResourceDetector> detector)
+{
+    // A null detector is dropped rather than stored: `BuildResource` documents
+    // its span as non-null, and a moved-from unique_ptr reaching Build() as a
+    // crash would be a poor trade for the check this costs.
+    if (detector != nullptr)
+    {
+        m_impl->resource_detectors.push_back(std::move(detector));
+    }
     return *this;
 }
 
@@ -289,24 +304,6 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
     {
         return std::nullopt;
     }
-}
-
-[[nodiscard]] std::shared_ptr<const Resource> BuildResource(const config::Config& cfg)
-{
-    std::vector<KeyValue> attrs;
-    // Unconditional: `config::Validate` resolves an unset service name to the
-    // `unknown_service` placeholder the OTel resource semantic conventions
-    // require, so there is no "absent" case left to guard against here.
-    attrs.push_back({.key = "service.name", .value = cfg.service_name});
-    if (!cfg.service_version.empty())
-    {
-        attrs.push_back({.key = "service.version", .value = cfg.service_version});
-    }
-    for (const auto& kv : cfg.resource_attrs)
-    {
-        attrs.push_back(kv);
-    }
-    return std::make_shared<const Resource>(std::move(attrs));
 }
 
 [[nodiscard]] internal::ConnectOptions BuildConnectOptions(const config::Config& cfg)
@@ -664,8 +661,13 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     const config::Config cfg = std::move(*cfg_result);
     WarnOnRiskyConfig(cfg);
 
-    // --- Step 3: resource ---------------------------------------------------
-    auto resource = BuildResource(cfg);
+    // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
+    auto resource_result = sdk::BuildResource(cfg, m_impl->resource_detectors);
+    if (!resource_result)
+    {
+        return make_unexpected(resource_result.error());
+    }
+    auto resource = std::make_shared<const Resource>(std::move(*resource_result));
 
     // --- Step 4: auth provider ----------------------------------------------
     auto auth = BuildAuthProvider(m_impl->auth_cb, m_impl->auth_cache_ttl);

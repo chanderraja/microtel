@@ -371,3 +371,13 @@ microtel_add_test(
     NAME    resource_detectors_test
     SOURCES resource_detectors_test.cpp
     LIBS    microtel_sdk)
+
+# v1.1 — the spec §12.7 composition order (defaults, detectors, env, user) and
+# the strict/lenient detector policy. Reaches into src/sdk/resource_builder.hpp
+# and src/common/config/config.hpp directly.
+microtel_add_test(
+    NAME    resource_builder_test
+    SOURCES resource_builder_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(resource_builder_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)

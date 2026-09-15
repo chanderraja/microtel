@@ -28,6 +28,7 @@ add_library(microtel_sdk STATIC
     sdk_provider.cpp
     sdk_builder.cpp
     resource_detectors.cpp
+    resource_builder.cpp
     view_registry.cpp)
 
 # microtel_api is PUBLIC: it defines methods declared on public API types

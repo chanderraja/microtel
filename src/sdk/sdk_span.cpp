@@ -9,10 +9,13 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <new>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace microtel::sdk
 {
@@ -41,11 +44,91 @@ namespace
 ///       `DropReason` for allocation failure, and adding one is explicitly
 ///       ICP-gated (`provider.hpp`), so the count is deferred rather than
 ///       mapped onto an unrelated reason. See issue #134.
+/// @brief Longest prefix of @p s that is at most @p limit bytes and does not
+///        split a UTF-8 code point.
+///
+/// `attribute_value_length_limit` is a **byte** budget (`memory-model.md` §7 is
+/// a memory table, and the value that lands on the wire is bytes). The cut
+/// backs up over UTF-8 continuation bytes because an OTLP attribute is a
+/// proto3 `string`, which must hold valid UTF-8: a cut through a multi-byte
+/// sequence would turn one truncated attribute into a whole batch the
+/// collector refuses to parse. Backing up loses at most three more bytes.
+///
+/// @pre `limit < s.size()` — the caller has already decided to truncate.
+[[nodiscard]] std::size_t Utf8SafePrefix(std::string_view s, std::size_t limit) noexcept
+{
+    constexpr auto kContinuationMask = static_cast<unsigned char>(0xC0U);
+    constexpr auto kContinuationBits = static_cast<unsigned char>(0x80U);
+
+    std::size_t cut = limit;
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & kContinuationMask) == kContinuationBits)
+    {
+        --cut;
+    }
+    return cut;
+}
+
+/// @brief Truncate every string in @p value to `limit` bytes.
+///
+/// @return How many strings lost bytes — 0 or 1 for a scalar, one per
+///         oversized element for a string array. Each is one
+///         `AttributeValueTruncated`: each element is a value, and an operator
+///         reading the counter wants the number of values that lost data, not
+///         the number of attributes that contained one.
+///
+/// Only the two string alternatives of `AttributeValue` can exceed a length
+/// budget; bool / int64 / double and their arrays are fixed-width and pass
+/// through untouched. Shrinking a `std::string` in place never allocates, so
+/// this is safe to run inside the `noexcept` hot path.
+[[nodiscard]] std::uint64_t TruncateStrings(AttributeValue& value, std::size_t limit) noexcept
+{
+    if (auto* const s = std::get_if<std::string>(&value); s != nullptr)
+    {
+        if (s->size() <= limit)
+        {
+            return 0;
+        }
+        s->resize(Utf8SafePrefix(*s, limit));
+        return 1;
+    }
+
+    auto* const arr = std::get_if<std::vector<std::string>>(&value);
+    if (arr == nullptr)
+    {
+        return 0;
+    }
+    std::uint64_t truncated = 0;
+    for (auto& element : *arr)
+    {
+        if (element.size() > limit)
+        {
+            element.resize(Utf8SafePrefix(element, limit));
+            ++truncated;
+        }
+    }
+    return truncated;
+}
+
+/// @brief Copy @p kv with its string values clipped to @p limit, counting the
+///        truncations against @p diag.
+[[nodiscard]] KeyValue ClipAttribute(const KeyValue& kv,
+                                     std::size_t limit,
+                                     internal::IDiagnosticsSink* diag)
+{
+    KeyValue copy = kv;
+    const std::uint64_t truncated = TruncateStrings(copy.value, limit);
+    if (truncated > 0 && diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::AttributeValueTruncated, truncated);
+    }
+    return copy;
+}
+
 /// @brief Build one event. May throw; callers run it inside `DropOnBadAlloc`.
 [[nodiscard]] internal::SpanEvent BuildEvent(std::string_view name,
                                              AttributeSpan attributes,
                                              std::chrono::system_clock::time_point timestamp,
-                                             std::size_t attribute_limit,
+                                             SpanLimitOptions limits,
                                              internal::IDiagnosticsSink* diag)
 {
     internal::SpanEvent ev;
@@ -55,11 +138,11 @@ namespace
                        : timestamp;
     for (const auto& kv : attributes)
     {
-        if (ev.attributes.size() >= attribute_limit)
+        if (ev.attributes.size() >= limits.event_attribute_count_limit)
         {
             break;
         }
-        ev.attributes.push_back(kv);
+        ev.attributes.push_back(ClipAttribute(kv, limits.attribute_value_length_limit, diag));
     }
     // Counted after the fact rather than inside the loop: the event is kept,
     // so the loss is the surplus attributes, not the event.
@@ -73,18 +156,18 @@ namespace
 /// @brief Build one link. May throw; callers run it inside `DropOnBadAlloc`.
 [[nodiscard]] internal::SpanLink BuildLink(const SpanContext& linked_context,
                                            AttributeSpan attributes,
-                                           std::size_t attribute_limit,
+                                           SpanLimitOptions limits,
                                            internal::IDiagnosticsSink* diag)
 {
     internal::SpanLink lk;
     lk.linked_context = linked_context;
     for (const auto& kv : attributes)
     {
-        if (lk.attributes.size() >= attribute_limit)
+        if (lk.attributes.size() >= limits.link_attribute_count_limit)
         {
             break;
         }
-        lk.attributes.push_back(kv);
+        lk.attributes.push_back(ClipAttribute(kv, limits.attribute_value_length_limit, diag));
     }
     if (attributes.size() > lk.attributes.size() && diag != nullptr)
     {
@@ -172,6 +255,11 @@ void SdkSpan::SetAttribute(std::string_view key, AttributeValue value) noexcept
         RecordDropped(DropReason::SpanAttributeLimit);
         return;
     }
+    const std::uint64_t truncated = TruncateStrings(value, m_limits.attribute_value_length_limit);
+    if (truncated > 0)
+    {
+        RecordDropped(DropReason::AttributeValueTruncated, truncated);
+    }
     DropOnBadAlloc(
         [this, &key, &value]
         { m_record.attributes.push_back({.key = std::string{key}, .value = std::move(value)}); });
@@ -193,10 +281,9 @@ void SdkSpan::AddEvent(std::string_view name,
     // All-or-nothing: BuildEvent's local is discarded if it cannot be
     // completed, so the record never holds a half-written event.
     DropOnBadAlloc(
-        [this, &name, &attributes, &timestamp]
-        {
-            m_record.events.push_back(BuildEvent(
-                name, attributes, timestamp, m_limits.event_attribute_count_limit, m_diagnostics));
+        [this, &name, &attributes, &timestamp] {
+            m_record.events.push_back(
+                BuildEvent(name, attributes, timestamp, m_limits, m_diagnostics));
         });
 }
 
@@ -213,10 +300,9 @@ void SdkSpan::AddLink(const SpanContext& linked_context, AttributeSpan attribute
     }
     // All-or-nothing, same reasoning as AddEvent.
     DropOnBadAlloc(
-        [this, &linked_context, &attributes]
-        {
-            m_record.links.push_back(BuildLink(
-                linked_context, attributes, m_limits.link_attribute_count_limit, m_diagnostics));
+        [this, &linked_context, &attributes] {
+            m_record.links.push_back(
+                BuildLink(linked_context, attributes, m_limits, m_diagnostics));
         });
 }
 

@@ -280,14 +280,14 @@ known-key list in `src/common/config/toml_loader.cpp` and a row in this table.
 **Code-only in v1**, through `WithSpanLimits(SpanLimitOptions)`. No TOML table,
 no environment variables.
 
-| Code (`WithSpanLimits({…})`) | TOML | OTEL env | Default |
-|---|---|---|---|
-| `.attribute_count_limit = N` | — | — | 128 |
-| `.event_count_limit = N` | — | — | 128 |
-| `.link_count_limit = N` | — | — | 128 |
-| `.attribute_value_length_limit = N` | — | — | 4096 |
-| `.event_attribute_count_limit = N` | — | — | 128 |
-| `.link_attribute_count_limit = N` | — | — | 128 |
+| Code (`WithSpanLimits({…})`) | TOML | OTEL env | Default | Enforced at |
+|---|---|---|---|---|
+| `.attribute_count_limit = N` | — | — | 128 | `SdkSpan::SetAttribute` (counter `span_attribute_limit`) |
+| `.event_count_limit = N` | — | — | 128 | `SdkSpan::AddEvent` (counter `span_event_limit`) |
+| `.link_count_limit = N` | — | — | 128 | `SdkSpan::AddLink` (counter `span_link_limit`) |
+| `.attribute_value_length_limit = N` | — | — | 4096 | every string attribute copy — `SetAttribute` and the event / link attribute copies. **Bytes**, cut back to a UTF-8 code point boundary; the attribute is truncated, not dropped (counter `attribute_value_truncated`) |
+| `.event_attribute_count_limit = N` | — | — | 128 | `SdkSpan::AddEvent` (counter `event_attribute_limit`) |
+| `.link_attribute_count_limit = N` | — | — | 128 | `SdkSpan::AddLink` (counter `link_attribute_limit`) |
 
 Correction (#196): the `span_limits.*` TOML keys and the six `OTEL_SPAN_*` /
 `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_EVENT_ATTRIBUTE_COUNT_LIMIT` /

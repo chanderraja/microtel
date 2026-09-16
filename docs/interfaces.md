@@ -531,7 +531,9 @@ public:
 };
 ```
 
-**Preconditions.** `OnEnd` is called exactly once per `Span`, on the caller thread that ended the span. `scope` is the `InstrumentationScope` of the `Tracer` that started the span — the `name` / `version` pair passed to `Provider::GetTracer` ([ICP 0023](icps/0023-span-processor-scope.md)). It is borrowed for the duration of the call; an implementation that outlives the call copies it.
+**Preconditions.** `OnStart`'s `parent` is a `Context` carrying the span's **resolved** parent — `StartSpanOptions::parent` when the caller supplied one, otherwise the `active_span_context` of the starting thread's `CurrentContext()`. An explicit but *invalid* parent stays invalid here: it means "explicit root", and the current context is not consulted ([ICP 0025](icps/0025-propagation-core.md) §3 contract 1, `src/sdk/sdk_tracer.cpp:StartSpanInternal`). The `Context` is borrowed for the duration of the call. Its baggage slot arrives with `microtel/baggage.hpp` in v1.1 packet 2.3c (ICP 0025 §2); until then `active_span_context` is the whole of it.
+
+`OnEnd` is called exactly once per `Span`, on the caller thread that ended the span. `scope` is the `InstrumentationScope` of the `Tracer` that started the span — the `name` / `version` pair passed to `Provider::GetTracer` ([ICP 0023](icps/0023-span-processor-scope.md)). It is borrowed for the duration of the call; an implementation that outlives the call copies it.
 
 **Postconditions.** `OnEnd` either accepts the record into its pipeline or drops with the appropriate reason (`queue_full`, `record_too_large`, `post_shutdown`). A record accepted into the pipeline is exported in a `BatchHandle` whose `Scope()` is the `scope` it arrived with — spans from different tracers never share a batch (§3.3).
 

@@ -67,27 +67,20 @@ SdkTracer::SdkTracer(internal::ISampler* sampler,
 {
 }
 
-SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& opts) noexcept
+SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
+                                        const StartSpanOptions& opts,
+                                        SpanContext* started) noexcept
 {
-    // Resolve parent context.
-    SpanContext parent_ctx;
-    if (opts.parent.has_value())
-    {
-        parent_ctx = *opts.parent;
-    }
+    // Resolve the parent. An explicit parent always wins — including a
+    // set-but-invalid one, which is how a caller asks for an explicit root.
+    // Only an unset parent consults the calling thread's current context
+    // (ICP 0025 §3 contract 1).
+    const SpanContext parent_ctx =
+        opts.parent.has_value() ? *opts.parent : CurrentContext().active_span_context;
 
     // Generate IDs.  Inherit TraceId from valid parent; generate new one for roots.
     const TraceId trace_id = parent_ctx.IsValid() ? parent_ctx.trace_id : GenerateTraceId();
     const SpanId span_id = GenerateSpanId();
-
-    SpanContext ctx{
-        .trace_id = trace_id,
-        .span_id = span_id,
-        .trace_flags =
-            parent_ctx.IsValid() ? parent_ctx.trace_flags : TraceFlags{TraceFlags::kSampled},
-        .trace_state = {},
-        .remote = false,
-    };
 
     // Ask the sampler.
     const internal::SamplingContext sctx{
@@ -99,21 +92,27 @@ SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& o
         .trace_id = trace_id,
     };
     const internal::SamplingResult result = m_sampler->ShouldSample(sctx);
+    const bool sampled = result.decision == internal::SamplingDecision::RecordAndSample;
+
+    const SpanContext ctx{
+        .trace_id = trace_id,
+        .span_id = span_id,
+        .trace_flags = sampled ? TraceFlags{TraceFlags::kSampled} : TraceFlags{0},
+        .trace_state = {},
+        .remote = false,
+    };
+
+    // Published before the drop check: a dropped span still contributes a real
+    // trace id and span id to the context its children inherit, which is what
+    // keeps an unsampled subtree inside one trace (ICP 0025 §3 contract 3).
+    if (started != nullptr)
+    {
+        *started = ctx;
+    }
 
     if (result.decision == internal::SamplingDecision::Drop)
     {
         return MakeNoopHandle();
-    }
-
-    // Sampled or RecordOnly — heap-allocate the span.
-    // Set sampled flag on the context when decision is RecordAndSample.
-    if (result.decision == internal::SamplingDecision::RecordAndSample)
-    {
-        ctx.trace_flags = TraceFlags{TraceFlags::kSampled};
-    }
-    else
-    {
-        ctx.trace_flags = TraceFlags{0};
     }
 
     auto* raw = new (std::nothrow) SdkSpan(ctx,
@@ -134,19 +133,26 @@ SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& o
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) — intentional: this IS the owning deleter
     SpanHandle handle{raw, internal::SpanDeleter{[](Span* s) noexcept { delete s; }}};
 
-    // Call OnStart with an empty (default) parent context wrapper.
+    // The Context handed to OnStart carries the resolved parent — explicit if
+    // the caller supplied one, otherwise the thread's current span. Baggage
+    // joins it in packet 2.3c (ICP 0025 §2).
     const Context parent_propagation_ctx{parent_ctx};
     m_processor->OnStart(*raw, parent_propagation_ctx);
 
     return handle;
 }
 
-SpanHandle SdkTracer::StartAsCurrentSpan(std::string_view name,
+SpanHandle SdkTracer::StartSpan(std::string_view name, const StartSpanOptions& opts) noexcept
+{
+    return StartSpanInternal(name, opts, nullptr);
+}
+
+ScopedSpan SdkTracer::StartAsCurrentSpan(std::string_view name,
                                          const StartSpanOptions& opts) noexcept
 {
-    // Thread-local context propagation machinery deferred to v1.1.
-    // For now behaves identically to StartSpan.
-    return StartSpan(name, opts);
+    SpanContext started;
+    SpanHandle handle = StartSpanInternal(name, opts, &started);
+    return ScopedSpan{std::move(handle), Context{started}};
 }
 
 }  // namespace microtel::sdk

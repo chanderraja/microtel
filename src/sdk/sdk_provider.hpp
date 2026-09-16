@@ -18,6 +18,7 @@
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include "sdk/current_span_source.hpp"
 #include "sdk/diagnostics_counters.hpp"
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/view_registry.hpp"
@@ -234,6 +235,12 @@ private:
     internal::ConnectOptions m_connect_opts;
 
     std::shared_ptr<ViewRegistry> m_view_registry;
+
+    // The ICurrentSpanSource both the metrics exemplar reservoirs and the log
+    // trace-correlation seam read (ICP 0025 §3). Stateless and declared before
+    // the meter and logger blocks below, so it outlives every SdkMeter,
+    // SdkLogger, and metric stream that borrows it.
+    CurrentSpanSource m_current_span_source;
 
     // Metrics pipeline: lazily initialised on first GetMeter() call.
     std::mutex m_meter_mu;

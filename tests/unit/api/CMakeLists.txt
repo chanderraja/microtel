@@ -19,6 +19,13 @@ microtel_add_test(
     SOURCES propagator_test.cpp
     LIBS    microtel_api)
 
+# v1.1 packet 2.3b — the thread-local current-context slot and ScopedContext
+# (issue #221, ICP 0025 §3). The slot lives in microtel_api's context.cpp.
+microtel_add_test(
+    NAME    context_test
+    SOURCES context_test.cpp
+    LIBS    microtel_api)
+
 # v1.1 — Resource::Merge precedence (spec §12.7). Header-only: the merge is an
 # inline member of the public `Resource`, so this needs no library beyond the
 # header target microtel_add_test already links.

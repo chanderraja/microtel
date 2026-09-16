@@ -75,9 +75,13 @@ namespace detail
 ///
 /// - **valid `SpanContext`** → that context, converted.
 /// - **invalid `SpanContext`** (otel's default) → the currently active span
-///   (`trace::Scope`), if any; otherwise unset. microtel's SDK does not yet
-///   consult a current context on its own (`StartAsCurrentSpan` is v1.1), so
-///   the shim performs the inheritance otel-cpp semantics require.
+///   (`trace::Scope`), if any; otherwise unset. The inheritance is done here
+///   rather than left to microtel because the two runtimes keep separate
+///   current-span slots: otel-cpp's `RuntimeContext` is what a consumer of
+///   this shim installs into, and microtel's own slot (v1.1, ICP 0025 §3) sees
+///   nothing a `trace::Scope` did. An unset result does fall through to
+///   microtel's slot, which is correct — it is empty unless the same program
+///   also calls `microtel::Tracer::StartAsCurrentSpan` directly.
 /// - **`context::Context`** → the span it carries, if any; a context flagged
 ///   `is_root_span` becomes a *set but invalid* parent, which microtel's SDK
 ///   treats as an explicit root (fresh trace id); a context carrying neither

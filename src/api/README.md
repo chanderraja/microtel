@@ -32,6 +32,15 @@ Track A — Trace SDK (per [`docs/development.md`](../../docs/development.md) §
   list is immutable behind a `shared_ptr`, which is what keeps `SpanContext`'s
   copy `noexcept`; `internal::TraceStateImpl` is defined in that one
   translation unit and nowhere else, so its layout is not part of the ABI.
+- `microtel::CurrentContext` and `microtel::ScopedContext`
+  ([`context.cpp`](context.cpp), declared in
+  [`include/microtel/context.hpp`](../../include/microtel/context.hpp)) —
+  issue #221, [ICP 0025](../../docs/icps/0025-propagation-core.md) §3. The one
+  `thread_local Context` per thread lives in that translation unit alone, which
+  is why `CurrentContext()` is deliberately **not** inline: a process that links
+  `microtel_api` once cannot end up with two slots. Nesting is the C++ stack —
+  each `ScopedContext` holds the value it displaced — so restore is positional
+  and scopes must be destroyed in reverse order.
 - `microtel::Tracer` (declared in [`include/microtel/tracer.hpp`](../../include/microtel/tracer.hpp))
 - `microtel::Span`   (declared in [`include/microtel/span.hpp`](../../include/microtel/span.hpp))
 - The unsampled-`Span` no-op singleton + `internal::SpanDeleter` per

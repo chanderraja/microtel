@@ -164,23 +164,33 @@ root [`README.md`](README.md) is read off. It is documentation, not a gate — t
 gate is the separate `bench/baseline/results.json` in §6 — but the root README
 quotes it, so the two must agree, and a release is when they are made to agree.
 
-1. Dispatch `benchmark.yml` on `master` and wait for it.
-2. `gh run download <run-id>` — the `bench-results-<sha>` artifact.
+> **Run it on the host the outgoing snapshot came from — see
+> [#277](https://github.com/chanderraja/microtel/issues/277).**
+> `benchmark.yml` is hard-wired to `runs-on: ubuntu-24.04`, a shared 4-core
+> GitHub-hosted VM, while the committed snapshot comes from a 12-core
+> workstation. Refreshing one from the other is not a refresh, it is a machine
+> swap: when v1.1.0 first tried it, every SUT lost ~45% throughput **including
+> the two otelcpp SUTs, whose code had not changed.** Until #277 settles on a
+> reference runner, refresh this from a **local run on the snapshot's host**,
+> not from a workflow artifact.
+
+1. `cd bench && ./bench.sh` on the reference host. v1.1.0 ran three profiles —
+   `hot-loop-traces`, `realistic-request`, `compression` — because the
+   delivery-denominator and compression fixes are only visible in the latter
+   two; `docs/bench-results/` still commits only `hot-loop-traces`, the profile
+   the root README quotes.
+2. **Diff the `environment` block against the outgoing `results.json` before
+   anything else.** `cpu_model`, `cpu_physical_cores`, `cpu_governor`, `kernel`,
+   `container_engine_version` must all match; load average and timestamps are
+   expected to differ. An unchanged SUT that moved is the tell that they did not.
 3. Copy `results.json`, `results.md` and `plots.html` over
    `docs/bench-results/`, and update that directory's `README.md` provenance
    block (date, host, profile, warnings) to describe the new run.
 4. Update the benchmark table in the root `README.md` to match. Every number in
-   it must be readable off the snapshot.
-
-> **Check the host first — see [#277](https://github.com/chanderraja/microtel/issues/277).**
-> `benchmark.yml` is hard-wired to `runs-on: ubuntu-24.04`, a shared 4-core
-> GitHub-hosted VM. The committed snapshot was produced on a 12-core
-> workstation. Refreshing one from the other is not a refresh, it is a machine
-> swap: when v1.1.0 tried it, every SUT lost ~45% throughput **including the two
-> otelcpp SUTs, whose code had not changed.** Until #277 settles on a reference
-> host, do not overwrite `docs/bench-results/` from a workflow artifact — and if
-> you do refresh it, re-derive the root README's ratio claims rather than
-> carrying the old ones forward.
+   it must be readable off the snapshot — **and re-derive the ratio claims
+   underneath it rather than carrying the old ones forward.** v1.1.0's p50 ratio
+   went 4.0× → 3.5× purely because percentiles stopped being bucket midpoints on
+   both sides; a stale ratio would have read as a regression.
 
 **Sanity-compare against the previous snapshot before committing.** Compare the
 `environment` block first (`cpu_model`, `cpu_physical_cores`, governor, load
@@ -251,9 +261,9 @@ not self-index.
 [ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)
 [ ] SECURITY.md supported-versions row
-[ ] docs/bench-results/ — environment block compared against the old snapshot
-    before refreshing; refreshed + root README table agrees, or deliberately
-    skipped (see #277)
+[ ] docs/bench-results/ refreshed from a run on the snapshot's own host
+[ ] environment block diffed against the outgoing snapshot (see #277)
+[ ] root README table agrees, and its ratio claims were re-derived
 [ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed

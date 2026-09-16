@@ -24,7 +24,10 @@ struct StartSpanOptions
     SpanKind kind = SpanKind::Internal;
     std::optional<SpanContext> parent;                   ///< if unset, current Context is used
     std::chrono::system_clock::time_point start_time{};  ///< if zero-valued, "now" is used
-    AttributeSpan attributes;  ///< initial attributes; copied if span is sampled
+    /// Initial attributes; copied onto the span if it is sampled, under the
+    /// same count limit, value-length limit and drop accounting as
+    /// `Span::SetAttribute`.
+    AttributeSpan attributes;
 };
 
 /// @brief A span — the unit of trace work.

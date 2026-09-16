@@ -233,20 +233,18 @@ TEST(SugarPipeline, ATracedCallTreeExportsCorrectlyParentedSpans)
     // mt::Span's kind reached the record.
     EXPECT_EQ(request->kind, microtel::SpanKind::Server);
 
-    // Its inline AttrKey attributes did NOT, and that is issue #265, not a
-    // sugar defect: SdkTracer::StartSpanInternal reads
-    // StartSpanOptions::attributes only to build the SamplingContext and
-    // never hands them to the SdkSpan it constructs, so every caller of the
-    // documented initial-attributes field loses them — the otel-cpp shim
-    // included. That sugar fills the field correctly is asserted where sugar
+    // So did its inline AttrKey attributes, now that issue #265 is fixed:
+    // SdkTracer::StartSpanInternal hands StartSpanOptions::attributes to the
+    // span it constructs instead of only reading them for the sampling
+    // decision. That sugar fills the field correctly is asserted where sugar
     // is what is under test, in tests/unit/sugar/span_test.cpp
-    // (SugarSpan.CarriesInlineAttributesIntoTheStart).
-    //
-    // Asserted as-is deliberately: when #265 is fixed this expectation fails
-    // and points the fixer here, and the two lines below become the
-    // two-attribute assertion this test wants.
-    EXPECT_TRUE(request->attributes.empty())
-        << "issue #265 appears to be fixed — restore the real assertion here";
+    // (SugarSpan.CarriesInlineAttributesIntoTheStart); this is the end-to-end
+    // half — they survive the real processor and reach the exported record.
+    ASSERT_EQ(request->attributes.size(), 2U);
+    EXPECT_EQ(request->attributes[0].key, "http.method");
+    EXPECT_EQ(std::get<std::string>(request->attributes[0].value), "POST");
+    EXPECT_EQ(request->attributes[1].key, "http.route");
+    EXPECT_EQ(std::get<std::string>(request->attributes[1].value), "/checkout");
 
     // AttrKey::Set and RecordException landed on the deepest span.
     ASSERT_EQ(quote_frame->attributes.size(), 1U);

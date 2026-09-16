@@ -7,24 +7,30 @@
 
 #include "sdk/sdk_tracer.hpp"
 
+#include "microtel/attribute.hpp"
 #include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_span_processor.hpp"
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <set>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace mt = microtel;
 namespace mtfk = microtel::testing;
@@ -52,6 +58,12 @@ mt::SpanContext MakeParentContext(std::uint8_t seed)
     };
 }
 
+/// How many drops @p sink counted against @p reason.
+std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
+{
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
+}
+
 }  // namespace
 
 struct TracerFixture
@@ -59,15 +71,16 @@ struct TracerFixture
     std::shared_ptr<const mt::Resource> resource = std::make_shared<const mt::Resource>();
     mt::SamplerHandle sampler_owner;  // keeps ISampler alive for the tracer
     mtfk::FakeSpanProcessor proc;
+    mtfk::FakeDiagnosticsSink diag;
+
+    /// Read by `MakeTracer`; set before calling it to exercise a limit.
+    mt::SpanLimitOptions limits;
 
     mt::sdk::SdkTracer MakeTracer(mt::SamplerHandle sampler)
     {
         sampler_owner = std::move(sampler);
-        return mt::sdk::SdkTracer{sampler_owner.Get(),
-                                  &proc,
-                                  resource,
-                                  {.name = "lib", .version = "1.0"},
-                                  mt::SpanLimitOptions{}};
+        return mt::sdk::SdkTracer{
+            sampler_owner.Get(), &proc, resource, {.name = "lib", .version = "1.0"}, limits, &diag};
     }
 };
 
@@ -591,4 +604,168 @@ TEST(SdkTracerTest, StartAsCurrentSpan_DoesNotLeakIntoANewThread)
     worker.join();
 
     EXPECT_FALSE(worker_saw_a_span);
+}
+
+// ---------------------------------------------------------------------------
+// StartSpanOptions::attributes — initial attributes (#265)
+//
+// The field is documented as initial attributes copied onto a sampled span,
+// and the sampled path used to read it only to build the SamplingContext, so
+// every caller of the documented field lost them. They now reach the span
+// through `SetAttribute`, which is what makes the count limit, the value
+// clipping and the drop accounting apply to an initial attribute exactly once
+// and exactly as they apply to one set later.
+// ---------------------------------------------------------------------------
+
+TEST(SdkTracerTest, StartSpan_InitialAttributes_ReachTheRecord)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const std::array<mt::KeyValue, 2> attrs{
+        mt::KeyValue{.key = "http.method", .value = std::string{"POST"}},
+        mt::KeyValue{.key = "http.route", .value = std::string{"/checkout"}}};
+    {
+        auto h = t.StartSpan("http.request",
+                             {.kind = mt::SpanKind::Server,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 2U);
+    EXPECT_EQ(recorded[0].key, "http.method");
+    EXPECT_EQ(std::get<std::string>(recorded[0].value), "POST");
+    EXPECT_EQ(recorded[1].key, "http.route");
+    EXPECT_EQ(std::get<std::string>(recorded[1].value), "/checkout");
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_InitialAttributes_ReachTheRecord)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "rpc.system", .value = std::string{"grpc"}}};
+    {
+        const auto scoped = t.StartAsCurrentSpan("rpc",
+                                                 {.kind = mt::SpanKind::Client,
+                                                  .parent = {},
+                                                  .start_time = {},
+                                                  .attributes = mt::AttributeSpan{attrs}});
+        scoped->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 1U);
+    EXPECT_EQ(recorded[0].key, "rpc.system");
+    EXPECT_EQ(std::get<std::string>(recorded[0].value), "grpc");
+}
+
+TEST(SdkTracerTest, StartSpan_InitialAttributes_OverCountLimit_AreDroppedAndCounted)
+{
+    TracerFixture f;
+    f.limits.attribute_count_limit = 2;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const std::array<mt::KeyValue, 3> attrs{mt::KeyValue{.key = "a", .value = std::int64_t{1}},
+                                            mt::KeyValue{.key = "b", .value = std::int64_t{2}},
+                                            mt::KeyValue{.key = "c", .value = std::int64_t{3}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 2U);
+    EXPECT_EQ(recorded[0].key, "a");
+    EXPECT_EQ(recorded[1].key, "b");
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::SpanAttributeLimit), 1U);
+}
+
+// One budget, not two: an initial attribute occupies a slot a later
+// `SetAttribute` then cannot have.
+TEST(SdkTracerTest, StartSpan_InitialAttributes_ShareTheCountBudgetWithSetAttribute)
+{
+    TracerFixture f;
+    f.limits.attribute_count_limit = 2;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const std::array<mt::KeyValue, 1> attrs{mt::KeyValue{.key = "a", .value = std::int64_t{1}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->SetAttribute("b", std::int64_t{2});
+        h->SetAttribute("c", std::int64_t{3});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 2U);
+    EXPECT_EQ(recorded[0].key, "a");
+    EXPECT_EQ(recorded[1].key, "b");
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::SpanAttributeLimit), 1U);
+}
+
+TEST(SdkTracerTest, StartSpan_InitialAttributes_OverValueLengthLimit_AreTruncatedAndCounted)
+{
+    TracerFixture f;
+    f.limits.attribute_value_length_limit = 4;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "k", .value = std::string{"abcdefgh"}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(recorded[0].value), "abcd");
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+// The unsampled path returns the no-op handle and must do no work at all —
+// including on the initial attributes. The truncation counter is the probe:
+// an over-length value that was never clipped is a value that was never
+// copied (`docs/memory-model.md` §8.1).
+TEST(SdkTracerTest, AlwaysOff_InitialAttributes_AreNeitherRecordedNorProcessed)
+{
+    TracerFixture f;
+    f.limits.attribute_value_length_limit = 4;
+    auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "k", .value = std::string{"abcdefgh"}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    EXPECT_TRUE(f.proc.received_spans.empty());
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::AttributeValueTruncated), 0U);
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::SpanAttributeLimit), 0U);
 }

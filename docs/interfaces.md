@@ -722,7 +722,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. The `CallbackAuthProv
 
 #### Threading
 
-- `GetAuthorization` callable from the exporter worker. Must be thread-safe (the cache update path) but in practice only one caller. **The user-supplied callback may be invoked on the exporter worker thread**; this is documented in `auth_provider.hpp` and the public `WithAuthProvider` API. (LOCKED — affects user code.)
+- `GetAuthorization` callable from the exporter workers. Must be thread-safe (the cache update path): since M12/M14 the trace, metric, and log codecs share one provider, so up to three exporter workers call it, and the callback runs under the provider's mutex — a slow callback stalls all three pipelines. **The user-supplied callback may be invoked on an exporter worker thread**; this is documented in `auth_provider.hpp` and the public `WithAuthProvider` API. (LOCKED — affects user code.) *This bullet previously read "but in practice only one caller"; corrected by [ICP 0029](icps/0029-auth-caller-count-correction.md) — the thread-safety requirement itself is unchanged.*
 
 #### Error model
 

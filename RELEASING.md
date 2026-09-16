@@ -112,13 +112,19 @@ goes through a PR like anything else:
 
 ```bash
 git switch master && git pull
-git switch -c chore/vX.Y.Z
+git switch -c release/vX.Y.Z
 # edit the five literals + SECURITY.md
 ci/scripts/version-drift-check.sh
 git commit -am "chore: vX.Y.Z"
-gh pr create --title "chore: vX.Y.Z" --body "…"
+# plus the published benchmark snapshot — see §6
+gh pr create --title "release: vX.Y.Z" --milestone "…" --body "…"
 # merge once CI is green
 ```
+
+1.0.0 used `chore/vX.Y.Z` and a `chore:` PR title; 1.1.0 used `release/vX.Y.Z`
+and `release: vX.Y.Z`, which is the convention from here on — a release PR
+carries more than a chore, and the title is what the milestone listing shows.
+The *commit* subject stays `chore: vX.Y.Z`.
 
 Then tag the **merge commit on `master`**, not the branch head:
 
@@ -134,11 +140,39 @@ Tag names are `vX.Y.Z`. Pre-1.0 tags carried a milestone suffix
 
 ---
 
-## 5. Refresh the snapshots
+## 5. Refresh the published benchmark snapshot — in the release PR
 
-Two committed files are point-in-time snapshots of generated output. Neither is
-required for the release to be usable, and neither should be folded into the
-release PR — both are noisy diffs that would bury the version change.
+**This one belongs in the release PR**, unlike the two in §6.
+
+[`docs/bench-results/`](docs/bench-results/) (`results.json`, `results.md`,
+`plots.html`, `README.md`) is the committed run that the benchmark table in the
+root [`README.md`](README.md) is read off. It is documentation, not a gate — the
+gate is the separate `bench/baseline/results.json` in §6 — but the root README
+quotes it, so the two must agree, and a release is when they are made to agree.
+
+1. Dispatch `benchmark.yml` on `master` and wait for it.
+2. `gh run download <run-id>` — the `bench-results-<sha>` artifact.
+3. Copy `results.json`, `results.md` and `plots.html` over
+   `docs/bench-results/`, and update that directory's `README.md` provenance
+   block (date, host, profile, warnings) to describe the new run.
+4. Update the benchmark table in the root `README.md` to match. Every number in
+   it must be readable off the snapshot.
+
+**Sanity-compare against the previous snapshot before committing**, and if a
+metric moved because the *harness* changed rather than the code, say so
+prominently in the commit body, the snapshot README, and the release notes. A
+reader cannot otherwise tell a measurement fix from a regression. v1.1.0 had
+three of them at once (delivery/drop denominators, rank-interpolated
+percentiles, gRPC wire-byte accounting), which is what this paragraph exists to
+prevent being mistaken for performance change.
+
+---
+
+## 6. Refresh the other two snapshots — their own PRs
+
+Two further committed files are point-in-time snapshots of generated output.
+Neither is required for the release to be usable, and neither should be folded
+into the release PR — both are noisy diffs that would bury the version change.
 
 ### Benchmark baseline
 
@@ -183,6 +217,8 @@ not self-index.
 [ ] ci/scripts/version-drift-check.sh passes locally
 [ ] COMPATIBILITY mode still right (major bumps only)
 [ ] SECURITY.md supported-versions row
+[ ] docs/bench-results/ refreshed + root README table agrees (in the release PR)
+[ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
 [ ] gh release created

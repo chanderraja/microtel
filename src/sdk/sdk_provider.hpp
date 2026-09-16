@@ -102,6 +102,11 @@ struct SdkProviderArgs
     std::unique_ptr<internal::ILogExporter> log_exporter;
     /// @brief Batch options for the log record processor (default BSP knobs).
     BatchOptions log_batch_opts;
+    /// @brief The profile this provider is registered under (ICP 0027).
+    ///
+    /// Set by `SdkBuilder::Build` from `WithProfileName`; defaults to
+    /// `microtel::kDefaultProfileName`, which is what every v1.0 program gets.
+    std::string profile_name{kDefaultProfileName};
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -182,6 +187,20 @@ public:
     /// A thin forwarder to `internal::SetMinLogLevel`, so the operator surface
     /// is uniform across the four knobs even though this one is process-wide.
     [[nodiscard]] Status SetLogLevel(LogLevel level) noexcept override;
+
+    /// @brief The profile name this provider is registered under.
+    ///
+    /// Immutable from construction until destruction, which is what lets the
+    /// registry hold nothing but a pointer: the name is published to other
+    /// threads by the release-store that puts this provider in a slot, and it
+    /// outlives that slot's occupancy (`src/sdk/provider_registry.hpp`).
+    ///
+    /// @return a borrowed view of the provider's own storage, valid for the
+    ///         provider's lifetime.
+    [[nodiscard]] std::string_view ProfileName() const noexcept
+    {
+        return m_profile_name;
+    }
 
     /// @brief Borrow the provider-owned diagnostics sink.
     ///
@@ -319,6 +338,13 @@ private:
     std::mutex m_logger_mu;
     std::unordered_map<std::string, std::shared_ptr<microtel::Logger>> m_loggers;
     std::shared_ptr<microtel::Logger> m_noop_logger;
+
+    // The registry's key for this provider. Assigned once at construction and
+    // never reassigned, so it needs no lock — and the registry, which reads it
+    // from other threads, needs no allocation. Destruction order is not a
+    // concern: `~SdkProvider` releases the slot before any member is destroyed,
+    // so nothing can be scanning this string by the time it goes.
+    std::string m_profile_name;
 };
 
 }  // namespace microtel::sdk

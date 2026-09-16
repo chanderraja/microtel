@@ -112,6 +112,112 @@ std::string StableName(std::size_t i)
     return "stable-" + std::to_string(i);
 }
 
+using Deadline = std::chrono::steady_clock::time_point;
+using ProviderList = std::vector<std::unique_ptr<mts::SdkProvider>>;
+
+[[nodiscard]] bool Running(Deadline deadline) noexcept
+{
+    return std::chrono::steady_clock::now() < deadline;
+}
+
+/// Scan for names that are registered for the whole run, and one that never is.
+void LookupLoop(Deadline deadline, std::atomic<std::size_t>& lookups)
+{
+    while (Running(deadline))
+    {
+        for (std::size_t j = 0; j < kStableProfiles; ++j)
+        {
+            EXPECT_NE(mt::GetProvider(StableName(j)), nullptr);
+        }
+        EXPECT_EQ(mt::GetProvider("no-such-profile"), nullptr);
+        lookups.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+/// Take and release one slot, under a name no other thread claims.
+void ChurnLoop(Deadline deadline, mts::SdkProvider* provider, const std::string& name)
+{
+    while (Running(deadline))
+    {
+        ASSERT_EQ(mts::RegisterProvider(provider), mts::RegistrationResult::Registered);
+        EXPECT_EQ(mt::GetProvider(name), provider);
+        mts::DeregisterProvider(provider);
+    }
+}
+
+/// One name, two claimants, forever: the pair that has to reach the CAS and the
+/// re-scan rather than settling it in the sequential duplicate scan.
+void ContendLoop(Deadline deadline, mts::SdkProvider* provider, std::atomic<std::size_t>& claims)
+{
+    while (Running(deadline))
+    {
+        if (mts::RegisterProvider(provider) == mts::RegistrationResult::Registered)
+        {
+            EXPECT_NE(mt::GetProvider("contended"), nullptr);
+            mts::DeregisterProvider(provider);
+            claims.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+}
+
+/// Provider construction, Shutdown and destruction, beside every registry
+/// operation above. These never enter the registry, so nothing else can hold a
+/// pointer to them (ICP 0027 §4).
+void LifecycleLoop(Deadline deadline, std::atomic<std::size_t>& lifecycles)
+{
+    while (Running(deadline))
+    {
+        auto transient = MakeProvider("never-registered");
+        EXPECT_NE(transient->Shutdown(kShutdownTimeout), mt::Status::Failed);
+        transient.reset();
+        lifecycles.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+/// Shutdown on the providers the lookup threads are handing out. Idempotent
+/// after the first, which is the point: it keeps running.
+void ShutdownLoop(Deadline deadline, const ProviderList& stable)
+{
+    while (Running(deadline))
+    {
+        for (const auto& provider : stable)
+        {
+            (void)provider->ForceFlush(kShutdownTimeout);
+            (void)provider->Shutdown(kShutdownTimeout);
+        }
+    }
+}
+
+std::string ChurnName(std::size_t i)
+{
+    return "churn-" + std::to_string(i);
+}
+
+/// @p count providers, none of them registered, all carrying @p name — the
+/// shape the contended claimants need.
+ProviderList MakeProviders(std::size_t count, const std::string& name)
+{
+    ProviderList providers;
+    providers.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        providers.push_back(MakeProvider(name));
+    }
+    return providers;
+}
+
+/// @p count providers, none of them registered, each with its own name.
+ProviderList MakeChurnProviders(std::size_t count)
+{
+    ProviderList providers;
+    providers.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        providers.push_back(MakeProvider(ChurnName(i)));
+    }
+    return providers;
+}
+
 }  // namespace
 
 TEST(ProviderRegistryRaceTest, RegisterLookupDeregisterAndLifecycleRaceCleanly)
@@ -120,7 +226,8 @@ TEST(ProviderRegistryRaceTest, RegisterLookupDeregisterAndLifecycleRaceCleanly)
 
     // Every provider the registry can see is constructed here and destroyed
     // after every thread has joined — see the file header.
-    std::vector<std::unique_ptr<mts::SdkProvider>> stable;
+    ProviderList stable;
+    stable.reserve(kStableProfiles);
     for (std::size_t i = 0; i < kStableProfiles; ++i)
     {
         auto provider = MakeProvider(StableName(i));
@@ -128,105 +235,29 @@ TEST(ProviderRegistryRaceTest, RegisterLookupDeregisterAndLifecycleRaceCleanly)
         stable.push_back(std::move(provider));
     }
 
-    std::vector<std::unique_ptr<mts::SdkProvider>> churn;
-    for (std::size_t i = 0; i < kChurnThreads; ++i)
-    {
-        churn.push_back(MakeProvider("churn-" + std::to_string(i)));
-    }
-
-    std::vector<std::unique_ptr<mts::SdkProvider>> contended;
-    for (std::size_t i = 0; i < kContendedThreads; ++i)
-    {
-        contended.push_back(MakeProvider("contended"));
-    }
+    ProviderList churn = MakeChurnProviders(kChurnThreads);
+    ProviderList contended = MakeProviders(kContendedThreads, "contended");
 
     std::atomic<std::size_t> lookups{0};
     std::atomic<std::size_t> claims{0};
     std::atomic<std::size_t> lifecycles{0};
     std::vector<std::thread> threads;
+    threads.reserve(kLookupThreads + kChurnThreads + kContendedThreads + 2);
 
     for (std::size_t i = 0; i < kLookupThreads; ++i)
     {
-        threads.emplace_back(
-            [&]
-            {
-                while (std::chrono::steady_clock::now() < deadline)
-                {
-                    for (std::size_t j = 0; j < kStableProfiles; ++j)
-                    {
-                        // Registered for the whole run, so a miss is a defect.
-                        EXPECT_NE(mt::GetProvider(StableName(j)), nullptr);
-                    }
-                    EXPECT_EQ(mt::GetProvider("no-such-profile"), nullptr);
-                    lookups.fetch_add(1, std::memory_order_relaxed);
-                }
-            });
+        threads.emplace_back([&] { LookupLoop(deadline, lookups); });
     }
-
     for (std::size_t i = 0; i < kChurnThreads; ++i)
     {
-        threads.emplace_back(
-            [&, i]
-            {
-                while (std::chrono::steady_clock::now() < deadline)
-                {
-                    ASSERT_EQ(mts::RegisterProvider(churn[i].get()),
-                              mts::RegistrationResult::Registered);
-                    EXPECT_EQ(mt::GetProvider("churn-" + std::to_string(i)), churn[i].get());
-                    mts::DeregisterProvider(churn[i].get());
-                }
-            });
+        threads.emplace_back([&, i] { ChurnLoop(deadline, churn[i].get(), ChurnName(i)); });
     }
-
-    // One name, two claimants, forever: the pair that has to reach the CAS and
-    // the re-scan rather than settling it in the sequential duplicate scan.
     for (std::size_t i = 0; i < kContendedThreads; ++i)
     {
-        threads.emplace_back(
-            [&, i]
-            {
-                while (std::chrono::steady_clock::now() < deadline)
-                {
-                    if (mts::RegisterProvider(contended[i].get()) ==
-                        mts::RegistrationResult::Registered)
-                    {
-                        EXPECT_NE(mt::GetProvider("contended"), nullptr);
-                        mts::DeregisterProvider(contended[i].get());
-                        claims.fetch_add(1, std::memory_order_relaxed);
-                    }
-                }
-            });
+        threads.emplace_back([&, i] { ContendLoop(deadline, contended[i].get(), claims); });
     }
-
-    // Provider construction, Shutdown and destruction, beside every registry
-    // operation above. These never enter the registry, so nothing else can
-    // hold a pointer to them (ICP 0027 §4).
-    threads.emplace_back(
-        [&]
-        {
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                auto transient = MakeProvider("never-registered");
-                EXPECT_NE(transient->Shutdown(kShutdownTimeout), mt::Status::Failed);
-                transient.reset();
-                lifecycles.fetch_add(1, std::memory_order_relaxed);
-            }
-        });
-
-    // Shutdown on the providers the lookup threads are handing out. Idempotent
-    // after the first, which is the point: it keeps running.
-    threads.emplace_back(
-        [&]
-        {
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                for (const auto& provider : stable)
-                {
-                    (void)provider->ForceFlush(kShutdownTimeout);
-                    (void)provider->Shutdown(kShutdownTimeout);
-                }
-            }
-        });
+    threads.emplace_back([&] { LifecycleLoop(deadline, lifecycles); });
+    threads.emplace_back([&] { ShutdownLoop(deadline, stable); });
 
     for (auto& t : threads)
     {

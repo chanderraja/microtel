@@ -101,6 +101,119 @@ std::unique_ptr<mts::SdkProvider> MakeDefaultProvider()
 /// Registered providers, deregistered in reverse order when the vector dies.
 using Registered = std::vector<std::unique_ptr<mts::SdkProvider>>;
 
+/// What a race produced: one winner and N-1 refusals, or a defect.
+struct Tally
+{
+    std::atomic<std::size_t> winners{0};
+    std::atomic<std::size_t> duplicates{0};
+};
+
+/// Spin until the gate opens. Every claimant starts in the same instant, or the
+/// winner is settled by the sequential duplicate scan — the path these tests are
+/// *not* about.
+void WaitForGate(const std::atomic<bool>& go)
+{
+    while (!go.load(std::memory_order_acquire))
+    {
+        std::this_thread::yield();
+    }
+}
+
+/// One claimant of the registry surface.
+void ClaimWhenReleased(const std::atomic<bool>& go, mts::SdkProvider* provider, Tally& tally)
+{
+    WaitForGate(go);
+    const mts::RegistrationResult result = mts::RegisterProvider(provider);
+    if (result == mts::RegistrationResult::Registered)
+    {
+        tally.winners.fetch_add(1, std::memory_order_relaxed);
+    }
+    else if (result == mts::RegistrationResult::DuplicateName)
+    {
+        tally.duplicates.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+/// One claimant of the builder surface; keeps what it built alive in @p slot.
+void BuildWhenReleased(const std::atomic<bool>& go,
+                       const std::string& name,
+                       std::shared_ptr<mt::Provider>& slot,
+                       Tally& tally)
+{
+    WaitForGate(go);
+    auto result = mt::SdkBuilder().WithEndpoint(kTestEndpoint).WithProfileName(name).Build();
+    if (result.has_value())
+    {
+        slot = std::move(*result);
+        tally.winners.fetch_add(1, std::memory_order_relaxed);
+    }
+    else if (result.error().kind == mt::ConfigError::Kind::DuplicateProfileName)
+    {
+        tally.duplicates.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+/// Register every one of @p providers at once, counting the outcomes.
+void RegisterConcurrently(const Registered& providers, Tally& tally)
+{
+    std::atomic<bool> go{false};
+    std::vector<std::thread> threads;
+    threads.reserve(providers.size());
+    for (const auto& provider : providers)
+    {
+        threads.emplace_back([&go, &tally, target = provider.get()]
+                             { ClaimWhenReleased(go, target, tally); });
+    }
+    go.store(true, std::memory_order_release);
+    for (auto& t : threads)
+    {
+        t.join();
+    }
+}
+
+/// How many of @p providers @p found is — 1 when the winner is one of ours.
+[[nodiscard]] std::size_t CountMatching(const mt::Provider* found, const Registered& providers)
+{
+    std::size_t matches = 0;
+    for (const auto& provider : providers)
+    {
+        matches += static_cast<std::size_t>(found == provider.get());
+    }
+    return matches;
+}
+
+/// `Build()` one profile name from every slot of @p built at once, counting the
+/// outcomes.
+void BuildConcurrently(const std::string& name,
+                       std::vector<std::shared_ptr<mt::Provider>>& built,
+                       Tally& tally)
+{
+    std::atomic<bool> go{false};
+    std::vector<std::thread> threads;
+    threads.reserve(built.size());
+    for (auto& slot : built)
+    {
+        threads.emplace_back([&go, &tally, &name, &slot]
+                             { BuildWhenReleased(go, name, slot, tally); });
+    }
+    go.store(true, std::memory_order_release);
+    for (auto& t : threads)
+    {
+        t.join();
+    }
+}
+
+/// Take @p count more slots under fresh names; every one must succeed.
+void FillRemainingSlots(Registered& live, std::size_t count)
+{
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        auto filler = MakeProvider("filler-" + std::to_string(i));
+        EXPECT_EQ(mts::RegisterProvider(filler.get()), mts::RegistrationResult::Registered) << i;
+        live.push_back(std::move(filler));
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -220,11 +333,11 @@ TEST(ProviderRegistryTest, LookupSurvivesShutdown)
 
     ASSERT_EQ(provider->Shutdown(kTimeout), mt::Status::Completed);
 
-    // `Shutdown` does not deregister: the name is freed by destruction, not by
-    // shutdown, and the pointer stays valid and answers AlreadyShutDown.
-    mt::Provider* const found = mt::GetProvider("draining");
-    ASSERT_EQ(found, provider.get());
-    EXPECT_EQ(found->Shutdown(kTimeout), mt::Status::AlreadyShutDown);
+    // `Shutdown` does not deregister: a name is freed by destruction, not by
+    // shutdown, and the pointer stays valid. (What a *shut-down* provider
+    // answers is the builder-level test below, where the pipelines are real —
+    // mock components report Completed however often they are stopped.)
+    EXPECT_EQ(mt::GetProvider("draining"), provider.get());
 }
 
 TEST(ProviderRegistryTest, LookupAfterDestructionReturnsNull)
@@ -259,58 +372,16 @@ TEST(ProviderRegistryTest, ConcurrentRegistrationOfOneNameYieldsExactlyOneWinner
         providers.push_back(MakeProvider("race"));
     }
 
-    std::atomic<bool> go{false};
-    std::atomic<std::size_t> winners{0};
-    std::atomic<std::size_t> duplicates{0};
-    std::vector<std::thread> threads;
-    threads.reserve(kThreads);
-    for (std::size_t i = 0; i < kThreads; ++i)
-    {
-        threads.emplace_back(
-            [&, i]
-            {
-                while (!go.load(std::memory_order_acquire))
-                {
-                    std::this_thread::yield();
-                }
-                const mts::RegistrationResult result = mts::RegisterProvider(providers[i].get());
-                if (result == mts::RegistrationResult::Registered)
-                {
-                    winners.fetch_add(1, std::memory_order_relaxed);
-                }
-                else if (result == mts::RegistrationResult::DuplicateName)
-                {
-                    duplicates.fetch_add(1, std::memory_order_relaxed);
-                }
-            });
-    }
-    go.store(true, std::memory_order_release);
-    for (auto& t : threads)
-    {
-        t.join();
-    }
+    Tally tally;
+    RegisterConcurrently(providers, tally);
 
-    EXPECT_EQ(winners.load(), 1U);
-    EXPECT_EQ(duplicates.load(), kThreads - 1);
-
-    // The winner is the one the registry hands out, and it is one of ours.
-    mt::Provider* const found = mt::GetProvider("race");
-    ASSERT_NE(found, nullptr);
-    std::size_t matches = 0;
-    for (const auto& p : providers)
-    {
-        matches += static_cast<std::size_t>(found == p.get());
-    }
-    EXPECT_EQ(matches, 1U);
+    EXPECT_EQ(tally.winners.load(), 1U);
+    EXPECT_EQ(tally.duplicates.load(), kThreads - 1);
+    EXPECT_EQ(CountMatching(mt::GetProvider("race"), providers), 1U);
 
     // Exactly one slot is occupied: every loser backed its claim out, so the
     // registry has capacity for the remaining profiles.
-    for (std::size_t i = 0; i + 1 < mts::kMaxProfiles; ++i)
-    {
-        auto filler = MakeProvider("filler-" + std::to_string(i));
-        EXPECT_EQ(mts::RegisterProvider(filler.get()), mts::RegistrationResult::Registered) << i;
-        providers.push_back(std::move(filler));
-    }
+    FillRemainingSlots(providers, mts::kMaxProfiles - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +433,21 @@ TEST(MultiProfileBuildTest, TwoDefaultProfilesCollide)
     const auto second = mt::SdkBuilder().WithEndpoint(kTestEndpoint).Build();
     ASSERT_FALSE(second.has_value());
     EXPECT_EQ(second.error().kind, mt::ConfigError::Kind::DuplicateProfileName);
+}
+
+// Shut down is not gone: the lookup keeps finding it, and what it finds
+// answers AlreadyShutDown — the same contract a `shared_ptr` holder gets.
+TEST(MultiProfileBuildTest, AShutDownProfileIsStillFoundAndStillAnswers)
+{
+    auto built = mt::SdkBuilder().WithEndpoint(kTestEndpoint).WithProfileName("stopped").Build();
+    ASSERT_TRUE(built.has_value());
+    const std::shared_ptr<mt::Provider> provider = std::move(*built);
+    ASSERT_EQ(provider->Shutdown(kTimeout), mt::Status::Completed);
+
+    mt::Provider* const found = mt::GetProvider("stopped");
+    ASSERT_EQ(found, provider.get());
+    EXPECT_EQ(found->Shutdown(kTimeout), mt::Status::AlreadyShutDown);
+    EXPECT_EQ(found->ForceFlush(kTimeout), mt::Status::AlreadyShutDown);
 }
 
 // Shutdown does not free the name; destruction does.
@@ -416,42 +502,12 @@ TEST(MultiProfileBuildTest, BuildBeyondCapacityFailsWithProfileLimitExceeded)
 TEST(MultiProfileBuildTest, ConcurrentBuildsOfOneNameYieldOneProviderAndOneError)
 {
     constexpr std::size_t kThreads = 4;
-    std::atomic<bool> go{false};
-    std::atomic<std::size_t> succeeded{0};
-    std::atomic<std::size_t> duplicates{0};
+    Tally tally;
     std::vector<std::shared_ptr<mt::Provider>> built(kThreads);
 
-    std::vector<std::thread> threads;
-    threads.reserve(kThreads);
-    for (std::size_t i = 0; i < kThreads; ++i)
-    {
-        threads.emplace_back(
-            [&, i]
-            {
-                while (!go.load(std::memory_order_acquire))
-                {
-                    std::this_thread::yield();
-                }
-                auto result =
-                    mt::SdkBuilder().WithEndpoint(kTestEndpoint).WithProfileName("shared").Build();
-                if (result.has_value())
-                {
-                    built[i] = std::move(*result);
-                    succeeded.fetch_add(1, std::memory_order_relaxed);
-                }
-                else if (result.error().kind == mt::ConfigError::Kind::DuplicateProfileName)
-                {
-                    duplicates.fetch_add(1, std::memory_order_relaxed);
-                }
-            });
-    }
-    go.store(true, std::memory_order_release);
-    for (auto& t : threads)
-    {
-        t.join();
-    }
+    BuildConcurrently("shared", built, tally);
 
-    EXPECT_EQ(succeeded.load(), 1U);
-    EXPECT_EQ(duplicates.load(), kThreads - 1);
+    EXPECT_EQ(tally.winners.load(), 1U);
+    EXPECT_EQ(tally.duplicates.load(), kThreads - 1);
     EXPECT_NE(mt::GetProvider("shared"), nullptr);
 }

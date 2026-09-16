@@ -69,6 +69,14 @@ public:
         ProtocolMismatch = 8,       ///< explicit protocol disagrees with URL scheme
         InsecureDisallowed = 9,     ///< `MICROTEL_FORBID_INSECURE_TLS=ON` and `insecure=true`
         BuildAlreadyConsumed = 10,  ///< `SdkBuilder::Build()` called twice
+        /// Another live provider already carries this profile name. Never
+        /// last-wins: the existing provider keeps the name and this build fails
+        /// (ICP 0027 §5).
+        DuplicateProfileName = 11,
+        /// The process already holds the maximum number of live providers. The
+        /// message carries the number, which is internal and named by no header
+        /// a consumer includes.
+        ProfileLimitExceeded = 12,
     };
 
     Kind kind = Kind::Unspecified;

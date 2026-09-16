@@ -7,6 +7,7 @@
 
 #include "sdk/sdk_tracer.hpp"
 
+#include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
@@ -291,6 +292,53 @@ TEST(SdkTracerTest, OnStart_NotCalled_WhenDropped)
     auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
     (void)t.StartSpan("op");
     EXPECT_EQ(f.proc.on_start_call_count, 0);
+}
+
+// The `Context` handed to `OnStart` carries the *whole* propagated context,
+// not just the resolved parent — ICP 0025 §2 and the "Not in this ICP" note
+// that named `parent_propagation_ctx` as the site. Baggage is per-context, so
+// it comes from the starting thread's current context regardless of how the
+// parent was resolved (ICP 0025 §3 contract 6: baggage never parents).
+
+TEST(SdkTracerTest, OnStart_ContextCarriesTheCurrentBaggage)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext scope{
+        mt::Context{MakeParentContext(0x6A), mt::Baggage::FromHeader("tenant=t1")}};
+    (void)t.StartSpan("child");
+
+    ASSERT_EQ(f.proc.started_contexts.size(), 1U);
+    ASSERT_TRUE(f.proc.started_contexts[0].baggage.Get("tenant").has_value());
+    EXPECT_EQ(*f.proc.started_contexts[0].baggage.Get("tenant"), "t1");
+}
+
+TEST(SdkTracerTest, OnStart_ContextCarriesBaggageEvenWithAnExplicitParent)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext scope{
+        mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tenant=t2")}};
+    (void)t.StartSpan("child",
+                      {.kind = mt::SpanKind::Internal,
+                       .parent = MakeParentContext(0x6B),
+                       .start_time = {},
+                       .attributes = {}});
+
+    ASSERT_EQ(f.proc.started_contexts.size(), 1U);
+    EXPECT_EQ(*f.proc.started_contexts[0].baggage.Get("tenant"), "t2");
+}
+
+TEST(SdkTracerTest, OnStart_ContextBaggageIsEmptyWithoutACurrentContext)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    (void)t.StartSpan("root");
+
+    ASSERT_EQ(f.proc.started_contexts.size(), 1U);
+    EXPECT_TRUE(f.proc.started_contexts[0].baggage.Empty());
 }
 
 // ---------------------------------------------------------------------------

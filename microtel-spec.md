@@ -123,8 +123,10 @@ The `Transport` layer is abstract behind an interface (`Connect / Send / Close /
 ### 5.1 Threading model
 
 - **Caller thread:** API calls (`StartSpan`, `End`) are non-blocking and never wait on I/O. Span records are written to an MPSC queue.
-- **Exporter worker thread (one per process):** Drains the queue, batches by size and time deadline, encodes to protobuf via the OTLP encoder, hands to the wire codec (HTTP or gRPC), then to the HTTP/2 transport.
-- **HTTP/2 I/O thread (one per process):** Owns the nghttp2 session and the socket. Uses `epoll` (Linux) or `kqueue` (BSD/macOS). Receives serialized payloads from the exporter worker via a small lock-protected request queue.
+- **Exporter worker thread (one per exporter):** Drains the queue, batches by size and time deadline, encodes to protobuf via the OTLP encoder, hands to the wire codec (HTTP or gRPC), then to the HTTP/2 transport.
+- **HTTP/2 I/O thread (one per `Provider`):** Owns that provider's nghttp2 session and socket. Uses `epoll` (Linux) or `kqueue` (BSD/macOS). Receives serialized payloads from the exporter worker via a small lock-protected request queue.
+
+Both said "one per process" through v1.0, which was the same claim while a process held one `Provider` and one signal. It no longer is: three signals give one `Provider` three exporters (ICP 0021), and from v1.1 a process may run up to eight named profiles, each with its own pipelines, transport and I/O thread and nothing shared between them ([ICP 0027](docs/icps/0027-multi-profile-threading.md)). `docs/threading-model.md` §2.2 and §2.3 are the normative statement.
 
 Caller threads never block on the export pipeline by default.
 
@@ -630,12 +632,15 @@ Conflicts between code-set, file-set, env-set, and detector-set Resource follow 
 
 ### 12.8 What's not in v1
 
-- Hot reload of any setting.
-- Multi-profile within one process.
-- Composable sampler chains (single sampler only in v1).
-- Long-running control-plane socket.
+- Hot reload of any setting. *(v1.1 ships four `Provider` setters — ICP 0026.)*
+- Multi-profile within one process. *(v1.1 ships it — named providers at full
+  independence, `SdkBuilder::WithProfileName` and `microtel::GetProvider`,
+  [ICP 0027](docs/icps/0027-multi-profile-threading.md).)*
+- Composable sampler chains (single sampler only in v1). *(v1.1 ships them.)*
+- Long-running control-plane socket. *(Deferred to v1.2 —
+  [ICP 0024](docs/icps/0024-v1.1-rescope.md).)*
 
-These are v1.1+ (§17).
+These were v1.1+ (§17); the annotations say where each one landed.
 
 ---
 
@@ -934,7 +939,7 @@ The compatibility matrix is the source of truth — claims of "drop-in" beyond w
 
 - **Sugar layer** (`microtel::sugar`): function tracing via `std::source_location`, scoped spans, traced lambdas, exception recording, scoped timers, pre-bound attribute keys; Python decorator/context-manager equivalents. Sugar APIs are explicitly non-goals for compatibility testing — conformance tests target the OTel-like API and wire output, not convenience wrappers.
 - **Hot reload:** four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — called by the host application from its own administrative surface. The Unix-socket server, its length-prefixed JSON wire, `microtelctl`, `SIGHUP` reload, and the threat model for all of them are deferred to **v1.2**, per [ICP 0024](docs/icps/0024-v1.1-rescope.md).
-- **Multi-profile within one process.**
+- **Multi-profile within one process:** several **named** `Provider`s at full independence — each with its own endpoint, protocol, TLS material, sampler, `Resource`, pipelines, worker threads and I/O thread. Named at build time with `SdkBuilder::WithProfileName`, found at runtime with `microtel::GetProvider(name)`, capped at eight live profiles, and duplicate names fail the build rather than displacing anyone. Per [ICP 0027](docs/icps/0027-multi-profile-threading.md), which also rescoped `docs/threading-model.md` §2.2 and §2.3 from *per process* to *per `Provider`*. The internal log level and the current-context slot stay process-wide and per-thread respectively; they are not per profile.
 - **Composable sampler chains.**
 
 ### 18.2 v1.2 — Metrics

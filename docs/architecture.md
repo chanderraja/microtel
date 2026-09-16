@@ -259,8 +259,8 @@ D and F are foundational and finish first. Then A, B, C, E proceed concurrently.
 ## 8. Glossary
 
 - **Caller thread** — any application thread that calls `StartSpan` / `SetAttribute` / `AddEvent` / `End`. Never blocks on the export pipeline. Plural; many threads share this role.
-- **Exporter worker thread** — single thread per process that drains the processor queue, builds batches, encodes, and hands payloads to the wire codec.
-- **I/O thread** — single thread per process that owns the nghttp2 session and the socket, runs the epoll/kqueue loop.
+- **Exporter worker thread** — one thread **per exporter** that drains the exporter's queue, builds batches, encodes, and hands payloads to the wire codec. This said "single thread per process" until v1.1; it was already wrong at M12, when three signals gave one `Provider` three exporters ([ICP 0021](icps/0021-threading-model-reconciliation.md) corrected `threading-model.md` §2.2 but not this glossary), and multi-profile multiplies it again.
+- **I/O thread** — one thread **per `Provider`** that owns that provider's nghttp2 session and socket, and runs its epoll loop. Also "per process" until v1.1: a process may now run several named profiles, each with its own transport and therefore its own I/O thread ([ICP 0027](icps/0027-multi-profile-threading.md)).
 - **Batch** — a bounded, time- or size-triggered group of completed spans handed to the encoder as a single unit.
 - **Sampled span / unsampled span** — a span for which the `ISampler` returned `SAMPLED` / `NOT_SAMPLED`. Unsampled spans take the no-allocation fast path and are never enqueued.
 - **`EncodedPayload`** — bytes plus size, owned by `std::unique_ptr<std::byte[]>` + `std::size_t`. Move-only. Produced by `IOtlpEncoder`, consumed by `IWireCodec`.

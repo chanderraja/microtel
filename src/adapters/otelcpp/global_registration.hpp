@@ -55,6 +55,17 @@ namespace microtel::adapters::otelcpp
 /// respectively. Call once at process startup, after building @p provider
 /// (e.g. via `SdkBuilder::Build()`).
 ///
+/// @note **One profile, whichever you hand it.** This takes the provider to
+///       bind as a parameter and consults no global of microtel's, so v1.1's
+///       multi-profile registry changes nothing here: existing code passes the
+///       provider it built, which is the default profile. otel-cpp's own API
+///       holds exactly one provider per signal, so only the profile registered
+///       here is reachable through instrumentation written against otel-cpp;
+///       other profiles are reached through microtel's own API —
+///       `microtel::GetProvider("name")` — and cannot be routed through
+///       otel-cpp's globals at the same time. See
+///       [ICP 0027](../../../docs/icps/0027-multi-profile-threading.md) §6.3.
+///
 /// @param provider the microtel provider to register. Must be non-null.
 inline void RegisterGlobally(std::shared_ptr<microtel::Provider> provider)
 {

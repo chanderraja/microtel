@@ -1,0 +1,51 @@
+{
+  "uid": "microtel-traces",
+  "title": "microtel — recent traces",
+  "tags": ["microtel"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "Run an example (`./build/examples/microtel_example_basic_trace`) and its trace appears below within a few seconds — click a row to open the flame graph. The table is the TraceQL query `{}`, which matches every trace; edit the panel, or use **Explore → Tempo**, to filter (e.g. `{ resource.service.name = \"microtel-basic-example\" }`). The example prints its trace ID — paste it into Explore → Tempo → **TraceQL** to jump straight to it."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Recent traces",
+      "description": "TraceQL `{}` — every trace Tempo has, newest first.",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 17, "w": 24, "x": 0, "y": 3 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{}",
+          "tableType": "traces",
+          "limit": 50
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

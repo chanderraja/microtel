@@ -158,13 +158,25 @@ quotes it, so the two must agree, and a release is when they are made to agree.
 4. Update the benchmark table in the root `README.md` to match. Every number in
    it must be readable off the snapshot.
 
-**Sanity-compare against the previous snapshot before committing**, and if a
-metric moved because the *harness* changed rather than the code, say so
-prominently in the commit body, the snapshot README, and the release notes. A
-reader cannot otherwise tell a measurement fix from a regression. v1.1.0 had
-three of them at once (delivery/drop denominators, rank-interpolated
-percentiles, gRPC wire-byte accounting), which is what this paragraph exists to
-prevent being mistaken for performance change.
+> **Check the host first — see [#277](https://github.com/chanderraja/microtel/issues/277).**
+> `benchmark.yml` is hard-wired to `runs-on: ubuntu-24.04`, a shared 4-core
+> GitHub-hosted VM. The committed snapshot was produced on a 12-core
+> workstation. Refreshing one from the other is not a refresh, it is a machine
+> swap: when v1.1.0 tried it, every SUT lost ~45% throughput **including the two
+> otelcpp SUTs, whose code had not changed.** Until #277 settles on a reference
+> host, do not overwrite `docs/bench-results/` from a workflow artifact — and if
+> you do refresh it, re-derive the root README's ratio claims rather than
+> carrying the old ones forward.
+
+**Sanity-compare against the previous snapshot before committing.** Compare the
+`environment` block first (`cpu_model`, `cpu_physical_cores`, governor, load
+average); an unchanged SUT that moved is the tell that the host changed, not the
+code. Then, if a metric moved because the *harness* changed rather than the
+code, say so prominently in the commit body, the snapshot README, and the
+release notes — a reader cannot otherwise tell a measurement fix from a
+regression. v1.1 landed three at once: delivery/drop denominators
+(#215/#230, #229), rank-interpolated percentiles (#261/#262), and gRPC
+wire-byte accounting (#228).
 
 ---
 
@@ -180,10 +192,17 @@ into the release PR — both are noisy diffs that would bury the version change.
 `benchmark.yml` regression check compares against. Refresh it after a release so
 the next cycle's 5% gate measures against the released numbers:
 
-1. Trigger `benchmark.yml` on the reference runner.
+1. Trigger `benchmark.yml`. (It runs on `ubuntu-24.04`; there is no reference
+   runner to select, which is [#277](https://github.com/chanderraja/microtel/issues/277).)
 2. `ci/scripts/baseline-update.sh <sha>` — it downloads the
    `bench-results-<sha>` artifact, validates the JSON, and overwrites the file.
 3. Commit on its own branch, PR, merge.
+
+As of v1.1.0 this file is still the placeholder it shipped as: `generated_at`
+is literally `"PLACEHOLDER"`, `environment` is `null`, and the latency medians
+are `0`, which the regression check skips. Only `drop_rate_pct` is gated, 0.0
+against 0.0 — so the gate currently passes everything. Populating it is part of
+#277, not something a release should do on its own.
 
 See [`bench/baseline/README.md`](bench/baseline/README.md) for what is actually
 gated today (drop rate; the latency medians are still placeholder zeros).
@@ -217,7 +236,9 @@ not self-index.
 [ ] ci/scripts/version-drift-check.sh passes locally
 [ ] COMPATIBILITY mode still right (major bumps only)
 [ ] SECURITY.md supported-versions row
-[ ] docs/bench-results/ refreshed + root README table agrees (in the release PR)
+[ ] docs/bench-results/ — environment block compared against the old snapshot
+    before refreshing; refreshed + root README table agrees, or deliberately
+    skipped (see #277)
 [ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed

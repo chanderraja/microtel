@@ -112,4 +112,43 @@ TEST(ParentBasedSampler, DescriptionIncludesRootDescription)
     EXPECT_NE(desc.find("AlwaysOnSampler"), std::string::npos);
 }
 
+// --- TrySetRatio — ICP 0026 hot reload ----------------------------------
+
+TEST(ParentBasedSampler, TrySetRatioForwardsToTheRoot)
+{
+    // parentbased_traceidratio is the deployment shape an operator most wants
+    // to retune (ICP 0026 §5).
+    const auto handle = mt::MakeParentBasedSampler(mt::MakeTraceIdRatioSampler(0.0));
+    ASSERT_NE(handle.Get(), nullptr);
+    const auto ctx = MakeCtxWithParent(MakeParentContext(/*sampled=*/false));
+    ASSERT_EQ(handle.Get()->ShouldSample(ctx).decision, mt::internal::SamplingDecision::Drop);
+
+    EXPECT_TRUE(handle.Get()->TrySetRatio(1.0));
+    EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision,
+              mt::internal::SamplingDecision::RecordAndSample);
+}
+
+TEST(ParentBasedSampler, TrySetRatioRegeneratesTheCompositeDescription)
+{
+    const auto handle = mt::MakeParentBasedSampler(mt::MakeTraceIdRatioSampler(0.25));
+    ASSERT_NE(handle.Get(), nullptr);
+    ASSERT_TRUE(handle.Get()->TrySetRatio(0.01));
+
+    // A composite embeds its child's description, so it goes stale the moment
+    // the ratio moves unless it regenerates too.
+    const std::string desc{handle.Get()->Description()};
+    EXPECT_NE(desc.find("ParentBased"), std::string::npos);
+    EXPECT_NE(desc.find("0.010"), std::string::npos);
+    EXPECT_EQ(desc.find("0.250"), std::string::npos);
+}
+
+TEST(ParentBasedSampler, TrySetRatioRefusedByARatiolessRootIsRefusedByTheChain)
+{
+    const auto handle = mt::MakeParentBasedSampler(mt::MakeAlwaysOnSampler());
+    ASSERT_NE(handle.Get(), nullptr);
+    const std::string before{handle.Get()->Description()};
+    EXPECT_FALSE(handle.Get()->TrySetRatio(0.5));
+    EXPECT_EQ(std::string{handle.Get()->Description()}, before);
+}
+
 }  // namespace

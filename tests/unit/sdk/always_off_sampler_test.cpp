@@ -40,4 +40,14 @@ TEST(AlwaysOffSampler, DescriptionIsAlwaysOff)
     EXPECT_EQ(handle.Get()->Description(), std::string_view{"AlwaysOffSampler"});
 }
 
+TEST(AlwaysOffSampler, TrySetRatioRefusesAndChangesNothing)
+{
+    const auto handle = mt::MakeAlwaysOffSampler();
+    ASSERT_NE(handle.Get(), nullptr);
+    EXPECT_FALSE(handle.Get()->TrySetRatio(0.5));
+    EXPECT_EQ(handle.Get()->Description(), std::string_view{"AlwaysOffSampler"});
+    EXPECT_EQ(handle.Get()->ShouldSample(mt::internal::SamplingContext{}).decision,
+              mt::internal::SamplingDecision::Drop);
+}
+
 }  // namespace

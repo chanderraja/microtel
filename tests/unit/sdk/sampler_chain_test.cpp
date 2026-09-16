@@ -641,4 +641,69 @@ TEST(ChainSampler, ConcurrentShouldSampleCallsAgree)
     EXPECT_EQ(sampled.load(std::memory_order_relaxed), kThreads * kIterations);
 }
 
+// ---------------------------------------------------------------------------
+// TrySetRatio — ICP 0026 §5: "Sampler chains inherit the obligation"
+// ---------------------------------------------------------------------------
+
+TEST(RuleSampler, TrySetRatioForwardsToADelegateAndRegeneratesTheDescription)
+{
+    const auto rule = mt::MakeSpanKindRuleSampler(
+        mt::SpanKind::Server, mt::MakeTraceIdRatioSampler(0.25), mt::MakeAlwaysOffSampler());
+    ASSERT_NE(rule.Get(), nullptr);
+
+    EXPECT_TRUE(rule.Get()->TrySetRatio(0.01));
+    const std::string desc{rule.Get()->Description()};
+    EXPECT_NE(desc.find("SpanKindRuleSampler"), std::string::npos);
+    EXPECT_NE(desc.find("0.010"), std::string::npos);
+    EXPECT_EQ(desc.find("0.250"), std::string::npos);
+}
+
+TEST(RuleSampler, TrySetRatioIsRefusedWhenNeitherDelegateHasARatio)
+{
+    const auto rule = mt::MakeSpanNameRuleSampler(
+        "span", mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler());
+    ASSERT_NE(rule.Get(), nullptr);
+    const std::string before{rule.Get()->Description()};
+    EXPECT_FALSE(rule.Get()->TrySetRatio(0.5));
+    EXPECT_EQ(std::string{rule.Get()->Description()}, before);
+}
+
+TEST(ChainSampler, TrySetRatioReachesAChildAndRegeneratesTheDescription)
+{
+    const auto chain = mt::MakeChainSampler(
+        MakeChildren(mt::MakeTraceIdRatioSampler(0.25), mt::MakeAlwaysOnSampler()),
+        mt::ChainMode::AllMustAgree);
+    ASSERT_NE(chain.Get(), nullptr);
+
+    EXPECT_TRUE(chain.Get()->TrySetRatio(0.01));
+    const std::string desc{chain.Get()->Description()};
+    EXPECT_NE(desc.find("ChainSampler"), std::string::npos);
+    EXPECT_NE(desc.find("0.010"), std::string::npos);
+    EXPECT_EQ(desc.find("0.250"), std::string::npos);
+}
+
+TEST(ChainSampler, TrySetRatioChangesEveryRatioChildsDecision)
+{
+    const auto chain = mt::MakeChainSampler(
+        MakeChildren(mt::MakeTraceIdRatioSampler(0.0), mt::MakeTraceIdRatioSampler(0.0)),
+        mt::ChainMode::AllMustAgree);
+    ASSERT_NE(chain.Get(), nullptr);
+    const auto ctx = MakeEmptyCtx();
+    ASSERT_EQ(DecisionOf(chain, ctx), mti::SamplingDecision::Drop);
+
+    EXPECT_TRUE(chain.Get()->TrySetRatio(1.0));
+    EXPECT_EQ(DecisionOf(chain, ctx), mti::SamplingDecision::RecordAndSample);
+}
+
+TEST(ChainSampler, TrySetRatioIsRefusedWhenNoChildHasARatio)
+{
+    const auto chain = mt::MakeChainSampler(
+        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+        mt::ChainMode::FirstMatch);
+    ASSERT_NE(chain.Get(), nullptr);
+    const std::string before{chain.Get()->Description()};
+    EXPECT_FALSE(chain.Get()->TrySetRatio(0.5));
+    EXPECT_EQ(std::string{chain.Get()->Description()}, before);
+}
+
 }  // namespace

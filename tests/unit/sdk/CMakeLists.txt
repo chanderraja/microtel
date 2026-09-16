@@ -222,6 +222,40 @@ target_include_directories(sdk_provider_race_test
 target_compile_options(sdk_provider_race_test PRIVATE
     -Wno-missing-field-initializers)
 
+# v1.1 — the four hot-reload Provider setters (ICP 0026). Reaches into
+# src/sdk/sdk_provider.hpp and src/common/internal_log.hpp directly, and uses
+# tests/mocks for the pipelines it does not want to build for real.
+microtel_add_test(
+    NAME    provider_setters_test
+    SOURCES provider_setters_test.cpp
+    LIBS    microtel_sdk microtel_common)
+
+target_include_directories(provider_setters_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(provider_setters_test PRIVATE
+    -Wno-missing-field-initializers)
+
+# v1.1 ships-when gate clause 2 (ICP 0024): the four setters racing span/log
+# emission, the BSP/BLRP workers and metric collection. Only meaningful under
+# -DMICROTEL_SANITIZER=tsan; elsewhere it exercises the paths without being
+# able to observe a race. MICROTEL_HAMMER_SECONDS extends the default budget
+# for the minutes-scale local run.
+microtel_add_test(
+    NAME    hot_reload_hammer_test
+    SOURCES hot_reload_hammer_test.cpp
+    LIBS    microtel_sdk microtel_common)
+
+target_include_directories(hot_reload_hammer_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(hot_reload_hammer_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # Concurrency regression: MetricProducer had no mutex; AddStream raced Collect.
 microtel_add_test(
     NAME    metric_producer_race_test

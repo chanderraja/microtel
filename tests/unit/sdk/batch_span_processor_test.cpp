@@ -766,3 +766,78 @@ TEST(BatchSpanProcessorTest, Drain_SeparatesScopesDifferingOnlyInVersion)
 
     (void)bsp->Shutdown(std::chrono::milliseconds(500));
 }
+
+// ---------------------------------------------------------------------------
+// SetOptions — ICP 0026 hot reload
+// ---------------------------------------------------------------------------
+
+TEST(BatchSpanProcessorTest, SetOptions_NewBatchSizeCutsTheNextDrain)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);  // only an explicit wake drains
+    opts.max_export_batch_size = 512;
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts);
+
+    EndSpan(*bsp, "a");
+    EndSpan(*bsp, "b");
+    EndSpan(*bsp, "c");
+
+    opts.max_export_batch_size = 2;
+    bsp->SetOptions(opts);
+
+    // WaitAndCollect takes min(queue, max_export_batch_size) per turn, so the
+    // three queued spans now leave as 2 + 1 rather than as one batch of 3.
+    ASSERT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    ASSERT_EQ(exp.received_batches.size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[0].Spans().size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[1].Spans().size(), std::size_t{1});
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}
+
+TEST(BatchSpanProcessorTest, SetOptions_NewQueueSizeBoundsTheQueue)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.max_export_batch_size = 512;
+    opts.max_queue_size = 100;
+    opts.drop_policy = mt::DropPolicy::DropNewest;
+
+    mtfk::FakeDiagnosticsSink sink;
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts, &sink);
+
+    EndSpan(*bsp, "a");
+    EndSpan(*bsp, "b");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), std::uint64_t{0});
+
+    // A queue cap at the current depth: the next record has nowhere to go.
+    opts.max_queue_size = 2;
+    bsp->SetOptions(opts);
+    EndSpan(*bsp, "c");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), std::uint64_t{1});
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}
+
+TEST(BatchSpanProcessorTest, SetOptions_LeavesTheMemoryLimitsAlone)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.max_export_batch_size = 512;
+
+    mtfk::FakeDiagnosticsSink sink;
+    mtfk::FakeExporter exp;
+    // A record ceiling low enough that any record trips it. It comes from
+    // MemoryLimitOptions, not BatchOptions, so SetOptions must leave it alone
+    // (ICP 0026, widened invariant 3).
+    auto bsp = MakeBsp(exp, opts, &sink, /*max_record_bytes=*/1);
+
+    bsp->SetOptions(opts);
+    EndSpan(*bsp, "a");
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RecordTooLarge), std::uint64_t{1});
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}

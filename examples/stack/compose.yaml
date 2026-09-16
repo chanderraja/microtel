@@ -1,0 +1,81 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The shared observability stack for examples/: an OpenTelemetry Collector that
+# every example exports to, Grafana Tempo behind it as the trace store, and
+# Grafana in front of Tempo so a trace is browsable seconds after it is emitted.
+#
+# Start it with ./up.sh, not with `compose up` directly — up.sh picks the
+# container engine, waits for all three to answer, and prints the endpoints.
+#
+# Deliberately portable between docker compose v2 and podman-compose:
+#   - no `healthcheck:` blocks (podman-compose support varies; up.sh polls the
+#     health endpoints itself, which works identically under both engines),
+#   - `depends_on` in short list form only (start order, not readiness),
+#   - `:z` on every bind mount, which relabels for SELinux under podman on
+#     Fedora/RHEL and is accepted and ignored by docker elsewhere,
+#   - no named volumes. Storage is ephemeral, inside each container's own
+#     writable layer: down.sh removes the containers and the traces with them.
+#     That is the right trade for a demo stack — it sidesteps every volume
+#     ownership problem rootless podman has with images that run as non-root.
+#
+# Image tags are pinned. The collector tag is the one the conformance gate and
+# the bench harness already use (ci/scripts/conformance.sh,
+# bench/versions.lock) so examples talk to the same receiver the test suite
+# does.
+
+name: microtel-stack
+
+services:
+  # Every example points here. OTLP/gRPC on 4317 is the default endpoint;
+  # 4318 is OTLP/HTTP, which microtel can only reach over TLS (see
+  # docs/compatibility-matrix.md §4) and is published for the TLS example.
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.160.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./collector-config.yaml:/etc/otelcol/config.yaml:ro,z
+    ports:
+      - "4317:4317"    # OTLP/gRPC  — the examples' default endpoint
+      - "4318:4318"    # OTLP/HTTP  — TLS only, from microtel
+      - "13133:13133"  # health_check extension, polled by up.sh
+    depends_on:
+      - tempo
+
+  # Single-binary Tempo. Its own OTLP/gRPC receiver is container-internal —
+  # only the collector writes to it — so 4317 is not published and cannot
+  # collide with the collector's. 3200 is published because that is the query
+  # API the README's verification step and Grafana's datasource both use.
+  tempo:
+    image: docker.io/grafana/tempo:2.10.8
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro,z
+    ports:
+      - "3200:3200"  # Tempo HTTP API: /ready, /api/traces/<id>, /api/search
+
+  # Anonymous auth with the Admin role: this is a throwaway local stack, and a
+  # login form between a first-time reader and their first trace is friction
+  # with no security value here. Never copy this block to anything reachable.
+  grafana:
+    image: docker.io/grafana/grafana:13.2.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: "dark"
+      # Land on the provisioned dashboard instead of the home page.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/microtel-traces.json"
+    volumes:
+      # The two provisioning subdirectories individually, not the parent:
+      # mounting /etc/grafana/provisioning wholesale hides the image's own
+      # empty alerting/ plugins/ notifiers/ directories, and Grafana then logs
+      # a level=error line per missing one at every boot — noise that sends a
+      # reader troubleshooting the wrong thing.
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    ports:
+      - "3000:3000"
+    depends_on:
+      - tempo

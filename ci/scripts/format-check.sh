@@ -3,10 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # clang-format gate. Runs `clang-format --dry-run --Werror` over every
-# tracked C++ source/header under include/, src/, tests/, and ci/. Fails
-# if any file would be reformatted.
+# tracked C++ source/header under include/, src/, tests/, ci/, and examples/.
+# Fails if any file would be reformatted.
 #
 # Per docs/coding-standards.md §1: "PRs with formatting drift fail CI."
+#
+# examples/ is in the list because CI compiles it: the `cxx20 / clang` job
+# configures with -DMICROTEL_BUILD_EXAMPLES=ON. Examples are also the code a
+# reader is most likely to copy, so drift there is worse than drift in a test.
+# Issue #281.
 
 set -euo pipefail
 
@@ -21,7 +26,7 @@ echo "format-check: using $($CLANG_FORMAT --version)"
 
 # Globbing — keep paths in step with the directories that hold real C++.
 mapfile -t FILES < <(
-    find include src tests ci \
+    find include src tests ci examples \
         -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
         2>/dev/null | sort
 )

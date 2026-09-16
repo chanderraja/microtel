@@ -1,0 +1,19 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Provisions the Tempo datasource at first boot, so Explore → Tempo works with
+# no clicking. The uid is fixed at "tempo" because the starter dashboard
+# references it by uid.
+
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    # Container-internal: Grafana proxies queries, the browser never talks to
+    # Tempo directly.
+    url: http://tempo:3200
+    isDefault: true
+    editable: false

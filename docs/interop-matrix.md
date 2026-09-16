@@ -27,7 +27,7 @@ themselves live in the files named in the table.
 |---|---|---|---|
 | `opentelemetry-proto` | `v1.10.0` | vendored; [`proto/README.md`](../proto/README.md) | wire encoder, `regen-check` |
 | `protoc` / upb | `v29.4` | [`gen/`](../gen/) + `regen-check` in [`ci.yml`](../.github/workflows/ci.yml) | generated accessors, zero-diff regen gate |
-| `otel/opentelemetry-collector-contrib` | `0.160.0` | [`ci/scripts/conformance.sh`](../ci/scripts/conformance.sh), [`bench/sink/collector/Dockerfile`](../bench/sink/collector/Dockerfile), [`bench/versions.lock`](../bench/versions.lock) | `conformance` job, bench collector sink |
+| `otel/opentelemetry-collector-contrib` | `0.160.0` | [`ci/scripts/conformance.sh`](../ci/scripts/conformance.sh), [`bench/sink/collector/Dockerfile`](../bench/sink/collector/Dockerfile), [`bench/versions.lock`](../bench/versions.lock), [`examples/stack/compose.yaml`](../examples/stack/compose.yaml) | `conformance` job, bench collector sink, examples stack |
 | `jaegertracing/all-in-one` | **`latest` — UNPINNED, known gap** | [`interop.yml`](../.github/workflows/interop.yml) | weekly interop only |
 
 Collector image digest (multi-arch index) for `0.160.0`:
@@ -39,6 +39,13 @@ sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
 The script pins by **tag**, not digest: a tag is readable in a diff and the
 digest above is the audit trail if a tag is ever re-pushed. Verify with
 `podman inspect --format '{{json .RepoDigests}}' otel/opentelemetry-collector-contrib:0.160.0`.
+
+The examples stack reuses this tag deliberately, so a reader running an example
+exercises the receiver the conformance gate is validated against. Its other two
+images — `grafana/tempo` and `grafana/grafana` — are pinned in the same
+`compose.yaml` but are **not** interop targets and are not listed above: nothing
+in microtel talks to them, and no gate depends on their behaviour. They are
+recorded in [`examples/stack/README.md`](../examples/stack/README.md).
 
 ### Jaeger is not pinned
 

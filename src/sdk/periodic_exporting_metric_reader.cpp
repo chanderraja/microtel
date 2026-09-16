@@ -68,6 +68,13 @@ microtel::Status PeriodicExportingMetricReader::Shutdown(std::chrono::millisecon
     return m_exporter.Shutdown(timeout);
 }
 
+void PeriodicExportingMetricReader::SetInterval(std::chrono::milliseconds interval) noexcept
+{
+    const std::scoped_lock lk{m_mu};
+    m_interval = interval;
+    // No m_wake, no notify: see the header. A retune is not a flush.
+}
+
 void PeriodicExportingMetricReader::RunLoop() noexcept
 {
     while (!m_shut_down.load(std::memory_order_acquire))

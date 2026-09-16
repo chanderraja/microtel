@@ -14,6 +14,7 @@
 #include "microtel/internal/wire_result.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
+#include "microtel/version.hpp"
 
 #include "fakes/fake_auth_provider.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
@@ -726,6 +727,25 @@ TEST(GrpcWireCodecTest, Send_BuildsRequiredGrpcHeaders)
     EXPECT_EQ(FindHeader(headers, "te"), "trailers");
     EXPECT_EQ(FindHeader(headers, "content-type"), "application/grpc+proto");
     EXPECT_FALSE(FindHeader(headers, "user-agent").empty());
+}
+
+// The user-agent is the release version as collectors see it (spec §7.2), and a
+// release bump edits the literal by hand. `kUserAgent` carries a static_assert
+// against `kVersionString`, but that only proves the *constant* is coherent —
+// nothing proved the header actually emitted carries it, so a codec that built
+// the header from anything else would have compiled and shipped silently.
+TEST(GrpcWireCodecTest, Send_UserAgentCarriesVersionString)
+{
+    mtfk::FakeTransport transport;
+    transport.default_response = GrpcSuccessResponse();
+    mtw::GrpcWireCodec codec{&transport, MakeConfig()};
+
+    (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
+
+    ASSERT_EQ(transport.sent_specs.size(), 1U);
+    const auto& headers = transport.sent_specs.front().headers;
+    const std::string expected = "microtel-cpp/" + std::string{microtel::kVersionString};
+    EXPECT_EQ(FindHeader(headers, "user-agent"), expected);
 }
 
 // ---------------------------------------------------------------------------

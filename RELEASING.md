@@ -112,13 +112,33 @@ goes through a PR like anything else:
 
 ```bash
 git switch master && git pull
-git switch -c chore/vX.Y.Z
+git switch -c release/vX.Y.Z
 # edit the five literals + SECURITY.md
 ci/scripts/version-drift-check.sh
 git commit -am "chore: vX.Y.Z"
-gh pr create --title "chore: vX.Y.Z" --body "…"
+# plus the published benchmark snapshot — see §6
+gh pr create --title "release: vX.Y.Z" --milestone "…" --body "…"
 # merge once CI is green
 ```
+
+1.0.0 used `chore/vX.Y.Z` and a `chore:` PR title; 1.1.0 used `release/vX.Y.Z`
+and `release: vX.Y.Z`, which is the convention from here on — a release PR
+carries more than a chore, and the title is what the milestone listing shows.
+The *commit* subject stays `chore: vX.Y.Z`.
+
+### `test-presence` will fail, and `[refactor]` is not the answer
+
+The bump edits `src/wire/grpc/grpc_wire_codec.cpp`, so `test-presence` demands a
+matching `tests/**` change and fails without one. **Do not reach for the
+`[refactor]` label** — a version bump changes what goes out on the wire, so
+labelling it a pure refactor is exactly the mislabelling `CLAUDE.md` forbids.
+
+Write the test instead. There is usually one worth having: until 1.1.0 the
+user-agent test only asserted the header was non-empty, so nothing checked that
+the header the codec *emits* carries `kVersionString` — the `static_assert`
+only constrains the constant. Assert the composed value
+(`"microtel-cpp/" + kVersionString`) rather than the release literal, so the
+test pins the relationship and does not need editing at the next bump.
 
 Then tag the **merge commit on `master`**, not the branch head:
 
@@ -134,11 +154,61 @@ Tag names are `vX.Y.Z`. Pre-1.0 tags carried a milestone suffix
 
 ---
 
-## 5. Refresh the snapshots
+## 5. Refresh the published benchmark snapshot — in the release PR
 
-Two committed files are point-in-time snapshots of generated output. Neither is
-required for the release to be usable, and neither should be folded into the
-release PR — both are noisy diffs that would bury the version change.
+**This one belongs in the release PR**, unlike the two in §6.
+
+[`docs/bench-results/`](docs/bench-results/) (`results.json`, `results.md`,
+`plots.html`, `README.md`) is the committed run that the benchmark table in the
+root [`README.md`](README.md) is read off. It is documentation, not a gate — the
+gate is the separate `bench/baseline/results.json` in §6 — but the root README
+quotes it, so the two must agree, and a release is when they are made to agree.
+
+> **Run it on the host the outgoing snapshot came from — see
+> [#277](https://github.com/chanderraja/microtel/issues/277).**
+> `benchmark.yml` is hard-wired to `runs-on: ubuntu-24.04`, a shared 4-core
+> GitHub-hosted VM, while the committed snapshot comes from a 12-core
+> workstation. Refreshing one from the other is not a refresh, it is a machine
+> swap: when v1.1.0 first tried it, every SUT lost ~45% throughput **including
+> the two otelcpp SUTs, whose code had not changed.** Until #277 settles on a
+> reference runner, refresh this from a **local run on the snapshot's host**,
+> not from a workflow artifact.
+
+1. `cd bench && ./bench.sh` on the reference host. v1.1.0 ran three profiles —
+   `hot-loop-traces`, `realistic-request`, `compression` — because the
+   delivery-denominator and compression fixes are only visible in the latter
+   two; `docs/bench-results/` still commits only `hot-loop-traces`, the profile
+   the root README quotes.
+2. **Diff the `environment` block against the outgoing `results.json` before
+   anything else.** `cpu_model`, `cpu_physical_cores`, `cpu_governor`, `kernel`,
+   `container_engine_version` must all match; load average and timestamps are
+   expected to differ. An unchanged SUT that moved is the tell that they did not.
+3. Copy `results.json`, `results.md` and `plots.html` over
+   `docs/bench-results/`, and update that directory's `README.md` provenance
+   block (date, host, profile, warnings) to describe the new run.
+4. Update the benchmark table in the root `README.md` to match. Every number in
+   it must be readable off the snapshot — **and re-derive the ratio claims
+   underneath it rather than carrying the old ones forward.** v1.1.0's p50 ratio
+   went 4.0× → 3.5× purely because percentiles stopped being bucket midpoints on
+   both sides; a stale ratio would have read as a regression.
+
+**Sanity-compare against the previous snapshot before committing.** Compare the
+`environment` block first (`cpu_model`, `cpu_physical_cores`, governor, load
+average); an unchanged SUT that moved is the tell that the host changed, not the
+code. Then, if a metric moved because the *harness* changed rather than the
+code, say so prominently in the commit body, the snapshot README, and the
+release notes — a reader cannot otherwise tell a measurement fix from a
+regression. v1.1 landed three at once: delivery/drop denominators
+(#215/#230, #229), rank-interpolated percentiles (#261/#262), and gRPC
+wire-byte accounting (#228).
+
+---
+
+## 6. Refresh the other two snapshots — their own PRs
+
+Two further committed files are point-in-time snapshots of generated output.
+Neither is required for the release to be usable, and neither should be folded
+into the release PR — both are noisy diffs that would bury the version change.
 
 ### Benchmark baseline
 
@@ -146,10 +216,17 @@ release PR — both are noisy diffs that would bury the version change.
 `benchmark.yml` regression check compares against. Refresh it after a release so
 the next cycle's 5% gate measures against the released numbers:
 
-1. Trigger `benchmark.yml` on the reference runner.
+1. Trigger `benchmark.yml`. (It runs on `ubuntu-24.04`; there is no reference
+   runner to select, which is [#277](https://github.com/chanderraja/microtel/issues/277).)
 2. `ci/scripts/baseline-update.sh <sha>` — it downloads the
    `bench-results-<sha>` artifact, validates the JSON, and overwrites the file.
 3. Commit on its own branch, PR, merge.
+
+As of v1.1.0 this file is still the placeholder it shipped as: `generated_at`
+is literally `"PLACEHOLDER"`, `environment` is `null`, and the latency medians
+are `0`, which the regression check skips. Only `drop_rate_pct` is gated, 0.0
+against 0.0 — so the gate currently passes everything. Populating it is part of
+#277, not something a release should do on its own.
 
 See [`bench/baseline/README.md`](bench/baseline/README.md) for what is actually
 gated today (drop rate; the latency medians are still placeholder zeros).
@@ -181,8 +258,13 @@ not self-index.
 [ ] src/wire/grpc/grpc_wire_codec.cpp  kUserAgent
 [ ] tools/preflight/preflight.cpp  kVersion
 [ ] ci/scripts/version-drift-check.sh passes locally
+[ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)
 [ ] SECURITY.md supported-versions row
+[ ] docs/bench-results/ refreshed from a run on the snapshot's own host
+[ ] environment block diffed against the outgoing snapshot (see #277)
+[ ] root README table agrees, and its ratio claims were re-derived
+[ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
 [ ] gh release created

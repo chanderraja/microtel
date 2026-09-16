@@ -10,7 +10,7 @@
 microtel_add_integration_test(
     NAME    sugar_pipeline_test
     SOURCES sugar_pipeline_test.cpp
-    LIBS    microtel_sdk)
+    LIBS    microtel_sugar microtel_sdk)
 
 # SdkProviderArgs is built with designated initializers that intentionally
 # leave the metrics and logs fields at their defaults — same relaxation as

@@ -152,8 +152,10 @@ TEST(SugarTraced, ForwardsAReferenceWithoutCopying)
                   "Traced must forward the callable's reference return type");
 
     std::string& returned = mt::Traced(tracer, "ref", by_ref);
+    returned += "-mutated";
 
     EXPECT_EQ(&returned, &owned);
+    EXPECT_EQ(owned, "the-original-mutated");
 }
 
 TEST(SugarTraced, SupportsAVoidCallable)

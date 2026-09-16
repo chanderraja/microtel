@@ -11,6 +11,7 @@
 
 #include "microtel/propagator.hpp"
 
+#include "microtel/baggage.hpp"
 #include "microtel/trace.hpp"
 
 #include <array>
@@ -28,6 +29,7 @@ namespace
 
 constexpr std::string_view kTraceparentHeader = "traceparent";
 constexpr std::string_view kTracestateHeader = "tracestate";
+constexpr std::string_view kBaggageHeader = "baggage";
 
 constexpr std::string_view kLowerHexDigits = "0123456789abcdef";
 constexpr unsigned int kNibbleShift = 4U;
@@ -225,8 +227,8 @@ template <std::size_t N>
 // header is no longer dropped across a microtel hop.
 
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
-// Locked public API (include/microtel/propagator.hpp:43,50). The propagator is
-// documented as stateless and thread-safe, so neither method needs `this`.
+// Locked public API (include/microtel/propagator.hpp). Both propagators are
+// documented as stateless and thread-safe, so no method needs `this`.
 
 void W3CTraceContextPropagator::Inject(const SpanContext& context, const HeaderSetter& setter) const
 {
@@ -275,6 +277,44 @@ SpanContext W3CTraceContextPropagator::Extract(const HeaderGetter& getter) const
 
     context.remote = true;
     return context;
+}
+
+// ── W3CBaggagePropagator ─────────────────────────────────────────────────────
+//
+// The grammar, the percent codec, the `;`-metadata tail and the three limits
+// all live in `Baggage` itself (baggage.cpp, ICP 0025 §2), so the propagator
+// is only the carrier half: which header name, and when to omit it. That split
+// is deliberate — `Baggage::FromHeader` / `ToHeader` are public, so a caller on
+// a carrier microtel does not model can reach the same parser without going
+// through a propagator.
+
+void W3CBaggagePropagator::Inject(const Baggage& baggage, const HeaderSetter& setter) const
+{
+    if (baggage.Empty() || !setter)
+    {
+        return;
+    }
+
+    // A non-empty `Baggage` always serialises to at least `key=`, so the
+    // header value written here is never the empty (illegal) one. A header
+    // whose every member was dropped on the way in parsed to the *empty*
+    // baggage, which the guard above already turned into "write nothing".
+    setter(kBaggageHeader, baggage.ToHeader());
+}
+
+Baggage W3CBaggagePropagator::Extract(const HeaderGetter& getter) const
+{
+    if (!getter)
+    {
+        return {};
+    }
+
+    const std::optional<std::string_view> baggage = getter(kBaggageHeader);
+    if (!baggage.has_value())
+    {
+        return {};
+    }
+    return Baggage::FromHeader(*baggage);
 }
 
 // NOLINTEND(readability-convert-member-functions-to-static)

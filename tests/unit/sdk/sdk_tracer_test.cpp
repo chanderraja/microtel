@@ -310,8 +310,7 @@ TEST(SdkTracerTest, OnStart_ContextCarriesTheCurrentBaggage)
     (void)t.StartSpan("child");
 
     ASSERT_EQ(f.proc.started_contexts.size(), 1U);
-    ASSERT_TRUE(f.proc.started_contexts[0].baggage.Get("tenant").has_value());
-    EXPECT_EQ(*f.proc.started_contexts[0].baggage.Get("tenant"), "t1");
+    EXPECT_EQ(f.proc.started_contexts[0].baggage.Get("tenant"), std::string_view("t1"));
 }
 
 TEST(SdkTracerTest, OnStart_ContextCarriesBaggageEvenWithAnExplicitParent)
@@ -328,7 +327,7 @@ TEST(SdkTracerTest, OnStart_ContextCarriesBaggageEvenWithAnExplicitParent)
                        .attributes = {}});
 
     ASSERT_EQ(f.proc.started_contexts.size(), 1U);
-    EXPECT_EQ(*f.proc.started_contexts[0].baggage.Get("tenant"), "t2");
+    EXPECT_EQ(f.proc.started_contexts[0].baggage.Get("tenant"), std::string_view("t2"));
 }
 
 TEST(SdkTracerTest, OnStart_ContextBaggageIsEmptyWithoutACurrentContext)

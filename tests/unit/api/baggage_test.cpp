@@ -95,8 +95,7 @@ void ExpectMemberKept(std::string_view member, std::string_view key, std::string
     SCOPED_TRACE(std::string("member: [") + std::string(member) + ']');
     const mt::Baggage bag = mt::Baggage::FromHeader(member);
     ASSERT_EQ(bag.Size(), 1U);
-    ASSERT_TRUE(bag.Get(key).has_value());
-    EXPECT_EQ(*bag.Get(key), value);
+    EXPECT_EQ(bag.Get(key), value);
 }
 
 /// @brief A header of @p count members, `k0=v` upward.
@@ -175,10 +174,8 @@ TEST(BaggageTest, ParsesTheSpecExample)
 {
     const mt::Baggage bag = mt::Baggage::FromHeader(kSpecExample);
     ASSERT_EQ(bag.Size(), 2U);
-    ASSERT_TRUE(bag.Get("key1").has_value());
-    EXPECT_EQ(*bag.Get("key1"), "value1");
-    ASSERT_TRUE(bag.Get("key2").has_value());
-    EXPECT_EQ(*bag.Get("key2"), "value2");
+    EXPECT_EQ(bag.Get("key1"), std::string_view("value1"));
+    EXPECT_EQ(bag.Get("key2"), std::string_view("value2"));
 }
 
 TEST(BaggageTest, RoundTripsTheSpecExampleVerbatim)
@@ -199,13 +196,18 @@ TEST(BaggageTest, GetReturnsNulloptForAnAbsentKey)
     EXPECT_FALSE(bag.Get("").has_value());
 }
 
-TEST(BaggageTest, GetIsBorrowedFromTheSharedEntryList)
+TEST(BaggageTest, GetBorrowsFromTheBaggageAndSurvivesAnIntermediateCopy)
 {
+    // Doxygen says the view is "valid while any copy of this baggage lives";
+    // the shared entry list is what makes that true.
     const mt::Baggage original = mt::Baggage::FromHeader("a=1");
-    const mt::Baggage copy = original;
-    const std::optional<std::string_view> borrowed = copy.Get("a");
-    ASSERT_TRUE(borrowed.has_value());
-    EXPECT_EQ(*borrowed, "1");
+    std::string_view borrowed;
+    {
+        // NOLINTNEXTLINE(performance-unnecessary-copy-initialization) — the copy is the point.
+        const mt::Baggage copy = original;
+        borrowed = copy.Get("a").value_or(std::string_view{});
+    }
+    EXPECT_EQ(borrowed, std::string_view("1"));
 }
 
 // ── Keys: RFC 7230 token ─────────────────────────────────────────────────────
@@ -359,15 +361,15 @@ TEST(BaggageTest, TrimsOptionalWhitespaceAroundEveryDelimiter)
 {
     const mt::Baggage bag = mt::Baggage::FromHeader("  k1 = v1 ,\tk2\t=\tv2\t");
     ASSERT_EQ(bag.Size(), 2U);
-    EXPECT_EQ(*bag.Get("k1"), "v1");
-    EXPECT_EQ(*bag.Get("k2"), "v2");
+    EXPECT_EQ(bag.Get("k1"), std::string_view("v1"));
+    EXPECT_EQ(bag.Get("k2"), std::string_view("v2"));
     EXPECT_EQ(bag.ToHeader(), "k1=v1,k2=v2");
 }
 
 TEST(BaggageTest, TrimmedWhitespaceIsNotPartOfTheValue)
 {
     // A leading space that was meant to be kept has to be escaped.
-    EXPECT_EQ(*mt::Baggage::FromHeader("k= %20v ").Get("k"), " v");
+    EXPECT_EQ(mt::Baggage::FromHeader("k= %20v ").Get("k"), std::string_view(" v"));
 }
 
 TEST(BaggageTest, SkipsEmptyListMembers)
@@ -387,7 +389,7 @@ TEST(BaggageTest, KeepsTheFirstOfADuplicateKey)
     // dropped, so `Get` and `ToHeader` can never disagree.
     const mt::Baggage bag = mt::Baggage::FromHeader("a=1,a=2,b=3");
     ASSERT_EQ(bag.Size(), 2U);
-    EXPECT_EQ(*bag.Get("a"), "1");
+    EXPECT_EQ(bag.Get("a"), std::string_view("1"));
     EXPECT_EQ(bag.ToHeader(), "a=1,b=3");
 }
 
@@ -506,9 +508,10 @@ TEST(BaggageTest, SetDropsThePropertiesOfTheEntryItReplaces)
 TEST(BaggageTest, SetPercentEncodesTheValue)
 {
     const mt::Baggage bag = mt::Baggage{}.Set("a", "x y,z;w\\q\"p%");
-    EXPECT_EQ(*bag.Get("a"), "x y,z;w\\q\"p%");
+    constexpr std::string_view kRaw = "x y,z;w\\q\"p%";
+    EXPECT_EQ(bag.Get("a"), kRaw);
     EXPECT_EQ(bag.ToHeader(), "a=x%20y%2Cz%3Bw%5Cq%22p%25");
-    EXPECT_EQ(*mt::Baggage::FromHeader(bag.ToHeader()).Get("a"), "x y,z;w\\q\"p%");
+    EXPECT_EQ(mt::Baggage::FromHeader(bag.ToHeader()).Get("a"), kRaw);
 }
 
 TEST(BaggageTest, SetAcceptsAnEmptyValue)
@@ -557,7 +560,7 @@ TEST(BaggageTest, SetStillReplacesAnExistingKeyAtTheEntryLimit)
     const mt::Baggage full = mt::Baggage::FromHeader(MembersHeader(mt::Baggage::kMaxEntries));
     const mt::Baggage updated = full.Set("k0", "9");
     EXPECT_EQ(updated.Size(), mt::Baggage::kMaxEntries);
-    EXPECT_EQ(*updated.Get("k0"), "9");
+    EXPECT_EQ(updated.Get("k0"), std::string_view("9"));
 }
 
 TEST(BaggageTest, SetRefusesToExceedTheTotalLimit)

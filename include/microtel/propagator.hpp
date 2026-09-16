@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "microtel/baggage.hpp"
 #include "microtel/trace.hpp"
 
 #include <functional>
@@ -28,8 +29,9 @@ using HeaderSetter = std::function<void(std::string_view header, std::string_vie
 /// @brief W3C Trace Context propagator.
 ///
 /// Implements `traceparent` and `tracestate` per the W3C Trace Context
-/// specification. v1 ships this propagator; W3C Baggage and other propagators
-/// land in v1.1+ (see `microtel-roadmap.md` §v1.1).
+/// specification. `W3CBaggagePropagator` below is its sibling for the
+/// `baggage` header; the two are independent and write disjoint headers, so a
+/// caller uses either or both.
 ///
 /// @threadsafety Thread-safe (the propagator is stateless).
 class W3CTraceContextPropagator
@@ -48,6 +50,38 @@ public:
     /// fails for any reason. The `remote` flag of the returned context is
     /// always set to `true` on successful extraction.
     [[nodiscard]] SpanContext Extract(const HeaderGetter& getter) const;
+};
+
+/// @brief W3C Baggage propagator.
+///
+/// Implements the `baggage` header per the [W3C Baggage](https://www.w3.org/TR/baggage/)
+/// specification, reusing the same carrier callbacks as
+/// `W3CTraceContextPropagator` ([ICP 0025](../../docs/icps/0025-propagation-core.md) §4).
+///
+/// The surface takes and returns a `Baggage` rather than a `Context`: baggage
+/// is the only thing on a `Context` this propagator touches, and reaching the
+/// calling thread's context is one expression at the call site —
+/// `Inject(CurrentContext().baggage, setter)` on the way out, and
+/// `ctx.baggage = Extract(getter)` on the way in.
+///
+/// @threadsafety Thread-safe (the propagator is stateless).
+class W3CBaggagePropagator
+{
+public:
+    W3CBaggagePropagator() noexcept = default;
+
+    /// @brief Inject `baggage` into `setter` as the `baggage` header.
+    ///
+    /// Sets nothing if `baggage` is empty — an empty `baggage` header value is
+    /// not legal, so it is omitted rather than sent blank.
+    void Inject(const Baggage& baggage, const HeaderSetter& setter) const;
+
+    /// @brief Extract a `Baggage` from `getter`.
+    ///
+    /// Returns an empty `Baggage` if the header is absent or if no list-member
+    /// survives parsing. A partly malformed header yields its good members:
+    /// see `Baggage::FromHeader` for the per-member rule and the limits.
+    [[nodiscard]] Baggage Extract(const HeaderGetter& getter) const;
 };
 
 }  // namespace microtel

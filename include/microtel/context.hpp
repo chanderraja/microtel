@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "microtel/baggage.hpp"
 #include "microtel/trace.hpp"
 
 #include <type_traits>
@@ -14,13 +15,21 @@ namespace microtel
 /// @brief The unit of propagation — what crosses a process boundary, a thread
 /// hand-off, or an `ISpanProcessor::OnStart` call.
 ///
-/// v1.1 carries the active `SpanContext`. A `Baggage` slot lands beside it in
-/// packet 2.3c ([ICP 0025](../../docs/icps/0025-propagation-core.md) §2); the
-/// two named, typed slots are the whole of what microtel propagates.
+/// Two named, typed slots — the active `SpanContext` and the request's
+/// `Baggage` — are the whole of what microtel propagates
+/// ([ICP 0025](../../docs/icps/0025-propagation-core.md) §2).
 ///
-/// Copying a `Context` is `noexcept` and allocation-free: `SpanContext`'s
-/// only growable member, `TraceState`, holds its entries behind a
-/// `shared_ptr`, so a copy is a refcount bump (ICP 0025 §1).
+/// **Baggage lives here, never on `SpanContext`.** It is per-context rather
+/// than per-span: a request carries baggage whether or not a span is active,
+/// and baggage set inside a span must outlive that span within the enclosing
+/// scope. Putting it on `SpanContext` would also put a second growable member
+/// inside `Span::GetContext() const noexcept`, which returns by value (hard
+/// rule 14) — the trap ICP 0025 §1 put `TraceState` behind a `shared_ptr` to
+/// escape, and one microtel is not walking into twice.
+///
+/// Copying a `Context` is `noexcept` and allocation-free: both of its growable
+/// members — `SpanContext::trace_state` and `baggage` — hold their entries
+/// behind a `shared_ptr`, so a copy is two refcount bumps (ICP 0025 §§1-2).
 ///
 /// @threadsafety Thread-safe. A `Context` is a value; distinct copies are
 ///               independent and nothing mutates through a shared pointer.
@@ -32,10 +41,24 @@ public:
     Context() noexcept = default;
     explicit Context(SpanContext active) noexcept : active_span_context(std::move(active)) {}
 
+    /// @brief A context carrying both an active span and the request's
+    /// baggage.
+    Context(SpanContext active, Baggage bag) noexcept
+        : active_span_context(std::move(active)), baggage(std::move(bag))
+    {
+    }
+
     /// @brief The span a child started from this context parents to.
     ///
     /// Invalid (all-zero ids) when no span is active.
     SpanContext active_span_context;
+
+    /// @brief The request's W3C Baggage.
+    ///
+    /// Never influences sampling or parenting (ICP 0025 §3 contract 6): it
+    /// flows through `Context` for propagators and for user reads, and that is
+    /// all.
+    Baggage baggage;
 };
 
 static_assert(std::is_nothrow_copy_constructible_v<Context>,

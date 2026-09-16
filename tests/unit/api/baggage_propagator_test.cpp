@@ -122,23 +122,22 @@ TEST(ContextBaggageTest, TwoArgumentConstructorCarriesBoth)
 
     const mt::Context ctx{active, mt::Baggage::FromHeader("a=1")};
     EXPECT_TRUE(ctx.active_span_context.IsValid());
-    ASSERT_TRUE(ctx.baggage.Get("a").has_value());
-    EXPECT_EQ(*ctx.baggage.Get("a"), "1");
+    EXPECT_EQ(ctx.baggage.Get("a"), std::string_view("1"));
 }
 
 TEST(ContextBaggageTest, BaggageSurvivesAScopedContextInstallAndRestore)
 {
     const mt::Context outer{mt::SpanContext{}, mt::Baggage::FromHeader("tier=outer")};
     const mt::ScopedContext outer_scope{outer};
-    ASSERT_EQ(*mt::CurrentContext().baggage.Get("tier"), "outer");
+    ASSERT_EQ(mt::CurrentContext().baggage.Get("tier"), std::string_view("outer"));
 
     {
         const mt::ScopedContext inner_scope{
             mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tier=inner")}};
-        EXPECT_EQ(*mt::CurrentContext().baggage.Get("tier"), "inner");
+        EXPECT_EQ(mt::CurrentContext().baggage.Get("tier"), std::string_view("inner"));
     }
 
-    EXPECT_EQ(*mt::CurrentContext().baggage.Get("tier"), "outer");
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tier"), std::string_view("outer"));
 }
 
 TEST(ContextBaggageTest, CopyingAContextSharesTheEntryList)
@@ -155,8 +154,8 @@ TEST(W3CBaggagePropagatorExtractTest, ParsesTheSpecExample)
 {
     const mt::Baggage bag = Extract(kSpecExample);
     ASSERT_EQ(bag.Size(), 2U);
-    EXPECT_EQ(*bag.Get("key1"), "value1");
-    EXPECT_EQ(*bag.Get("key2"), "value2");
+    EXPECT_EQ(bag.Get("key1"), std::string_view("value1"));
+    EXPECT_EQ(bag.Get("key2"), std::string_view("value2"));
 }
 
 TEST(W3CBaggagePropagatorExtractTest, ReturnsEmptyWhenTheHeaderIsAbsent)
@@ -252,8 +251,8 @@ TEST(W3CBaggagePropagatorTest, RoundTripsThroughACarrier)
     const mt::Baggage received = mt::W3CBaggagePropagator().Extract(GetterFor(headers));
 
     ASSERT_EQ(received.Size(), 2U);
-    EXPECT_EQ(*received.Get("user"), "alice smith");
-    EXPECT_EQ(*received.Get("region"), "eu-west-1");
+    EXPECT_EQ(received.Get("user"), std::string_view("alice smith"));
+    EXPECT_EQ(received.Get("region"), std::string_view("eu-west-1"));
     EXPECT_EQ(received.ToHeader(), sent.ToHeader());
 }
 
@@ -284,8 +283,7 @@ TEST(W3CBaggagePropagatorTest, ExtractedBaggagePopulatesAContext)
     ctx.baggage = mt::W3CBaggagePropagator().Extract(GetterFor(headers));
     const mt::ScopedContext scope{ctx};
 
-    ASSERT_TRUE(mt::CurrentContext().baggage.Get("tenant").has_value());
-    EXPECT_EQ(*mt::CurrentContext().baggage.Get("tenant"), "t2");
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("t2"));
 }
 
 TEST(W3CBaggagePropagatorTest, IsIndependentOfTheTraceContextPropagator)

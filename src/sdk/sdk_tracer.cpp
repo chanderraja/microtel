@@ -134,9 +134,12 @@ SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
     SpanHandle handle{raw, internal::SpanDeleter{[](Span* s) noexcept { delete s; }}};
 
     // The Context handed to OnStart carries the resolved parent — explicit if
-    // the caller supplied one, otherwise the thread's current span. Baggage
-    // joins it in packet 2.3c (ICP 0025 §2).
-    const Context parent_propagation_ctx{parent_ctx};
+    // the caller supplied one, otherwise the thread's current span — and the
+    // thread's baggage, which is per-context rather than per-span and so comes
+    // from the current context however the parent was resolved (ICP 0025 §2
+    // and §3 contract 6: baggage never parents). The copy is two refcount
+    // bumps, and nothing here allocates.
+    const Context parent_propagation_ctx{parent_ctx, CurrentContext().baggage};
     m_processor->OnStart(*raw, parent_propagation_ctx);
 
     return handle;

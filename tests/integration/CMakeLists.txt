@@ -34,5 +34,6 @@ function(microtel_add_integration_test)
 endfunction()
 
 add_subdirectory(sdk)
+add_subdirectory(sugar)
 add_subdirectory(transport)
 add_subdirectory(otelcpp_shim)

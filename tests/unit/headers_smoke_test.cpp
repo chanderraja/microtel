@@ -14,6 +14,9 @@
 
 #include <gtest/gtest.h>
 
+#include <string_view>
+#include <type_traits>
+
 // --- Public API ---
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
@@ -28,6 +31,10 @@
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/status.hpp"
+#include "microtel/sugar.hpp"
+#include "microtel/sugar/attr_key.hpp"
+#include "microtel/sugar/exception.hpp"
+#include "microtel/sugar/span.hpp"
 #include "microtel/trace.hpp"
 #include "microtel/tracer.hpp"
 #include "microtel/version.hpp"
@@ -59,6 +66,14 @@ TEST(HeadersSmoke, AllPublicAndInternalHeadersCompile)
     SUCCEED();
     static_assert(static_cast<int>(microtel::Status::Completed) == 0,
                   "lifecycle Status::Completed must be the zero value");
+
+    // ICP 0028 §3: `microtel::sugar::Span` is a *function*, so the sugar
+    // headers must not have made the class `microtel::Span` unnameable, and
+    // `AttrKey` must still be a constant expression with gtest in the TU.
+    static_assert(std::is_class_v<microtel::Span>,
+                  "microtel::Span must remain a class alongside microtel::sugar::Span");
+    static_assert(microtel::sugar::AttrKey{"http.method"}.Key() == std::string_view{"http.method"},
+                  "AttrKey must be constant-initialisable");
 }
 
 }  // namespace

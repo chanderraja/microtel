@@ -23,6 +23,7 @@
 #include "microtel/status.hpp"
 
 #include "common/internal_log.hpp"
+#include "fakes/fake_exporter.hpp"
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_log_exporter.hpp"
 #include "mocks/mock_metric_exporter.hpp"
@@ -43,6 +44,7 @@
 
 namespace mt = microtel;
 namespace mts = microtel::sdk;
+// One alias: the mocks and the fakes share `microtel::testing`.
 namespace mtmk = microtel::testing;
 
 using namespace std::chrono_literals;
@@ -57,6 +59,10 @@ struct Built
 {
     std::unique_ptr<mts::SdkProvider> provider;
     mts::BatchSpanProcessor* bsp = nullptr;
+    /// Records the batches the processor actually cut, which is how a test
+    /// tells "the setter returned Completed" apart from "the setter took
+    /// effect". A `MockExporter` only counts calls.
+    mtmk::FakeExporter* exporter = nullptr;
 };
 
 mt::BatchOptions ManualDrainOpts()
@@ -75,7 +81,7 @@ Built MakeProvider(mt::SamplerHandle sampler = mt::MakeAlwaysOnSampler(),
                    bool with_metrics = true,
                    bool with_logs = true)
 {
-    auto exporter = std::make_unique<mtmk::MockExporter>();
+    auto exporter = std::make_unique<mtmk::FakeExporter>();
     auto* const exporter_ptr = exporter.get();
     auto processor = std::make_unique<mts::BatchSpanProcessor>(
         exporter_ptr, std::make_shared<const mt::Resource>(), ManualDrainOpts());
@@ -112,6 +118,7 @@ Built MakeProvider(mt::SamplerHandle sampler = mt::MakeAlwaysOnSampler(),
             .log_batch_opts = ManualDrainOpts(),
         }),
         .bsp = bsp,
+        .exporter = exporter_ptr,
     };
 }
 
@@ -149,12 +156,37 @@ TEST(ProviderSetters, StatusCarriesTheTwoSetterEnumerators)
 // SetBatchOptions
 // ---------------------------------------------------------------------------
 
+/// Queue three spans on @p built's span processor and drain them.
+///
+/// Three, so a `max_export_batch_size` of 2 shows up as two batches rather
+/// than one — which is what tells an applied retune apart from a `Completed`
+/// that changed nothing.
+void QueueThreeAndFlush(Built& built)
+{
+    const mt::internal::InstrumentationScope scope{.name = "s", .version = ""};
+    for (const char* name : {"a", "b", "c"})
+    {
+        mt::internal::SpanRecord record;
+        record.name = name;
+        built.bsp->OnEnd(std::move(record), scope);
+    }
+    ASSERT_EQ(built.bsp->ForceFlush(2s), mt::Status::Completed);
+}
+
 TEST(SetBatchOptions, RetunesTheSpanPipeline)
 {
     auto built = MakeProvider();
     mt::BatchOptions opts = ManualDrainOpts();
     opts.max_export_batch_size = 2;
     EXPECT_EQ(built.provider->SetBatchOptions(opts), mt::Status::Completed);
+
+    // Under the build-time 512 this would be one batch of three; under the
+    // retuned 2 the drain takes min(queue, 2) per turn.
+    QueueThreeAndFlush(built);
+    ASSERT_EQ(built.exporter->received_batches.size(), std::size_t{2});
+    EXPECT_EQ(built.exporter->received_batches[0].Spans().size(), std::size_t{2});
+    EXPECT_EQ(built.exporter->received_batches[1].Spans().size(), std::size_t{1});
+
     EXPECT_EQ(built.provider->Shutdown(kTimeout), mt::Status::Completed);
 }
 
@@ -232,18 +264,14 @@ TEST(SetBatchOptions, RejectionChangesNothing)
     bad.max_export_batch_size = 0;
     ASSERT_EQ(built.provider->SetBatchOptions(bad), mt::Status::InvalidArgument);
 
-    // Still draining in twos: the rejected call touched nothing.
-    mt::internal::SpanRecord a;
-    a.name = "a";
-    mt::internal::SpanRecord b;
-    b.name = "b";
-    mt::internal::SpanRecord c;
-    c.name = "c";
-    const mt::internal::InstrumentationScope scope{.name = "s", .version = ""};
-    built.bsp->OnEnd(std::move(a), scope);
-    built.bsp->OnEnd(std::move(b), scope);
-    built.bsp->OnEnd(std::move(c), scope);
-    ASSERT_EQ(built.bsp->ForceFlush(2s), mt::Status::Completed);
+    // Still draining in twos. A zero batch size would have made the drain
+    // count min(queue, 0) — the queue would never empty and ForceFlush would
+    // time out — so this is the assertion that the rejected call really did
+    // change nothing rather than merely returning a bad status.
+    QueueThreeAndFlush(built);
+    ASSERT_EQ(built.exporter->received_batches.size(), std::size_t{2});
+    EXPECT_EQ(built.exporter->received_batches[0].Spans().size(), std::size_t{2});
+    EXPECT_EQ(built.exporter->received_batches[1].Spans().size(), std::size_t{1});
 
     EXPECT_EQ(built.provider->Shutdown(kTimeout), mt::Status::Completed);
 }

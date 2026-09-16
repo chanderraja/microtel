@@ -95,7 +95,7 @@ func main() {
 }
 
 func buildGRPC(c *counters.Counters, delayMs int) *grpc.Server {
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, delayMs))
 	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, delayMs))
 	reflection.Register(srv)

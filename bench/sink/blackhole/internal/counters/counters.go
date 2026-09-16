@@ -46,9 +46,10 @@ func (c *Counters) RecordHTTPExport(spans, reqBytes, respBytes uint64) {
 
 // RecordGRPCExport records one successful OTLP/gRPC export.
 // spans: number of spans in the request.
-// reqBytes: proto.Size of the request message — equals the gRPC framing
+// reqBytes: the on-the-wire size of the request — the compressed payload
 //
-//	prefix length field, not the HTTP/2 DATA frame size.
+//	plus the 5-byte gRPC length-prefix header, as reported by
+//	stats.InPayload.WireLength. Matches what the HTTP path counts.
 //
 // respBytes: proto.Size of the response message.
 func (c *Counters) RecordGRPCExport(spans, reqBytes, respBytes uint64) {

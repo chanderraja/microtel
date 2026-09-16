@@ -125,11 +125,16 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
 
 
 def _drop_rate(samples: list[dict]) -> float:
-    total_emitted = sum(s["spans_emitted"] for s in samples)
+    # The SDK counts dropped *spans*, so the denominator is spans_expected —
+    # spans actually sent — not spans_emitted, which counts workload
+    # iterations and is 3x smaller on realistic-request.  Results documents
+    # written before spans_expected existed fall back to it, exactly as
+    # _delivery_rate_from_sink does.
+    total_expected = sum(s.get("spans_expected", s["spans_emitted"]) for s in samples)
     total_dropped = sum(s["spans_dropped"]["total"] for s in samples)
-    if total_emitted == 0:
+    if total_expected == 0:
         return 0.0
-    return round(total_dropped / total_emitted * 100, 4)
+    return round(total_dropped / total_expected * 100, 4)
 
 
 def _delivery_rate_from_sink(samples: list[dict]):

@@ -32,6 +32,7 @@
 #include "microtel/status.hpp"
 
 #include "mocks/mock_exporter.hpp"
+#include "mocks/mock_log_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
 #include "sdk/diagnostics_counters.hpp"
@@ -76,6 +77,27 @@ std::unique_ptr<mts::SdkProvider> MakeProvider(std::string name)
         .sampler = mt::MakeAlwaysOnSampler(),
         .span_limits = {},
         .connect_opts = {},
+        .profile_name = std::move(name),
+    });
+}
+
+/// The same, with a log pipeline, so `GetLogger` hands out distinct loggers
+/// while the provider is live and the one shared noop once it is marked dead.
+std::unique_ptr<mts::SdkProvider> MakeLoggingProvider(std::string name)
+{
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::make_unique<mts::DiagnosticsCounters>(),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::make_unique<mtm::MockTransport>(),
+        .codec = nullptr,
+        .exporter = std::make_unique<mtm::MockExporter>(),
+        .processor = std::make_unique<mtm::MockSpanProcessor>(),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .log_exporter = std::make_unique<mtm::MockLogExporter>(),
         .profile_name = std::move(name),
     });
 }
@@ -320,6 +342,40 @@ TEST(ProviderRegistryTest, DeregisteringAnUnregisteredProviderLeavesTheSlotsAlon
     mts::DeregisterProvider(never_registered.get());
 
     EXPECT_EQ(mt::GetProvider("kept"), registered.get());
+}
+
+// ---------------------------------------------------------------------------
+// What the fork child handler does
+// ---------------------------------------------------------------------------
+
+// The handler's body, called directly. `fork_safety_test.cpp` proves it is
+// *wired* — it forks — but a child that `_exit`s cannot report which slots it
+// touched, so the sweep itself is asserted here: every live provider marked,
+// every slot emptied, in one pass and with no allocation.
+TEST(ProviderRegistryTest, TheForkSweepMarksEveryProviderAndEmptiesEverySlot)
+{
+    // A log exporter, so `GetLogger` builds a real logger while the provider is
+    // live and falls back to the one shared noop once it is marked — the same
+    // observation `fork_safety_test.cpp` makes in its child.
+    auto first = MakeLoggingProvider("swept-a");
+    auto second = MakeLoggingProvider("swept-b");
+    ASSERT_EQ(mts::RegisterProvider(first.get()), mts::RegistrationResult::Registered);
+    ASSERT_EQ(mts::RegisterProvider(second.get()), mts::RegistrationResult::Registered);
+    ASSERT_NE(first->GetLogger("a", "1.0"), first->GetLogger("b", "1.0"));
+    ASSERT_NE(second->GetLogger("a", "1.0"), second->GetLogger("b", "1.0"));
+
+    mts::MarkForkedChildProviders();
+
+    // Emptied, so a child re-Build can take these names back.
+    EXPECT_EQ(mt::GetProvider("swept-a"), nullptr);
+    EXPECT_EQ(mt::GetProvider("swept-b"), nullptr);
+    // Marked — the *first* one included, which is exactly what the one-slot
+    // handler this replaced could not do.
+    EXPECT_EQ(first->GetLogger("c", "1.0"), first->GetLogger("d", "1.0"));
+    EXPECT_EQ(second->GetLogger("c", "1.0"), second->GetLogger("d", "1.0"));
+
+    auto rebuilt = MakeProvider("swept-a");
+    EXPECT_EQ(mts::RegisterProvider(rebuilt.get()), mts::RegistrationResult::Registered);
 }
 
 // ---------------------------------------------------------------------------

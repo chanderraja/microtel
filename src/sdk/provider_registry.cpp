@@ -31,31 +31,11 @@ Registry g_slots{};
 std::once_flag g_atfork_once;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
-/// Runs in the child after `fork()`. Marks **every** live provider dead and
-/// empties its slot.
-///
-/// Async-signal-safe by the same argument the single-slot version made, now
-/// bounded at `kMaxProfiles` iterations: `MarkForkedChild` does nothing but one
-/// atomic store, and no name is read, so no `std::string` is touched in the
-/// child.
-///
-/// Clearing is deliberate. The child's supported move is to re-`Build()`
-/// (`docs/sequences/fork-survival.md`, option A), naturally under the same
-/// profile names, which would collide with the stale parent-era entries. An
-/// empty registry is exactly what a fresh process has. The cost is that
-/// `GetProvider(name)` in a child answers nullptr rather than handing back a
-/// shut-down provider — a defined, checkable outcome rather than a confusing
-/// name collision at re-init (ICP 0027 §3).
+/// Runs in the child after `fork()`. Nothing but the sweep, so that what the
+/// handler does is testable without forking (`MarkForkedChildProviders`).
 extern "C" void ForkChildHandler() noexcept
 {
-    for (auto& slot : g_slots)
-    {
-        if (auto* const provider = slot.load(std::memory_order_acquire); provider != nullptr)
-        {
-            provider->MarkForkedChild();
-            slot.store(nullptr, std::memory_order_release);
-        }
-    }
+    MarkForkedChildProviders();
 }
 
 /// Registered once, at the first registration.
@@ -116,6 +96,25 @@ void InstallForkHandlersOnce() noexcept
 }
 
 }  // namespace
+
+void MarkForkedChildProviders() noexcept
+{
+    // Clearing is deliberate, and it is a trade. The child's supported move is
+    // to re-`Build()` (`docs/sequences/fork-survival.md`, option A), naturally
+    // under the same profile names, which would collide with the stale
+    // parent-era entries; an empty registry is exactly what a fresh process
+    // has. The cost is that `GetProvider(name)` in a child answers nullptr
+    // rather than handing back a shut-down provider — a defined, checkable
+    // outcome rather than a confusing name collision at re-init (ICP 0027 §3).
+    for (auto& slot : g_slots)
+    {
+        if (auto* const provider = slot.load(std::memory_order_acquire); provider != nullptr)
+        {
+            provider->MarkForkedChild();
+            slot.store(nullptr, std::memory_order_release);
+        }
+    }
+}
 
 RegistrationResult RegisterProvider(SdkProvider* provider) noexcept
 {

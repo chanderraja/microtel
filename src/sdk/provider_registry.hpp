@@ -90,6 +90,21 @@ enum class RegistrationResult : std::uint8_t
 /// @threadsafety Thread-safe, lock-free, allocation-free.
 void DeregisterProvider(SdkProvider* provider) noexcept;
 
+/// @brief Mark every registered provider dead and empty every slot.
+///
+/// The body of the `pthread_atfork` child handler, exposed because a forked
+/// child that `_exit`s cannot report which slots it touched: a test that forks
+/// proves the handler is *wired*, and this proves what it does. Production code
+/// outside the handler has no reason to call it.
+///
+/// Async-signal-safe, which is not a style note but the contract: `kMaxProfiles`
+/// acquire-loads, one relaxed-release store per live provider
+/// (`SdkProvider::MarkForkedChild`), and one release-store per slot. No lock, no
+/// allocation, and no `std::string` read — the names are not consulted.
+///
+/// @threadsafety Safe to call from a fork child handler; see ICP 0027 §3.
+void MarkForkedChildProviders() noexcept;
+
 /// @brief Find the live provider registered under @p name.
 ///
 /// The implementation behind `microtel::GetProvider`; see that function's

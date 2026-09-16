@@ -23,7 +23,9 @@ namespace microtel::internal
 /// worker thread; this is documented in the public `WithAuthProvider` API
 /// (LOCKED — `docs/interfaces.md` §4.9).
 ///
-/// @threadsafety Thread-safe (in practice: single-caller — exporter worker).
+/// @threadsafety Thread-safe. The trace, metric, and log exporter workers
+///   share one provider (ICP 0029), and the callback runs under the
+///   provider's mutex — a slow callback stalls all three pipelines.
 /// @see docs/interfaces.md §4.9
 class IAuthProvider
 {

@@ -63,15 +63,17 @@ Hot-loop traces, 10 000 spans/sample × 10 samples, blackhole sink (no network),
 
 | Metric | **microtel** (HTTP) | **microtel** (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
 |---|---|---|---|---|
-| StartSpan p50 | **192 ns** | **192 ns** | 768 ns | 768 ns |
-| StartSpan p95 | **384 ns** | **384 ns** | 3 072 ns | 3 072 ns |
-| Spans / sec | **1 528 105** | 1 286 592 | 742 689 | 799 785 |
-| Flush p50 | 3.0 ms | 4.3 ms | 2.0 ms | 1.9 ms |
-| Delivery rate | **100%** | **100%** | 94.0% | 96.6% |
+| StartSpan p50 | **229 ns** | **216 ns** | 808 ns | 812 ns |
+| StartSpan p95 | **486 ns** | **474 ns** | 3 103 ns | 2 039 ns |
+| Spans / sec | **1 466 287** | 1 288 159 | 786 904 | 863 814 |
+| Flush p50 | 2.8 ms | 4.0 ms | 1.7 ms | 1.6 ms |
+| Delivery rate | **100%** | **100%** | 94.8% | 97.3% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
-| Binary size | **14.2 MB** | **14.2 MB** | 38.5 MB | 16.8 MB |
+| Binary size | **15.4 MB** | **15.4 MB** | 38.5 MB | 16.8 MB |
 
-microtel's StartSpan is **4× faster** than otelcpp, throughput is **~2×** higher, delivery is **100%** (otelcpp drops up to 6% under load), and the binary is **2.7× smaller** than otelcpp-gRPC. (The binary grew 11.5 → 14.2 MB in the v1.0 release round — W3C propagation, response decompression, memory-limit enforcement and GOAWAY handling are new code.)
+microtel's StartSpan is **3.5× faster** than otelcpp, throughput is **1.7–1.9×** higher, delivery is **100%** (otelcpp drops up to 5.2% under load), and the binary is **2.5× smaller** than otelcpp-gRPC.
+
+**These numbers moved from v1.0 for two reasons, only one of which is code.** The binary grew 14.2 → 15.4 MB in the v1.1 round (sampler chains, propagation core, baggage, the sugar layer, hot-reload setters, multi-profile). The latency percentiles, however, changed because the harness was fixed: v1.0's `192`/`384`/`768 ns` were log2-bucket **midpoints**, and percentiles are rank-interpolated now ([#261](https://github.com/chanderraja/microtel/issues/261)/[#262](https://github.com/chanderraja/microtel/pull/262)). Both sides were quantised, so the old **4×** p50 ratio was partly an artifact of the bucketing — 3.5× is the same-host truth, not a regression. Throughput over the same interval is within noise, including on the *unchanged* otelcpp SUTs (+6.0% and +8.0%). Details in the [snapshot notes](docs/bench-results/README.md).
 
 Full results with interactive plots: [`docs/bench-results/plots.html`](docs/bench-results/plots.html) — a committed snapshot of one run, with its environment, warnings and raw per-sample data ([`results.md`](docs/bench-results/results.md), [`results.json`](docs/bench-results/results.json), [provenance](docs/bench-results/README.md)). `bench/results/` is where a local `./bench.sh` writes, and it is gitignored; the snapshot exists so these numbers are checkable from a clone. Methodology: [`docs/bench-spec.md`](docs/bench-spec.md).
 

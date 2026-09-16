@@ -3,6 +3,7 @@
 
 #include "histogram.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 
@@ -51,19 +52,45 @@ uint64_t Histogram::Percentile(double p) const noexcept
         return 0;
     }
 
-    const auto target = static_cast<uint64_t>(static_cast<double>(total) * p);
+    const double target = static_cast<double>(total) * p;
     uint64_t cumulative = 0;
 
     for (int i = 0; i < kBuckets; ++i)
     {
-        cumulative += m_buckets[static_cast<std::size_t>(i)].load(std::memory_order_relaxed);
-        if (cumulative > target)
+        const uint64_t in_bucket =
+            m_buckets[static_cast<std::size_t>(i)].load(std::memory_order_relaxed);
+        if (in_bucket == 0)
         {
-            // Return the midpoint of the bucket [2^i, 2^(i+1)).
-            const uint64_t lo = (i == 0) ? 0 : (uint64_t{1} << i);
-            const uint64_t hi = (i == kBuckets - 1) ? lo : (uint64_t{1} << (i + 1));
-            return (lo + hi) / 2;
+            continue;
         }
+        if (static_cast<double>(cumulative + in_bucket) <= target)
+        {
+            cumulative += in_bucket;
+            continue;
+        }
+
+        // Rank-linear interpolation within the bucket [2^i, 2^(i+1)).
+        // A midpoint answer here quantizes every percentile above 128 ns to a
+        // multiple of 192 ns (the midpoint of [2^i, 2^(i+1)) is 3 * 2^(i-1)),
+        // which is a one-octave, +/-50% resolution. Assuming a uniform spread
+        // inside the octave and clamping to the observed extremes is honest to
+        // a few percent instead. Issue #261.
+        const uint64_t lo = (i == 0) ? 0 : (uint64_t{1} << i);
+        const uint64_t hi =
+            (i == kBuckets - 1) ? m_max.load(std::memory_order_relaxed) : (uint64_t{1} << (i + 1));
+        const double fraction =
+            (target - static_cast<double>(cumulative)) / static_cast<double>(in_bucket);
+        auto value =
+            static_cast<uint64_t>(static_cast<double>(lo) +
+                                  fraction * (static_cast<double>(hi) - static_cast<double>(lo)));
+
+        // The extremes are tracked exactly; no percentile can honestly fall
+        // outside them.
+        const uint64_t observed_min = m_min.load(std::memory_order_relaxed);
+        const uint64_t observed_max = m_max.load(std::memory_order_relaxed);
+        value = std::max(value, observed_min);
+        value = std::min(value, observed_max);
+        return value;
     }
 
     return m_max.load(std::memory_order_relaxed);

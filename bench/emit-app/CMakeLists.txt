@@ -77,3 +77,15 @@ else()
     message(FATAL_ERROR "Unknown BENCH_BACKEND: ${BENCH_BACKEND}. "
         "Valid values: MICROTEL | OTELCPP_GRPC | OTELCPP_HTTP")
 endif()
+
+# Histogram self-test — in-tree builds only. The standalone SUT Dockerfile
+# builds have no test framework and never run ctest, so the guard keeps them
+# byte-identical.
+if(MICROTEL_BUILD_BENCH)
+    add_executable(histogram_selftest
+        test/histogram_selftest.cpp
+        src/histogram.cpp
+    )
+    target_include_directories(histogram_selftest PRIVATE include)
+    add_test(NAME bench_histogram_selftest COMMAND histogram_selftest)
+endif()

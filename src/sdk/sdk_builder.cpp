@@ -659,6 +659,12 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         return make_unexpected(cfg_result.error());
     }
     const config::Config cfg = std::move(*cfg_result);
+    // Seeded before the first thing that logs. The knob is process-global
+    // (ICP 0026 §6), so this is where `logging.level` / `MICROTEL_LOG_LEVEL`
+    // reach the filter; `Provider::SetLogLevel` retunes it afterwards. The
+    // return is discarded rather than checked because `config::ParseLogLevel`
+    // only ever produces declared enumerators.
+    (void)internal::SetMinLogLevel(cfg.log_level);
     WarnOnRiskyConfig(cfg);
 
     // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
@@ -690,6 +696,10 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
 
     // --- Step 10: processor -------------------------------------------------
     auto processor = BuildSpanProcessor(exporters.exporter.get(), resource, cfg, diagnostics.get());
+    // Borrowed here, where the concrete type is still known: the Deps boundary
+    // below erases it to ISpanProcessor, and Provider::SetBatchOptions needs
+    // the batching type back (ICP 0026 §4).
+    auto* const batch_span_processor = processor.get();
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
@@ -701,6 +711,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .codec = std::move(exporters.codec),
         .exporter = std::move(exporters.exporter),
         .processor = std::move(processor),
+        .batch_span_processor = batch_span_processor,
         .resource = std::move(resource),
         .sampler = std::move(m_impl->sampler),
         .span_limits = cfg.span_limits,

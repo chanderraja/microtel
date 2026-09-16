@@ -14,8 +14,6 @@
 // passes `Build()` today and produces a processor that never drains or spins.
 // Tightening `Build()` is a separate change; the setters reject all of them.
 
-#include "sdk/sdk_provider.hpp"
-
 #include "microtel/internal/sampler.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
@@ -32,6 +30,7 @@
 #include "mocks/mock_transport.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/diagnostics_counters.hpp"
+#include "sdk/sdk_provider.hpp"
 
 #include <gtest/gtest.h>
 
@@ -320,8 +319,7 @@ TEST(SetSamplerRatio, RetunesARatioSampler)
 
 TEST(SetSamplerRatio, RetunesThroughAParentBasedSampler)
 {
-    auto built =
-        MakeProvider(mt::MakeParentBasedSampler(mt::MakeTraceIdRatioSampler(0.25)));
+    auto built = MakeProvider(mt::MakeParentBasedSampler(mt::MakeTraceIdRatioSampler(0.25)));
     EXPECT_EQ(built.provider->SetSamplerRatio(0.5), mt::Status::Completed);
     EXPECT_EQ(built.provider->Shutdown(kTimeout), mt::Status::Completed);
 }

@@ -41,8 +41,6 @@
 // Repro:
 //   ./build-fuzz/tests/fuzz/provider_setters_fuzz <crash_file>
 
-#include "sdk/sdk_provider.hpp"
-
 #include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
@@ -58,6 +56,7 @@
 #include "mocks/mock_transport.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/diagnostics_counters.hpp"
+#include "sdk/sdk_provider.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -101,7 +100,8 @@ public:
         {
             return 0U;
         }
-        const std::uint8_t value = m_data[m_pos];  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        const std::uint8_t value =
+            m_data[m_pos];  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         ++m_pos;
         return value;
     }
@@ -116,7 +116,9 @@ public:
         const std::size_t take = (count < available) ? count : available;
         if (take > 0U)
         {
-            std::memcpy(out, m_data + m_pos, take);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            std::memcpy(out,
+                        m_data + m_pos,
+                        take);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         }
         m_pos += take;
     }

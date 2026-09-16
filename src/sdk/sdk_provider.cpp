@@ -5,11 +5,15 @@
 
 #include "microtel/internal/batch.hpp"
 #include "microtel/internal/metric_batch.hpp"
+#include "microtel/internal/sampler.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
+#include "common/internal_log.hpp"
 #include "sdk/batch_log_record_processor.hpp"
+#include "sdk/batch_span_processor.hpp"
 #include "sdk/metric_producer.hpp"
 #include "sdk/noop_logger.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
@@ -19,6 +23,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -119,6 +124,7 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_metric_max_cardinality(args.metric_max_cardinality),
       m_log_batch_opts(args.log_batch_opts),
       m_processor(std::move(args.processor)),
+      m_batch_span_processor(args.batch_span_processor),
       m_resource(std::move(args.resource)),
       m_sampler(std::move(args.sampler)),
       m_span_limits(args.span_limits),
@@ -237,6 +243,13 @@ internal::ILogRecordProcessor* SdkProvider::LogProcessorPtr() noexcept
 {
     const std::scoped_lock lk{m_logger_mu};
     return m_log_processor.get();
+}
+
+BatchLogRecordProcessor* SdkProvider::SeedAndBorrowLogProcessor(const BatchOptions& opts) noexcept
+{
+    const std::scoped_lock lk{m_logger_mu};
+    m_log_batch_opts = opts;
+    return m_log_batch_processor;
 }
 
 namespace
@@ -380,16 +393,22 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
         return m_noop_logger;
     }
     const std::scoped_lock lk{m_logger_mu};
+    BatchLogRecordProcessor* batch_processor = m_log_batch_processor;
     if (!m_log_processor)
     {
-        m_log_processor = std::make_unique<BatchLogRecordProcessor>(
+        auto built = std::make_unique<BatchLogRecordProcessor>(
             m_log_exporter.get(), m_resource, m_log_batch_opts, m_diagnostics.get());
+        batch_processor = built.get();
+        m_log_processor = std::move(built);
     }
     std::string key;
     key.reserve(name.size() + 1 + version.size());
     key.append(name);
     key += '\0';
     key.append(version);
+    // Published here, under m_logger_mu, where the owning unique_ptr is
+    // assigned — the borrowed pointer SetBatchOptions retunes (ICP 0026 §4).
+    m_log_batch_processor = batch_processor;
     auto& entry = m_loggers[key];
     if (!entry)
     {
@@ -402,6 +421,160 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
             LogLimitOptions{});
     }
     return entry;
+}
+
+// ---------------------------------------------------------------------------
+// Hot reload — ICP 0026
+//
+// Every one of the four reads m_shut_down before it takes any mutex, which is
+// the pattern GetMeter and GetLogger already use: in a forked child a mutex
+// may be held by a thread that no longer exists, so locking first would
+// deadlock before the flag was ever consulted (docs/threading-model.md §7).
+//
+// Validation runs before the support check, so an operator's bad value is
+// reported as InvalidArgument whatever pipelines this provider happens to own
+// — a value that is wrong is wrong everywhere, and answering Unsupported for
+// it would hide the typo behind a deployment detail.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// ICP 0026 §3's table for `BatchOptions`, which is **stricter than
+/// `SdkBuilder::Build`** and deliberately so: `config::Validate` rejects only
+/// `max_export_batch_size > max_queue_size`, so a zero queue, a zero batch
+/// size or a zero delay passes `Build()` today and produces a processor that
+/// never drains or spins. Tightening `Build()` changes what an existing
+/// configuration does at startup and is tracked separately (ICP 0026
+/// Discrepancy 1); a *new* value arriving through the reload door has no such
+/// excuse.
+[[nodiscard]] bool BatchOptionsAreCoherent(const BatchOptions& opts) noexcept
+{
+    return opts.max_queue_size != 0U && opts.max_export_batch_size != 0U &&
+           opts.max_export_batch_size <= opts.max_queue_size && opts.schedule_delay.count() > 0;
+}
+
+/// The setters' rejection channel. `Status` carries which *kind* of rejection;
+/// which field and what range go here, at Warn — which is also what makes
+/// `SetLogLevel` self-consistent, a rejected setter call being an internal log
+/// like any other.
+void WarnRejected(std::string_view detail) noexcept
+{
+    internal::LogImpl(LogLevel::Warn, detail);
+}
+
+}  // namespace
+
+Status SdkProvider::SetBatchOptions(const BatchOptions& opts) noexcept
+{
+    if (m_shut_down.load(std::memory_order_acquire))
+    {
+        return Status::AlreadyShutDown;
+    }
+    if (!BatchOptionsAreCoherent(opts))
+    {
+        WarnRejected(
+            "SetBatchOptions rejected: max_queue_size and max_export_batch_size must both be "
+            "non-zero, max_export_batch_size must not exceed max_queue_size, and schedule_delay "
+            "must be greater than zero");
+        return Status::InvalidArgument;
+    }
+    if (m_batch_span_processor == nullptr)
+    {
+        // A provider whose span pipeline does not batch has no batching knobs
+        // to retune, and half-applying the change to the log side would be
+        // worse than declining it. Unreachable from SdkBuilder today, which
+        // always builds a BatchSpanProcessor (ICP 0026 Discrepancy 4).
+        return Status::Unsupported;
+    }
+
+    // Phase 1 — the span pipeline. No provider lock: the pointer is fixed at
+    // construction and the processor takes its own m_mu.
+    m_batch_span_processor->SetOptions(opts);
+
+    // Phase 2 — the log pipeline. The seed and the borrowed pointer come out
+    // of one hold of m_logger_mu; the retune happens after it is released, so
+    // this provider never holds m_logger_mu and the processor's m_mu at once.
+    // The consequence, stated rather than hidden: the change is not atomic
+    // across the two pipelines.
+    if (auto* const log_processor = SeedAndBorrowLogProcessor(opts); log_processor != nullptr)
+    {
+        log_processor->SetOptions(opts);
+    }
+    return Status::Completed;
+}
+
+Status SdkProvider::SetMetricInterval(std::chrono::milliseconds interval) noexcept
+{
+    if (m_shut_down.load(std::memory_order_acquire))
+    {
+        return Status::AlreadyShutDown;
+    }
+    if (interval.count() <= 0)
+    {
+        WarnRejected("SetMetricInterval rejected: interval must be greater than zero");
+        return Status::InvalidArgument;
+    }
+    if (m_metric_exporter == nullptr)
+    {
+        return Status::Unsupported;
+    }
+
+    PeriodicExportingMetricReader* reader = nullptr;
+    {
+        // Stored even when no reader exists yet: the first GetMeter builds one
+        // from this value, so a retune before any meter is created still takes
+        // effect (ICP 0026 §1).
+        const std::scoped_lock lk{m_meter_mu};
+        m_metric_interval = interval;
+        reader = m_metric_reader.get();
+    }
+    if (reader != nullptr)
+    {
+        reader->SetInterval(interval);
+    }
+    return Status::Completed;
+}
+
+Status SdkProvider::SetSamplerRatio(double ratio) noexcept
+{
+    if (m_shut_down.load(std::memory_order_acquire))
+    {
+        return Status::AlreadyShutDown;
+    }
+    if (std::isnan(ratio) || ratio < 0.0 || ratio > 1.0)
+    {
+        // The factory clamps and maps NaN to 0.0; the setter rejects. At build
+        // time a clamp is a documented convenience, but at reload time a
+        // caller asking for 1.5 has a bug in their administrative surface, and
+        // silently clamping hides it from the operator watching the return
+        // value (ICP 0026 Decision 3).
+        WarnRejected("SetSamplerRatio rejected: ratio must be a number in [0.0, 1.0]");
+        return Status::InvalidArgument;
+    }
+
+    auto* const sampler = m_sampler.Get();
+    if (sampler == nullptr || !sampler->TrySetRatio(ratio))
+    {
+        WarnRejected(
+            "SetSamplerRatio: the configured sampler has no ratio to retune - nothing changed");
+        return Status::Unsupported;
+    }
+    return Status::Completed;
+}
+
+Status SdkProvider::SetLogLevel(LogLevel level) noexcept
+{
+    if (m_shut_down.load(std::memory_order_acquire))
+    {
+        return Status::AlreadyShutDown;
+    }
+    if (!internal::SetMinLogLevel(level))
+    {
+        WarnRejected("SetLogLevel rejected: not a declared LogLevel enumerator");
+        return Status::InvalidArgument;
+    }
+    return Status::Completed;
 }
 
 }  // namespace microtel::sdk

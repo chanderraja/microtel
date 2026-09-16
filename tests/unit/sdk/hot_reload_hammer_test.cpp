@@ -32,8 +32,6 @@
 //
 //     MICROTEL_HAMMER_SECONDS=300 ./build-tsan/tests/unit/sdk/hot_reload_hammer_test
 
-#include "sdk/sdk_provider.hpp"
-
 #include "microtel/internal/sampler.hpp"
 #include "microtel/log_record.hpp"
 #include "microtel/log_sink.hpp"
@@ -53,6 +51,7 @@
 #include "mocks/mock_transport.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/diagnostics_counters.hpp"
+#include "sdk/sdk_provider.hpp"
 
 #include <gtest/gtest.h>
 

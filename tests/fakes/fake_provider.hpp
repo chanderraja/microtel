@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
+#include "microtel/sdk_builder.hpp"
 
 #include "fakes/fake_logger.hpp"
 #include "fakes/fake_meter.hpp"
@@ -45,6 +47,18 @@ public:
     std::vector<std::chrono::milliseconds> shutdown_calls;
     microtel::Status flush_result = microtel::Status::Completed;
     microtel::Status shutdown_result = microtel::Status::Completed;
+
+    // The four hot-reload setters (ICP 0026). Recorded, not interpreted: this
+    // is a fake, so it applies nothing and answers whatever it is configured
+    // to answer.
+    std::vector<microtel::BatchOptions> batch_options_calls;
+    std::vector<std::chrono::milliseconds> metric_interval_calls;
+    std::vector<double> sampler_ratio_calls;
+    std::vector<microtel::LogLevel> log_level_calls;
+    microtel::Status set_batch_options_result = microtel::Status::Completed;
+    microtel::Status set_metric_interval_result = microtel::Status::Completed;
+    microtel::Status set_sampler_ratio_result = microtel::Status::Completed;
+    microtel::Status set_log_level_result = microtel::Status::Completed;
 
     [[nodiscard]] std::shared_ptr<microtel::Tracer> GetTracer(std::string_view name,
                                                               std::string_view version) override
@@ -89,6 +103,32 @@ public:
     {
         logger_requests.push_back({.name = std::string{name}, .version = std::string{version}});
         return logger;
+    }
+
+    [[nodiscard]] microtel::Status SetBatchOptions(
+        const microtel::BatchOptions& opts) noexcept override
+    {
+        batch_options_calls.push_back(opts);
+        return set_batch_options_result;
+    }
+
+    [[nodiscard]] microtel::Status SetMetricInterval(
+        std::chrono::milliseconds interval) noexcept override
+    {
+        metric_interval_calls.push_back(interval);
+        return set_metric_interval_result;
+    }
+
+    [[nodiscard]] microtel::Status SetSamplerRatio(double ratio) noexcept override
+    {
+        sampler_ratio_calls.push_back(ratio);
+        return set_sampler_ratio_result;
+    }
+
+    [[nodiscard]] microtel::Status SetLogLevel(microtel::LogLevel level) noexcept override
+    {
+        log_level_calls.push_back(level);
+        return set_log_level_result;
     }
 };
 

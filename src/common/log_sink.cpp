@@ -59,16 +59,20 @@ SinkState& State() noexcept
 ///
 /// An atomic rather than a field of `SinkState`: `LogImpl` reads it *before*
 /// the sink mutex, so a record below the threshold costs one relaxed load and
-/// takes no lock at all. `std::atomic<LogLevel>` is constant-initialised, so
-/// there is no static-initialisation-order hazard and no `State()`-style
-/// accessor is needed.
+/// takes no lock at all.
 ///
-/// `Info` is the shipped default and changes nothing observable: all three
-/// production `LogImpl` call sites emit at `Warn`.
-// A process-global knob by design — the internal log path is a free function
-// with no provider in scope (ICP 0026 §6).
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<LogLevel> g_min_level{LogLevel::Info};
+/// Wrapped in an accessor, like `State()` above, rather than left as a
+/// namespace-scope global. It has to be mutable — it is a runtime knob — and a
+/// function-local static keeps that mutability out of file scope while giving
+/// the same guarantees, `std::atomic<LogLevel>` having a constexpr constructor.
+///
+/// `Info` is the shipped default and changes nothing observable: every
+/// production `LogImpl` call site emits at `Warn`.
+std::atomic<LogLevel>& MinLevel() noexcept
+{
+    static std::atomic<LogLevel> s_min_level{LogLevel::Info};
+    return s_min_level;
+}
 
 /// The highest declared enumerator, for validating a cast-in value.
 constexpr auto kMaxLogLevel = static_cast<std::uint8_t>(LogLevel::Error);
@@ -116,13 +120,13 @@ bool SetMinLogLevel(LogLevel level) noexcept
     {
         return false;
     }
-    g_min_level.store(level, std::memory_order_relaxed);
+    MinLevel().store(level, std::memory_order_relaxed);
     return true;
 }
 
 LogLevel MinLogLevel() noexcept
 {
-    return g_min_level.load(std::memory_order_relaxed);
+    return MinLevel().load(std::memory_order_relaxed);
 }
 
 /// @brief Internal log entry point. Production code calls this; the
@@ -142,7 +146,7 @@ LogLevel MinLogLevel() noexcept
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 void LogImpl(LogLevel level, std::string_view message) noexcept
 {
-    if (level < g_min_level.load(std::memory_order_relaxed))
+    if (level < MinLevel().load(std::memory_order_relaxed))
     {
         return;
     }

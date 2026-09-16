@@ -553,8 +553,7 @@ Status SdkProvider::SetSamplerRatio(double ratio) noexcept
         return Status::InvalidArgument;
     }
 
-    auto* const sampler = m_sampler.Get();
-    if (sampler == nullptr || !sampler->TrySetRatio(ratio))
+    if (auto* const sampler = m_sampler.Get(); sampler == nullptr || !sampler->TrySetRatio(ratio))
     {
         WarnRejected(
             "SetSamplerRatio: the configured sampler has no ratio to retune - nothing changed");

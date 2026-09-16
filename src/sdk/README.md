@@ -37,6 +37,12 @@ Track A — Trace SDK.
   composition that merges them with the config lives in
   [`resource_builder.cpp`](resource_builder.cpp); k8s and cloud
   detectors are future work
+- The multi-profile registry — [`provider_registry.{hpp,cpp}`](provider_registry.hpp),
+  which also defines the public free function `microtel::GetProvider`. A fixed
+  array of `kMaxProfiles = 8` atomic slots, claimed by `SdkBuilder::Build` after
+  construction and released at the top of `~SdkProvider`. Every operation is
+  lock-free and allocation-free because the `pthread_atfork` child handler lives
+  here and walks it ([ICP 0027](../../docs/icps/0027-multi-profile-threading.md))
 - `internal::ICurrentSpanSource` — `CurrentSpanSource` in
   [`current_span_source.hpp`](current_span_source.hpp), which reads the API's
   thread-local context slot and applies the `trace_based` filter (valid **and**
@@ -58,6 +64,10 @@ Track A — Trace SDK.
 
 - `tests/unit/sdk/` — one file per type. `BatchSpanProcessor` gets
   several files (timing, drop policy, shutdown).
+- `tests/unit/sdk/provider_registry_test.cpp` and `provider_registry_race_test.cpp`
+  — the registry below the line and `WithProfileName` / `GetProvider` above it,
+  plus the TSAN hammer. `tests/unit/sdk/fork_safety_test.cpp` covers the child
+  handler, including the multi-provider case the single slot could not serve.
 - `tests/integration/sdk/exemplar_wiring_test.cpp` — the two
   `ICurrentSpanSource` seams driven through a real `SdkProvider`.
 - `tests/integration/sdk_export_pipeline/` — end-to-end against fakes.
@@ -86,4 +96,13 @@ Track A — Trace SDK.
   `tests/unit/sdk/hot_reload_hammer_test.cpp` is what keeps it honest;
   `MICROTEL_HAMMER_SECONDS` extends its default budget for a local run.
 - **Provider holds a `unique_ptr<SslCtx>` indirectly via `Transport`**
-  per ICP 0003 §3.1 — no shared ownership of TLS state.
+  per ICP 0003 §3.1 — no shared ownership of TLS state. One per transport, so a
+  process running several named profiles has one per profile.
+- **The registry must stay lock-free.** Not "lock-free where convenient": the
+  fork child handler walks it, and a mutex held at `fork()` time by a thread
+  that does not exist in the child would hang the child's re-`Build()` — the
+  one recovery `docs/threading-model.md` §7 supports. A slot holds a bare
+  `SdkProvider*` and nothing else; the profile name lives in the provider, so
+  the handler never touches a `std::string` and the registry never allocates.
+  `tests/unit/sdk/provider_registry_race_test.cpp` is the TSAN hammer that keeps
+  it honest.

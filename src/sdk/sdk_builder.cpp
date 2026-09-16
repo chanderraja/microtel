@@ -30,6 +30,7 @@
 #include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/metric_attribute_set.hpp"
+#include "sdk/provider_registry.hpp"
 #include "sdk/resource_builder.hpp"
 #include "sdk/sdk_provider.hpp"
 #include "sdk/view_registry.hpp"
@@ -81,12 +82,35 @@ struct SdkBuilder::Impl
     std::optional<TemporalityPreference> metric_temporality;
     std::optional<MetricLimitOptions> metric_limits;
     std::vector<ViewConfig> views;
+    /// Unset means the default profile; empty is a validation error, because an
+    /// unnamed profile is "default", not "" (ICP 0027 §5).
+    std::optional<std::string> profile_name;
 
     bool consumed = false;
 
     [[nodiscard]] Expected<config::Config, ConfigError> LoadConfig() const;
     void ApplyExporterOverrides(config::Config& cfg) const;
     void ApplyResourceOverrides(config::Config& cfg) const;
+
+    /// @brief `Build`'s steps 7–12: encoder, codecs, exporters, processor,
+    ///        provider, and the registration that claims the profile.
+    ///
+    /// Split out so that neither half carries the whole of `Build`: this one
+    /// assembles the pipeline out of the four things `Build` resolved, and
+    /// `Build` itself stays a readable sequence of validations.
+    ///
+    /// @param cfg          the resolved configuration.
+    /// @param resource     the merged `Resource`; ownership moves in.
+    /// @param auth         the auth provider, or nullptr; ownership moves in.
+    /// @param transport    the transport, already constructed; ownership moves in.
+    /// @param profile_name the profile to register the provider under.
+    /// @return the registered provider, or the `ConfigError` that refused it.
+    [[nodiscard]] Expected<std::shared_ptr<Provider>, ConfigError> Assemble(
+        const config::Config& cfg,
+        std::shared_ptr<const Resource> resource,
+        std::unique_ptr<internal::IAuthProvider> auth,
+        std::unique_ptr<internal::ITransport> transport,
+        const std::string& profile_name);
 };
 
 // ---------------------------------------------------------------------------
@@ -149,6 +173,12 @@ SdkBuilder& SdkBuilder::WithServiceVersion(std::string version)
 SdkBuilder& SdkBuilder::WithResource(std::vector<KeyValue> attrs)
 {
     m_impl->resource_attrs = std::move(attrs);
+    return *this;
+}
+
+SdkBuilder& SdkBuilder::WithProfileName(std::string name)
+{
+    m_impl->profile_name = std::move(name);
     return *this;
 }
 
@@ -656,6 +686,70 @@ void SdkBuilder::Impl::ApplyResourceOverrides(config::Config& cfg) const
 }
 
 // ---------------------------------------------------------------------------
+// Profile registration (ICP 0027)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Undotted on purpose. `ConfigError::field` is a dotted path *when the setting
+/// has one*, and the profile name has no `microtel.toml` key and no environment
+/// variable: it is chosen at the call site, by `WithProfileName`. Calling it
+/// `sdk.profile_name` would send a reader to `docs/configuration.md` looking for
+/// a key that is not there.
+constexpr const char* kProfileNameField = "profile_name";
+
+[[nodiscard]] ConfigError DuplicateProfileNameError(std::string_view name)
+{
+    return ConfigError{
+        .kind = ConfigError::Kind::DuplicateProfileName,
+        .field = kProfileNameField,
+        .message = "a live provider is already registered under profile name '" +
+                   std::string{name} +
+                   "'; shutting a provider down does not release its name, destroying it does"};
+}
+
+/// The name this build registers under, or the error that stops it.
+///
+/// Run before anything is constructed, so the ordinary sequential duplicate
+/// costs nothing. It cannot settle the concurrent case — two `Build()`s of one
+/// name both pass here — which is what the claim after construction is for.
+[[nodiscard]] Expected<std::string, ConfigError> ResolveProfileName(
+    const std::optional<std::string>& configured)
+{
+    std::string name = configured.value_or(std::string{kDefaultProfileName});
+    if (name.empty())
+    {
+        return make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                        .field = kProfileNameField,
+                        .message = "profile name must not be empty; omit WithProfileName "
+                                   "to build the default profile"});
+    }
+    if (sdk::FindProvider(name) != nullptr)
+    {
+        return make_unexpected(DuplicateProfileNameError(name));
+    }
+    return name;
+}
+
+/// The error a refused registration becomes. `kMaxProfiles` is internal, so
+/// this message is the only place a consumer can learn the number.
+[[nodiscard]] ConfigError RegistrationError(sdk::RegistrationResult result, std::string_view name)
+{
+    if (result == sdk::RegistrationResult::CapacityExhausted)
+    {
+        return ConfigError{.kind = ConfigError::Kind::ProfileLimitExceeded,
+                           .field = kProfileNameField,
+                           .message = "the process already holds the maximum of " +
+                                      std::to_string(sdk::kMaxProfiles) + " live providers"};
+    }
+    return DuplicateProfileNameError(name);
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // Build
 // ---------------------------------------------------------------------------
 
@@ -668,6 +762,13 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
                                            .message = "SdkBuilder::Build() called more than once"});
     }
     m_impl->consumed = true;
+
+    // --- Step 0: the profile this provider will be registered under ---------
+    const auto profile = ResolveProfileName(m_impl->profile_name);
+    if (!profile)
+    {
+        return make_unexpected(profile.error());
+    }
 
     // --- Steps 1–2: assemble and validate Config (file → env → code) -------
     auto cfg_result = m_impl->LoadConfig();
@@ -696,8 +797,19 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     {
         return make_unexpected(transport_result.error());
     }
-    auto transport = std::move(*transport_result);
 
+    // --- Steps 7–12: the pipeline, and the profile it is registered under ---
+    return m_impl->Assemble(
+        cfg, std::move(resource), std::move(auth), std::move(*transport_result), *profile);
+}
+
+Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
+    const config::Config& cfg,
+    std::shared_ptr<const Resource> resource,
+    std::unique_ptr<internal::IAuthProvider> auth,
+    std::unique_ptr<internal::ITransport> transport,
+    const std::string& profile_name)
+{
     // --- Steps 7–9: encoder + codecs + exporters ----------------------------
     auto encoder = std::make_unique<wire::OtlpEncoder>();
     // Created before the exporters because they borrow it; ownership moves
@@ -710,8 +822,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto processor = BuildSpanProcessor(exporters.exporter.get(), resource, cfg, diagnostics.get());
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
-    const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
-    return std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
+    const std::size_t max_cardinality = ResolveMaxCardinality(metric_limits);
+    auto provider = std::make_shared<sdk::SdkProvider>(sdk::SdkProviderArgs{
         .diagnostics = std::move(diagnostics),
         .encoder = std::move(encoder),
         .auth = std::move(auth),
@@ -721,7 +833,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .batch_span_processor = processor.get(),
         .processor = std::move(processor),
         .resource = std::move(resource),
-        .sampler = std::move(m_impl->sampler),
+        .sampler = std::move(sampler),
         .span_limits = cfg.span_limits,
         .connect_opts = BuildConnectOptions(cfg),
         .metric_codec = std::move(exporters.metric_codec),
@@ -729,11 +841,24 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .metric_interval = cfg.metric_interval,
         .metric_temporality = cfg.metric_temporality,
         .metric_max_cardinality = max_cardinality,
-        .view_registry = BuildViewRegistry(m_impl->views),
+        .view_registry = BuildViewRegistry(views),
         .log_codec = std::move(exporters.log_codec),
         .log_exporter = std::move(exporters.log_exporter),
         .log_batch_opts = cfg.batch,
+        .profile_name = profile_name,
     });
+
+    // --- Step 12: claim the profile -----------------------------------------
+    // After construction, because the name is compared against providers that
+    // are live, and this one is not live until it exists. A refusal here costs
+    // one construction and an immediate teardown — a startup-path cost, paid
+    // once, by a program with a bug (ICP 0027 §2).
+    if (const sdk::RegistrationResult registered = sdk::RegisterProvider(provider.get());
+        registered != sdk::RegistrationResult::Registered)
+    {
+        return make_unexpected(RegistrationError(registered, profile_name));
+    }
+    return provider;
 }
 
 }  // namespace microtel

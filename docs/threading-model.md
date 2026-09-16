@@ -72,7 +72,7 @@ The inventory is the maximum. A `Provider` with no `GetMeter` and no `GetLogger`
 
 **One worker per pipeline, and every pipeline belongs to one `Provider`** (LOCKED — cites `src/sdk/batch_span_processor.cpp:WorkerLoop`, `src/sdk/batch_log_record_processor.cpp:WorkerLoop`, `src/exporter/otlp_exporter.cpp:WorkerLoop`, `src/exporter/otlp_metric_exporter.cpp:WorkerLoop`, `src/exporter/otlp_log_exporter.cpp:WorkerLoop`), of which a fully-configured `Provider` has **five**: a processor worker and an exporter worker each for traces and logs, and an exporter worker for metrics (whose producer side is the reader thread of §2, not a queue drain). The count is **per `Provider`, not per process**: a process running N named profiles runs N such sets, sharing no thread, queue, or transport between them.
 
-This section said "v1 always has exactly one worker per process", justified by multi-profile being a v1.1 feature. The justification was a non-sequitur even when it was written: the multiplicity comes from **three signals inside one `Provider`**, not from multiple `Provider` instances. One `Provider` was v1.0's supported configuration; from v1.1 a process may run several named ones ([ICP 0027](icps/0027-multi-profile-threading.md), taking effect with packet 3.1). Neither fact touches the per-pipeline rule, which was always a statement about one `Provider`'s internals.
+This section said "v1 always has exactly one worker per process", justified by multi-profile being a v1.1 feature. The justification was a non-sequitur even when it was written: the multiplicity comes from **three signals inside one `Provider`**, not from multiple `Provider` instances. One `Provider` was v1.0's supported configuration; from v1.1 a process may run several named ones ([ICP 0027](icps/0027-multi-profile-threading.md), shipped — `SdkBuilder::WithProfileName`, `microtel::GetProvider`). Neither fact touches the per-pipeline rule, which was always a statement about one `Provider`'s internals.
 
 The two roles are separated by a queue, and conflating them is what the old text did:
 
@@ -102,7 +102,7 @@ skips the drain steps. Joined at `Transport::Close`, which is accurate.
 
 **Exactly one I/O thread per `Provider`** (LOCKED — cites `src/transport/http2_transport.hpp:m_io_thread`, `src/sdk/sdk_builder.cpp:Build`). One nghttp2 session, one socket, one reactor: `Http2Transport` holds a single `m_io_thread`, and each `SdkBuilder::Build` constructs one transport, shared by every pipeline of the `Provider` it builds.
 
-This said "one I/O thread per process" until [ICP 0027](icps/0027-multi-profile-threading.md). It is the same claim while a process has one `Provider`, which is v1.0's only supported configuration; the rescoping takes effect with packet 3.1, when a process may hold several named `Provider`s. Each of them builds its own transport and therefore owns its own socket, its own reactor, its own `SslCtx` ([ICP 0003](icps/0003-m0-deferred-decisions.md) §3.1 having already put that ownership on the `Transport`), and its own I/O thread. Nothing is shared across profiles.
+This said "one I/O thread per process" until [ICP 0027](icps/0027-multi-profile-threading.md). It is the same claim while a process has one `Provider`, which was v1.0's only supported configuration; the rescoping is in effect from v1.1, where a process may hold up to eight named `Provider`s. Each of them builds its own transport and therefore owns its own socket, its own reactor, its own `SslCtx` ([ICP 0003](icps/0003-m0-deferred-decisions.md) §3.1 having already put that ownership on the `Transport`), and its own I/O thread. Nothing is shared across profiles.
 
 **Reads:** the OpenSSL `SslCtx` reference, the `SslSession`, the
 `Nghttp2Session`, the socket fd (a `common::raii::UniqueFd` — there is no
@@ -343,21 +343,38 @@ The full sequence diagram for `Shutdown` is `docs/sequences/shutdown-drain.md`.
 
 Forking a process that has microtel running raises real correctness questions because the child inherits half-finished state (mid-flight nghttp2 stream, half-written socket buffers, locked mutexes that the worker thread no longer exists to release).
 
-**Rule** (LOCKED — cites `src/sdk/sdk_provider.cpp:ForkChildHandler`). After `fork()`, the child process starts with **exporter workers disabled** until the application explicitly reinitialises microtel.
+**Rule** (LOCKED — cites `src/sdk/provider_registry.cpp:ForkChildHandler`). After `fork()`, the child process starts with **exporter workers disabled** until the application explicitly reinitialises microtel.
 
 Concretely:
 
-- A `pthread_atfork` handler runs in the child and marks the live `Provider`
-  shut down. Worker and I/O threads are not present in the child (only the
-  forking thread survives `fork`), so any API entry point that consults the
-  shutdown flag before touching shared state drops instead of blocking.
+- A `pthread_atfork` handler runs in the child and marks **every live
+  `Provider`** shut down. Worker and I/O threads are not present in the child
+  (only the forking thread survives `fork`), so any API entry point that
+  consults the shutdown flag before touching shared state drops instead of
+  blocking.
+
+  The plural is v1.1's, and it is a fix rather than an extension: this said "the
+  live `Provider`" while the handler could reach exactly one, through a single
+  `g_live_provider` slot that a second provider's construction overwrote — so a
+  fork with two live providers left the *first* one unmarked and reachable from
+  the child. [ICP 0027](icps/0027-multi-profile-threading.md) replaced that slot
+  with a fixed array of atomic slots (`src/sdk/provider_registry.hpp`), which the
+  handler walks in `kMaxProfiles` loads. It takes no lock and reads no
+  `std::string`: the name lives in the provider, the slot holds a bare pointer.
+
+  The handler also **clears** each slot as it marks it, so
+  `microtel::GetProvider(name)` in the child answers `nullptr` and the child can
+  re-`Build()` under the very names the parent was using (ICP 0027 §3). A
+  pointer or `shared_ptr` obtained before the fork is unaffected and answers
+  `AlreadyShutDown`.
 
   The mechanism is a flag, not a state machine: this section previously
   specified `m_state = Closed`, and no such member has ever existed
   (see ICP 0018 and issue #134). The flag it sets is
-  `SdkProvider::m_shut_down`, and the child handler does nothing but one
-  atomic store — it takes no lock, because a lock held at `fork()` time by a
-  thread that does not exist in the child would never be released.
+  `SdkProvider::m_shut_down`, and the child handler does nothing but a bounded
+  sequence of atomic loads and stores — it takes no lock, because a lock held at
+  `fork()` time by a thread that does not exist in the child would never be
+  released, and it allocates nothing.
 
   **This does not make a forked child fully safe, and the previous wording
   overstated it.** It covers entry points that check the flag first —
@@ -460,6 +477,7 @@ These three seams collectively make every cross-thread contract in this document
 | `ScopedContext` | **Thread-confined** — constructed and destroyed on one thread, never shared. Restore is positional: destroy scopes in reverse order of creation (LOCKED — cites `src/api/context.cpp:ScopedContext`) | `@threadsafety Thread-confined` |
 | `ScopedSpan` | **Thread-confined**, for the `ScopedContext` it holds. Ends its span before restoring the context (LOCKED — cites `include/microtel/span.hpp:ScopedSpan`) | `@threadsafety Thread-confined` |
 | `LogSink` (callback) | Caller-supplied; microtel makes no thread-safety assumption beyond "may be called from any internal thread" | documented in `log_sink.hpp` |
+| `microtel::GetProvider` | Thread-safe, **lock-free and allocation-free** — `kMaxProfiles` acquire-loads and at most that many short string compares. Returns a **borrowed** pointer: valid across that provider's `Shutdown`, dangling after its destruction, `nullptr` in a forked child until it re-builds (LOCKED — cites `src/sdk/provider_registry.cpp:FindProvider`) | `@threadsafety Thread-safe` |
 
 **The current-context slot.** `CurrentContext()` returns a reference into one
 `thread_local Context` defined in a single translation unit
@@ -470,6 +488,16 @@ context on a worker copies `CurrentContext()` across the hand-off and installs
 it there with `ScopedContext`. §7 (fork) is unaffected — a `Context` is a value
 holding no thread, fd, or lock, so the child simply keeps the forking thread's.
 See [ICP 0025](icps/0025-propagation-core.md) §3.
+
+**The profile registry.** The other piece of process-scoped state is
+`src/sdk/provider_registry.hpp`'s fixed array of atomic slots, which
+`SdkBuilder::Build` claims one of and `~SdkProvider` releases before it tears
+anything down. It is the only structure a `pthread_atfork` child handler has to
+walk, which is why every operation on it is lock-free: a registry mutex held at
+`fork()` time by a thread that does not exist in the child would hang the child's
+re-`Build()`, the one recovery §7 supports. It owns nothing and extends no
+lifetime — a slot is a borrowed pointer, and `GetProvider` hands that borrow on.
+See [ICP 0027](icps/0027-multi-profile-threading.md) §2.
 
 For every internal interface, the corresponding contract is in `interfaces.md`.
 

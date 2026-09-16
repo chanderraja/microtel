@@ -163,6 +163,24 @@ public:
     SdkBuilder& WithServiceVersion(std::string version);
     SdkBuilder& WithResource(std::vector<KeyValue> attrs);
 
+    /// @brief Name this provider's profile. Defaults to `kDefaultProfileName`.
+    ///
+    /// Names identify live providers within the process, and `microtel::
+    /// GetProvider(name)` is how one is found again. Each named profile is fully
+    /// independent — its own endpoint, protocol, TLS material, sampler,
+    /// `Resource`, pipelines, worker threads and I/O thread — and nothing is
+    /// shared between them (ICP 0027).
+    ///
+    /// Compared byte-for-byte; no normalisation, no case folding. `Build()`
+    /// fails with `ConfigError::Kind::DuplicateProfileName` if another **live**
+    /// provider already carries this name — shutting a provider down does not
+    /// release its name, destroying it does — with
+    /// `ConfigError::Kind::ProfileLimitExceeded` when the process already holds
+    /// the maximum number of live providers, and with
+    /// `ConfigError::Kind::InvalidValue` if @p name is empty: an unnamed profile
+    /// is `"default"`, not `""`.
+    SdkBuilder& WithProfileName(std::string name);
+
     /// @brief Register a resource detector.
     ///
     /// Call once per detector; registration order is significant. `Build()`

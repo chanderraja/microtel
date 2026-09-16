@@ -26,6 +26,7 @@ add_library(microtel_sdk STATIC
     simple_log_record_processor.cpp
     batch_log_record_processor.cpp
     batch_span_processor.cpp
+    provider_registry.cpp
     sdk_provider.cpp
     sdk_builder.cpp
     resource_detectors.cpp

@@ -360,7 +360,8 @@ Recorded rather than silently designed around.
    calling `Build()` hangs. Pre-existing, entirely independent of
    multi-profile, and the reason §2 insists the registry itself stay lock-free
    rather than adding a second instance of the same hazard. Worth its own issue;
-   not fixed here.
+   not fixed here. Filed as issue #271 by packet 3.1, which moved the function
+   into `provider_registry.cpp` unchanged.
 
 ## Migration
 
@@ -380,6 +381,15 @@ Nothing to do today; this ICP amends two sentences and schedules the rest.
 - **Consumers:** recompile against v1.1 headers — the same recompile ICPs 0025
   and 0026 already require. No source change. A program that never names a
   profile is unaffected in every observable way.
+
+**Landed.** Packet 3.1 shipped all of the above, with two notes for a later
+reader. (1) `SdkBuilder::Build`'s tail moved into a new
+`SdkBuilder::Impl::Assemble` — `Build` was already at clang-tidy's 75-line
+function-size threshold, so the two steps this ICP adds to it had to come out;
+the move is mechanical. (2) Discrepancy 1 is closed: `memory-model.md` §5.3 now
+says one `SslCtx` per `Transport`, matching §4.2 and the code. Discrepancy 4
+(`InstallForkHandlersOnce` can strand a forked child) is untouched, as this ICP
+said it would be.
 
 ## Rationale & alternatives
 

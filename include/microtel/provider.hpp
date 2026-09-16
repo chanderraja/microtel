@@ -294,4 +294,48 @@ public:
     [[nodiscard]] virtual Status SetLogLevel(LogLevel level) noexcept = 0;
 };
 
+// ── Multi-profile (ICP 0027) ───────────────────────────────────────────────
+
+/// @brief The profile name a provider built without `WithProfileName` carries.
+inline constexpr std::string_view kDefaultProfileName = "default";
+
+/// @brief Find the live provider registered under @p name.
+///
+/// A process may hold several named providers at once, each built by its own
+/// `SdkBuilder::Build()` with its own endpoint, protocol, TLS material, sampler,
+/// `Resource`, pipelines and threads. This is how instrumentation that cannot
+/// reach the host's wiring — library code, a plugin, a callback — finds one.
+/// A host that builds its profiles in one place can pass the `shared_ptr`
+/// around instead and never call this.
+///
+/// @param name the profile name, compared byte-for-byte; no normalisation and
+///        no case folding. Defaults to `kDefaultProfileName`, so `GetProvider()`
+///        is the default-profile accessor.
+/// @return a **borrowed, non-owning** pointer, or `nullptr` if no live provider
+///         carries that name. Never transfers ownership: the owner is whoever
+///         holds the `std::shared_ptr<Provider>` that `Build()` returned.
+///
+/// @par Lifetime
+/// Registration keeps nothing alive — a lookup does not extend a provider's
+/// life, and the slot is occupied for strictly less time than the provider
+/// exists.
+/// - **Across `Shutdown`: the pointer stays valid.** `Shutdown` does not
+///   deregister; only destruction does. A shut-down provider is still found by
+///   name, and every lifecycle method on it returns `Status::AlreadyShutDown`.
+///   A name is freed for reuse by destruction, not by `Shutdown`.
+/// - **Across destruction: the pointer dangles**, like every non-owning pointer
+///   in this API. What is guaranteed is that a *subsequent* `GetProvider(name)`
+///   returns `nullptr` rather than the corpse. A program that destroys
+///   providers while other threads look them up must synchronise that itself;
+///   the documented usage — look profiles up after building them, hold the
+///   pointer, destroy providers at process teardown — never meets the race.
+/// - **Across `fork()`:** every slot is empty in the child, so this returns
+///   `nullptr` there until the child re-builds. A pointer obtained *before* the
+///   fork is still valid in the child and answers `AlreadyShutDown`
+///   (`docs/threading-model.md` §7).
+///
+/// @threadsafety Thread-safe. Lock-free and allocation-free.
+/// @noexcept
+[[nodiscard]] Provider* GetProvider(std::string_view name = kDefaultProfileName) noexcept;
+
 }  // namespace microtel

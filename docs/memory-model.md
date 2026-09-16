@@ -135,7 +135,7 @@ All in `src/common/raii/`. Each is move-only, has a `noexcept` destructor, and e
 | RAII type | Owns | Created by | Notes |
 |---|---|---|---|
 | `Socket` | `int` file descriptor | transport (on `Connect`) | Calls `close(2)` on destruction. |
-| `SslCtx` | `SSL_CTX*` | transport, on `Connect` | `SSL_CTX_free` on destruction. Owned by `Transport` (one per process in v1; multi-`Provider` in v1.1 gives each `Transport` its own). See [ICP 0003 §3.1](icps/0003-m0-deferred-decisions.md#31-sslctx-ownership--per-transport). |
+| `SslCtx` | `SSL_CTX*` | transport, on `Connect` | `SSL_CTX_free` on destruction. Owned by `Transport` — one per transport, so a process running several named profiles has one per profile (v1.1, [ICP 0027](icps/0027-multi-profile-threading.md)). See [ICP 0003 §3.1](icps/0003-m0-deferred-decisions.md#31-sslctx-ownership--per-transport). |
 | `SslSession` | `SSL*` | transport (per connection) | `SSL_free` on destruction. Cleanly closes the session if open. |
 | `Nghttp2Session` | `nghttp2_session*` | transport (per connection) | `nghttp2_session_del` on destruction. |
 | `UpbArena` | `upb_Arena*` | encoder (per `Encode()` call) | `upb_Arena_Free` on destruction. **Never escapes `src/wire/encoder/`** (§3). |
@@ -258,7 +258,7 @@ Transport::Connect()
    │
    ▼
 [Socket]                       
-[SslCtx]   ◄── shared, single instance per process
+[SslCtx]   ◄── one per Transport, shared across that transport's reconnects
 [SslSession]                   
 [Nghttp2Session]               
    │
@@ -282,7 +282,9 @@ Transport::Close(timeout)
 [Socket]         destroyed (close)
 ```
 
-`SslCtx` is shared across reconnects (one per process); `SslSession`, `Nghttp2Session`, and `Socket` are per-connection and owned by the `Transport`. Reconnect after a socket-level failure releases the per-connection trio and creates a new one with backoff.
+`SslCtx` is shared across reconnects, **one per `Transport`**; `SslSession`, `Nghttp2Session`, and `Socket` are per-connection and owned by the `Transport`. Reconnect after a socket-level failure releases the per-connection trio and creates a new one with backoff.
+
+This said "one per process" until v1.1, contradicting §4.2's table two sections up and the code both, which have had `Http2Transport::m_ssl_ctx` — a per-transport member — since [ICP 0003](icps/0003-m0-deferred-decisions.md) §3.1 decided it. The two readings were indistinguishable while a process built one `Provider`; multi-profile ([ICP 0027](icps/0027-multi-profile-threading.md)) makes them differ, because each named profile builds its own transport and so owns its own `SslCtx`, socket and reactor.
 
 ---
 

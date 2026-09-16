@@ -189,6 +189,52 @@ int main()
     // and sugar::Traced, all from the installed headers. See SugarSmoke above.
     ok = Check(SugarSmoke(*tracer), "microtel::sugar works from the installed tree") && ok;
 
+    // --- v1.1 multi-profile (ICP 0027) ---
+    //
+    // `microtel::GetProvider` is a free function defined in libmicrotel_sdk.a
+    // and declared in <microtel/provider.hpp>, so an unresolved symbol here is
+    // the export-set defect this gate exists to catch — the registry is an SDK
+    // concept, and nothing but the export set puts that archive on this link
+    // line. The provider built above never named a profile, so it is the
+    // default one; this second Build names its own.
+    auto audit_built = microtel::SdkBuilder{}
+                           .WithEndpoint(kDeadEndpoint)
+                           .WithProtocol(microtel::Protocol::Grpc)
+                           .WithServiceName("microtel-consumer-smoke-audit")
+                           .WithProfileName("audit")
+                           .WithTimeouts(timeouts)
+                           .Build();
+    if (!audit_built)
+    {
+        std::cerr << "FAIL SdkBuilder::Build(audit): " << audit_built.error().message << '\n';
+        return 1;
+    }
+    const std::shared_ptr<microtel::Provider> audit = std::move(*audit_built);
+
+    ok = Check(microtel::GetProvider() == provider.get(),
+               "GetProvider() finds the default profile") &&
+         ok;
+    ok = Check(microtel::GetProvider("audit") == audit.get(),
+               "GetProvider(\"audit\") finds the named profile") &&
+         ok;
+    ok = Check(microtel::GetProvider("no-such-profile") == nullptr,
+               "GetProvider() of an unknown profile is null") &&
+         ok;
+
+    // Never last-wins: a duplicate name fails the build loudly.
+    const auto duplicate = microtel::SdkBuilder{}
+                               .WithEndpoint(kDeadEndpoint)
+                               .WithProfileName("audit")
+                               .WithTimeouts(timeouts)
+                               .Build();
+    ok = Check(!duplicate &&
+                   duplicate.error().kind == microtel::ConfigError::Kind::DuplicateProfileName,
+               "a duplicate profile name fails Build()") &&
+         ok;
+
+    const microtel::Status audit_shutdown = audit->Shutdown(kShutdownTimeout);
+    std::cout << "audit Shutdown = " << StatusToString(audit_shutdown) << '\n';
+
     // The v1.1 hot-reload setters are new pure virtuals on Provider (ICP
     // 0026), so they are ABI *and* export-set material: an unresolved
     // SetBatchOptions here is the same class of defect as an unresolved

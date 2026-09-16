@@ -39,8 +39,9 @@ CHILD
   Forking thread (the only thread) -- the child handler runs here
        |
        | child handler:
-       |   for each live Provider:
-       |     CAS m_state from any value to Closed
+       |   for each registry slot (kMaxProfiles of them):
+       |     load the Provider; if live, mark it shut down
+       |     store nullptr back, so the child can re-Build that name
        |   replace global LogSink with stderr fallback
        |   (avoid relying on external logger that may have shared fds)
        |
@@ -66,6 +67,8 @@ CHILD
 1. **`fork()` produces a child with only one thread alive: the forking thread.** All other threads (exporter worker, I/O thread) are missing in the child. Any locks they were holding remain "held" in the child's memory but with no thread to release them. Any half-written socket buffers are inherited but not safe to use — the parent and child would interfere with each other's TCP state.
 2. **The atfork prepare handler in the parent records a diagnostic.** It does not acquire microtel locks because doing so risks deadlocking the fork itself. (`pthread_atfork(3)` warns extensively about this.) The diagnostic is emitted via the configured log sink synchronously where possible.
 3. **The child handler immediately CAS-flips every live `Provider` to `Closed`.** This is the entire mitigation — no attempt is made to "fix up" the orphaned threads, sockets, or nghttp2 sessions. The child observes a fully-shut-down microtel from its first instruction.
+
+   "Every" became true in v1.1. Until then the handler could reach exactly one provider, through a single `g_live_provider` slot that a second provider's construction overwrote, so a fork with two live providers left the first unmarked; [ICP 0027](../icps/0027-multi-profile-threading.md) replaced it with the fixed array of atomic slots the handler now walks. The handler also **empties** each slot, so `microtel::GetProvider(name)` answers `nullptr` in the child and option A below can re-build under the parent's own profile names instead of colliding with stale entries.
 4. **The child must re-initialise microtel explicitly** if it wants to send telemetry. Calling `SdkBuilder().Build()` from the child constructs a fresh `Provider` with fresh threads, fresh sockets, and a fresh nghttp2 session. The parent's I/O state is **not shared.** (LOCKED.)
 5. **No automatic re-initialisation in v1.** The application is responsible for the policy. Some applications fork-and-exec (no microtel needed in the brief gap); others fork to spawn workers (each worker re-inits). v1 does not pick a default.
 

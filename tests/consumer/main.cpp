@@ -34,6 +34,7 @@
 #include <microtel/sdk_builder.hpp>
 #include <microtel/span.hpp>
 #include <microtel/status.hpp>
+#include <microtel/sugar.hpp>
 #include <microtel/trace.hpp>
 #include <microtel/tracer.hpp>
 
@@ -80,6 +81,27 @@ bool Check(const bool ok, const char* what)
 {
     std::cout << (ok ? "ok   " : "FAIL ") << what << '\n';
     return ok;
+}
+
+// --- v1.1 sugar layer (ICP 0028) -------------------------------------------
+//
+// Four installed headers with no archive behind them:
+// <microtel/sugar.hpp> and <microtel/sugar/{span,exception,attr_key}.hpp>.
+// They ship only because the package installs include/microtel as a directory
+// (ICP 0020 Decision 2), and `microtel::sugar` is deliberately *not* an
+// exported CMake target (ICP 0028 §4) — so this is the only gate that can
+// prove a consumer linking nothing but microtel::microtel can include and use
+// them. Header-only means it must also add nothing to the link line.
+
+constexpr microtel::sugar::AttrKey kSugarTag{"consumer.sugar"};
+
+bool SugarSmoke(microtel::Tracer& tracer)
+{
+    MICROTEL_TRACE_FUNCTION(tracer);
+    const microtel::ScopedSpan child = microtel::sugar::Span(
+        tracer, "consumer.sugar.child", {kSugarTag(std::string{"installed-tree"})});
+    return child.Get() != nullptr &&
+           microtel::sugar::Traced(tracer, "consumer.sugar.traced", [] { return true; });
 }
 
 }  // namespace
@@ -153,6 +175,11 @@ int main()
     const microtel::Baggage bag = microtel::Baggage::FromHeader("tenant=acme,region=eu%2Dwest");
     ok = Check(bag.Get("tenant") == std::string_view{"acme"}, "Baggage::FromHeader round-trips") &&
          ok;
+
+    // --- v1.1 sugar layer (ICP 0028) ---
+    // MICROTEL_TRACE_FUNCTION, sugar::Span with an AttrKey-built attribute,
+    // and sugar::Traced, all from the installed headers. See SugarSmoke above.
+    ok = Check(SugarSmoke(*tracer), "microtel::sugar works from the installed tree") && ok;
 
     // Nothing can reach a closed port, so TimedOut is the expected outcome and
     // Failed is an honest one. Only AlreadyShutDown is wrong — we have not

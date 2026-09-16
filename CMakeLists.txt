@@ -40,6 +40,27 @@ target_include_directories(microtel_headers INTERFACE
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/microtel/vendor>)
 target_compile_features(microtel_headers INTERFACE cxx_std_20)
 
+# The v1.1 sugar layer (ICP 0028 §4) — header-only, shaped like the spdlog
+# bridge in src/adapters/spdlog/CMakeLists.txt but declared here, with three
+# deviations from that precedent:
+#
+#   - it lives in the root file, beside microtel_headers, because it owns no
+#     source file and ICP 0020 already centralises the target surface here;
+#   - it is not optional — sugar is public API in v1.1, not an opt-in adapter;
+#   - it is NOT added to MICROTEL_EXPORTED_TARGETS. ICP 0020 Decision 2 draws
+#     the supported line at microtel::microtel, whose interface already
+#     carries include/ through microtel_headers, so find_package(microtel) +
+#     microtel::microtel + #include <microtel/sugar.hpp> already works. An
+#     exported microtel::sugar would be a name with no use case, and
+#     Decision 2's own rule is that promotion is available later and
+#     demotion is not. In-tree, this target is what sugar's tests name.
+#
+# No install rule either: install(DIRECTORY include/microtel …) below is
+# recursive, so include/microtel/sugar/ ships with everything else.
+add_library(microtel_sugar INTERFACE)
+target_link_libraries(microtel_sugar INTERFACE microtel_headers)
+target_compile_features(microtel_sugar INTERFACE cxx_std_20)
+
 # M0 header compile check.
 #
 # Verifies every public and internal header compiles standalone with -Werror.

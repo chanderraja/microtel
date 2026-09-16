@@ -27,6 +27,7 @@
 // about the package, and the unit, integration and conformance suites own
 // behaviour.
 
+#include <microtel/baggage.hpp>
 #include <microtel/error.hpp>
 #include <microtel/provider.hpp>
 #include <microtel/resource_detectors.hpp>
@@ -41,6 +42,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace
 {
@@ -141,6 +143,16 @@ int main()
     std::cout << "trace_id=" << trace_hex << " span_id=" << span_hex << '\n';
     ok = Check(trace_hex.size() == kTraceIdHexChars, "TraceId::ToHex is 32 hex chars") && ok;
     ok = Check(span_hex.size() == kSpanIdHexChars, "SpanId::ToHex is 16 hex chars") && ok;
+
+    // <microtel/baggage.hpp> is new public surface in v1.1, and it installs
+    // only because the package installs include/microtel as a directory
+    // (ICP 0020 Decision 2). Parsing here proves both halves: the header is in
+    // the install tree, and Baggage::FromHeader resolves out of
+    // libmicrotel_api.a, which nothing but the export set puts on this link
+    // line.
+    const microtel::Baggage bag = microtel::Baggage::FromHeader("tenant=acme,region=eu%2Dwest");
+    ok = Check(bag.Get("tenant") == std::string_view{"acme"}, "Baggage::FromHeader round-trips") &&
+         ok;
 
     // Nothing can reach a closed port, so TimedOut is the expected outcome and
     // Failed is an honest one. Only AlreadyShutDown is wrong — we have not

@@ -24,6 +24,7 @@ Nothing reads either mechanically.
 | OTLP/gRPC traces | Supported, plaintext and TLS | `tests/conformance/grpc/` |
 | OTLP metrics, both protocols | Implemented, **not** conformance-tested | unit tests only; collector conformance is deferred to v1.2 ([`interop-matrix.md`](interop-matrix.md) §6) |
 | OTLP logs, both protocols | Implemented, **not** conformance-tested | unit tests only; `Provider::GetLogger` per [ICP 0012](icps/0012-provider-get-logger.md) |
+| W3C Baggage propagation | Supported in v1.1 — `W3CBaggagePropagator`, full grammar, percent-encoding, opaque property tail, and the 180 / 4096 / 8192 limits | `tests/unit/api/baggage_test.cpp`, `tests/unit/api/baggage_propagator_test.cpp`, `tests/fuzz/baggage_fuzz.cpp`; [ICP 0025](icps/0025-propagation-core.md) §2 |
 | OTel SDK env vars (subset) | Partial | `tests/unit/common/config/`, [`configuration.md`](configuration.md) §3 |
 | `opentelemetry-cpp` API shim | Experimental; source-only, adds nothing to the consumer's link closure | `src/adapters/otelcpp/`, `tests/unit/adapters/`, `tests/integration/otelcpp_shim/`; [ICP 0014](icps/0014-otelcpp-shim-and-rule-13.md) |
 | `opentelemetry-python` API shim | Not in v1 — Python ships post-v1.0 as M18 | [ICP 0013](icps/0013-rescope-defer-python-bindings.md) |

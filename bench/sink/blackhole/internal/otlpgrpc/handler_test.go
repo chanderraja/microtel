@@ -273,6 +273,64 @@ func TestGRPC_RawUncompressedMessage_CountsSpans(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Wire-byte accounting (#228)
+//
+// bytes_received must mean the same thing on both protocols: the compressed
+// size of what arrived. Counting proto.Size of the message grpc-go had
+// already inflated made the microtel-grpc-gzip SUT look like it compressed
+// nothing, while microtel-gzip showed the real saving.
+// ---------------------------------------------------------------------------
+
+func TestGRPC_GzipEncodedMessage_CountsCompressedWireBytes(t *testing.T) {
+	// 64 identical span names compress hard, so the gap is unambiguous.
+	payload, err := proto.Marshal(buildTraceRequest(64))
+	if err != nil {
+		t.Fatalf("proto.Marshal: %v", err)
+	}
+
+	trGzip, cGzip := newRawServer(t)
+	resp := exportRaw(t, trGzip, grpcFrame(gzipBytes(t, payload), true), "gzip")
+	if status, msg := grpcStatus(t, resp); status != "0" {
+		t.Fatalf("gzip grpc-status: want 0, got %q (%s)", status, msg)
+	}
+
+	trPlain, cPlain := newRawServer(t)
+	resp = exportRaw(t, trPlain, grpcFrame(payload, false), "")
+	if status, msg := grpcStatus(t, resp); status != "0" {
+		t.Fatalf("identity grpc-status: want 0, got %q (%s)", status, msg)
+	}
+
+	compressed := cGzip.Snapshot().BytesReceived
+	uncompressed := cPlain.Snapshot().BytesReceived
+	if compressed >= uncompressed {
+		t.Errorf("bytes_received: gzip'd export counted %d, identity counted %d; "+
+			"want the gzip'd export strictly smaller", compressed, uncompressed)
+	}
+}
+
+// The identity path pins the exact wire size, including the 5-byte gRPC
+// length-prefix header the old proto.Size accounting left out.
+func TestGRPC_UncompressedMessage_CountsWireBytesWithFraming(t *testing.T) {
+	const grpcHeaderLen = 5
+
+	tr, c := newRawServer(t)
+	payload, err := proto.Marshal(buildTraceRequest(5))
+	if err != nil {
+		t.Fatalf("proto.Marshal: %v", err)
+	}
+
+	resp := exportRaw(t, tr, grpcFrame(payload, false), "")
+	if status, msg := grpcStatus(t, resp); status != "0" {
+		t.Fatalf("grpc-status: want 0, got %q (%s)", status, msg)
+	}
+
+	want := uint64(len(payload) + grpcHeaderLen)
+	if got := c.Snapshot().BytesReceived; got != want {
+		t.Errorf("bytes_received: want %d, got %d", want, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Metric handler
 // ---------------------------------------------------------------------------
 

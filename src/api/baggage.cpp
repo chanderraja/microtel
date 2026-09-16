@@ -378,14 +378,12 @@ void AppendEncoded(std::string_view decoded, std::string& out)
 /// @brief Serialised length of a whole entry list, separators included.
 [[nodiscard]] std::size_t SerialisedSize(const std::vector<Entry>& entries) noexcept
 {
-    if (entries.empty())
-    {
-        return 0U;
-    }
-    std::size_t total = (entries.size() - 1U) * kListSeparatorChars;
+    std::size_t total = 0;
+    std::size_t count = 0;
     for (const Entry& entry : entries)
     {
-        total += entry.member_bytes;
+        total = TotalWith(total, count, entry.member_bytes);
+        ++count;
     }
     return total;
 }

@@ -206,17 +206,30 @@ struct PipelineFixture
     }
 };
 
+/// Opens a span scope and records one measurement inside it.
+void RecordOneInsideSpan(const std::shared_ptr<mt::Tracer>& tracer,
+                         const std::shared_ptr<mt::Counter<std::int64_t>>& counter)
+{
+    const auto scoped = tracer->StartAsCurrentSpan("work");
+    counter->Add(1, {});
+}
+
 /// Opens a span scope and records one measurement inside it, over and over,
 /// until @p stop is set. The body of each recorder thread in the concurrency
 /// test below.
+///
+/// The first record is unconditional. The flush loop the test runs alongside
+/// these threads completes in a couple of milliseconds, so a thread first
+/// scheduled after `stop` is set would otherwise contribute nothing at all,
+/// and the test's closing assertion needs at least one record to exist.
 void RecordUntilStopped(const std::shared_ptr<mt::Tracer>& tracer,
                         const std::shared_ptr<mt::Counter<std::int64_t>>& counter,
                         const std::atomic<bool>& stop)
 {
+    RecordOneInsideSpan(tracer, counter);
     while (!stop.load(std::memory_order_relaxed))
     {
-        const auto scoped = tracer->StartAsCurrentSpan("work");
-        counter->Add(1, {});
+        RecordOneInsideSpan(tracer, counter);
     }
 }
 
@@ -350,6 +363,15 @@ TEST(ExemplarWiringTest, ConcurrentRecordingAndCollection_IsRaceFree)
     {
         recorder.join();
     }
+
+    // One collection that provably follows every record. The 20 flushes above
+    // take a couple of milliseconds in total, so under load they can all
+    // complete before a recorder thread is first scheduled — each then
+    // collects an empty reservoir, and the records made afterwards are never
+    // collected at all (#269). The joins order every Add before this flush.
+    // The concurrent window the test exists to exercise is the loop above,
+    // which is unchanged.
+    EXPECT_EQ(f.provider->ForceFlush(kFlushTimeout), mt::Status::Completed);
 
     EXPECT_FALSE(f.metrics->ExemplarsFor("requests").empty());
 }

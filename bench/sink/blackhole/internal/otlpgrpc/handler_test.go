@@ -33,7 +33,7 @@ func newTestServer(t *testing.T) (tracepb.TraceServiceClient, *counters.Counters
 	t.Helper()
 	c := counters.New()
 	lis := bufconn.Listen(bufSize)
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, 0))
 	t.Cleanup(func() { srv.Stop() })
 	go srv.Serve(lis) //nolint:errcheck
@@ -161,7 +161,7 @@ func newRawServer(t *testing.T) (*http2.Transport, *counters.Counters) {
 	t.Helper()
 	c := counters.New()
 	lis := bufconn.Listen(bufSize)
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, 0))
 	t.Cleanup(func() { srv.Stop() })
 	go srv.Serve(lis) //nolint:errcheck
@@ -338,7 +338,7 @@ func newMetricTestServer(t *testing.T) (metricpb.MetricsServiceClient, *counters
 	t.Helper()
 	c := counters.New()
 	lis := bufconn.Listen(bufSize)
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
 	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, 0))
 	t.Cleanup(func() { srv.Stop() })
 	go srv.Serve(lis) //nolint:errcheck

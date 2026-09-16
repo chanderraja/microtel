@@ -45,10 +45,17 @@ real delivery:
 | HTTP | `content-encoding: gzip` | the trace handler, after `bytes_received` is taken |
 | gRPC | `grpc-encoding: gzip` (message CF=`0x01`) | grpc-go, via the registered gzip compressor |
 
-`bytes_received` therefore means different things per protocol: on HTTP it is
-the compressed wire size, on gRPC it is the *uncompressed* `proto.Size` of the
-decoded message, because grpc-go inflates before the handler runs. Tracked in
-[#228](https://github.com/chanderraja/microtel/issues/228).
+`bytes_received` means the same thing on both: the compressed size of what
+arrived. grpc-go inflates before the handler runs, so the gRPC path cannot
+measure the request inside the handler — `StatsHandlerOption()` installs a
+`grpc.StatsHandler` that records `stats.InPayload.WireLength` per RPC and the
+handler reads that instead of `proto.Size` ([#228](https://github.com/chanderraja/microtel/issues/228)).
+`WireLength` includes the 5-byte gRPC length-prefix header, so uncompressed
+gRPC byte baselines are 5 bytes per message higher than before that landed.
+
+Any server registering these handlers must pass `StatsHandlerOption()`;
+without it `bytes_received` silently falls back to the uncompressed
+`proto.Size`.
 
 ## Run with Docker
 

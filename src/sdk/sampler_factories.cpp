@@ -195,18 +195,6 @@ public:
 
     [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
     {
-        // Rendered before the lock: `std::format` allocates, and a failure
-        // here must leave the threshold untouched.
-        std::string rendered;
-        try
-        {
-            rendered = std::format("TraceIdRatioSampler{{{:.3f}}}", ratio);
-        }
-        catch (const std::exception&)
-        {
-            return false;
-        }
-
         const std::scoped_lock lock{m_ratio_mu};
         if (ratio == m_ratio)
         {
@@ -214,7 +202,9 @@ public:
         }
         m_ratio = ratio;
         m_threshold.store(ComputeThreshold(ratio), std::memory_order_relaxed);
-        return m_description.Publish(std::move(rendered));
+        m_description.Publish([ratio]
+                              { return std::format("TraceIdRatioSampler{{{:.3f}}}", ratio); });
+        return true;
     }
 
 private:
@@ -270,8 +260,10 @@ private:
         return static_cast<std::uint64_t>(ratio * max_d);
     }
 
-    /// Leaf; taken only by `TrySetRatio`, and guards `m_ratio` (the
-    /// same-value check) plus the ordering of the two publications below.
+    /// Taken only by `TrySetRatio`. Guards `m_ratio` (the same-value check)
+    /// and orders the threshold store against the description publish, so two
+    /// concurrent retunes cannot leave the two disagreeing. The only lock
+    /// acquired while it is held is `m_description`'s own leaf.
     std::mutex m_ratio_mu;
     double m_ratio;
     /// The whole hot-path state: `UINT64_MAX` means always sample.
@@ -342,20 +334,11 @@ public:
         {
             return false;
         }
-        // Recomposed *after* the forward and under this sampler's own leaf
-        // lock, never around it: holding a lock across the call into the root
-        // would nest two setter locks, which `docs/threading-model.md` §4
-        // rule 2 forbids. `Description()` takes no lock, so reading the root's
-        // inside `Publish` keeps this one a leaf.
-        try
-        {
-            return m_description.Publish(Compose(m_root));
-        }
-        catch (const std::exception&)
-        {
-            // The ratio did move; only the rendering of it did not.
-            return true;
-        }
+        // Recomposed *after* the forward, never around it: holding this
+        // sampler's lock across the call into the root would nest two setter
+        // locks, which `docs/threading-model.md` §4 rule 2 forbids.
+        m_description.Publish([this] { return Compose(m_root); });
+        return true;
     }
 
 private:

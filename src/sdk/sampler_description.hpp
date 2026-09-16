@@ -39,6 +39,10 @@ class DescriptionSlot
 {
 public:
     /// @param initial the description before any retune. Moved in.
+    ///
+    /// Not `noexcept`: a sampler that cannot render its own name at
+    /// construction has failed to construct, which is a different situation
+    /// from one that cannot render a retune.
     explicit DescriptionSlot(std::string initial)
     {
         m_strings.push_back(std::move(initial));
@@ -60,27 +64,34 @@ public:
         return *m_current.load(std::memory_order_acquire);
     }
 
-    /// @brief Append @p next and make it current.
+    /// @brief Render a new description and make it current.
     ///
-    /// @param next the new rendering. Moved in.
-    /// @return `false` if the append could not allocate; the slot is then
-    ///         unchanged and still publishes the previous string.
-    bool Publish(std::string next) noexcept
+    /// The composer runs **under this slot's lock**, which keeps two concurrent
+    /// retunes from publishing in one order and rendering in another. That is
+    /// safe for a composite recomposing from its children, because reading a
+    /// child's `Description()` takes no lock — so this mutex acquires nothing
+    /// and stays a leaf.
+    ///
+    /// Allocation failure is swallowed, deliberately. This is the last step of
+    /// a retune that has already taken effect, and a description one revision
+    /// stale is a better outcome than a `TrySetRatio` reporting a failure that
+    /// did not happen. It is also the only reason the whole path is `noexcept`
+    /// rather than each caller carrying its own guard.
+    ///
+    /// @param compose callable returning the new `std::string`. Called once.
+    template <typename Compose>
+    void Publish(Compose&& compose) noexcept
     {
         try
         {
             const std::scoped_lock lock{m_mu};
-            m_strings.push_back(std::move(next));
+            m_strings.push_back(compose());
             m_current.store(&m_strings.back(), std::memory_order_release);
         }
-        // A description is diagnostics. Failing to allocate one must not take
-        // down a retune that already succeeded, and must not throw out of a
-        // `noexcept` frame.
         catch (const std::exception&)
         {
-            return false;
+            // Diagnostics, not state: the retune stands, its rendering does not.
         }
-        return true;
     }
 
 private:

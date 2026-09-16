@@ -161,8 +161,8 @@ Rig MakeRig()
                    .transport = std::make_unique<mtmk::MockTransport>(),
                    .codec = nullptr,
                    .exporter = std::move(exporter),
-                   .processor = std::move(processor),
                    .batch_span_processor = bsp,
+                   .processor = std::move(processor),
                    .resource = std::make_shared<mt::Resource>(),
                    // ParentBased over a ratio sampler: the shape SetSamplerRatio
                    // has to walk, and the one an operator actually runs.
@@ -290,17 +290,28 @@ void DriveLogLevel(mt::Provider& provider,
 /// Reading the live sampler's description concurrently with a retune is the
 /// half of the contract the append-only description store exists for: a view
 /// handed out before a retune must stay readable after it (ICP 0026 §5).
+/// @param checksum where the bytes read are accumulated. Not an assertion —
+///        it exists so the read cannot be optimised away, which would turn
+///        this thread into a no-op that proves nothing.
 void ReadSamplerDescription(const mt::internal::ISampler& sampler,
                             const std::atomic<bool>& stop,
-                            std::atomic<std::uint64_t>& turns)
+                            std::atomic<std::uint64_t>& turns,
+                            std::atomic<std::uint64_t>& checksum)
 {
+    // The view's bytes are *read*, not just its pointer taken: a retune that
+    // freed or mutated a string it had already handed out shows up here, under
+    // TSAN, as a use-after-free or a data race on those bytes.
     RunUntil(stop,
              turns,
-             [&sampler]
+             [&sampler, &checksum]
              {
                  const std::string_view view = sampler.Description();
-                 volatile std::size_t sink = view.size();
-                 (void)sink;
+                 std::uint64_t sum = 0;
+                 for (const char byte : view)
+                 {
+                     sum += static_cast<std::uint64_t>(static_cast<unsigned char>(byte));
+                 }
+                 checksum.fetch_add(sum, std::memory_order_relaxed);
              });
 }
 
@@ -379,12 +390,19 @@ TEST(HotReloadHammer, SamplerDescriptionReadsRaceRetunes)
     std::atomic<bool> stop{false};
     std::atomic<std::uint64_t> reads{0};
     std::atomic<std::uint64_t> writes{0};
+    std::atomic<std::uint64_t> checksum{0};
 
     std::vector<std::thread> threads;
-    threads.emplace_back(
-        ReadSamplerDescription, std::cref(*probe.Get()), std::cref(stop), std::ref(reads));
-    threads.emplace_back(
-        ReadSamplerDescription, std::cref(*probe.Get()), std::cref(stop), std::ref(reads));
+    threads.emplace_back(ReadSamplerDescription,
+                         std::cref(*probe.Get()),
+                         std::cref(stop),
+                         std::ref(reads),
+                         std::ref(checksum));
+    threads.emplace_back(ReadSamplerDescription,
+                         std::cref(*probe.Get()),
+                         std::cref(stop),
+                         std::ref(reads),
+                         std::ref(checksum));
     threads.emplace_back(
         [&probe, &stop, &writes]
         {
@@ -406,6 +424,7 @@ TEST(HotReloadHammer, SamplerDescriptionReadsRaceRetunes)
 
     EXPECT_GT(reads.load(), std::uint64_t{0});
     EXPECT_GT(writes.load(), std::uint64_t{0});
+    EXPECT_GT(checksum.load(), std::uint64_t{0});
     EXPECT_NE(provider.Shutdown(5s), mt::Status::Failed);
 }
 

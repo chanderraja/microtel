@@ -157,7 +157,12 @@ public:
         {
             return false;
         }
-        return Republish();
+        // Recomposed after the forwards, never around them: a lock held across
+        // a delegate's own setter lock would nest two non-leaf locks
+        // (`docs/threading-model.md` §4 rule 2).
+        m_description.Publish([this]
+                              { return Compose(m_name, m_predicate, m_on_match, m_on_no_match); });
+        return true;
     }
 
     /// @brief Whether this rule's predicate holds for `ctx`.
@@ -176,21 +181,6 @@ private:
                            predicate,
                            DescriptionOf(on_match),
                            DescriptionOf(on_no_match));
-    }
-
-    /// Recompose after the forwards, never around them: a lock held across a
-    /// delegate's own setter lock would nest two non-leaf locks
-    /// (`docs/threading-model.md` §4 rule 2).
-    bool Republish() noexcept
-    {
-        try
-        {
-            return m_description.Publish(Compose(m_name, m_predicate, m_on_match, m_on_no_match));
-        }
-        catch (const std::exception&)
-        {
-            return true;  // the ratio moved; only its rendering did not
-        }
     }
 
     SamplerHandle m_on_match;
@@ -335,7 +325,7 @@ public:
     [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
     {
         bool applied = false;
-        for (Child& child : m_children)
+        for (const Child& child : m_children)
         {
             applied = TryDelegate(child.handle, ratio) || applied;
         }
@@ -343,14 +333,8 @@ public:
         {
             return false;
         }
-        try
-        {
-            return m_description.Publish(ComposeDescription(m_children, m_mode));
-        }
-        catch (const std::exception&)
-        {
-            return true;  // the ratios moved; only the rendering did not
-        }
+        m_description.Publish([this] { return ComposeDescription(m_children, m_mode); });
+        return true;
     }
 
 private:

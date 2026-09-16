@@ -58,7 +58,6 @@ struct SdkProviderArgs
     std::unique_ptr<internal::ITransport> transport;
     std::unique_ptr<internal::IWireCodec> codec;
     std::unique_ptr<internal::IExporter> exporter;
-    std::unique_ptr<internal::ISpanProcessor> processor;
     /// @brief Borrowed, non-owning pointer to `processor` when it is a
     /// `BatchSpanProcessor`; null when the span pipeline does not batch.
     ///
@@ -68,7 +67,13 @@ struct SdkProviderArgs
     /// because batching knobs belong to the processors that batch, not to the
     /// `ISpanProcessor` contract (ICP 0026 §4). A setter that instead assumed
     /// `processor`'s dynamic type would be a latent trap.
+    ///
+    /// @note Declared **before** `processor` on purpose: designated
+    ///       initializers must follow declaration order, and this lets a call
+    ///       site write `.batch_span_processor = p.get(), .processor =
+    ///       std::move(p)` without a second local to survive the move.
     BatchSpanProcessor* batch_span_processor{nullptr};
+    std::unique_ptr<internal::ISpanProcessor> processor;
     std::shared_ptr<const Resource> resource;
     SamplerHandle sampler;
     SpanLimitOptions span_limits;

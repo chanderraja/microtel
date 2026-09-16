@@ -238,6 +238,23 @@ SdkBuilder& SdkBuilder::WithView(ViewConfig view)
 namespace
 {
 
+/// @brief Seed the process-global internal-log filter from the resolved config.
+///
+/// Called before anything in `Build()` logs, so `logging.level` and
+/// `MICROTEL_LOG_LEVEL` govern the validation warnings below as well as
+/// everything after. `Provider::SetLogLevel` retunes the same knob at runtime
+/// (ICP 0026 §6, `docs/configuration.md` §3.11).
+///
+/// The return is discarded rather than checked: `config::ParseLogLevel` is the
+/// only producer of this field and it only ever yields a declared enumerator,
+/// so the rejection path is unreachable from here.
+///
+/// @param cfg borrowed; read only.
+void ApplyLogLevel(const config::Config& cfg) noexcept
+{
+    (void)internal::SetMinLogLevel(cfg.log_level);
+}
+
 /// @brief Emit the warnings for configurations that are legal but very likely
 ///        wrong.
 ///
@@ -659,12 +676,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         return make_unexpected(cfg_result.error());
     }
     const config::Config cfg = std::move(*cfg_result);
-    // Seeded before the first thing that logs. The knob is process-global
-    // (ICP 0026 §6), so this is where `logging.level` / `MICROTEL_LOG_LEVEL`
-    // reach the filter; `Provider::SetLogLevel` retunes it afterwards. The
-    // return is discarded rather than checked because `config::ParseLogLevel`
-    // only ever produces declared enumerators.
-    (void)internal::SetMinLogLevel(cfg.log_level);
+    ApplyLogLevel(cfg);
     WarnOnRiskyConfig(cfg);
 
     // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
@@ -696,10 +708,6 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
 
     // --- Step 10: processor -------------------------------------------------
     auto processor = BuildSpanProcessor(exporters.exporter.get(), resource, cfg, diagnostics.get());
-    // Borrowed here, where the concrete type is still known: the Deps boundary
-    // below erases it to ISpanProcessor, and Provider::SetBatchOptions needs
-    // the batching type back (ICP 0026 §4).
-    auto* const batch_span_processor = processor.get();
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(m_impl->metric_limits);
@@ -710,8 +718,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         .transport = std::move(transport),
         .codec = std::move(exporters.codec),
         .exporter = std::move(exporters.exporter),
+        .batch_span_processor = processor.get(),
         .processor = std::move(processor),
-        .batch_span_processor = batch_span_processor,
         .resource = std::move(resource),
         .sampler = std::move(m_impl->sampler),
         .span_limits = cfg.span_limits,

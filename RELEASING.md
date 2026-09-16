@@ -126,6 +126,20 @@ and `release: vX.Y.Z`, which is the convention from here on — a release PR
 carries more than a chore, and the title is what the milestone listing shows.
 The *commit* subject stays `chore: vX.Y.Z`.
 
+### `test-presence` will fail, and `[refactor]` is not the answer
+
+The bump edits `src/wire/grpc/grpc_wire_codec.cpp`, so `test-presence` demands a
+matching `tests/**` change and fails without one. **Do not reach for the
+`[refactor]` label** — a version bump changes what goes out on the wire, so
+labelling it a pure refactor is exactly the mislabelling `CLAUDE.md` forbids.
+
+Write the test instead. There is usually one worth having: until 1.1.0 the
+user-agent test only asserted the header was non-empty, so nothing checked that
+the header the codec *emits* carries `kVersionString` — the `static_assert`
+only constrains the constant. Assert the composed value
+(`"microtel-cpp/" + kVersionString`) rather than the release literal, so the
+test pins the relationship and does not need editing at the next bump.
+
 Then tag the **merge commit on `master`**, not the branch head:
 
 ```bash
@@ -234,6 +248,7 @@ not self-index.
 [ ] src/wire/grpc/grpc_wire_codec.cpp  kUserAgent
 [ ] tools/preflight/preflight.cpp  kVersion
 [ ] ci/scripts/version-drift-check.sh passes locally
+[ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)
 [ ] SECURITY.md supported-versions row
 [ ] docs/bench-results/ — environment block compared against the old snapshot

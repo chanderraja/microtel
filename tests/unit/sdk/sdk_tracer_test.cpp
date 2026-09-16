@@ -609,7 +609,7 @@ TEST(SdkTracerTest, StartAsCurrentSpan_DoesNotLeakIntoANewThread)
 // ---------------------------------------------------------------------------
 // StartSpanOptions::attributes — initial attributes (#265)
 //
-// The field is documented as "initial attributes; copied if span is sampled",
+// The field is documented as initial attributes copied onto a sampled span,
 // and the sampled path used to read it only to build the SamplingContext, so
 // every caller of the documented field lost them. They now reach the span
 // through `SetAttribute`, which is what makes the count limit, the value

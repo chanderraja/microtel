@@ -330,12 +330,12 @@ constexpr int kMaxOpcodes = 64;
 /// knobs under test and lowers it right back.
 void InstallSilentSinkOnce()
 {
-    static const bool once = []
+    static const bool kInstalled = []
     {
         microtel::SetLogSink([](mt::LogLevel, std::string_view) {});
         return true;
     }();
-    (void)once;
+    (void)kInstalled;
 }
 
 }  // namespace

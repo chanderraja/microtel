@@ -3,6 +3,7 @@
 
 #include "sdk/sdk_tracer.hpp"
 
+#include "microtel/attribute.hpp"
 #include "microtel/context.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/span.hpp"
@@ -45,6 +46,23 @@ microtel::TraceId GenerateTraceId() noexcept
     std::memcpy(bytes.data(), &hi, sizeof(hi));
     std::memcpy(bytes.data() + sizeof(hi), &lo, sizeof(lo));
     return microtel::TraceId{bytes};
+}
+
+/// @brief Put `StartSpanOptions::attributes` on @p span (issue #265).
+///
+/// They go on through `SetAttribute` rather than straight into the record so
+/// that one count budget, one value-length clip and one set of drop counters
+/// cover initial and later attributes alike. Per attribute this costs exactly
+/// what a `SetAttribute` call costs: the key copy and the value copy.
+///
+/// Called only on the sampled path, after the sampler's drop decision — the
+/// unsampled path stays allocation-free (`docs/memory-model.md` §8.1).
+void SeedInitialAttributes(microtel::Span& span, microtel::AttributeSpan attributes) noexcept
+{
+    for (const microtel::KeyValue& kv : attributes)
+    {
+        span.SetAttribute(kv.key, kv.value);
+    }
 }
 
 }  // namespace
@@ -132,6 +150,7 @@ SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
 
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) — intentional: this IS the owning deleter
     SpanHandle handle{raw, internal::SpanDeleter{[](Span* s) noexcept { delete s; }}};
+    SeedInitialAttributes(*raw, opts.attributes);
 
     // The Context handed to OnStart carries the resolved parent — explicit if
     // the caller supplied one, otherwise the thread's current span — and the

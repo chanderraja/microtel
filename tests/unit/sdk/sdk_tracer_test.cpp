@@ -61,7 +61,7 @@ mt::SpanContext MakeParentContext(std::uint8_t seed)
 /// How many drops @p sink counted against @p reason.
 std::uint64_t DropCount(const mtfk::FakeDiagnosticsSink& sink, mt::DropReason reason)
 {
-    return sink.drop_counters[static_cast<std::size_t>(reason)];
+    return sink.drop_counters.at(static_cast<std::size_t>(reason));
 }
 
 }  // namespace

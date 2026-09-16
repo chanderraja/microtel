@@ -660,8 +660,8 @@ TEST(RuleSampler, TrySetRatioForwardsToADelegateAndRegeneratesTheDescription)
 
 TEST(RuleSampler, TrySetRatioIsRefusedWhenNeitherDelegateHasARatio)
 {
-    const auto rule = mt::MakeSpanNameRuleSampler(
-        "span", mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler());
+    const auto rule =
+        mt::MakeSpanNameRuleSampler("span", mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler());
     ASSERT_NE(rule.Get(), nullptr);
     const std::string before{rule.Get()->Description()};
     EXPECT_FALSE(rule.Get()->TrySetRatio(0.5));
@@ -697,9 +697,9 @@ TEST(ChainSampler, TrySetRatioChangesEveryRatioChildsDecision)
 
 TEST(ChainSampler, TrySetRatioIsRefusedWhenNoChildHasARatio)
 {
-    const auto chain = mt::MakeChainSampler(
-        MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
-        mt::ChainMode::FirstMatch);
+    const auto chain =
+        mt::MakeChainSampler(MakeChildren(mt::MakeAlwaysOnSampler(), mt::MakeAlwaysOffSampler()),
+                             mt::ChainMode::FirstMatch);
     ASSERT_NE(chain.Get(), nullptr);
     const std::string before{chain.Get()->Description()};
     EXPECT_FALSE(chain.Get()->TrySetRatio(0.5));

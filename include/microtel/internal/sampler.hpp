@@ -65,6 +65,23 @@ public:
         const SamplingContext& ctx) const noexcept = 0;
 
     [[nodiscard]] virtual std::string_view Description() const noexcept = 0;
+
+    /// @brief Retune this sampler's ratio in place, if it has one (ICP 0026).
+    ///
+    /// Default: `false` — a sampler with no ratio is never converted into one
+    /// that has a ratio. A composite forwards to the delegate it owns and,
+    /// on success, regenerates its own `Description`.
+    ///
+    /// @param ratio already validated to be in `[0.0, 1.0]` and not NaN.
+    /// @return `true` if this sampler or a delegate it owns applied the ratio.
+    ///
+    /// @threadsafety Thread-safe. Must not invalidate a `Description()` view
+    ///               previously returned to a concurrent caller.
+    [[nodiscard]] virtual bool TrySetRatio(double ratio) noexcept
+    {
+        (void)ratio;
+        return false;
+    }
 };
 
 }  // namespace microtel::internal

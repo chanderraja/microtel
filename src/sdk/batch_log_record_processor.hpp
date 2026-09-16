@@ -67,6 +67,20 @@ public:
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
+    /// @brief Retune the batching knobs while the processor runs (ICP 0026).
+    ///
+    /// The log-side twin of `BatchSpanProcessor::SetOptions`, with the same
+    /// contract: take `m_mu`, assign `m_opts`, notify the worker so it
+    /// re-evaluates against the new `max_export_batch_size`. Validation is the
+    /// caller's — `SdkProvider::SetBatchOptions` rejects an incoherent `opts`
+    /// before reaching this.
+    ///
+    /// @param opts borrowed; copied under the lock. Not retained.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    void SetOptions(const BatchOptions& opts) noexcept;
+
 private:
     /// A queued record paired with the scope of the logger that emitted it.
     struct QueuedLog
@@ -93,6 +107,10 @@ private:
 
     internal::ILogExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
+    /// Guarded by `m_mu` (ICP 0026), for the same reason as
+    /// `BatchSpanProcessor::m_opts`: every read is already inside the lock —
+    /// `OnEmit` and `WaitAndCollect` — and `SetOptions` now writes it while
+    /// the worker runs, so no read may be cached across a release.
     BatchOptions m_opts;
     internal::IDiagnosticsSink* m_diag;
 

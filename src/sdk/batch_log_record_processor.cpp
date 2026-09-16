@@ -70,6 +70,13 @@ void BatchLogRecordProcessor::OnEmit(LogRecord&& record,
     }
 }
 
+void BatchLogRecordProcessor::SetOptions(const BatchOptions& opts) noexcept
+{
+    const std::scoped_lock lock{m_mu};
+    m_opts = opts;
+    m_cv.notify_one();
+}
+
 microtel::Status BatchLogRecordProcessor::ForceFlush(std::chrono::milliseconds timeout) noexcept
 {
     std::unique_lock lock{m_mu};

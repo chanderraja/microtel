@@ -14,12 +14,17 @@
 #include "microtel/sampler.hpp"
 #include "microtel/trace.hpp"
 
+#include "sdk/sampler_description.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <format>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -153,12 +158,20 @@ namespace
 /// Description string includes the resolved ratio at three decimals,
 /// matching the substring assertion in
 /// `tests/unit/sdk/trace_id_ratio_sampler_test.cpp`.
+///
+/// **Retunable in place** (ICP 0026 §5). `m_always_sample` used to be a
+/// separate `bool` beside `m_threshold`; two atomics could be read torn, so it
+/// is folded into the threshold instead: `ComputeThreshold` returns
+/// `UINT64_MAX` if and only if `ratio >= 1.0` — for any ratio below 1.0 the
+/// largest product is `2^64 - 2^11`, strictly smaller and representable — so
+/// the sentinel test is exact and the decision is one relaxed load. Decisions
+/// are bit-for-bit what they were before the fold, and nothing on the hot path
+/// allocates or locks (`docs/memory-model.md` §8.1, §4.5 LOCKED).
 class TraceIdRatioSampler final : public internal::ISampler
 {
 public:
     explicit TraceIdRatioSampler(double ratio)
         : m_ratio(NormaliseRatio(ratio)),
-          m_always_sample(m_ratio >= 1.0),
           m_threshold(ComputeThreshold(m_ratio)),
           m_description(std::format("TraceIdRatioSampler{{{:.3f}}}", m_ratio))
     {
@@ -177,20 +190,35 @@ public:
 
     [[nodiscard]] std::string_view Description() const noexcept override
     {
-        return m_description;
+        return m_description.Get();
+    }
+
+    [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
+    {
+        const std::scoped_lock lock{m_ratio_mu};
+        if (ratio == m_ratio)
+        {
+            return true;  // nothing moved, so nothing is appended
+        }
+        m_ratio = ratio;
+        m_threshold.store(ComputeThreshold(ratio), std::memory_order_relaxed);
+        m_description.Publish([ratio]
+                              { return std::format("TraceIdRatioSampler{{{:.3f}}}", ratio); });
+        return true;
     }
 
 private:
     [[nodiscard]] internal::SamplingDecision SampleDecision(
         const internal::SamplingContext& ctx) const noexcept
     {
-        if (m_always_sample)
+        const std::uint64_t threshold = m_threshold.load(std::memory_order_relaxed);
+        if (threshold == std::numeric_limits<std::uint64_t>::max())
         {
             return internal::SamplingDecision::RecordAndSample;
         }
         const std::uint64_t low = ReadLowerBE64(ctx.trace_id);
-        return (low < m_threshold) ? internal::SamplingDecision::RecordAndSample
-                                   : internal::SamplingDecision::Drop;
+        return (low < threshold) ? internal::SamplingDecision::RecordAndSample
+                                 : internal::SamplingDecision::Drop;
     }
 
     static std::uint64_t ReadLowerBE64(const TraceId& tid) noexcept
@@ -232,10 +260,15 @@ private:
         return static_cast<std::uint64_t>(ratio * max_d);
     }
 
+    /// Taken only by `TrySetRatio`. Guards `m_ratio` (the same-value check)
+    /// and orders the threshold store against the description publish, so two
+    /// concurrent retunes cannot leave the two disagreeing. The only lock
+    /// acquired while it is held is `m_description`'s own leaf.
+    std::mutex m_ratio_mu;
     double m_ratio;
-    bool m_always_sample;
-    std::uint64_t m_threshold;
-    std::string m_description;
+    /// The whole hot-path state: `UINT64_MAX` means always sample.
+    std::atomic<std::uint64_t> m_threshold;
+    sdk::DescriptionSlot m_description;
 };
 
 }  // namespace
@@ -267,11 +300,9 @@ namespace
 class ParentBasedSampler final : public internal::ISampler
 {
 public:
-    explicit ParentBasedSampler(SamplerHandle root) : m_root(std::move(root))
+    explicit ParentBasedSampler(SamplerHandle root)
+        : m_root(std::move(root)), m_description(Compose(m_root))
     {
-        const std::string_view root_desc =
-            m_root.Get() != nullptr ? m_root.Get()->Description() : std::string_view{"<null>"};
-        m_description = std::format("ParentBasedSampler{{{}}}", root_desc);
     }
 
     [[nodiscard]] internal::SamplingResult ShouldSample(
@@ -290,12 +321,36 @@ public:
 
     [[nodiscard]] std::string_view Description() const noexcept override
     {
-        return m_description;
+        return m_description.Get();
+    }
+
+    /// `parentbased_traceidratio` is the deployment shape an operator most
+    /// wants to retune, so the composite forwards. A `false` from the root is
+    /// a `false` from the chain: nothing changes anywhere and the caller is
+    /// told (ICP 0026 §5).
+    [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
+    {
+        if (m_root.Get() == nullptr || !m_root.Get()->TrySetRatio(ratio))
+        {
+            return false;
+        }
+        // Recomposed *after* the forward, never around it: holding this
+        // sampler's lock across the call into the root would nest two setter
+        // locks, which `docs/threading-model.md` §4 rule 2 forbids.
+        m_description.Publish([this] { return Compose(m_root); });
+        return true;
     }
 
 private:
+    static std::string Compose(const SamplerHandle& root)
+    {
+        const std::string_view root_desc =
+            root.Get() != nullptr ? root.Get()->Description() : std::string_view{"<null>"};
+        return std::format("ParentBasedSampler{{{}}}", root_desc);
+    }
+
     SamplerHandle m_root;
-    std::string m_description;
+    sdk::DescriptionSlot m_description;
 };
 
 }  // namespace

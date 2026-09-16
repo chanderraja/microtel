@@ -411,6 +411,13 @@ Nothing to do today; this ICP schedules work. Per the
 `threading-model.md` before the method exists is the failure ICP 0021 exists to
 stop. The amendments are obligations of the packets:
 
+> **Correction, recorded when the work landed.** Both bullets below shipped in
+> **packet 2.4**, not split across 2.2 and 2.4. Packet 2.2 became the
+> config/builder packet in the round's final scheduling, and separating the
+> `SetLogLevel` forwarder from the other three setters would have meant
+> landing a `Provider` method with nothing behind it. Everything each bullet
+> names is unchanged; only the packet number is.
+
 - **Packet 2.2 — the setters.** `provider.hpp`, `status.hpp`,
   `internal/sampler.hpp`, `sampler_factories.cpp`,
   `batch_span_processor.{hpp,cpp}`, `batch_log_record_processor.{hpp,cpp}`,

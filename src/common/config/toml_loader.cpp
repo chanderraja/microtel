@@ -314,6 +314,37 @@ constexpr std::string_view kValIgnore = "ignore";
     return std::nullopt;
 }
 
+/// `[logging]` carries one key: `level`. `sink` and `file` remain
+/// unimplemented — they are the sink's business rather than the level's — so
+/// they are unknown keys here, not silently ignored ones (ICP 0026 Migration,
+/// correction #196).
+[[nodiscard]] std::optional<ConfigError> ParseLoggingSection(const toml::table& root, Config& cfg)
+{
+    const auto* sec = root["logging"].as_table();
+    if (sec == nullptr)
+    {
+        return std::nullopt;
+    }
+    if (auto err = CheckUnknown(*sec, "logging", {"level"}, cfg.unknown_key_mode))
+    {
+        return err;
+    }
+    const auto v = (*sec)["level"].value<std::string>();
+    if (!v)
+    {
+        return std::nullopt;
+    }
+    const auto parsed = ParseLogLevel(*v);
+    if (!parsed)
+    {
+        return ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                           .field = "logging.level",
+                           .message = R"(must be "trace", "debug", "info", "warn" or "error")"};
+    }
+    cfg.log_level = *parsed;
+    return std::nullopt;
+}
+
 [[nodiscard]] std::optional<ConfigError> ParseTimeoutsSection(const toml::table& root, Config& cfg)
 {
     const auto* sec = root["timeouts"].as_table();
@@ -367,11 +398,11 @@ constexpr std::string_view kValIgnore = "ignore";
         return microtel::make_unexpected(*err);
     }
     // Top-level section check with the now-resolved mode.
-    if (auto err =
-            CheckUnknown(root,
-                         "",
-                         {"config", "exporter", "service", "resource", "tls", "sdk", "timeouts"},
-                         cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(
+            root,
+            "",
+            {"config", "exporter", "service", "resource", "tls", "sdk", "timeouts", "logging"},
+            cfg.unknown_key_mode))
     {
         return microtel::make_unexpected(*err);
     }
@@ -397,6 +428,10 @@ constexpr std::string_view kValIgnore = "ignore";
         return microtel::make_unexpected(*err);
     }
     if (auto err = ParseSdkSection(root, cfg))
+    {
+        return microtel::make_unexpected(*err);
+    }
+    if (auto err = ParseLoggingSection(root, cfg))
     {
         return microtel::make_unexpected(*err);
     }

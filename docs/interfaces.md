@@ -468,6 +468,9 @@ public:
         ShouldSample(const SamplingContext& ctx) const noexcept = 0;
 
     [[nodiscard]] virtual std::string_view Description() const noexcept = 0;
+
+    // ICP 0026. Default body returns false.
+    [[nodiscard]] virtual bool TrySetRatio(double ratio) noexcept;
 };
 ```
 
@@ -481,12 +484,15 @@ public:
 
 #### Lifetime
 
-Created by `SdkBuilder::Build()`. Owned by the `Provider`. Replaceable in v1.1's hot-reload path; in v1, immutable after `Build`.
+Created by `SdkBuilder::Build()`. Owned by the `Provider`. The sampler **object** is not replaceable: its identity is fixed for the provider's life, because `SdkTracer` caches the borrowed `internal::ISampler*` it was handed at `GetTracer` time and dereferences it on the hot path with no synchronisation — a live swap would be a data race on that pointer and a use-after-free on the pointee. What v1.1's hot-reload path retunes is the **ratio**, in place, through `TrySetRatio` (ICP 0026). Swapping the object gets its own ICP if it is ever wanted.
+
+`TrySetRatio` takes a ratio already validated to be in `[0.0, 1.0]` and not NaN — `Provider::SetSamplerRatio` rejects anything else before calling — and returns `true` if this sampler or a delegate it owns applied it. The default body returns `false`, so a sampler with no ratio is never converted into one that has a ratio, and no existing implementation, mock or fake had to change. A composite forwards to its delegates and, on success, regenerates its own `Description` before returning `true`; otherwise a description that embeds a child's ratio goes stale the moment that ratio moves.
 
 #### Threading
 
 - `ShouldSample` is called from the **caller thread**, on the hot path. Must be thread-safe and `noexcept`. (LOCKED)
-- `Description` is thread-safe.
+- `Description` is thread-safe. The `std::string_view` it returns is **borrowed and stays valid for the sampler's lifetime**, including across a concurrent `TrySetRatio`: a retunable sampler may not mutate or free a string it has already handed out. The built-ins satisfy this with an append-only description store (`src/sdk/sampler_description.hpp`) — readers take no lock, and one short string is appended per accepted retune.
+- `TrySetRatio` is thread-safe and may run concurrently with `ShouldSample` and `Description`. It takes at most one leaf lock and holds none across a call into a delegate, so a chain of composites never nests two setter locks (`docs/threading-model.md` §4 rule 2).
 
 #### Error model
 
@@ -504,7 +510,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. Replaceable in v1.1's
 
 #### Consumers
 
-`Tracer::StartSpan` (in the API layer). Replaceable from `SdkBuilder`.
+`Tracer::StartSpan` (in the API layer). Chosen from `SdkBuilder`; retuned at runtime through `Provider::SetSamplerRatio`.
 
 ---
 

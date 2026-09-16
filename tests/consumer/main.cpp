@@ -73,6 +73,14 @@ const char* StatusToString(const microtel::Status status) noexcept
             return "AlreadyShutDown";
         case microtel::Status::Failed:
             return "Failed";
+        // v1.1 adds two enumerators for the hot-reload setters (ICP 0026 §2).
+        // This switch is exhaustive without a default, so it is exactly the
+        // in-tree shape that sees a new -Wswitch warning; external code with
+        // the same shape sees the same one.
+        case microtel::Status::InvalidArgument:
+            return "InvalidArgument";
+        case microtel::Status::Unsupported:
+            return "Unsupported";
     }
     return "Unknown";
 }
@@ -180,6 +188,28 @@ int main()
     // MICROTEL_TRACE_FUNCTION, sugar::Span with an AttrKey-built attribute,
     // and sugar::Traced, all from the installed headers. See SugarSmoke above.
     ok = Check(SugarSmoke(*tracer), "microtel::sugar works from the installed tree") && ok;
+
+    // The v1.1 hot-reload setters are new pure virtuals on Provider (ICP
+    // 0026), so they are ABI *and* export-set material: an unresolved
+    // SetBatchOptions here is the same class of defect as an unresolved
+    // MakeProcessDetector. Two of them are exercised — one that must apply
+    // (the builder always builds a batching span processor) and one that must
+    // reject — because the pair proves the validation reached the install
+    // tree, not just the symbol.
+    const microtel::BatchOptions retuned{.max_queue_size = 2048,
+                                         .max_export_batch_size = 128,
+                                         .schedule_delay = std::chrono::seconds(1),
+                                         .drop_policy = microtel::DropPolicy::DropNewest};
+    const microtel::Status retune = provider->SetBatchOptions(retuned);
+    std::cout << "SetBatchOptions = " << StatusToString(retune) << '\n';
+    ok =
+        Check(retune == microtel::Status::Completed, "SetBatchOptions retuned the pipelines") && ok;
+
+    const microtel::Status rejected = provider->SetSamplerRatio(1.5);
+    std::cout << "SetSamplerRatio(1.5) = " << StatusToString(rejected) << '\n';
+    ok = Check(rejected == microtel::Status::InvalidArgument,
+               "SetSamplerRatio rejects an out-of-range ratio") &&
+         ok;
 
     // Nothing can reach a closed port, so TimedOut is the expected outcome and
     // Failed is an honest one. Only AlreadyShutDown is wrong — we have not

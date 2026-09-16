@@ -326,4 +326,48 @@ TEST(BatchLogRecordProcessorTest, ConcurrentOnEmitExportsEveryRecord)
     EXPECT_EQ(TotalRecords(exp), static_cast<std::size_t>(kThreads * kPerThread));
 }
 
+// ---------------------------------------------------------------------------
+// SetOptions — ICP 0026 hot reload
+// ---------------------------------------------------------------------------
+
+TEST(BatchLogRecordProcessorTest, SetOptionsNewBatchSizeCutsTheNextDrain)
+{
+    mt::BatchOptions opts = ManualDrainOpts();
+    mtfk::FakeLogExporter exp;
+    auto blp = MakeBlp(exp, opts);
+
+    EmitN(*blp, 3);
+
+    opts.max_export_batch_size = 2;
+    blp->SetOptions(opts);
+
+    ASSERT_EQ(blp->ForceFlush(kTimeout), mt::Status::Completed);
+    ASSERT_EQ(exp.exported.size(), std::size_t{2});
+    EXPECT_EQ(exp.exported[0].Records().size(), std::size_t{2});
+    EXPECT_EQ(exp.exported[1].Records().size(), std::size_t{1});
+
+    (void)blp->Shutdown(kShort);
+}
+
+TEST(BatchLogRecordProcessorTest, SetOptionsNewQueueSizeBoundsTheQueue)
+{
+    mt::BatchOptions opts = ManualDrainOpts();
+    opts.max_queue_size = 100;
+    opts.drop_policy = mt::DropPolicy::DropNewest;
+
+    mtfk::FakeDiagnosticsSink sink;
+    mtfk::FakeLogExporter exp;
+    auto blp = MakeBlp(exp, opts, &sink);
+
+    EmitN(*blp, 2);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), std::uint64_t{0});
+
+    opts.max_queue_size = 2;
+    blp->SetOptions(opts);
+    Emit(*blp);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), std::uint64_t{1});
+
+    (void)blp->Shutdown(kShort);
+}
+
 }  // namespace

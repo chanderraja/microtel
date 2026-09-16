@@ -14,7 +14,9 @@
 
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
+#include "microtel/internal/sampler.hpp"
 #include "microtel/resource.hpp"
+#include "microtel/sampler.hpp"
 #include "microtel/trace.hpp"
 
 #include "mocks/mock_exporter.hpp"
@@ -306,6 +308,49 @@ TEST(NoexceptAllocFailureTest, ReactorCreateReportsAllocationFailure)
 
     // Reported as an error rather than terminating the process.
     EXPECT_FALSE(result.has_value());
+}
+
+// `ISampler::TrySetRatio` is noexcept and its last step allocates — a fresh
+// rendering of the description, pushed onto the append-only store
+// (`src/sdk/sampler_description.hpp`). An allocation failure there must not
+// terminate the process, and must not be reported as a failed retune: the
+// threshold has already moved, so the only thing lost is one revision of a
+// diagnostic string (ICP 0026 §5).
+TEST(NoexceptAllocFailureTest, SamplerRetuneSurvivesDescriptionAllocationFailure)
+{
+    const mt::SamplerHandle handle = mt::MakeTraceIdRatioSampler(0.0);
+    ASSERT_NE(handle.Get(), nullptr);
+
+    bool applied = false;
+    {
+        const ScopedAllocFailure fail;
+        applied = handle.Get()->TrySetRatio(1.0);
+    }
+
+    // Reported as applied, because it was: the ratio is live even though its
+    // rendering could not be allocated.
+    EXPECT_TRUE(applied);
+    EXPECT_EQ(handle.Get()->ShouldSample(mt::internal::SamplingContext{}).decision,
+              mt::internal::SamplingDecision::RecordAndSample);
+    // The previous description is still readable — the store never mutates or
+    // frees what it has already handed out, failure or not.
+    EXPECT_FALSE(handle.Get()->Description().empty());
+}
+
+TEST(NoexceptAllocFailureTest, CompositeSamplerRetuneSurvivesAllocationFailure)
+{
+    // The composite path allocates twice: the root's rendering and its own.
+    const mt::SamplerHandle handle = mt::MakeParentBasedSampler(mt::MakeTraceIdRatioSampler(0.0));
+    ASSERT_NE(handle.Get(), nullptr);
+
+    bool applied = false;
+    {
+        const ScopedAllocFailure fail;
+        applied = handle.Get()->TrySetRatio(1.0);
+    }
+
+    EXPECT_TRUE(applied);
+    EXPECT_FALSE(handle.Get()->Description().empty());
 }
 
 }  // namespace

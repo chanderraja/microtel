@@ -39,6 +39,8 @@ namespace microtel::sdk
 class SdkMeter;
 class MetricProducer;
 class PeriodicExportingMetricReader;
+class BatchSpanProcessor;
+class BatchLogRecordProcessor;
 
 /// @brief All owned objects passed to SdkProvider at construction.
 ///
@@ -56,6 +58,21 @@ struct SdkProviderArgs
     std::unique_ptr<internal::ITransport> transport;
     std::unique_ptr<internal::IWireCodec> codec;
     std::unique_ptr<internal::IExporter> exporter;
+    /// @brief Borrowed, non-owning pointer to `processor` when it is a
+    /// `BatchSpanProcessor`; null when the span pipeline does not batch.
+    ///
+    /// Set where the owning `unique_ptr` is assigned — `SdkBuilder::Build`,
+    /// whose `BuildSpanProcessor` already returns the concrete type and erases
+    /// it only at this boundary. `SetBatchOptions` needs the concrete type
+    /// because batching knobs belong to the processors that batch, not to the
+    /// `ISpanProcessor` contract (ICP 0026 §4). A setter that instead assumed
+    /// `processor`'s dynamic type would be a latent trap.
+    ///
+    /// @note Declared **before** `processor` on purpose: designated
+    ///       initializers must follow declaration order, and this lets a call
+    ///       site write `.batch_span_processor = p.get(), .processor =
+    ///       std::move(p)` without a second local to survive the move.
+    BatchSpanProcessor* batch_span_processor{nullptr};
     std::unique_ptr<internal::ISpanProcessor> processor;
     std::shared_ptr<const Resource> resource;
     SamplerHandle sampler;
@@ -139,6 +156,33 @@ public:
     [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(
         std::string_view name, std::string_view version = {}) override;
 
+    // ── Hot reload (ICP 0026) ──────────────────────────────────────────────
+    // Contracts are on `microtel::Provider`; the notes here are about where
+    // each one writes and under which lock.
+
+    /// Two phases, never nested: retune the span processor; then, under
+    /// `m_logger_mu`, store `m_log_batch_opts` (the seed a later `GetLogger`
+    /// builds from) and read the borrowed log-processor pointer; release;
+    /// then retune the log processor. Taking `m_logger_mu` and then the
+    /// processor's own lock would nest two non-leaf locks, which
+    /// `docs/threading-model.md` §4 rule 2 forbids — which is why the change
+    /// is not atomic across the two pipelines.
+    [[nodiscard]] Status SetBatchOptions(const BatchOptions& opts) noexcept override;
+
+    /// Writes `m_metric_interval` under `m_meter_mu` and reads the borrowed
+    /// reader pointer there, then calls `SetInterval` after releasing — the
+    /// shape `MetricReaderPtr` exists for.
+    [[nodiscard]] Status SetMetricInterval(std::chrono::milliseconds interval) noexcept override;
+
+    /// No provider lock at all. `m_sampler` is assigned once at construction
+    /// and never reassigned, so the raw `ISampler*` every `SdkTracer` caches
+    /// keeps pointing at the same live object; only its ratio moves.
+    [[nodiscard]] Status SetSamplerRatio(double ratio) noexcept override;
+
+    /// A thin forwarder to `internal::SetMinLogLevel`, so the operator surface
+    /// is uniform across the four knobs even though this one is process-wide.
+    [[nodiscard]] Status SetLogLevel(LogLevel level) noexcept override;
+
     /// @brief Borrow the provider-owned diagnostics sink.
     ///
     /// Non-owning reference, valid for the provider's lifetime. The seam
@@ -171,6 +215,17 @@ private:
     /// @brief Borrowed pointer to the lazily-built log processor, read under
     ///        `m_logger_mu`. Same rationale as `MetricReaderPtr`.
     [[nodiscard]] internal::ILogRecordProcessor* LogProcessorPtr() noexcept;
+    /// @brief Store the batch seed and read back the concrete log processor,
+    ///        both under one hold of `m_logger_mu`.
+    ///
+    /// Phase 2 of `SetBatchOptions`. One critical section rather than two so a
+    /// concurrent `GetLogger` cannot build a processor from the *old* seed
+    /// after this call has decided there was none to retune.
+    ///
+    /// @param opts the new seed, stored into `m_log_batch_opts`.
+    /// @return borrowed, or nullptr when no logger has been created.
+    [[nodiscard]] BatchLogRecordProcessor* SeedAndBorrowLogProcessor(
+        const BatchOptions& opts) noexcept;
     /// @brief Drive every pipeline component's `ForceFlush`, worst outcome
     ///        first-wins. Split out of `ForceFlush` so the timeout counter is
     ///        recorded once for the whole call rather than once per arm.
@@ -218,16 +273,29 @@ private:
     std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
     // Log exporter thread; must outlive m_log_processor.
     std::unique_ptr<internal::ILogExporter> m_log_exporter;
+    // Guarded by m_meter_mu: the seed a later GetMeter builds the reader from,
+    // and the value SetMetricInterval writes (ICP 0026 §4).
     std::chrono::milliseconds m_metric_interval;
     microtel::TemporalityPreference m_metric_temporality;
     std::size_t m_metric_max_cardinality;
+    // Guarded by m_logger_mu: the seed a later GetLogger builds the processor
+    // from, and the value SetBatchOptions writes.
     BatchOptions m_log_batch_opts;
     // BSP thread — destroyed before trace exporter.
     std::unique_ptr<internal::ISpanProcessor> m_processor;
+    // Borrowed alias of m_processor when it batches, else null. Assigned once
+    // at construction and never reassigned, so it needs no lock — the same
+    // reasoning m_sampler rests on.
+    BatchSpanProcessor* m_batch_span_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).
     std::unique_ptr<PeriodicExportingMetricReader> m_metric_reader;
     // Log processor thread — lazily created; destroyed before m_log_exporter.
     std::unique_ptr<internal::ILogRecordProcessor> m_log_processor;
+    // Borrowed alias of m_log_processor, published by GetLogger under
+    // m_logger_mu where the owning unique_ptr is assigned, and read under the
+    // same lock. Unlike the span-side alias this one is written after
+    // construction, so it is not lock-free.
+    BatchLogRecordProcessor* m_log_batch_processor{nullptr};
 
     std::shared_ptr<const Resource> m_resource;
     SamplerHandle m_sampler;

@@ -5,6 +5,7 @@
 
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
@@ -20,6 +21,8 @@ namespace microtel
 {
 class Meter;
 class Logger;
+/// Defined in `microtel/sdk_builder.hpp`, which already includes this header.
+struct BatchOptions;
 }  // namespace microtel
 
 namespace microtel
@@ -208,6 +211,87 @@ public:
     /// @threadsafety Thread-safe.
     [[nodiscard]] virtual std::shared_ptr<Logger> GetLogger(std::string_view name,
                                                             std::string_view version = {}) = 0;
+
+    // ── Hot reload (ICP 0026) ──────────────────────────────────────────────
+    //
+    // Four knobs retunable without a restart. Each validates its input,
+    // changes nothing when it rejects, and returns `AlreadyShutDown` after
+    // `Shutdown` — reading the shutdown flag **before** taking any mutex, the
+    // pattern `GetMeter` and `GetLogger` already use so a forked child cannot
+    // deadlock on a lock held by a thread that no longer exists
+    // (`docs/threading-model.md` §7).
+    //
+    // A rejection is reported as `InvalidArgument` (your value is wrong) or
+    // `Unsupported` (this provider has no such knob); the precise detail —
+    // which field, what range, which sampler — goes to the internal log at
+    // `Warn`. Validation runs before the support check, so a bad value is
+    // reported as bad whatever pipelines the provider happens to own.
+
+    /// @brief Retune the batching knobs of the span and log pipelines.
+    ///
+    /// Mirrors `SdkBuilder::WithBatch` at runtime; one `BatchOptions` drives
+    /// both pipelines, exactly as at build time. `Unsupported` if the provider
+    /// has no batching span processor.
+    ///
+    /// Rejected with `InvalidArgument`: a zero `max_queue_size`, a zero
+    /// `max_export_batch_size`, a `max_export_batch_size` above
+    /// `max_queue_size`, or a `schedule_delay` of zero or less.
+    ///
+    /// The change is applied to the two pipelines in turn and is **not atomic
+    /// across them**: for the duration of one call a span batch may be cut
+    /// under the new options while a log batch is still under the old.
+    ///
+    /// @param opts borrowed; copied into each pipeline. Not retained.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    [[nodiscard]] virtual Status SetBatchOptions(const BatchOptions& opts) noexcept = 0;
+
+    /// @brief Retune the periodic metric reader's export interval.
+    ///
+    /// Takes effect from the reader's next tick, not the current one — a wait
+    /// already in flight keeps its old deadline, so a shortened interval costs
+    /// at most one old-length tick. Applies to a reader not yet built, so a
+    /// later `GetMeter` uses the new value. Does **not** force a collection;
+    /// `ForceFlush` is the way to ask for one. `Unsupported` if no metrics
+    /// pipeline is configured.
+    ///
+    /// @param interval must be greater than zero, else `InvalidArgument`.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    [[nodiscard]] virtual Status SetMetricInterval(std::chrono::milliseconds interval) noexcept = 0;
+
+    /// @brief Retune the active sampler's sampling ratio.
+    ///
+    /// `Unsupported` — and nothing changed — unless the configured sampler is
+    /// a `TraceIdRatio` sampler, or a composite that owns one. Never replaces
+    /// a sampler with one of a different kind: the sampler object's identity
+    /// is fixed for the provider's life.
+    ///
+    /// @param ratio in `[0.0, 1.0]`. NaN and out-of-range values are rejected,
+    ///        not clamped — `MakeTraceIdRatioSampler` clamps at build time,
+    ///        where it is a documented convenience; at reload time a caller
+    ///        asking for `1.5` has a bug worth surfacing (ICP 0026 Decision 3).
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    [[nodiscard]] virtual Status SetSamplerRatio(double ratio) noexcept = 0;
+
+    /// @brief Set the minimum severity for microtel's internal diagnostic logs.
+    ///
+    /// Records below `level` are dropped before the sink is consulted.
+    /// Process-wide, not per-provider: the internal log path is a free
+    /// function (`microtel::internal::LogImpl`) with no provider in scope, so
+    /// providers built from different profiles share this knob and the last
+    /// writer wins.
+    ///
+    /// @param level one of the declared `LogLevel` enumerators; anything else
+    ///        is `InvalidArgument`.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    [[nodiscard]] virtual Status SetLogLevel(LogLevel level) noexcept = 0;
 };
 
 }  // namespace microtel

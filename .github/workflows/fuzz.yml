@@ -63,7 +63,7 @@ jobs:
       - name: Corpus regression check
         run: |
           any_crash=0
-          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz response_decompression_fuzz baggage_fuzz; do
+          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz response_decompression_fuzz baggage_fuzz provider_setters_fuzz; do
             crash_dir="tests/fuzz/crashes/${harness}"
             # Filter out .gitkeep so we don't pass it to the harness.
             inputs=$(find "${crash_dir}" -maxdepth 1 -type f ! -name '.gitkeep' 2>/dev/null)
@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p fuzz-findings
           DURATION="${{ inputs.duration || 120 }}"
-          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz baggage_fuzz; do
+          for harness in grpc_codec_fuzz toml_fuzz otlp_response_fuzz baggage_fuzz provider_setters_fuzz; do
             echo "=== Fuzzing ${harness} for ${DURATION}s ==="
             seed_dir="tests/fuzz/corpus/${harness}"
             ./build-fuzz/tests/fuzz/${harness} \

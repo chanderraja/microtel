@@ -43,4 +43,16 @@ TEST(AlwaysOnSampler, DescriptionIsAlwaysOn)
     EXPECT_EQ(handle.Get()->Description(), std::string_view{"AlwaysOnSampler"});
 }
 
+TEST(AlwaysOnSampler, TrySetRatioRefusesAndChangesNothing)
+{
+    const auto handle = mt::MakeAlwaysOnSampler();
+    ASSERT_NE(handle.Get(), nullptr);
+    // A sampler with no ratio is never converted into one that has a ratio
+    // (ICP 0026 §5).
+    EXPECT_FALSE(handle.Get()->TrySetRatio(0.5));
+    EXPECT_EQ(handle.Get()->Description(), std::string_view{"AlwaysOnSampler"});
+    EXPECT_EQ(handle.Get()->ShouldSample(mt::internal::SamplingContext{}).decision,
+              mt::internal::SamplingDecision::RecordAndSample);
+}
+
 }  // namespace

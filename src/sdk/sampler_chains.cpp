@@ -24,6 +24,8 @@
 #include "microtel/sampler.hpp"
 #include "microtel/trace.hpp"
 
+#include "sdk/sampler_description.hpp"
+
 #include <algorithm>
 #include <exception>
 #include <format>
@@ -61,6 +63,13 @@ std::string_view DescriptionOf(const SamplerHandle& handle) noexcept
         return "<null>";
     }
     return handle.Get()->Description();
+}
+
+/// @brief Forward a validated ratio to one delegate, tolerating an empty
+/// handle. `false` means this delegate has no ratio to retune (ICP 0026 §5).
+bool TryDelegate(const SamplerHandle& handle, double ratio) noexcept
+{
+    return handle.Get() != nullptr && handle.Get()->TrySetRatio(ratio);
 }
 
 /// @brief Name of a span kind, for description strings.
@@ -114,11 +123,9 @@ public:
                 SamplerHandle on_no_match)
         : m_on_match(std::move(on_match)),
           m_on_no_match(std::move(on_no_match)),
-          m_description(std::format("{}{{{}, match={}, else={}}}",
-                                    name,
-                                    predicate,
-                                    DescriptionOf(m_on_match),
-                                    DescriptionOf(m_on_no_match)))
+          m_name(name),
+          m_predicate(predicate),
+          m_description(Compose(m_name, m_predicate, m_on_match, m_on_no_match))
     {
     }
 
@@ -135,7 +142,27 @@ public:
 
     [[nodiscard]] std::string_view Description() const noexcept override
     {
-        return m_description;
+        return m_description.Get();
+    }
+
+    /// A rule owns two delegates and forwards to both, because a ratio sampler
+    /// may sit on either arm. Success on either is success for the rule, and
+    /// the rule then regenerates its own description — ICP 0026 §5's
+    /// "sampler chains inherit the obligation".
+    [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
+    {
+        bool applied = TryDelegate(m_on_match, ratio);
+        applied = TryDelegate(m_on_no_match, ratio) || applied;
+        if (!applied)
+        {
+            return false;
+        }
+        // Recomposed after the forwards, never around them: a lock held across
+        // a delegate's own setter lock would nest two non-leaf locks
+        // (`docs/threading-model.md` §4 rule 2).
+        m_description.Publish([this]
+                              { return Compose(m_name, m_predicate, m_on_match, m_on_no_match); });
+        return true;
     }
 
     /// @brief Whether this rule's predicate holds for `ctx`.
@@ -144,9 +171,24 @@ public:
     [[nodiscard]] virtual bool Matches(const internal::SamplingContext& ctx) const noexcept = 0;
 
 private:
+    static std::string Compose(std::string_view name,
+                               std::string_view predicate,
+                               const SamplerHandle& on_match,
+                               const SamplerHandle& on_no_match)
+    {
+        return std::format("{}{{{}, match={}, else={}}}",
+                           name,
+                           predicate,
+                           DescriptionOf(on_match),
+                           DescriptionOf(on_no_match));
+    }
+
     SamplerHandle m_on_match;
     SamplerHandle m_on_no_match;
-    std::string m_description;
+    /// Kept so the description can be recomposed, not only formatted once.
+    std::string m_name;
+    std::string m_predicate;
+    sdk::DescriptionSlot m_description;
 };
 
 /// @brief Matches when an initial attribute holds an expected value.
@@ -273,7 +315,26 @@ public:
 
     [[nodiscard]] std::string_view Description() const noexcept override
     {
-        return m_description;
+        return m_description.Get();
+    }
+
+    /// Forwards to every child — a chain may hold more than one ratio sampler,
+    /// and an operator retuning "the ratio" means all of them. Success from
+    /// any child is success for the chain, which then recomposes its own
+    /// description from the children's new ones (ICP 0026 §5).
+    [[nodiscard]] bool TrySetRatio(double ratio) noexcept override
+    {
+        bool applied = false;
+        for (const Child& child : m_children)
+        {
+            applied = TryDelegate(child.handle, ratio) || applied;
+        }
+        if (!applied)
+        {
+            return false;
+        }
+        m_description.Publish([this] { return ComposeDescription(m_children, m_mode); });
+        return true;
     }
 
 private:
@@ -352,7 +413,7 @@ private:
 
     std::vector<Child> m_children;
     ChainMode m_mode;
-    std::string m_description;
+    sdk::DescriptionSlot m_description;
 };
 
 }  // namespace

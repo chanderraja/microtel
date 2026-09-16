@@ -90,6 +90,24 @@ public:
     /// delegate `Shutdown` to the exporter. Idempotent.
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
+    /// @brief Retune the background export period while the reader runs
+    /// (ICP 0026).
+    ///
+    /// Takes `m_mu`, assigns `m_interval`, releases. **`m_wake` is
+    /// deliberately not set**: waking the reader would force an immediate
+    /// collect+export cycle, and "export at a different cadence" is not
+    /// "export now" — `ForceFlush` already means the second. The wait already
+    /// in flight keeps the deadline it fixed at entry, so a shortened interval
+    /// costs at most one old-length tick before it applies.
+    ///
+    /// Validation is the caller's: `SdkProvider::SetMetricInterval` rejects a
+    /// non-positive interval, which would otherwise turn `wait_for` into a
+    /// spin.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    void SetInterval(std::chrono::milliseconds interval) noexcept;
+
 private:
     /// Background thread entry point — loops until `m_shut_down` is set.
     void RunLoop() noexcept;
@@ -100,12 +118,15 @@ private:
 
     internal::IMetricProducer& m_producer;
     internal::IMetricExporter& m_exporter;
+    // Guarded by m_mu (ICP 0026). RunLoop's read is already inside the
+    // unique_lock it waits under; SetInterval is the writer. m_temporality,
+    // m_producer and m_exporter stay immutable after construction.
     std::chrono::milliseconds m_interval;
     internal::AggregationTemporality m_temporality;
 
     std::atomic<bool> m_shut_down{false};
 
-    std::mutex m_mu;               // guards m_wake
+    std::mutex m_mu;               // guards m_wake and m_interval
     std::condition_variable m_cv;  // signalled on wake or shutdown
     bool m_wake{false};            // early-wakeup flag, guarded by m_mu
 

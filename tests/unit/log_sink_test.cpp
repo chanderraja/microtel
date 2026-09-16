@@ -15,7 +15,9 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <cstddef>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -36,8 +38,12 @@ protected:
     void TearDown() override
     {
         // Each test installs a fresh sink; restore the default afterward
-        // so subsequent tests / suites are not affected.
+        // so subsequent tests / suites are not affected. The minimum level is
+        // process-global (ICP 0026 §6), so it needs the same treatment — and
+        // restoring the *shipped* default, not a convenient one, is what lets
+        // `DefaultMinimumLevelIsInfo` below mean something.
         mt::ResetLogSink();
+        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Info));
     }
 };
 
@@ -86,7 +92,10 @@ void EmitLoop(int iters) noexcept
 {
     for (int j = 0; j < iters; ++j)
     {
-        mt::internal::LogImpl(mt::LogLevel::Debug, "x");
+        // Warn, not Debug: the shipped minimum level is Info, and a loop that
+        // emitted below it would be filtered out before the sink-copy path
+        // these stress tests exist to exercise (ICP 0026 §6).
+        mt::internal::LogImpl(mt::LogLevel::Warn, "x");
     }
 }
 
@@ -125,6 +134,85 @@ TEST_F(LogSinkTest, ConcurrentSinkSwap)
     {
         mt::SetLogSink([&](mt::LogLevel, std::string_view) { ++emitted; });
         mt::ResetLogSink();
+    }
+    loggers.join();
+    EXPECT_GE(emitted.load(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// The minimum-level filter — ICP 0026 §6, issue #190
+// ---------------------------------------------------------------------------
+
+/// Emits one record at each declared level and returns what survived.
+std::vector<mt::LogLevel> EmitEveryLevel()
+{
+    std::vector<mt::LogLevel> seen;
+    mt::SetLogSink([&seen](mt::LogLevel lvl, std::string_view) { seen.push_back(lvl); });
+    for (const mt::LogLevel level : {mt::LogLevel::Trace,
+                                     mt::LogLevel::Debug,
+                                     mt::LogLevel::Info,
+                                     mt::LogLevel::Warn,
+                                     mt::LogLevel::Error})
+    {
+        mt::internal::LogImpl(level, "probe");
+    }
+    return seen;
+}
+
+TEST_F(LogSinkTest, DefaultMinimumLevelIsInfo)
+{
+    // The shipped default: Trace and Debug are dropped, everything from Info
+    // up is emitted. Every production LogImpl call site emits at Warn, so the
+    // default changes nothing observable (ICP 0026 §6).
+    EXPECT_EQ(mt::internal::MinLogLevel(), mt::LogLevel::Info);
+    const std::vector<mt::LogLevel> seen = EmitEveryLevel();
+    ASSERT_EQ(seen.size(), std::size_t{3});
+    EXPECT_EQ(seen[0], mt::LogLevel::Info);
+    EXPECT_EQ(seen[2], mt::LogLevel::Error);
+}
+
+TEST_F(LogSinkTest, BelowMinimumLevelNeverReachesTheSink)
+{
+    ASSERT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Warn));
+    const std::vector<mt::LogLevel> seen = EmitEveryLevel();
+    ASSERT_EQ(seen.size(), std::size_t{2});
+    EXPECT_EQ(seen[0], mt::LogLevel::Warn);
+    EXPECT_EQ(seen[1], mt::LogLevel::Error);
+}
+
+TEST_F(LogSinkTest, TraceMinimumLevelAdmitsEverything)
+{
+    ASSERT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Trace));
+    EXPECT_EQ(EmitEveryLevel().size(), std::size_t{5});
+}
+
+TEST_F(LogSinkTest, ErrorMinimumLevelAdmitsOnlyError)
+{
+    ASSERT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Error));
+    const std::vector<mt::LogLevel> seen = EmitEveryLevel();
+    ASSERT_EQ(seen.size(), std::size_t{1});
+    EXPECT_EQ(seen[0], mt::LogLevel::Error);
+}
+
+TEST_F(LogSinkTest, SetMinLogLevelRejectsAValueOutsideTheEnumerators)
+{
+    ASSERT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Warn));
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+    EXPECT_FALSE(mt::internal::SetMinLogLevel(static_cast<mt::LogLevel>(9)));
+    EXPECT_EQ(mt::internal::MinLogLevel(), mt::LogLevel::Warn);
+}
+
+TEST_F(LogSinkTest, ConcurrentLevelChangeWhileEmitting)
+{
+    // The filter is one relaxed atomic load ahead of the sink mutex; changing
+    // it under load must stay race-free (TSAN target).
+    std::atomic<int> emitted{0};
+    mt::SetLogSink([&](mt::LogLevel, std::string_view) { ++emitted; });
+    std::thread loggers([&] { SpawnLoggers(2, 200); });
+    for (int j = 0; j < 50; ++j)
+    {
+        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Error));
+        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Trace));
     }
     loggers.join();
     EXPECT_GE(emitted.load(), 0);

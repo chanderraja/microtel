@@ -378,16 +378,44 @@ a bare always-on sampler, not a parent-based one.
 
 ### 3.11 Logging
 
-**No configuration surface in v1.** `SetLogSink(LogSink)` is a runtime
-injection, not a setting — the application installs a callback receiving
-`(LogLevel, std::string_view)` and routes microtel's internal logs wherever it
-likes (`error-model.md` §9.3). Level filtering, sink selection and log-file
-paths are the application's side of that callback.
+**Sink selection is still a runtime injection, not a setting.**
+`SetLogSink(LogSink)` installs a callback receiving `(LogLevel,
+std::string_view)`; the application routes microtel's internal logs wherever it
+likes (`error-model.md` §9.3), and there is no route into spdlog inside
+microtel — an application that wants one installs `microtel_spdlog_bridge` as
+its sink, in its own build (ICP 0026 §6, issue #190).
 
-Correction (#196): the `logging.level` / `logging.sink` / `logging.file` TOML
-keys and the `MICROTEL_LOG_LEVEL` / `MICROTEL_LOG_SINK` / `MICROTEL_LOG_FILE`
-env vars are read by nothing, and neither the `journald` nor the `syslog` sink
-named here exists. Spec §9.4 describes the intended surface; this section now
+**The minimum level is a setting** as of v1.1 (ICP 0026 §6):
+
+| TOML | Code | OTEL env | MICROTEL env | Default |
+|---|---|---|---|---|
+| `logging.level` | `Provider::SetLogLevel(level)` | — | `MICROTEL_LOG_LEVEL` | `info` |
+
+Values: `trace`, `debug`, `info`, `warn`, `error`. Anything else is rejected at
+`Build()` — `ConfigError::Kind::InvalidValue` for the TOML key,
+`EnvParseFailure` for the env var — rather than silently read as the default,
+because an operator who raises the level to debug a problem and quietly gets
+`info` back has been told nothing.
+
+Records below the level are dropped before the sink is consulted. The default
+changes nothing observable: every production emission site logs at `Warn`.
+
+Unlike every other row in this document, the code column is **not** an
+`SdkBuilder` setter. The filter is process-global, because the internal log
+entry point (`microtel::internal::LogImpl`) is a free function called from code
+with no provider in scope — so providers built from different profiles share
+the knob and the last writer wins. `Provider::SetLogLevel` is the operator
+surface, and it is live: it retunes the level after `Build()` without a
+restart, which is the whole point of putting it among the four hot-reload
+setters. `[logging]` accepts no other key; anything else there is an unknown
+key under §1's strict default.
+
+Correction (#196), still standing for the rest of the section: the
+`logging.sink` / `logging.file` TOML keys and the `MICROTEL_LOG_SINK` /
+`MICROTEL_LOG_FILE` env vars are read by nothing, and neither the `journald`
+nor the `syslog` sink once named here exists. They are the sink's business
+rather than the level's, and ICP 0026 retires the correction for
+`logging.level` only. Spec §9.4 describes the intended surface; this section
 describes the built one.
 
 ### 3.12 Configuration meta

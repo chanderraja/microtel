@@ -312,13 +312,15 @@ The snapshot is consistent at a moment in time but not transactionally consisten
 
 ### 9.2 Internal diagnostic log
 
-Routed via spdlog (`MICROTEL_USE_SPDLOG=ON`, the default) or the minimal stderr fallback (`=OFF`). Levels:
+Routed through the injected `LogSink` (§9.3) when one is installed, and to a minimal stderr fallback when none is — in every build configuration. **microtel itself never calls spdlog**: that route was considered, priced in issue #190, and declined in [ICP 0026](icps/0026-provider-setters.md) §6, because an undefined spdlog reference in `libmicrotel_common.a` would make the installed package unlinkable for every consumer. An application that wants spdlog installs `microtel_spdlog_bridge` as its sink, inside its own build. Levels:
 
 - `error` — non-retryable failures, init failures, internal-failure recovery, `connect_failure` after reconnect-budget elapsed.
 - `warn` — retryable failures, `partial_success_rejection`, `force_flush_timeout`, `shutdown_timeout`.
 - `info` — `Build()` resolved-config dump (with secrets redacted per §6.6 of spec), connect / disconnect transitions.
 - `debug` — per-batch send / receive summary, per-stream lifecycle.
 - `trace` — per-frame nghttp2 events (rare; primarily for development).
+
+**Minimum level.** Emissions below the configured minimum are dropped before the sink is consulted — one relaxed atomic load, no lock. The default is `info`; it is seeded at `Build()` from `logging.level` / `MICROTEL_LOG_LEVEL` and retuned at runtime by `Provider::SetLogLevel` (ICP 0026 §6, `docs/configuration.md` §3.11). The filter is **process-wide**, not per-provider, because the emission point is a free function with no provider in scope: providers built from different profiles share it and the last writer wins.
 
 **Rate limiting (LOCKED).** Diagnostic emissions for repeating events are rate-limited with a token-bucket limiter per `(level, reason)` pair. Defaults: 1 burst of 10, 1/sec sustained. The first occurrence of a new reason is always emitted; subsequent ones are suppressed but counted separately so operators can see "10 emitted, 4231 suppressed" in `GetExporterHealth()`.
 
@@ -332,7 +334,7 @@ microtel::SetLogSink([](microtel::LogLevel lvl, std::string_view msg) {
 });
 ```
 
-Sink injection is available in both `MICROTEL_USE_SPDLOG=ON` and `=OFF` builds (spec §9.4).
+Sink injection is available in both `MICROTEL_USE_SPDLOG=ON` and `=OFF` builds (spec §9.4) — and, per §9.2, it is now the only route microtel offers. The option gates the `microtel_spdlog_bridge` adapter, not anything inside `microtel_common`.
 
 ### 9.4 Never-recursive-export rule (LOCKED)
 
@@ -346,5 +348,5 @@ If an application wants its OTel-Logs pipeline to receive microtel's internal lo
 
 - The exact wire-level byte sequences that produce each row in §7 — see `grpc-wire-protocol.md` for the gRPC side and the conformance tests for both.
 - The retry timing algorithm (jitter formula, backoff multiplier) — pinned in M5; covered in `docs/sequences/retry-after-failure.md` once written.
-- The exact spdlog pattern strings — implementation detail of `src/common/logging`.
+- The format of the stderr fallback line — implementation detail of `src/common/log_sink.cpp`, and the only formatting microtel does.
 - Per-method error annotations — see `interfaces.md`.

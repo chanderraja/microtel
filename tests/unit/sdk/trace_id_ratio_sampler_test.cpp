@@ -22,6 +22,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 
 namespace mt = microtel;
 
@@ -179,6 +180,70 @@ TEST(TraceIdRatioSampler, DescriptionIncludesRatio)
     const std::string desc{handle.Get()->Description()};
     EXPECT_NE(desc.find("TraceIdRatio"), std::string::npos);
     EXPECT_NE(desc.find("0.25"), std::string::npos);
+}
+
+// --- TrySetRatio — ICP 0026 hot reload ----------------------------------
+
+TEST(TraceIdRatioSampler, TrySetRatioChangesTheDecision)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(0.0);
+    ASSERT_NE(handle.Get(), nullptr);
+    const auto ctx = MakeCtx(MakeTraceIdWithLowerBytes(std::uint64_t{0}));
+    ASSERT_EQ(handle.Get()->ShouldSample(ctx).decision, mt::internal::SamplingDecision::Drop);
+
+    EXPECT_TRUE(handle.Get()->TrySetRatio(1.0));
+    EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision,
+              mt::internal::SamplingDecision::RecordAndSample);
+
+    EXPECT_TRUE(handle.Get()->TrySetRatio(0.0));
+    EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision, mt::internal::SamplingDecision::Drop);
+}
+
+TEST(TraceIdRatioSampler, TrySetRatioOneKeepsTheAlwaysSampleSentinel)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(0.5);
+    ASSERT_NE(handle.Get(), nullptr);
+    ASSERT_TRUE(handle.Get()->TrySetRatio(1.0));
+    // UINT64_MAX is the sentinel `m_always_sample` folded into, so the one
+    // trace id that `low < threshold` would have dropped must still sample.
+    const auto ctx = MakeCtx(MakeTraceIdWithLowerBytes(std::numeric_limits<std::uint64_t>::max()));
+    EXPECT_EQ(handle.Get()->ShouldSample(ctx).decision,
+              mt::internal::SamplingDecision::RecordAndSample);
+}
+
+TEST(TraceIdRatioSampler, TrySetRatioRegeneratesTheDescription)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(0.25);
+    ASSERT_NE(handle.Get(), nullptr);
+    ASSERT_TRUE(handle.Get()->TrySetRatio(0.01));
+    const std::string desc{handle.Get()->Description()};
+    EXPECT_NE(desc.find("0.010"), std::string::npos);
+    EXPECT_EQ(desc.find("0.250"), std::string::npos);
+}
+
+TEST(TraceIdRatioSampler, DescriptionViewHandedOutBeforeARetuneStaysValid)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(0.25);
+    ASSERT_NE(handle.Get(), nullptr);
+    const std::string_view before = handle.Get()->Description();
+
+    for (int i = 0; i < 64; ++i)
+    {
+        ASSERT_TRUE(handle.Get()->TrySetRatio(static_cast<double>(i) / 100.0));
+    }
+
+    // The append-only description store must not have mutated or freed the
+    // string the earlier caller is still looking at (ICP 0026 §5).
+    EXPECT_EQ(before, std::string_view{"TraceIdRatioSampler{0.250}"});
+}
+
+TEST(TraceIdRatioSampler, RetuneToTheRatioInForceAppendsNothing)
+{
+    const auto handle = mt::MakeTraceIdRatioSampler(0.25);
+    ASSERT_NE(handle.Get(), nullptr);
+    const std::string_view before = handle.Get()->Description();
+    ASSERT_TRUE(handle.Get()->TrySetRatio(0.25));
+    EXPECT_EQ(handle.Get()->Description().data(), before.data());
 }
 
 }  // namespace

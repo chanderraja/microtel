@@ -220,13 +220,15 @@ Every mutex in v1, by owner. This table named five locks until ICP 0021; three o
 | Lock | Owner | Held during |
 |---|---|---|
 | `m_error_mu` | `DiagnosticsCounters` | last-error timestamp + message write |
-| `m_mu` | `BatchSpanProcessor` | span queue enqueue / drain, flush bookkeeping |
-| `m_mu` | `BatchLogRecordProcessor` | log queue enqueue / drain, flush bookkeeping |
+| `m_mu` | `BatchSpanProcessor` | span queue enqueue / drain, flush bookkeeping, **`m_opts` read or write** |
+| `m_mu` | `BatchLogRecordProcessor` | log queue enqueue / drain, flush bookkeeping, **`m_opts` read or write** |
 | `m_mu` | `OtlpExporter`, `OtlpMetricExporter`, `OtlpLogExporter` | batch queue enqueue / drain, flush bookkeeping |
-| `m_mu`, `m_collect_mu` | `PeriodicExportingMetricReader` | wake flag; one collect+export cycle (`CollectSlot`) |
+| `m_mu`, `m_collect_mu` | `PeriodicExportingMetricReader` | wake flag **and `m_interval` read or write**; one collect+export cycle (`CollectSlot`) |
 | `m_mu` | `MetricProducer` | snapshot of the scope / stream structure |
 | `m_mu` | `SumStorage`, `GaugeStorage`, `HistogramStorage`, `ExponentialHistogramStorage` | one point update, or one collect |
-| `m_meter_mu`, `m_logger_mu` | `SdkProvider` | lazy construction of the metrics / logs pipeline |
+| `m_meter_mu`, `m_logger_mu` | `SdkProvider` | lazy construction of the metrics / logs pipeline; **the `m_metric_interval` / `m_log_batch_opts` seeds and the borrowed reader / log-processor pointers** |
+| `m_mu` | `DescriptionSlot` (retunable sampler descriptions) | appending and publishing one new `Description()` string |
+| `m_ratio_mu` | `TraceIdRatioSampler` | one `TrySetRatio`: the same-value check, the threshold store, the description publish |
 | `m_mu` | `CallbackAuthProvider` | cached-token read / refresh |
 | `m_mu` | `EpollReactor` | `m_callbacks` register / unregister / dispatch lookup |
 | `m_pending_mu`, `m_cancel_mu` | `Http2Transport` | request-queue push / drain; cancel-queue push / drain |
@@ -238,6 +240,8 @@ There is **no completion lock and no shutdown lock**: request completion is a `s
 
 1. **`m_error_mu` is a leaf** (LOCKED — cites `src/sdk/diagnostics_counters.cpp:RecordBatchFailed`) — no other lock is acquired while it is held. It guards two fields, a timestamp and a bounded string; every counter is a `std::atomic<uint64_t>` and takes no lock at all (`RecordDrop`).
 2. **A thread holds at most one non-leaf lock at a time** (LOCKED — cites `src/sdk/metric_producer.cpp:SnapshotScopes`, `src/exporter/otlp_exporter.cpp:DrainQueue`, `src/sdk/batch_span_processor.cpp:ExportBatch`). v1 intentionally has no nested locks, and the code is written to keep it that way: `MetricProducer::Collect` snapshots the structure under `m_mu` and releases it before calling `IMetricStream::Collect`, which takes its own; `OtlpExporter::DrainQueue` unlocks before `FanOutAndProcess`; `BatchSpanProcessor` releases `m_mu` when `WaitAndCollect` returns, before `ExportBatch`. Any future code that wants to break this needs an ICP.
+
+    The four hot-reload setters (ICP 0026) are written to the same rule, and it is what shapes them. `SdkProvider::SetBatchOptions` is **two phases, never nested**: it retunes the span processor, then takes `m_logger_mu` only long enough to store the seed and read back the borrowed log processor, releases it, and retunes that — the price being that the change is not atomic across the two pipelines. `SetMetricInterval` does the same around `m_meter_mu`. `SetSamplerRatio` takes no provider lock at all, and a composite sampler recomposes its description *after* forwarding to its delegates rather than around the call, so a chain never holds two setter locks at once. `SetLogLevel` takes no lock: it is one atomic store.
 3. **The transport's queue locks are leaves** (LOCKED — cites `src/transport/http2_transport.cpp:Send`, `src/transport/http2_transport.cpp:DrainPendingRequests`). Per ICP 0009, `m_pending_mu` is a leaf *any* submitting thread may take — three exporter workers do. `m_cancel_mu` is the same shape for cancellations. Both are held only for a push or a drain, never across a call-out.
 4. **Completion and shutdown take no lock** (LOCKED — cites `src/transport/http2_transport.hpp:StreamState`, `src/sdk/sdk_provider.hpp:m_shut_down`). The I/O thread fulfils a `std::promise` and the waiting worker is parked in `future::wait_for`; `SdkProvider::m_shut_down`, `OtlpExporter::m_shutdown` and `Http2Transport::m_state` are atomics, read and written without a mutex. The old rules 3 and 4 governed a `m_completion` and an `m_shutdown` mutex that have never existed.
 

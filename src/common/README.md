@@ -3,8 +3,8 @@
 ## Purpose
 
 Shared, layer-independent services consumed by every track:
-diagnostics sink, internal logging (spdlog or stderr fallback), error
-types, byte-budget constants, time abstraction.
+diagnostics sink, internal logging (the `LogSink` hook, with a stderr
+fallback), error types, byte-budget constants, time abstraction.
 
 The top-level files in this directory are the layer-independent ones;
 two subdirectories carry track-specific work:
@@ -26,9 +26,15 @@ per their own READMEs.
   atomic per-reason counters, the `HealthSnapshot` builder (per
   `docs/error-model.md` §3, §9.1)
 - Internal logging routing — the `LogSink` injection hook (declared in
-  [`include/microtel/log_sink.hpp`](../../include/microtel/log_sink.hpp));
-  spdlog adapter when `MICROTEL_USE_SPDLOG=ON`, minimal stderr logger
-  when `OFF` (M2 chunk 6)
+  [`include/microtel/log_sink.hpp`](../../include/microtel/log_sink.hpp)),
+  the minimum-level filter behind `internal::SetMinLogLevel` /
+  `MinLogLevel` ([ICP 0026](../../docs/icps/0026-provider-setters.md) §6),
+  and a minimal stderr fallback when no sink is installed. **There is no
+  spdlog route inside microtel** and there will not be one — issue #190's
+  option (1). An application that wants spdlog installs
+  `microtel_spdlog_bridge` ([`../adapters/spdlog/`](../adapters/spdlog/))
+  as its sink, inside its own build, so `libmicrotel_common.a` never
+  acquires an undefined spdlog reference.
 - `internal::IClock` and `internal::ISteadyClock` realisations backed by
   `std::chrono::system_clock` and `std::chrono::steady_clock`
 - The byte-budget constants from `microtel-spec.md` §5.5
@@ -37,8 +43,10 @@ per their own READMEs.
 
 ## Depends on
 
-- spdlog (header-only, `SPDLOG_USE_STD_FORMAT`) — optional, gated by
-  `MICROTEL_USE_SPDLOG=ON` per spec §9.2
+Nothing outside the standard library and `include/microtel/`.
+`MICROTEL_USE_SPDLOG=ON` no longer puts spdlog on this library's link line;
+it gates the bridge adapter in [`../adapters/spdlog/`](../adapters/spdlog/)
+and its tests (see the logging bullet above, and issue #190).
 
 ## Test entry points
 

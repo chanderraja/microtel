@@ -411,3 +411,59 @@ TEST(PeriodicExportingMetricReaderTest, CollectAndForceFlushDoNotOverlap)
     EXPECT_FALSE(producer.Overlapped());
     ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
 }
+
+// ── SetInterval — ICP 0026 hot reload ────────────────────────────────────────
+
+TEST(PeriodicExportingMetricReaderTest, SetIntervalDoesNotForceACollection)
+{
+    FakeMetricProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{producer, exporter, 1h};
+
+    reader.SetInterval(1h);
+    std::this_thread::sleep_for(150ms);
+
+    // m_wake is deliberately not set: retuning the cadence is not "export now"
+    // (ICP 0026 §4). Nothing has asked for a cycle, so none has run.
+    EXPECT_EQ(producer.CollectCount(), 0);
+    ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
+}
+
+TEST(PeriodicExportingMetricReaderTest, SetIntervalShortensTheCadence)
+{
+    FakeMetricProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{producer, exporter, 200ms};
+
+    reader.SetInterval(2ms);
+
+    // The wait already in flight keeps its 200 ms deadline, so the new cadence
+    // costs at most one old-length tick. Well inside the deadline below, 2 ms
+    // ticks reach a count the 200 ms one could not.
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (producer.CollectCount() < 30 && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(2ms);
+    }
+    EXPECT_GE(producer.CollectCount(), 30);
+    ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
+}
+
+TEST(PeriodicExportingMetricReaderTest, SetIntervalLengthensAfterAtMostOneOldTick)
+{
+    FakeMetricProducer producer;
+    FakeMetricExporter exporter;
+    mts::PeriodicExportingMetricReader reader{producer, exporter, 20ms};
+
+    std::this_thread::sleep_for(60ms);  // let the short cadence establish
+    reader.SetInterval(1h);
+    const int baseline = producer.CollectCount();
+
+    // At 20 ms this window would be worth a dozen cycles; the lengthened
+    // interval costs at most the tick already in flight, plus the cycle that
+    // may have been running when the setter returned.
+    std::this_thread::sleep_for(400ms);
+    EXPECT_LE(producer.CollectCount() - baseline, 2);
+
+    ASSERT_EQ(reader.Shutdown(1s), mt::Status::Completed);
+}

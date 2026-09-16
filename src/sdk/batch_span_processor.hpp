@@ -120,6 +120,28 @@ public:
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
+    /// @brief Retune the batching knobs while the processor runs (ICP 0026).
+    ///
+    /// Takes `m_mu`, assigns `m_opts`, notifies the worker. The notify is not
+    /// only politeness: it makes the worker re-evaluate its predicate against
+    /// the **new** `max_export_batch_size`, which can drain immediately if the
+    /// queue already exceeds it. A shortened `schedule_delay` still costs at
+    /// most one old-length tick, because `wait_for` fixed its deadline at
+    /// entry and a notify whose predicate is false does not shorten it.
+    ///
+    /// `MemoryLimitOptions`'s two caps are **not** retunable and are not
+    /// touched here; they come from a different options struct and stay
+    /// immutable after construction.
+    ///
+    /// Validation belongs to the caller — `SdkProvider::SetBatchOptions`
+    /// rejects an incoherent `opts` before reaching this.
+    ///
+    /// @param opts borrowed; copied under the lock. Not retained.
+    ///
+    /// @threadsafety Thread-safe.
+    /// @noexcept
+    void SetOptions(const BatchOptions& opts) noexcept;
+
 private:
     /// A queued record paired with the scope of the tracer that produced it.
     ///
@@ -163,6 +185,12 @@ private:
 
     internal::IExporter* m_exporter;
     std::shared_ptr<const Resource> m_resource;
+    /// Guarded by `m_mu` (ICP 0026). Every read already happened inside the
+    /// lock — `OnEnd`/`MakeRoomFor` under the `scoped_lock`, `WaitAndCollect`
+    /// under the `unique_lock` — and that is now normative rather than
+    /// incidental: `SetOptions` writes it while the worker runs. No read may
+    /// be hoisted into a local that outlives its critical section, and none
+    /// into the worker's thread lambda.
     BatchOptions m_opts;
     std::uint32_t m_max_record_bytes;
     std::uint64_t m_max_total_queue_bytes;

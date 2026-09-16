@@ -190,6 +190,13 @@ bool BatchSpanProcessor::MakeRoomFor(std::size_t record_bytes) noexcept
     return true;
 }
 
+void BatchSpanProcessor::SetOptions(const BatchOptions& opts) noexcept
+{
+    const std::scoped_lock lock{m_mu};
+    m_opts = opts;
+    m_cv.notify_one();
+}
+
 microtel::Status BatchSpanProcessor::ForceFlush(std::chrono::milliseconds timeout) noexcept
 {
     std::unique_lock lock{m_mu};

@@ -10,6 +10,7 @@
 #include "common/config/config.hpp"
 
 #include "microtel/error.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 
 #include "common/config/config_validator.hpp"
@@ -22,6 +23,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace mc = microtel::config;
 namespace mt = microtel;
@@ -976,4 +979,100 @@ TEST(ValidateTest, ServiceNameSet_IsNotMarkedAsDefaulted)
     const auto result = mc::Validate(cfg);
     ASSERT_TRUE(result.has_value()) << result.error().message;
     EXPECT_FALSE(cfg.service_name_defaulted);
+}
+
+// ---------------------------------------------------------------------------
+// [logging] level / MICROTEL_LOG_LEVEL — ICP 0026 §6 (issue #190)
+// ---------------------------------------------------------------------------
+
+TEST(ConfigDefaultsTest, LogLevelDefaultsToInfo)
+{
+    const mc::Config cfg;
+    EXPECT_EQ(cfg.log_level, mt::LogLevel::Info);
+}
+
+TEST(ParseTomlStringTest, LoggingLevelIsParsed)
+{
+    const auto result = mc::ParseTomlString(R"(
+[logging]
+level = "warn"
+)");
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(result->log_level, mt::LogLevel::Warn);
+}
+
+TEST(ParseTomlStringTest, LoggingLevelAcceptsEveryEnumerator)
+{
+    const std::vector<std::pair<std::string, mt::LogLevel>> cases{
+        {"trace", mt::LogLevel::Trace},
+        {"debug", mt::LogLevel::Debug},
+        {"info", mt::LogLevel::Info},
+        {"warn", mt::LogLevel::Warn},
+        {"error", mt::LogLevel::Error},
+    };
+    for (const auto& [text, expected] : cases)
+    {
+        const auto result = mc::ParseTomlString("[logging]\nlevel = \"" + text + "\"\n");
+        ASSERT_TRUE(result.has_value()) << text << ": " << result.error().message;
+        EXPECT_EQ(result->log_level, expected) << text;
+    }
+}
+
+TEST(ParseTomlStringTest, LoggingLevelRejectsAnUnknownValue)
+{
+    const auto result = mc::ParseTomlString(R"(
+[logging]
+level = "chatty"
+)");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue);
+    EXPECT_EQ(result.error().field, "logging.level");
+}
+
+TEST(ParseTomlStringTest, LoggingUnknownKeyIsRejectedInErrorMode)
+{
+    // `logging.sink` and `logging.file` remain unimplemented (ICP 0026
+    // Migration); only `level` is read, so anything else is an unknown key.
+    const auto result = mc::ParseTomlString(R"(
+[logging]
+sink = "journald"
+)");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::UnknownKey);
+}
+
+TEST(OverlayEnvTest, MicrotelLogLevelIsApplied)
+{
+    const EnvGuard guard{{"MICROTEL_LOG_LEVEL"}};
+    SetEnv("MICROTEL_LOG_LEVEL", "error");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.log_level, mt::LogLevel::Error);
+}
+
+TEST(OverlayEnvTest, MicrotelLogLevelRejectsAnUnknownValue)
+{
+    const EnvGuard guard{{"MICROTEL_LOG_LEVEL"}};
+    SetEnv("MICROTEL_LOG_LEVEL", "loud");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_FALSE(result.has_value());
+    // EnvParseFailure, not InvalidValue: that is what every other rejected
+    // env var in this layer returns (MICROTEL_RESOURCE_DETECTORS_STRICT,
+    // OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE).
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
+    EXPECT_EQ(result.error().field, "MICROTEL_LOG_LEVEL");
+}
+
+TEST(OverlayEnvTest, MicrotelLogLevelOverridesTheTomlValue)
+{
+    const EnvGuard guard{{"MICROTEL_LOG_LEVEL"}};
+    SetEnv("MICROTEL_LOG_LEVEL", "debug");
+    mc::Config cfg;
+    cfg.log_level = mt::LogLevel::Warn;  // as if from [logging] level = "warn"
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(cfg.log_level, mt::LogLevel::Debug);
+    UnsetEnv("MICROTEL_LOG_LEVEL");
 }

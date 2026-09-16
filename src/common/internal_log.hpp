@@ -12,18 +12,43 @@ namespace microtel::internal
 
 /// @brief Internal log entry point used by every microtel component.
 ///
-/// Routes through the active `microtel::LogSink` if one is installed,
-/// otherwise to the default fallback (stderr today; spdlog when M3 wires
-/// it under MICROTEL_USE_SPDLOG=ON).
+/// Drops the record when `level` is below `MinLogLevel()`, before it touches
+/// the sink mutex. Otherwise routes through the active `microtel::LogSink` if
+/// one is installed, and to the stderr fallback if none is. There is no route
+/// into spdlog and there will not be one: option (1) of issue #190, recorded
+/// in ICP 0026 §6 — an application that wants spdlog installs
+/// `microtel_spdlog_bridge` as its `LogSink`, inside its own build, so
+/// `libmicrotel_common.a` never acquires an undefined spdlog reference.
 ///
 /// `noexcept`. The implementation never throws and never propagates an
 /// application sink's exception (per `docs/error-model.md` §9.3).
 ///
-/// M2 scope: this is the public-internal hook. Rate-limiting per
-/// `(level, reason)` pair lands in M3+ alongside the actual emission
-/// sites.
+/// Rate-limiting per `(level, reason)` pair is still unbuilt.
 ///
 /// @threadsafety Thread-safe. May be called from any internal thread.
 void LogImpl(microtel::LogLevel level, std::string_view message) noexcept;
+
+/// @brief Set the minimum severity `LogImpl` will emit.
+///
+/// Process-wide, not per-provider: `LogImpl` is a free function called from
+/// code that has no provider in scope, so v1.1's multi-profile providers share
+/// this knob and the last writer wins (ICP 0026 §6). Seeded at `Build()` from
+/// the `logging.level` TOML key and `MICROTEL_LOG_LEVEL`; the operator-facing
+/// surface is `microtel::Provider::SetLogLevel`, which forwards here.
+///
+/// Backed by one atomic, so it is race-free by construction and adds no lock
+/// to the internal log path.
+///
+/// @param level one of the declared `microtel::LogLevel` enumerators.
+/// @return `false` if `level` is not a declared enumerator; the minimum is
+///         then unchanged.
+///
+/// @threadsafety Thread-safe.
+[[nodiscard]] bool SetMinLogLevel(microtel::LogLevel level) noexcept;
+
+/// @brief The minimum severity `LogImpl` will emit. Defaults to `Info`.
+///
+/// @threadsafety Thread-safe.
+[[nodiscard]] microtel::LogLevel MinLogLevel() noexcept;
 
 }  // namespace microtel::internal

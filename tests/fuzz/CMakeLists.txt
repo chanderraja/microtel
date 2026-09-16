@@ -73,3 +73,18 @@ microtel_add_fuzz_target(
     NAME    baggage_fuzz
     SOURCES baggage_fuzz.cpp
     LIBS    microtel_api)
+
+# ICP 0026 — the four hot-reload Provider setters, driven against a live
+# provider. Needs src/ on the include path for sdk/sdk_provider.hpp and
+# common/internal_log.hpp; tests/ is already there for the mocks.
+microtel_add_fuzz_target(
+    NAME    provider_setters_fuzz
+    SOURCES provider_setters_fuzz.cpp
+    LIBS    microtel_sdk microtel_common)
+
+target_include_directories(provider_setters_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# SdkProviderArgs bundles every pipeline; this harness names only the ones it
+# varies and lets the rest default, the same waiver the sdk_provider tests take.
+target_compile_options(provider_setters_fuzz PRIVATE
+    -Wno-missing-field-initializers)

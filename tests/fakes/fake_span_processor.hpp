@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "microtel/context.hpp"
 #include "microtel/internal/batch.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/status.hpp"
@@ -14,7 +15,6 @@
 namespace microtel
 {
 class Span;
-class Context;
 }  // namespace microtel
 
 namespace microtel::testing
@@ -38,13 +38,20 @@ public:
     microtel::Status force_flush_result = microtel::Status::Completed;
     microtel::Status shutdown_result = microtel::Status::Completed;
 
+    /// The `Context` each `OnStart` arrived with, in call order. Kept by value
+    /// because a `Context` copy is `noexcept` and allocation-free — its two
+    /// growable members are both `shared_ptr` refcounts (ICP 0025 §§1-2) — so
+    /// recording one does not change what the SDK under test does.
+    std::vector<microtel::Context> started_contexts;
+
     int on_start_call_count = 0;
     int force_flush_call_count = 0;
     int shutdown_call_count = 0;
 
-    void OnStart(microtel::Span& /*span*/, const microtel::Context& /*parent*/) noexcept override
+    void OnStart(microtel::Span& /*span*/, const microtel::Context& parent) noexcept override
     {
         ++on_start_call_count;
+        started_contexts.push_back(parent);
     }
 
     void OnEnd(internal::SpanRecord&& record,

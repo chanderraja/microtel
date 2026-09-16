@@ -32,6 +32,18 @@ Track A — Trace SDK (per [`docs/development.md`](../../docs/development.md) §
   list is immutable behind a `shared_ptr`, which is what keeps `SpanContext`'s
   copy `noexcept`; `internal::TraceStateImpl` is defined in that one
   translation unit and nowhere else, so its layout is not part of the ABI.
+- `microtel::Baggage` — the W3C Baggage grammar, percent-encoding, the opaque
+  `;`-property tail, the three grammar limits, and copy-on-write
+  `Get` / `Set` / `Erase`
+  ([`baggage.cpp`](baggage.cpp), declared in
+  [`include/microtel/baggage.hpp`](../../include/microtel/baggage.hpp)) —
+  [ICP 0025](../../docs/icps/0025-propagation-core.md) §2. Same shape as
+  `TraceState`: the entry list is immutable behind a `shared_ptr`, which is what
+  keeps `Context`'s copy `noexcept`, and `internal::BaggageImpl` is defined in
+  that one translation unit so its layout is not part of the ABI. Baggage rides
+  `Context`, **never** `SpanContext` — it is per-context rather than per-span,
+  and a growable member on `SpanContext` would break
+  `Span::GetContext() const noexcept`.
 - `microtel::CurrentContext` and `microtel::ScopedContext`
   ([`context.cpp`](context.cpp), declared in
   [`include/microtel/context.hpp`](../../include/microtel/context.hpp)) —

@@ -451,7 +451,8 @@ These three seams collectively make every cross-thread contract in this document
 | `Provider` | Thread-safe (lifecycle methods may be called from any caller thread) | `@threadsafety Thread-safe` |
 | `SdkBuilder` | **Externally synchronised** — caller serialises chained `WithXxx` calls | `@threadsafety Externally synchronized` |
 | `Resource` | Immutable after construction; thread-safe for read | `@threadsafety Thread-safe` |
-| `Context` | Immutable value; thread-safe for read. Copying is `noexcept` and allocation-free — `TraceState` is a `shared_ptr` refcount bump | `@threadsafety Thread-safe` |
+| `Context` | Immutable value; thread-safe for read. Copying is `noexcept` and allocation-free — both growable members, `TraceState` and `Baggage`, are `shared_ptr` refcount bumps | `@threadsafety Thread-safe` |
+| `Baggage` | Immutable value; thread-safe for read. `Set` / `Erase` are copy-on-write and return a new value rather than mutating a shared list (LOCKED — cites `src/api/baggage.cpp:Baggage`) | `@threadsafety Thread-safe` |
 | `ScopedContext` | **Thread-confined** — constructed and destroyed on one thread, never shared. Restore is positional: destroy scopes in reverse order of creation (LOCKED — cites `src/api/context.cpp:ScopedContext`) | `@threadsafety Thread-confined` |
 | `ScopedSpan` | **Thread-confined**, for the `ScopedContext` it holds. Ends its span before restoring the context (LOCKED — cites `include/microtel/span.hpp:ScopedSpan`) | `@threadsafety Thread-confined` |
 | `LogSink` (callback) | Caller-supplied; microtel makes no thread-safety assumption beyond "may be called from any internal thread" | documented in `log_sink.hpp` |

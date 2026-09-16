@@ -5,6 +5,7 @@
 # See src/api/README.md.
 
 add_library(microtel_api STATIC
+    baggage.cpp
     context.cpp
     propagator.cpp
     trace.cpp

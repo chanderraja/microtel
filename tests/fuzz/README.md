@@ -15,6 +15,12 @@ per `microtel-spec.md` §13.5:
 | `response_decompression_fuzz.cpp` | Decompression-bomb protection; bounded by `max_decompressed_bytes`. |
 | `otlp_response_fuzz.cpp`      | The `ExportTraceServiceResponse` proto parser (partial-success path). |
 
+## v1.1 harnesses
+
+| File | Surface |
+|---|---|
+| `baggage_fuzz.cpp` | The W3C `baggage` header parser. Required by the v1.1 ships-when gate clause 3 ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Asserts the three grammar limits and `FromHeader`/`ToHeader` round-trip stability, not just crash-freedom. |
+
 ## Invariants
 
 Per `docs/grpc-wire-protocol.md` §7.4 — and applicable to every fuzz
@@ -54,5 +60,5 @@ It replays every committed input with `-runs=1` and fails on any non-zero
 exit, printing the harness output so the sanitizer report is visible. A
 missing harness binary is an error rather than a skip: a renamed target
 must not silently stop being checked. Empty `crashes/` directories — the
-current state for all four harnesses — pass, and the script says so
+current state for every harness — pass, and the script says so
 rather than implying coverage it does not have.

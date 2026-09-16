@@ -26,6 +26,20 @@ microtel_add_test(
     SOURCES context_test.cpp
     LIBS    microtel_api)
 
+# v1.1 packet 2.3c — W3C Baggage: the grammar, percent-encoding, the property
+# tail, and the three limits (ICP 0025 §2). Lives in microtel_api's baggage.cpp.
+microtel_add_test(
+    NAME    baggage_test
+    SOURCES baggage_test.cpp
+    LIBS    microtel_api)
+
+# v1.1 packet 2.3c — W3CBaggagePropagator and the Context baggage slot it
+# fills (ICP 0025 §2, §4).
+microtel_add_test(
+    NAME    baggage_propagator_test
+    SOURCES baggage_propagator_test.cpp
+    LIBS    microtel_api)
+
 # v1.1 — Resource::Merge precedence (spec §12.7). Header-only: the merge is an
 # inline member of the public `Resource`, so this needs no library beyond the
 # header target microtel_add_test already links.

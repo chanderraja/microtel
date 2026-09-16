@@ -13,6 +13,7 @@
 
 // --- Public API ---
 #include "microtel/attribute.hpp"
+#include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
 #include "microtel/error.hpp"
 #include "microtel/log_sink.hpp"

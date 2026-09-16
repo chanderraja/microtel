@@ -294,6 +294,39 @@ target_compile_options(noexcept_alloc_failure_test PRIVATE
     -Wno-missing-field-initializers)
 endif()
 
+# v1.1 — the multi-profile registry (ICP 0027): the slot array below the line,
+# WithProfileName / GetProvider above it. Reaches into src/sdk/
+# provider_registry.hpp and src/sdk/sdk_provider.hpp directly, and uses
+# tests/mocks for the pipelines it does not want to build for real.
+microtel_add_test(
+    NAME    provider_registry_test
+    SOURCES provider_registry_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(provider_registry_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(provider_registry_test PRIVATE
+    -Wno-missing-field-initializers)
+
+# v1.1 — the same registry under contention. Only meaningful under
+# -DMICROTEL_SANITIZER=tsan; MICROTEL_HAMMER_SECONDS extends its budget for a
+# longer local run.
+microtel_add_test(
+    NAME    provider_registry_race_test
+    SOURCES provider_registry_race_test.cpp
+    LIBS    microtel_sdk)
+
+target_include_directories(provider_registry_race_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(provider_registry_race_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # threading-model.md §7 fork semantics. Actually forks; Linux-only, which
 # matches the project's target platform.
 microtel_add_test(

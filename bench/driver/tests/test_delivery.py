@@ -1,6 +1,7 @@
 # Copyright (c) 2026 The microtel Authors.
 # SPDX-License-Identifier: Apache-2.0
-"""Delivery-rate accounting: spans received over spans actually sent."""
+"""Span-count denominators: delivery rate and drop rate both divide by the
+number of spans actually sent, not by the number of workload iterations."""
 
 import sys
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from driver.__main__ import _delivery_rate_pct, _spans_per_iteration
-from driver.report import _delivery_rate_from_sink
+from driver.report import _delivery_rate_from_sink, _drop_rate
 
 
 # ---------------------------------------------------------------------------
@@ -98,3 +99,41 @@ def test_summary_delivery_falls_back_to_spans_emitted():
 def test_summary_delivery_none_when_all_samples_none():
     samples = [_sample(5_000, 0, 0, None)]
     assert _delivery_rate_from_sink(samples) is None
+
+
+# ---------------------------------------------------------------------------
+# Aggregate drop rate across samples
+#
+# Same denominator as delivery: the SDK counts dropped *spans*, so dividing by
+# the iteration count over-reports by the spans-per-iteration factor.
+# ---------------------------------------------------------------------------
+
+def _drop_sample(emitted: int, expected: int, dropped: int):
+    return {
+        "spans_emitted": emitted,
+        "spans_expected": expected,
+        "spans_dropped": {"total": dropped},
+    }
+
+
+def test_summary_drop_rate_uses_spans_expected():
+    # realistic-request: 5 000 iterations x 3 spans = 15 000 spans sent.
+    # 150 dropped spans is 1%; the iteration denominator reported 3%.
+    samples = [_drop_sample(5_000, 15_000, 150)]
+    assert _drop_rate(samples) == 1.0
+
+
+def test_summary_drop_rate_aggregates_across_samples():
+    samples = [_drop_sample(5_000, 15_000, 150) for _ in range(3)]
+    assert _drop_rate(samples) == 1.0
+
+
+def test_summary_drop_rate_falls_back_to_spans_emitted():
+    # One span per iteration, and every results document written before
+    # spans_expected existed.
+    legacy = [{"spans_emitted": 10_000, "spans_dropped": {"total": 100}}]
+    assert _drop_rate(legacy) == 1.0
+
+
+def test_summary_drop_rate_zero_when_nothing_sent():
+    assert _drop_rate([_drop_sample(0, 0, 0)]) == 0.0

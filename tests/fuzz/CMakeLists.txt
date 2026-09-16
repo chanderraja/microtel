@@ -68,3 +68,8 @@ microtel_add_fuzz_target(
     NAME    response_decompression_fuzz
     SOURCES response_decompression_fuzz.cpp
     LIBS    microtel_gzip microtel_grpc_wire)
+
+microtel_add_fuzz_target(
+    NAME    baggage_fuzz
+    SOURCES baggage_fuzz.cpp
+    LIBS    microtel_api)

@@ -4,16 +4,52 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace microtel::config
 {
+
+/// @brief Parse a `microtel::LogLevel` from its configuration spelling.
+///
+/// One table shared by the `[logging] level` TOML key and `MICROTEL_LOG_LEVEL`
+/// so the two spellings can never drift apart (ICP 0026 §6).
+///
+/// @param text the configured value, lowercase.
+/// @return the level, or `std::nullopt` if `text` names none.
+[[nodiscard]] inline std::optional<microtel::LogLevel> ParseLogLevel(std::string_view text) noexcept
+{
+    if (text == "trace")
+    {
+        return microtel::LogLevel::Trace;
+    }
+    if (text == "debug")
+    {
+        return microtel::LogLevel::Debug;
+    }
+    if (text == "info")
+    {
+        return microtel::LogLevel::Info;
+    }
+    if (text == "warn")
+    {
+        return microtel::LogLevel::Warn;
+    }
+    if (text == "error")
+    {
+        return microtel::LogLevel::Error;
+    }
+    return std::nullopt;
+}
+
 
 /// @brief Controls treatment of unknown TOML keys (per spec §12 strict mode).
 enum class UnknownKeyMode : std::uint8_t
@@ -102,6 +138,18 @@ struct Config
     /// Honors `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`
     /// ("cumulative" | "delta" | "lowmemory"). OTel default: cumulative.
     microtel::TemporalityPreference metric_temporality{microtel::TemporalityPreference::Cumulative};
+
+    // Internal diagnostic logging
+    /// @brief Minimum severity for microtel's own internal logs.
+    ///
+    /// From the `[logging] level` TOML key or `MICROTEL_LOG_LEVEL`
+    /// (`trace` | `debug` | `info` | `warn` | `error`). `Build()` seeds the
+    /// process-global filter from it; `Provider::SetLogLevel` retunes it
+    /// afterwards. Default `Info` changes nothing observable — every
+    /// production emission site logs at `Warn`.
+    ///
+    /// @see docs/configuration.md §3.11, ICP 0026 §6, issue #190
+    microtel::LogLevel log_level{microtel::LogLevel::Info};
 };
 
 }  // namespace microtel::config

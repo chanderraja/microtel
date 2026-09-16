@@ -243,6 +243,30 @@ namespace
                     .message = R"(expected "true"/"1" or "false"/"0")"});
 }
 
+/// Apply MICROTEL_LOG_LEVEL to cfg if the env var is set (ICP 0026 §6).
+///
+/// Rejected rather than ignored on a typo, for the reason
+/// `MICROTEL_RESOURCE_DETECTORS_STRICT` is: an operator who raises the level to
+/// debug a problem and quietly gets the default back has been told nothing.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayLogLevel(Config& cfg)
+{
+    const auto v = GetEnv("MICROTEL_LOG_LEVEL");
+    if (v.empty())
+    {
+        return {};
+    }
+    const auto parsed = ParseLogLevel(v);
+    if (!parsed)
+    {
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                        .field = "MICROTEL_LOG_LEVEL",
+                        .message = R"(expected "trace", "debug", "info", "warn" or "error")"});
+    }
+    cfg.log_level = *parsed;
+    return {};
+}
+
 /// The exporter half of the overlay: endpoint, protocol, headers, timeout,
 /// compression and CA bundle.
 [[nodiscard]] microtel::Expected<void, ConfigError> OverlayExporterEnv(Config& cfg)
@@ -316,6 +340,12 @@ namespace
 
     // OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
     if (auto r = OverlayMetricTemporality(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+
+    // MICROTEL_LOG_LEVEL
+    if (auto r = OverlayLogLevel(cfg); !r)
     {
         return microtel::make_unexpected(r.error());
     }

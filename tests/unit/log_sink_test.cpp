@@ -39,15 +39,11 @@ protected:
     {
         // Each test installs a fresh sink; restore the default afterward
         // so subsequent tests / suites are not affected. The minimum level is
-        // process-global (ICP 0026 §6), so it needs the same treatment.
+        // process-global (ICP 0026 §6), so it needs the same treatment — and
+        // restoring the *shipped* default, not a convenient one, is what lets
+        // `DefaultMinimumLevelIsInfo` below mean something.
         mt::ResetLogSink();
-        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Trace));
-    }
-
-    void SetUp() override
-    {
-        // Emit at Debug in most of these tests; the shipped default is Info.
-        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Trace));
+        EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Info));
     }
 };
 
@@ -96,7 +92,10 @@ void EmitLoop(int iters) noexcept
 {
     for (int j = 0; j < iters; ++j)
     {
-        mt::internal::LogImpl(mt::LogLevel::Debug, "x");
+        // Warn, not Debug: the shipped minimum level is Info, and a loop that
+        // emitted below it would be filtered out before the sink-copy path
+        // these stress tests exist to exercise (ICP 0026 §6).
+        mt::internal::LogImpl(mt::LogLevel::Warn, "x");
     }
 }
 
@@ -163,10 +162,13 @@ std::vector<mt::LogLevel> EmitEveryLevel()
 TEST_F(LogSinkTest, DefaultMinimumLevelIsInfo)
 {
     // The shipped default: Trace and Debug are dropped, everything from Info
-    // up is emitted. All three production LogImpl call sites emit at Warn, so
-    // the default changes nothing observable (ICP 0026 §6).
-    mt::ResetLogSink();
+    // up is emitted. Every production LogImpl call site emits at Warn, so the
+    // default changes nothing observable (ICP 0026 §6).
     EXPECT_EQ(mt::internal::MinLogLevel(), mt::LogLevel::Info);
+    const std::vector<mt::LogLevel> seen = EmitEveryLevel();
+    ASSERT_EQ(seen.size(), std::size_t{3});
+    EXPECT_EQ(seen[0], mt::LogLevel::Info);
+    EXPECT_EQ(seen[2], mt::LogLevel::Error);
 }
 
 TEST_F(LogSinkTest, BelowMinimumLevelNeverReachesTheSink)

@@ -1058,7 +1058,10 @@ TEST(OverlayEnvTest, MicrotelLogLevelRejectsAnUnknownValue)
     mc::Config cfg;
     const auto result = mc::OverlayEnv(cfg);
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue);
+    // EnvParseFailure, not InvalidValue: that is what every other rejected
+    // env var in this layer returns (MICROTEL_RESOURCE_DETECTORS_STRICT,
+    // OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE).
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
     EXPECT_EQ(result.error().field, "MICROTEL_LOG_LEVEL");
 }
 

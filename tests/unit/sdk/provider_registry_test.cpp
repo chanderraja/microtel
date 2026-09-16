@@ -529,7 +529,9 @@ TEST(MultiProfileBuildTest, EmptyProfileNameIsRejected)
     const auto built = mt::SdkBuilder().WithEndpoint(kTestEndpoint).WithProfileName("").Build();
     ASSERT_FALSE(built.has_value());
     EXPECT_EQ(built.error().kind, mt::ConfigError::Kind::InvalidValue);
-    EXPECT_EQ(built.error().field, "sdk.profile_name");
+    // Undotted: the profile name is a call-site setting, with no TOML key and
+    // no environment variable for a dotted path to point at.
+    EXPECT_EQ(built.error().field, "profile_name");
 }
 
 // The capacity error reaches `Build()`'s caller, and it carries the number a

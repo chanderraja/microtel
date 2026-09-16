@@ -692,7 +692,12 @@ void SdkBuilder::Impl::ApplyResourceOverrides(config::Config& cfg) const
 namespace
 {
 
-constexpr const char* kProfileNameField = "sdk.profile_name";
+/// Undotted on purpose. `ConfigError::field` is a dotted path *when the setting
+/// has one*, and the profile name has no `microtel.toml` key and no environment
+/// variable: it is chosen at the call site, by `WithProfileName`. Calling it
+/// `sdk.profile_name` would send a reader to `docs/configuration.md` looking for
+/// a key that is not there.
+constexpr const char* kProfileNameField = "profile_name";
 
 [[nodiscard]] ConfigError DuplicateProfileNameError(std::string_view name)
 {

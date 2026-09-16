@@ -20,7 +20,15 @@ Track A — Trace SDK.
   [`sampler_factories.cpp`](sampler_factories.cpp)), plus the v1.1 rule
   combinators and chain composition modes — `AttributeRuleSampler`,
   `SpanNameRuleSampler`, `SpanKindRuleSampler`, `ChainSampler` (in
-  [`sampler_chains.cpp`](sampler_chains.cpp))
+  [`sampler_chains.cpp`](sampler_chains.cpp)). All of them share
+  [`sampler_description.hpp`](sampler_description.hpp)'s `DescriptionSlot`
+  for the one thing `ISampler::TrySetRatio` makes hard: publishing a new
+  `Description()` without invalidating a `string_view` already handed out
+  ([ICP 0026](../../docs/icps/0026-provider-setters.md) §5)
+- The four hot-reload setters on `Provider` — `SetBatchOptions`,
+  `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` (in
+  [`sdk_provider.cpp`](sdk_provider.cpp), with the concrete `SetOptions` /
+  `SetInterval` they drive on the batch processors and the periodic reader)
 - `internal::ISpanProcessor` realisations: `BatchSpanProcessor`,
   `SimpleSpanProcessor`
 - `internal::IResourceDetector` — the `process` and `host` detectors in
@@ -67,6 +75,15 @@ Track A — Trace SDK.
   by fixing everything at construction — child vector sized once, each
   child's dynamic type resolved once, description formatted once — and
   `tests/unit/sdk/sampler_chain_alloc_test.cpp` counts allocations around
-  `ShouldSample` to prove it stays that way.
+  `ShouldSample` to prove it stays that way. `TrySetRatio` keeps the same
+  promise from the other side: the ratio sampler's decision is one relaxed
+  atomic load, with the always-sample case folded into the threshold
+  sentinel rather than kept in a second, separately-readable field.
+- **A setter takes at most one non-leaf lock, and never across a call-out**
+  (`docs/threading-model.md` §4 rule 2). That is why `SetBatchOptions` is two
+  phases rather than one nested one, and why a composite sampler recomposes
+  its description *after* forwarding to its delegates. The TSAN hammer in
+  `tests/unit/sdk/hot_reload_hammer_test.cpp` is what keeps it honest;
+  `MICROTEL_HAMMER_SECONDS` extends its default budget for a local run.
 - **Provider holds a `unique_ptr<SslCtx>` indirectly via `Transport`**
   per ICP 0003 §3.1 — no shared ownership of TLS state.

@@ -65,6 +65,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 namespace mt = microtel;
@@ -320,6 +321,23 @@ void RequireShutDownAnswers(mt::Provider& provider)
 /// Bounded so a pathological input cannot turn one exec into a long run.
 constexpr int kMaxOpcodes = 64;
 
+/// Swallow the internal log once, at the first exec.
+///
+/// Every rejected setter call logs at `Warn`, and the harness exists to make
+/// rejections happen — so without a sink every exec would write several lines
+/// to stderr and the fuzzer would spend its time in `fprintf`. Raising the
+/// minimum level instead would not work: `SetLogLevel` is one of the four
+/// knobs under test and lowers it right back.
+void InstallSilentSinkOnce()
+{
+    static const bool once = []
+    {
+        microtel::SetLogSink([](mt::LogLevel, std::string_view) {});
+        return true;
+    }();
+    (void)once;
+}
+
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
@@ -328,6 +346,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     {
         return 0;
     }
+    InstallSilentSinkOnce();
 
     Cursor cursor{data, size};
     Shape shape;

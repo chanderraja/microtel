@@ -20,6 +20,7 @@ per `microtel-spec.md` §13.5:
 | File | Surface |
 |---|---|
 | `baggage_fuzz.cpp` | The W3C `baggage` header parser. Required by the v1.1 ships-when gate clause 3 ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Asserts the three grammar limits and `FromHeader`/`ToHeader` round-trip stability, not just crash-freedom. |
+| `provider_setters_fuzz.cpp` | The four hot-reload `Provider` setters' validation surface ([ICP 0026](../../docs/icps/0026-provider-setters.md)), required by the v1.1 ships-when gate clause 2. The input is a *program*, not a value: byte 0 picks the provider's shape and the rest is a stream of opcodes replayed against one live provider, so interleavings are fuzzed alongside ranges. Asserts that `InvalidArgument` comes back exactly when the harness independently judges the value bad, that nothing but `Completed` / `InvalidArgument` / `Unsupported` comes back before `Shutdown`, and that `Unsupported` depends on the pipeline rather than on history. |
 
 ## Invariants
 

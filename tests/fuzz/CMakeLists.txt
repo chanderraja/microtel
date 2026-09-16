@@ -83,3 +83,8 @@ microtel_add_fuzz_target(
     LIBS    microtel_sdk microtel_common)
 
 target_include_directories(provider_setters_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# SdkProviderArgs bundles every pipeline; this harness names only the ones it
+# varies and lets the rest default, the same waiver the sdk_provider tests take.
+target_compile_options(provider_setters_fuzz PRIVATE
+    -Wno-missing-field-initializers)

@@ -87,6 +87,33 @@ constexpr auto kDefaultSeconds = 3;
 constexpr auto kScheduleDelay = 2ms;
 constexpr auto kMetricInterval = 2ms;
 
+/// Installs a sink for the duration of a hammer, and restores the shipped log
+/// level afterwards.
+///
+/// Two reasons, both load-bearing. The emitter thread logs at `Warn` on every
+/// turn, so without a sink a long run buries the test output in stderr. And a
+/// sink is the *stronger* test: it puts the sink-copy path under the same
+/// contention as the level knob, rather than only the stderr fallback.
+class SilentSink
+{
+public:
+    SilentSink() noexcept
+    {
+        mt::SetLogSink([](mt::LogLevel, std::string_view) {});
+    }
+
+    ~SilentSink() noexcept
+    {
+        mt::ResetLogSink();
+        (void)mt::internal::SetMinLogLevel(mt::LogLevel::Info);
+    }
+
+    SilentSink(const SilentSink&) = delete;
+    SilentSink& operator=(const SilentSink&) = delete;
+    SilentSink(SilentSink&&) = delete;
+    SilentSink& operator=(SilentSink&&) = delete;
+};
+
 std::chrono::seconds HammerBudget()
 {
     const char* const raw = std::getenv("MICROTEL_HAMMER_SECONDS");
@@ -279,6 +306,7 @@ void ReadSamplerDescription(const mt::internal::ISampler& sampler,
 
 TEST(HotReloadHammer, AllFourSettersRaceEveryHotPathReader)
 {
+    const SilentSink sink;
     Rig rig = MakeRig();
     mt::Provider& provider = *rig.provider;
 
@@ -333,11 +361,11 @@ TEST(HotReloadHammer, AllFourSettersRaceEveryHotPathReader)
     EXPECT_GT(level_calls.load(), std::uint64_t{0});
 
     EXPECT_NE(provider.Shutdown(5s), mt::Status::Failed);
-    EXPECT_TRUE(mt::internal::SetMinLogLevel(mt::LogLevel::Info));
 }
 
 TEST(HotReloadHammer, SamplerDescriptionReadsRaceRetunes)
 {
+    const SilentSink sink;
     Rig rig = MakeRig();
     mt::Provider& provider = *rig.provider;
     const std::shared_ptr<mt::Tracer> tracer = provider.GetTracer("hammer", "1.0");

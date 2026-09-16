@@ -1,8 +1,20 @@
 # microtel Control Plane Design
 
-**Status:** Design complete, implementation DEFERRED — see
+**Status:** Design complete, socket implementation DEFERRED to v1.2 — see
 "Status and disposition" below. Not a sign-off blocker for any
 other milestone.
+
+**The four knobs themselves are not future work any more.** §2's Tier 1–3
+knobs ship in v1.1 as the ordinary `Provider` setters this document's own §2
+closing alternative proposed — `SetBatchOptions`, `SetMetricInterval`,
+`SetSamplerRatio`, `SetLogLevel` — specified in
+[ICP 0026](icps/0026-provider-setters.md) and implemented in packet 2.4. What
+stays deferred is everything *around* them: the socket, the JSON wire,
+`microtelctl`, the fourth thread, the signal handler, and the threat model
+([ICP 0024](icps/0024-v1.1-rescope.md) moves those to v1.2). Read the sections
+below as the design of the out-of-process administration layer, not of the
+knobs — and Tier 4, swapping the sampler *object*, is still deferred for the
+borrowed-pointer reason ICP 0026 records.
 
 ## Status and disposition
 
@@ -312,6 +324,13 @@ to close. It is a smaller feature, not the same feature delivered more cheaply.
 
 **Not decided here.** Recorded as the **leading candidate to evaluate first**
 if M15 is ever revisited, ahead of the socket design in §3–§9.
+
+**Decided elsewhere, and taken.** [ICP 0024](icps/0024-v1.1-rescope.md)
+evaluated this alternative and accepted it;
+[ICP 0026](icps/0026-provider-setters.md) drafted the four signatures, and
+v1.1 packet 2.4 shipped them. The paragraph above about what it does not give
+— no out-of-process administration — still stands, and is the reason the
+socket travels to v1.2 rather than being cancelled.
 
 ---
 

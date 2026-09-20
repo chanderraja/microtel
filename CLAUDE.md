@@ -169,7 +169,7 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 
 ## Pre-PR CI checklist
 
-Run these locally before opening or pushing to a PR. CI runs Ubuntu with clang-18/g++-13; local Fedora uses clang-21. Formatting and tidy are version-sensitive.
+Run these locally before opening or pushing to a PR. CI runs Ubuntu with clang-18/g++-13; the local Fedora host compiles with clang-22 and ships clang-format 18.1.8. Formatting and tidy are version-sensitive — and for clang-format that means the **patch** version, not just the major.
 
 ### Format
 
@@ -178,6 +178,13 @@ CLANG_FORMAT=clang-format ci/scripts/format-check.sh
 ```
 
 If it reports violations, run `clang-format -i <file>` to fix them. The `.clang-format` config sets `AlignConsecutiveDeclarations: None` and `AlignConsecutiveAssignments: None` — **never use manual column alignment**; the formatter removes it and CI fails.
+
+**Match CI's patch version.** CI installs `clang-format-18` from Ubuntu's apt, which is **18.1.3**; Fedora ships **18.1.8**. They disagree on real code — notably where a `<<` chain breaks between two adjacent string literals — so a clean local run is not proof, and that divergence is what turned #288 red. The check that actually matches CI:
+
+```bash
+python3 -m venv /tmp/cf && /tmp/cf/bin/pip install -q clang-format==18.1.3
+CLANG_FORMAT=/tmp/cf/bin/clang-format ci/scripts/format-check.sh
+```
 
 ### clang-tidy
 

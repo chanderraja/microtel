@@ -1,0 +1,73 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Collector configuration for the tls example's **opt-in** overlay: the same
+# receiver as the shared stack's, wearing the certificate gen-certs.sh made.
+#
+# It does not replace examples/stack/collector-config.yaml and does not touch
+# it. Three receivers on three ports, so a posture is chosen by picking an
+# endpoint rather than by restarting anything — the arrangement
+# tests/conformance/collector/config.yaml uses, in miniature:
+#
+#   5327  OTLP/gRPC over TLS     server certificate only
+#   5328  OTLP/HTTP over TLS     the one configuration in which microtel can
+#                                use OTLP/HTTP at all (see below)
+#   5337  OTLP/gRPC over mTLS    server certificate + client CA
+#
+# Accepted spans are forwarded to the shared stack's collector on the host's
+# 4317 (`stack-host`; see tls-compose.yaml), which puts them in Tempo.
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+receivers:
+  otlp/tls:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:5327"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+      # microtel cannot reach a *plaintext* collector HTTP receiver — it speaks
+      # HTTP/2 only and that receiver is HTTP/1.1-only (issue #166,
+      # docs/compatibility-matrix.md §4). Over TLS, ALPN negotiates `h2` and
+      # the same receiver works, which is why this port exists here and not in
+      # the shared stack's config.
+      http:
+        endpoint: "0.0.0.0:5328"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+
+  # Same server material plus a client CA: the handshake fails unless the
+  # client presents a certificate this CA signed.
+  otlp/mtls:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:5337"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+          client_ca_file: /certs/ca.crt
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  otlp/stack:
+    endpoint: "stack-host:4317"
+    tls:
+      insecure: true
+
+  debug:
+    verbosity: normal
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp/tls, otlp/mtls]
+      processors: [batch]
+      exporters: [otlp/stack, debug]

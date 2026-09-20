@@ -96,3 +96,6 @@ tests/**/*_test
 # Compiled tool/check binaries from in-tree builds
 /microtel_header_check
 /tools/preflight/microtel-preflight
+
+# Generated TLS material for examples/tls (examples/tls/gen-certs.sh)
+examples/tls/certs/

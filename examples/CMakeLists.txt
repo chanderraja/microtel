@@ -49,3 +49,6 @@ function(microtel_add_example name)
 endfunction()
 
 add_subdirectory(basic_trace)
+add_subdirectory(multi_profile)
+add_subdirectory(resource_detectors)
+add_subdirectory(sampler_chains)

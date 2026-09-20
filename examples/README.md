@@ -51,9 +51,9 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | Example | What it shows | Status |
 |---|---|---|
 | [`basic_trace/`](basic_trace/) | The smallest end-to-end flow: build a provider, emit one request trace, flush, read exporter health, shut down. | **Available** |
-| `sugar_tour/` | The `microtel::sugar` convenience layer. | Planned — [#279](https://github.com/chanderraja/microtel/issues/279) |
-| `context_propagation/` | `Context`, active spans, and scope management in one process. | Planned |
-| `distributed_handoff/` | W3C `traceparent` inject/extract across two processes. | Planned |
+| [`sugar_tour/`](sugar_tour/) | The `microtel::sugar` convenience layer — `MICROTEL_TRACE_FUNCTION`, `mt::Span`, `mt::Traced`, `mt::RecordException`, `mt::AttrKey` — in one order pipeline. | **Available** |
+| [`context_propagation/`](context_propagation/) | `StartAsCurrentSpan` and the thread-local context slot: implicit parenting with no arguments passed, and what does *not* cross a thread boundary. | **Available** |
+| [`distributed_handoff/`](distributed_handoff/) | Two binaries. W3C `traceparent` / `tracestate` / `baggage` inject and extract across a process boundary, joined into one trace. | **Available** |
 | [`sampler_chains/`](sampler_chains/) | Composing head samplers into a first-match rule chain, and the same rules under all-must-agree. Prints per-case sampled counts. | **Available** |
 | [`resource_detectors/`](resource_detectors/) | The built-in `process.*` and `host.*` detectors, and the detector → env → user precedence that decides a contested key. | **Available** |
 | [`multi_profile/`](multi_profile/) | Two independent named providers in one process, found by name with `microtel::GetProvider`. | **Available** |

@@ -140,8 +140,7 @@ ServedIds Serve(microtel::Tracer& tracer, const handoff::Fd& conn)
     //
     // Installing rather than passing `.parent = remote` is also what puts the
     // baggage on the context, where anything this handler calls can read it
-    // through `CurrentContext().baggage` with no argument threading — see the
-    // note below for how far that currently reaches.
+    // through `CurrentContext().baggage` with no argument threading.
     // ---------------------------------------------------------------------
     const microtel::ScopedContext incoming{microtel::Context{remote, bag}};
 
@@ -149,22 +148,20 @@ ServedIds Serve(microtel::Tracer& tracer, const handoff::Fd& conn)
     // is the point of putting it on the context in the first place. Promoting
     // one value to a span attribute is the usual reason to carry baggage at
     // all: the tenant is known at the edge and wanted on the spans downstream.
-    //
-    // Read here, before the span scope opens, and held in a local. That is
-    // correct in any case, but today it is also necessary:
-    // `StartAsCurrentSpan` installs a `Context` built from the span context
-    // alone, so the thread's baggage is empty for the span's whole scope —
-    // issue #283. Once that is fixed this read can move down beside the
-    // `SetAttribute` call, where it reads more naturally.
-    const std::optional<std::string_view> tenant = microtel::CurrentContext().baggage.Get("tenant");
-
     const auto server = tracer.StartAsCurrentSpan(
         "order.receive",
         {.kind = microtel::SpanKind::Server, .parent = {}, .start_time = {}, .attributes = {}});
     server->SetAttribute("rpc.system", std::string{"microtel-example-text"});
     server->SetAttribute("rpc.request", *start_line);
 
-    if (tenant.has_value())
+    // Read from **inside** the span scope, which is the natural place for it
+    // and the case worth demonstrating: baggage is per-context, not per-span,
+    // so opening a span scope must not disturb it. `StartAsCurrentSpan` carries
+    // the thread's baggage into the context it installs, so everything this
+    // handler calls from here sees the same entries with no argument threading.
+    if (const std::optional<std::string_view> tenant =
+            microtel::CurrentContext().baggage.Get("tenant");
+        tenant.has_value())
     {
         server->SetAttribute("tenant.id", std::string{*tenant});
     }

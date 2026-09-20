@@ -280,27 +280,35 @@ Two things in there are real rather than illustrative:
   its `HeaderGetter`; HTTP/1.1 field names are case-insensitive and HTTP/2
   requires lowercase on the wire.
 
-## One rough edge
+## Baggage survives the span scope
 
-The receiver reads the baggage value **before** opening the span scope:
+The receiver reads the baggage from **inside** the server span's scope:
 
 ```cpp
 const microtel::ScopedContext incoming{microtel::Context{remote, bag}};
 
-const std::optional<std::string_view> tenant =
-    microtel::CurrentContext().baggage.Get("tenant");     // <- here
-
 const auto server = tracer.StartAsCurrentSpan("order.receive", {...});
+
+if (const auto tenant = microtel::CurrentContext().baggage.Get("tenant"); tenant)
+{
+    server->SetAttribute("tenant.id", std::string{*tenant});   // <- here
+}
 ```
 
-That ordering is correct in any case, but today it is also necessary:
-`StartAsCurrentSpan` installs a `Context` built from the span context alone, so
-the thread's baggage is empty for the span's entire scope. Reading it after the
-span starts returns `nullopt`. Filed as
-[#283](https://github.com/chanderraja/microtel/issues/283); when it is fixed,
-the read can move down beside the `SetAttribute` call where it reads more
-naturally. It is called out here rather than silently worked around, because
-from the outside the ordering looks like a style choice.
+That is the case worth demonstrating, because it is the one that has to hold
+for baggage to be worth carrying: baggage is **per-context, not per-span**, so
+opening a span scope must not disturb it. `StartAsCurrentSpan` carries the
+thread's baggage into the context it installs, which is what lets the rest of
+the handler — and anything it calls — read the same entries with no argument
+threading.
+
+It did not always. Writing this example turned up a bug where
+`StartAsCurrentSpan` installed a `Context` built from the span context alone,
+so the thread's baggage was empty for the span's entire scope and this read
+returned `nullopt`. That was [#283](https://github.com/chanderraja/microtel/issues/283),
+fixed in `src/sdk/sdk_tracer.cpp` by passing `CurrentContext().baggage` into
+the installed context. The example carried a workaround — the read hoisted
+above the span, commented as such — until the fix landed.
 
 ## Exit codes
 

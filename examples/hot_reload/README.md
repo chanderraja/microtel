@@ -146,9 +146,9 @@ endpoint: http://localhost:4317
 sampler:  TraceIdRatio(1)
 running for 60s, one root span every 50ms
 
-t=+5s  emitted=101 sampled=101  (last 5s: 101 emitted, 101 sampled)  trace_id=8b28d7ed…
+t=+5s  emitted=101 sampled=101  (last 5s: 101 emitted, 101 sampled)  trace_id=dad391af…
 t=+10s  SetSamplerRatio(0.1) -> Completed
-t=+15s  emitted=301 sampled=210  (last 5s: 100 emitted, 9 sampled)  trace_id=e99a3491…
+t=+15s  emitted=300 sampled=207  (last 5s: 99 emitted, 6 sampled)  trace_id=8ed77ef8…
          [microtel warn] SetBatchOptions rejected: max_queue_size and max_export_batch_size
                          must both be non-zero, max_export_batch_size must not exceed
                          max_queue_size, and schedule_delay must be greater than zero
@@ -157,10 +157,10 @@ t=+30s  SetLogLevel(Error) -> Completed
 t=+40s  SetBatchOptions({max_queue_size=0}) [invalid, and now unexplained] -> InvalidArgument
 t=+45s  SetLogLevel(Warn) -> Completed
 t=+50s  SetBatchOptions({4096, 128, 1s}) [valid] -> Completed
-t=+60s  emitted=1196 sampled=294  (last 5s: 98 emitted, 8 sampled)  trace_id=7d3063cd…
+t=+60s  emitted=1197 sampled=291  (last 5s: 99 emitted, 8 sampled)  trace_id=9bf0b8aa…
 
 ForceFlush: Completed
-batches_sent=16 batches_failed=0 queue_depth=0
+batches_sent=15 batches_failed=0 queue_depth=0
 Shutdown: Completed
 
 after Shutdown, SetSamplerRatio(0.1) -> AlreadyShutDown

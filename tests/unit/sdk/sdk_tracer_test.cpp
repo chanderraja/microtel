@@ -10,6 +10,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
+#include "microtel/propagator.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
@@ -24,9 +25,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -604,6 +608,115 @@ TEST(SdkTracerTest, StartAsCurrentSpan_DoesNotLeakIntoANewThread)
     worker.join();
 
     EXPECT_FALSE(worker_saw_a_span);
+}
+
+// ---------------------------------------------------------------------------
+// StartAsCurrentSpan and baggage (#283, ICP 0025 §2 and §3 contract 6)
+//
+// The `OnStart` tests above cover the context the *processor* sees. These
+// cover the context `ScopedSpan` *installs* — the one the application reads
+// back through `CurrentContext()`, and the one a propagator injects from.
+//
+// Baggage is per-context, not per-span: "a request carries baggage whether or
+// not a span is active, and baggage set inside a span must outlive that span
+// within the enclosing scope" (ICP 0025 §2). Entering a span scope is exactly
+// the operation that must leave it alone.
+// ---------------------------------------------------------------------------
+
+TEST(SdkTracerTest, StartAsCurrentSpan_KeepsTheThreadsBaggageInstalled)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext incoming{
+        mt::Context{MakeParentContext(0x7A), mt::Baggage::FromHeader("tenant=acme,priority=high")}};
+
+    const auto scoped = t.StartAsCurrentSpan("server");
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("priority"), std::string_view("high"));
+    EXPECT_EQ(mt::CurrentContext().baggage.Size(), 2U);
+
+    // The span still became current — the baggage rides alongside it.
+    EXPECT_EQ(mt::CurrentContext().active_span_context.span_id.AsBytes(),
+              scoped->GetContext().span_id.AsBytes());
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_NestedScopesKeepTheBaggage)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext incoming{
+        mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tenant=acme")}};
+
+    const auto outer = t.StartAsCurrentSpan("outer");
+    ASSERT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+    {
+        const auto inner = t.StartAsCurrentSpan("inner");
+        EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+    }
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_RestoresTheBaggageOnScopeExit)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext incoming{
+        mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tenant=acme")}};
+    {
+        const auto scoped = t.StartAsCurrentSpan("server");
+        ASSERT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+    }
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+    EXPECT_FALSE(mt::CurrentContext().active_span_context.IsValid());
+}
+
+// ICP 0025 §3 contract 3 installs a computed context on the drop path too, so
+// that path must carry the baggage as well — an unsampled hop still propagates.
+TEST(SdkTracerTest, StartAsCurrentSpan_Dropped_KeepsTheThreadsBaggageInstalled)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOffSampler());
+
+    const mt::ScopedContext incoming{
+        mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tenant=acme")}};
+
+    const auto scoped = t.StartAsCurrentSpan("server");
+    ASSERT_FALSE(scoped->IsSampled());
+    EXPECT_EQ(mt::CurrentContext().baggage.Get("tenant"), std::string_view("acme"));
+}
+
+TEST(SdkTracerTest, StartAsCurrentSpan_BaggageStaysEmptyWhenTheThreadHasNone)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const auto scoped = t.StartAsCurrentSpan("root");
+    EXPECT_TRUE(mt::CurrentContext().baggage.Empty());
+}
+
+// The consequence a caller actually hits: the documented one-expression inject
+// (`Inject(CurrentContext().baggage, setter)`, ICP 0025 §4) run from inside a
+// span scope — an outgoing call made while serving a request — must still emit
+// the `baggage` header.
+TEST(SdkTracerTest, StartAsCurrentSpan_CurrentBaggageStillInjects)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+
+    const mt::ScopedContext incoming{
+        mt::Context{mt::SpanContext{}, mt::Baggage::FromHeader("tenant=acme")}};
+
+    const auto scoped = t.StartAsCurrentSpan("server");
+
+    std::map<std::string, std::string, std::less<>> headers;
+    mt::W3CBaggagePropagator().Inject(mt::CurrentContext().baggage,
+                                      [&headers](std::string_view name, std::string_view value)
+                                      { headers.emplace(name, value); });
+
+    ASSERT_TRUE(headers.contains("baggage"));
+    EXPECT_EQ(headers.at("baggage"), "tenant=acme");
 }
 
 // ---------------------------------------------------------------------------

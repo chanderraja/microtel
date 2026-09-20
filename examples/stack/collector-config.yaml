@@ -1,0 +1,57 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Collector configuration for the examples stack. Receive OTLP from the
+# examples, forward it to Tempo, and log a one-line summary so `compose logs
+# otel-collector` shows whether anything arrived.
+#
+# This is deliberately *not* tests/conformance/collector/config.yaml: that one
+# exists to exercise four transport-security postures on eight ports. This one
+# exists so a reader's first span shows up in Grafana.
+
+extensions:
+  # up.sh polls this before it declares the stack ready.
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+receivers:
+  otlp:
+    protocols:
+      # The default endpoint for every example. Plaintext gRPC is h2c by
+      # definition, so microtel reaches it without TLS.
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      # Published for the TLS example. microtel cannot use this over plaintext
+      # http:// — the collector's HTTP receiver is HTTP/1.1-only and microtel
+      # is HTTP/2-only. See docs/compatibility-matrix.md §4.
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  # One second, not the 200ms default send delay, so an example that emits a
+  # handful of spans and exits still has them batched and forwarded before a
+  # reader has finished switching to the browser tab.
+  batch:
+    timeout: 1s
+
+exporters:
+  otlp/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      # Container-internal hop on the compose network. Nothing crosses a host
+      # boundary, so there is no certificate to verify.
+      insecure: true
+
+  # `compose logs otel-collector` then shows a line per batch, which is the
+  # quickest way to tell "the example never connected" from "Grafana is not
+  # showing me what did arrive".
+  debug:
+    verbosity: normal
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, debug]

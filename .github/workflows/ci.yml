@@ -98,6 +98,15 @@ jobs:
           fi
           sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev
 
+      # MICROTEL_BUILD_EXAMPLES is ON for exactly one matrix entry — cxx20 /
+      # clang — so examples/ cannot rot against the public API without a PR
+      # going red. One entry, not four: the examples are plain consumer code
+      # and compiling them on every axis buys nothing. This is not a separate
+      # required check; it fails inside a job that is already required.
+      #
+      # It earns its keep: it went green only after fixing basic_trace, which
+      # had stopped compiling when microtel::Status grew two enumerators in
+      # v1.1 and nothing asked the example to build again.
       - name: Configure
         run: |
           cmake -S . -B build \
@@ -105,7 +114,8 @@ jobs:
             -DCMAKE_CXX_STANDARD=${{ matrix.std }} \
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
-            -DMICROTEL_BUILD_TESTS=ON
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
         run: cmake --build build --verbose

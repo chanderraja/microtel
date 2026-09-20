@@ -21,7 +21,10 @@
 # broken export here cannot masquerade as a green gate.
 #
 # The pinned image tag is duplicated in docs/interop-matrix.md (with its
-# digest) and in bench/sink/collector/Dockerfile. Bump all three together.
+# digest), in bench/sink/collector/Dockerfile, and in
+# examples/stack/compose.yaml. Bump all four together — the examples stack
+# reuses this tag on purpose, so that an example talks to the same receiver
+# this gate validates against.
 #
 # Usage:  ci/scripts/conformance.sh [build-dir]     (default: build)
 #

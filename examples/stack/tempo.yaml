@@ -1,0 +1,52 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Single-binary Tempo for the examples stack. Everything below is either a
+# listener the stack depends on or a knob turned down so a laptop-scale demo
+# behaves: none of it is a recommendation for a real deployment.
+
+server:
+  # Query API and /ready. Published on the host so the README's verification
+  # curl and Grafana's datasource both reach it.
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # Written to only by the collector, over the compose network. Not
+        # published on the host — the collector owns 4317 there.
+        grpc:
+          endpoint: "0.0.0.0:4317"
+
+ingester:
+  # Tempo's defaults hold a trace in the ingester for minutes before it is cut
+  # into a searchable block. A reader running an example wants it in seconds.
+  max_block_duration: 5s
+  # How long the ingester keeps serving a block it has already flushed. It
+  # covers the handoff: without an overlap, a trace is briefly out of the
+  # ingester and not yet in the querier's blocklist, and search finds nothing
+  # while `GET /api/traces/<id>` still works — a confusing state to hand a
+  # first-time reader.
+  complete_block_timeout: 1m
+
+query_frontend:
+  search:
+    # Default 15m: a search covering only the last 15 minutes is served from
+    # the ingesters alone, so a trace that has already been cut into a block
+    # falls in a hole. 30s closes it — the ingester still holds the block for
+    # complete_block_timeout (1m above), so the two windows overlap. Not 0s:
+    # that degenerates the frontend's range split and a search sent without
+    # explicit start/end parameters comes back 400.
+    query_backend_after: 30s
+
+storage:
+  trace:
+    backend: local
+    # Default 5m. This is how often the querier re-reads the list of blocks on
+    # disk, so it is the upper bound on "flushed but not yet searchable".
+    blocklist_poll: 5s
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

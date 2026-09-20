@@ -1,0 +1,19 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loads every dashboard JSON under /var/lib/grafana/dashboards (bind-mounted
+# from examples/stack/grafana/dashboards/) into a "microtel" folder at boot.
+
+apiVersion: 1
+
+providers:
+  - name: microtel
+    orgId: 1
+    folder: microtel
+    type: file
+    # The mount is read-only, so Grafana must not try to delete from it.
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

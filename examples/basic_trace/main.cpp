@@ -4,15 +4,19 @@
 // basic_trace — a minimal, standalone example of the microtel public API.
 //
 // Builds an SDK provider, opens the OTLP/gRPC connection, emits one request
-// trace (a server parent span with two child spans), flushes, prints exporter
-// health, and shuts down cleanly.
+// trace (a server parent span with two child spans), prints the trace ID,
+// flushes, prints exporter health, and shuts down cleanly.
 //
 // Usage:
 //   basic_trace [endpoint]
 //
 // where [endpoint] defaults to http://localhost:4317 — the OTLP/gRPC receiver
-// of a collector started with:
-//   docker run --rm -p 4317:4317 otel/opentelemetry-collector
+// of the shared examples stack, started with:
+//   examples/stack/up.sh
+//
+// The trace ID goes to stdout because that is what makes the run verifiable:
+// paste it into Grafana's Explore → Tempo, or
+//   curl -s http://localhost:3200/api/traces/<trace-id>
 //
 // OTLP/gRPC rather than OTLP/HTTP because a plaintext `http://` endpoint means
 // HTTP/2 with prior knowledge, and a stock collector's OTLP/HTTP receiver on
@@ -52,11 +56,20 @@ const char* StatusToString(microtel::Status status) noexcept
             return "AlreadyShutDown";
         case microtel::Status::Failed:
             return "Failed";
+        // Setter-only outcomes. ForceFlush and Shutdown never return these,
+        // but the switch is exhaustive so -Wswitch keeps this honest if the
+        // enum grows again.
+        case microtel::Status::InvalidArgument:
+            return "InvalidArgument";
+        case microtel::Status::Unsupported:
+            return "Unsupported";
     }
     return "Unknown";
 }
 
 // Emit one "request" trace: a server parent span with two internal children.
+// Returns the trace ID as lowercase hex, which is what a backend indexes the
+// whole trace under.
 //
 // Two things worth copying into real code:
 //  - StartSpanOptions is initialised with all fields (.kind/.parent/.start_time/
@@ -65,7 +78,7 @@ const char* StatusToString(microtel::Status status) noexcept
 //  - String attribute values are constructed as std::string explicitly — a bare
 //    string literal is a const char* and would bind to the bool alternative of
 //    microtel::AttributeValue.
-void EmitRequestTrace(microtel::Tracer& tracer)
+std::string EmitRequestTrace(microtel::Tracer& tracer)
 {
     const auto parent = tracer.StartSpan(
         "example.request",
@@ -99,6 +112,8 @@ void EmitRequestTrace(microtel::Tracer& tracer)
     parent->SetAttribute("http.response.status_code", kHttpStatusOk);
     parent->SetStatus(microtel::StatusCode::Ok);
     parent->End();
+
+    return parent_ctx.trace_id.ToHex();
 }
 
 }  // namespace
@@ -136,7 +151,8 @@ int main(int argc, char** argv)
     const std::shared_ptr<microtel::Tracer> tracer =
         provider->GetTracer("microtel-basic-example", "1.0.0");
 
-    EmitRequestTrace(*tracer);
+    const std::string trace_id = EmitRequestTrace(*tracer);
+    std::cout << "trace_id: " << trace_id << '\n';
 
     const microtel::Status flush = provider->ForceFlush(kFlushTimeout);
     std::cout << "ForceFlush: " << StatusToString(flush) << '\n';

@@ -110,6 +110,9 @@ microtel-handoff-sender      order.place     SPAN_KIND_CLIENT
 microtel-handoff-receiver    order.receive   SPAN_KIND_SERVER
 ```
 
+(The two resource batches come back in whatever order Tempo stored them; only
+the pairing matters.)
+
 Two resource batches, one trace. In Grafana, open
 <http://localhost:3000> — the trace is on the **microtel — recent traces**
 dashboard within about ten seconds — and the flame graph shows `order.receive`

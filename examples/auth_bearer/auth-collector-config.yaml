@@ -1,0 +1,69 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Collector configuration for the auth_bearer example's **opt-in** overlay. It
+# is a second collector, beside the shared stack's, whose only difference is
+# that its OTLP/gRPC receiver is guarded by the `bearertokenauth` extension.
+#
+# It does not replace examples/stack/collector-config.yaml and does not touch
+# it: this one listens on 5317 (and 13133 inside the container, published as
+# 15133), so the shared stack keeps 4317 and 13133 and other examples keep
+# working while this one runs.
+#
+# What it does with what it receives: forwards it to the shared stack's
+# collector on the host's 4317, which already knows how to get a span into
+# Tempo and Grafana. `stack-host` is the host itself — see the `extra_hosts`
+# entry in auth-compose.yaml. Start examples/stack/up.sh first, or the
+# forwarding hop fails and the traces stop here (the debug exporter still logs
+# them, so the auth demonstration itself is unaffected).
+#
+# The token is a demo credential in a file in a public repository. It
+# authenticates nothing; it exists so the example has something to get right
+# and something to get wrong.
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+  # The whole point of the overlay. Same extension the conformance gate uses
+  # (tests/conformance/collector/config.yaml), same pinned contrib image, so
+  # what the example demonstrates is what the test suite validates against.
+  bearertokenauth:
+    scheme: "Bearer"
+    token: "microtel-example-token"
+
+receivers:
+  # Plaintext gRPC on purpose: gRPC is h2c by definition, so microtel reaches
+  # it without TLS, and a failure here can only be an auth failure — never a
+  # handshake failure. The tls/ example is where transport security lives.
+  otlp/auth:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:5317"
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  # The hop into the shared stack. Plaintext because it is a loopback hop on
+  # the developer's own machine.
+  otlp/stack:
+    endpoint: "stack-host:4317"
+    tls:
+      insecure: true
+
+  # `logs otel-collector-auth` then shows a line per accepted batch, which is
+  # how you tell "the token was accepted" from "the trace is somewhere else".
+  debug:
+    verbosity: normal
+
+service:
+  extensions: [health_check, bearertokenauth]
+  pipelines:
+    traces:
+      receivers: [otlp/auth]
+      processors: [batch]
+      exporters: [otlp/stack, debug]

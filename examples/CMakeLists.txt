@@ -48,6 +48,7 @@ function(microtel_add_example name)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
 endfunction()
 
+add_subdirectory(auth_bearer)
 add_subdirectory(basic_trace)
 add_subdirectory(context_propagation)
 add_subdirectory(distributed_handoff)

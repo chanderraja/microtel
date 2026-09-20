@@ -31,6 +31,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace
 {
@@ -149,7 +150,7 @@ void ShowDuplicateNameIsRefused(const std::string& endpoint)
 }
 
 /// @brief `live` or `nullptr`, for a line of registry output.
-const char* Found(const char* name) noexcept
+const char* Found(std::string_view name) noexcept
 {
     return (microtel::GetProvider(name) != nullptr) ? "live" : "nullptr";
 }
@@ -241,7 +242,8 @@ int main(int argc, char** argv)
               << "  GetProvider(\"" << kFrontendProfile << "\"): " << Found(kFrontendProfile)
               << '\n'
               << "  GetProvider(\"" << kBackendProfile << "\"):  " << Found(kBackendProfile) << '\n'
-              << "  GetProvider() [\"default\"]: " << Found("default")
+              << "  GetProvider() [\"" << microtel::kDefaultProfileName
+              << "\"]: " << Found(microtel::kDefaultProfileName)
               << "  (nothing was built under it)\n";
     ShowDuplicateNameIsRefused(endpoint);
 

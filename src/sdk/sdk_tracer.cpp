@@ -174,7 +174,14 @@ ScopedSpan SdkTracer::StartAsCurrentSpan(std::string_view name,
 {
     SpanContext started;
     SpanHandle handle = StartSpanInternal(name, opts, &started);
-    return ScopedSpan{std::move(handle), Context{started}};
+
+    // The installed Context carries the thread's baggage for the same reason
+    // `parent_propagation_ctx` above does: baggage is per-context, not
+    // per-span (ICP 0025 §2), so entering a span scope must not drop what the
+    // caller installed a frame earlier. The two-argument constructor is
+    // `noexcept` and the copy is a refcount bump, so this keeps the method's
+    // `noexcept` guarantee and allocates nothing (#283).
+    return ScopedSpan{std::move(handle), Context{started, CurrentContext().baggage}};
 }
 
 }  // namespace microtel::sdk

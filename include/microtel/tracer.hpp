@@ -72,6 +72,13 @@ public:
     /// with the sampled flag cleared, so children of an unsampled span stay in
     /// the same trace (ICP 0025 §3 contract 3).
     ///
+    /// **The installed context carries the calling thread's baggage.** Baggage
+    /// is per-context, not per-span (ICP 0025 §2), so entering a span scope
+    /// changes the active span and nothing else: a read of
+    /// `CurrentContext().baggage` from inside the scope, or an
+    /// `Inject(CurrentContext().baggage, setter)` on an outgoing call, sees
+    /// exactly what the caller installed.
+    ///
     /// The scope is **thread-confined** — destroy it on the thread that
     /// created it, and in reverse order relative to any other scope on that
     /// thread. There is no cross-thread inheritance: a worker thread starts

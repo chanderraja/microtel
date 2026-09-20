@@ -205,8 +205,8 @@ int main(int argc, char** argv)
     const std::string token{(argc > 2) ? argv[2] : kDefaultToken};
     const std::string header_value = kBearerPrefix + token;
 
-    std::cout << "endpoint: " << endpoint << "\nstart the auth overlay with: "
-              << "examples/auth_bearer/up-auth.sh\n";
+    std::cout << "endpoint: " << endpoint
+              << "\nstart the auth overlay with: examples/auth_bearer/up-auth.sh\n";
 
     const std::vector<Phase> phases{
         {.label = "phase 1: WithHeaders, wrong token",

@@ -54,9 +54,9 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | `sugar_tour/` | The `microtel::sugar` convenience layer. | Planned — [#279](https://github.com/chanderraja/microtel/issues/279) |
 | `context_propagation/` | `Context`, active spans, and scope management in one process. | Planned |
 | `distributed_handoff/` | W3C `traceparent` inject/extract across two processes. | Planned |
-| `sampler_chains/` | Composing samplers; parent-based and ratio sampling. | Planned |
-| `resource_detectors/` | Populating `Resource` from the environment. | Planned |
-| `multi_profile/` | More than one exporter profile from one provider. | Planned |
+| [`sampler_chains/`](sampler_chains/) | Composing head samplers into a first-match rule chain, and the same rules under all-must-agree. Prints per-case sampled counts. | **Available** |
+| [`resource_detectors/`](resource_detectors/) | The built-in `process.*` and `host.*` detectors, and the detector → env → user precedence that decides a contested key. | **Available** |
+| [`multi_profile/`](multi_profile/) | Two independent named providers in one process, found by name with `microtel::GetProvider`. | **Available** |
 | `hot_reload/` | Reconfiguring a live pipeline. | Planned |
 | `health_and_backpressure/` | Reading `HealthSnapshot`, drop counters, queue depth under load. | Planned |
 | `auth_bearer/` | Static headers and `WithAuthProvider`. | Planned |

@@ -57,16 +57,33 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`sampler_chains/`](sampler_chains/) | Composing head samplers into a first-match rule chain, and the same rules under all-must-agree. Prints per-case sampled counts. | **Available** |
 | [`resource_detectors/`](resource_detectors/) | The built-in `process.*` and `host.*` detectors, and the detector → env → user precedence that decides a contested key. | **Available** |
 | [`multi_profile/`](multi_profile/) | Two independent named providers in one process, found by name with `microtel::GetProvider`. | **Available** |
-| `hot_reload/` | Reconfiguring a live pipeline. | Planned |
-| `health_and_backpressure/` | Reading `HealthSnapshot`, drop counters, queue depth under load. | Planned |
-| `auth_bearer/` | Static headers and `WithAuthProvider`. | Planned |
-| `tls/` | TLS and mTLS to the collector — and the one configuration in which OTLP/**HTTP** works. | Planned |
+| [`hot_reload/`](hot_reload/) | The four ICP 0026 setters against a live pipeline: sampler ratio, batch options, log level — including the calls that are refused. | **Available** |
+| [`health_and_backpressure/`](health_and_backpressure/) | Reading `HealthSnapshot`: drop counters and queue depth under load, then a collector that is not there. | **Available** |
+| [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | **Available** |
+| [`tls/`](tls/) | TLS, a custom CA and mTLS — and the one configuration in which OTLP/**HTTP** works. Opt-in overlay. | **Available** |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 
 The planned set mirrors the v1.1 public surface; see issue
 [#279](https://github.com/chanderraja/microtel/issues/279) for the epic.
 Metrics and logs examples track when those signals get conformance coverage
 (v1.2 and v1.3 — see [`microtel-roadmap.md`](../microtel-roadmap.md)).
+
+### Opt-in overlays
+
+Two examples need a receiver the shared stack deliberately does not provide —
+one that checks a bearer token, one that serves TLS. Each brings its own
+collector as a **separate compose project on separate ports**, started by its
+own script and torn down by it:
+
+```bash
+examples/auth_bearer/up-auth.sh   # bearer-guarded OTLP/gRPC on :5317
+examples/tls/up-tls.sh            # TLS on :5327 (gRPC), :5328 (HTTP), :5337 (mTLS)
+```
+
+Nothing in [`stack/`](stack/) changes when they run: the shared collector keeps
+4317/4318, every other example keeps working, and each overlay forwards what it
+accepts to the shared collector so its traces still reach Grafana. Start the
+shared stack first if you want to see them there.
 
 ---
 

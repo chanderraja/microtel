@@ -38,7 +38,7 @@ today. Bumping one is a normal PR — re-run the verification below with it.
 | Host port | Service | Used by |
 |---|---|---|
 | `4317` | collector, OTLP/**gRPC** | **every example** — this is the default endpoint |
-| `4318` | collector, OTLP/**HTTP** | the TLS example only; see [the h2c note](#why-grpc-and-not-http) |
+| `4318` | collector, OTLP/**HTTP** | nothing here, today — plaintext, so microtel cannot reach it; see [the h2c note](#why-grpc-and-not-http) |
 | `13133` | collector `health_check` | `up.sh` readiness polling |
 | `3200` | Tempo HTTP API | Grafana's datasource, and the verification `curl` below |
 | `3000` | Grafana | you |
@@ -160,8 +160,11 @@ This is documented, not a bug:
 [`docs/compatibility-matrix.md`](../../docs/compatibility-matrix.md) §4 and
 issue #166. Examples therefore use **OTLP/gRPC on 4317** (h2c by definition,
 unaffected), or OTLP/HTTP over **TLS**, where ALPN negotiates `h2` and the same
-collector works fine. 4318 is published for the TLS example, which brings its
-own certificates.
+collector works fine. 4318 stays published so that a reader can point another
+OTLP client at it, but no example uses it: serving TLS here would mean mounting
+certificates into *this* collector, so
+[`examples/tls/`](../tls/) brings its own collector on its own ports instead
+and leaves this one alone.
 
 ---
 

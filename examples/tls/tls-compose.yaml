@@ -1,0 +1,34 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The tls example's opt-in overlay: one extra collector serving TLS with the
+# certificates gen-certs.sh generated. Start it with ./up-tls.sh, stop it with
+# ./down-tls.sh.
+#
+# A **separate compose project** (`microtel-tls-example`), not an override of
+# examples/stack/compose.yaml: different project, different ports, different
+# container. The shared stack keeps 4317/4318/13133 and other examples keep
+# working while this runs.
+#
+# ./certs must exist before `up` — up-tls.sh runs gen-certs.sh for you. The
+# mount is read-only and `:z`-labelled like every other bind mount in this
+# repository.
+
+name: microtel-tls-example
+
+services:
+  otel-collector-tls:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.160.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./tls-collector-config.yaml:/etc/otelcol/config.yaml:ro,z
+      - ./certs:/certs:ro,z
+    ports:
+      - "5327:5327"    # OTLP/gRPC over TLS
+      - "5328:5328"    # OTLP/HTTP over TLS
+      - "5337:5337"    # OTLP/gRPC over mTLS
+      - "15134:13133"  # health_check, polled by up-tls.sh
+    # How the container reaches the shared stack's collector on the host's
+    # 4317. Understood by podman 4.x and docker 20.10+ alike.
+    extra_hosts:
+      - "stack-host:host-gateway"

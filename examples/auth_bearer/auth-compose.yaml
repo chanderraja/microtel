@@ -1,0 +1,32 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The auth_bearer example's opt-in overlay: one extra collector whose OTLP/gRPC
+# receiver requires a bearer token. Start it with ./up-auth.sh, stop it with
+# ./down-auth.sh.
+#
+# It is a **separate compose project** (`microtel-auth-example`), not an
+# override of examples/stack/compose.yaml. Nothing about the shared stack
+# changes when this runs: different project, different ports, different
+# container. Other examples keep exporting to 4317 throughout.
+#
+# Same portability constraints as the shared stack — no healthcheck blocks
+# (up-auth.sh polls), `:z` on the bind mount, no named volumes.
+
+name: microtel-auth-example
+
+services:
+  otel-collector-auth:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.160.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./auth-collector-config.yaml:/etc/otelcol/config.yaml:ro,z
+    ports:
+      - "5317:5317"    # OTLP/gRPC, bearer-token guarded — the example's endpoint
+      - "15133:13133"  # health_check, polled by up-auth.sh
+    # How the container reaches the shared stack's collector on the host's
+    # 4317. `host-gateway` is understood by both podman (4.x) and docker
+    # (20.10+); the config refers to the name, not to an address, so nothing
+    # here assumes a particular bridge subnet.
+    extra_hosts:
+      - "stack-host:host-gateway"

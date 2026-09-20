@@ -29,7 +29,9 @@ name: microtel-stack
 services:
   # Every example points here. OTLP/gRPC on 4317 is the default endpoint;
   # 4318 is OTLP/HTTP, which microtel can only reach over TLS (see
-  # docs/compatibility-matrix.md §4) and is published for the TLS example.
+  # docs/compatibility-matrix.md §4), so no example uses it — examples/tls/
+  # serves TLS from a collector of its own rather than adding certificates
+  # here.
   otel-collector:
     image: docker.io/otel/opentelemetry-collector-contrib:0.160.0
     command: ["--config=/etc/otelcol/config.yaml"]

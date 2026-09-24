@@ -1,15 +1,15 @@
 # `context_propagation`
 
-Implicit parenting inside one process: how a three-level trace comes out of
-functions that never mention each other.
+Implicit parenting inside one process. This example shows how a three-level
+trace comes out of functions that never mention each other:
 
 ```cpp
 void QueryDb(microtel::Tracer& tracer);   // <- the whole signature.
 void LoadUser(microtel::Tracer& tracer);  //    No span. No parent. No context.
 ```
 
-Then the thread boundary, which is where the mechanism stops — and the one line
-on each side that gets you across it.
+It then moves to a thread boundary, where implicit parenting stops, and shows
+the one line you need on each side to carry the context across.
 
 ## Run it
 
@@ -54,14 +54,17 @@ orphan  trace_id: 7416ffaee7086a89d78391d87b5523bb   (different — a new thread
 carried trace_id: 12a0fc5d839c49948298dffde504fde8   (same as the request — context handed over)
 ```
 
-A different collector is `argv[1]`.
+After this block the program prints the always-off provider's `Shutdown`
+status, the main provider's `ForceFlush`/health/`Shutdown` summary, and the
+Grafana and `curl` commands for the two exported traces. To export to a
+different collector, pass its endpoint as the first argument.
 
 ## The slot
 
-`microtel::CurrentContext()` is one `Context` **per thread**. It is never null:
-a thread that has installed nothing sees a default-constructed `Context` whose
-`active_span_context` is all zeros — the first and last lines of the output
-above.
+`microtel::CurrentContext()` gives you one `Context` per thread. It is never
+null: a thread that hasn't installed anything sees a default-constructed
+`Context` whose `active_span_context` is all zeros. That's what the first and
+last lines of the output above show.
 
 A `Context` holds exactly two things, both named and typed:
 
@@ -74,42 +77,42 @@ public:
 };
 ```
 
-Two slots, not an opaque key/value map. Both of the growable members —
-`SpanContext::trace_state` and `baggage` — hold their entries behind a
-`shared_ptr`, so copying a `Context` is a couple of refcount bumps: `noexcept`,
-allocation-free, and cheap enough to put in a lambda capture. That is not a
-detail, it is the reason the design works — `Span::GetContext()` returns a
-`SpanContext` **by value** and is `noexcept` by hard rule 14, so nothing inside
-one may have an allocating copy.
+There is no opaque key/value map. The two members that can grow,
+`SpanContext::trace_state` and `baggage`, keep their entries behind a
+`shared_ptr`, so copying a `Context` costs a couple of refcount bumps. The copy
+is `noexcept` and allocation-free, cheap enough to put in a lambda capture. The
+design depends on this: `Span::GetContext()` returns a `SpanContext` by value
+and, like every hot-path method, is `noexcept`, so nothing inside a
+`SpanContext` may have an allocating copy.
 
-`CurrentContext()` returns a **borrowed** reference to the thread's slot,
-invalidated by the next scope construction or destruction on that thread. Read
-it; copy it if you need to keep it.
+`CurrentContext()` returns a borrowed reference to the thread's slot. The next
+scope construction or destruction on that thread invalidates it, so read it
+and copy it if you need to keep it.
 
 ## The RAII restore rule
 
 `StartAsCurrentSpan` returns a `ScopedSpan`, which owns a `ScopedContext`. On
-construction the new context is installed; on destruction the **displaced** one
-is written back.
+construction it installs the new context; on destruction it writes back the
+context it displaced.
 
-**The per-thread stack is the C++ stack.** There is no thread-local container:
-the slot holds a single `Context` by value, and each live scope holds the value
-it displaced. Nesting is a chain through your own stack frames — no heap, no
-depth limit, and installing a context costs a refcount bump and a thread-local
-store.
+The per-thread stack is your C++ call stack. There is no thread-local
+container. The slot holds a single `Context` by value, and each live scope
+holds the value it displaced, so nesting is a chain through your own stack
+frames. That means no heap and no depth limit, and installing a context costs
+a refcount bump and a thread-local store.
 
-The price of that shape is that **restore is positional: scopes must be
-destroyed in reverse order of creation on a thread.** Destroying out of order
-writes back a stale context. It is a programming error, not a diagnosed
-condition — microtel does not detect it, deliberately. Ordinary block scope and
-ordinary member lifetimes give you the right order for free, which is why
-`ScopedContext` and `ScopedSpan` are move-constructible but **not** copyable
-and **not** move-assignable: either would let a restore land out of order.
+The cost of that design is that restore is positional: **scopes must be
+destroyed in reverse order of creation on a thread.** Destroying them out of
+order writes back a stale context. microtel treats that as a programming error
+and makes no attempt to detect it. Ordinary block scope and member lifetimes
+give you the right order automatically. That's why `ScopedContext` and
+`ScopedSpan` are move-constructible but neither copyable nor move-assignable;
+either operation would let a restore happen out of order.
 
-Both types are **thread-confined**. Construct and destroy on one thread; do not
-share one.
+Both types are thread-confined. Construct and destroy each one on a single
+thread, and don't share them.
 
-`ScopedSpan`'s member order is load-bearing:
+The order of `ScopedSpan`'s members matters:
 
 ```cpp
 private:
@@ -117,13 +120,12 @@ private:
     SpanHandle    m_span;
 ```
 
-Members are destroyed in reverse declaration order, so the span is ended
-*while it is still the current one*, and the caller's context is restored after
-that.
+Members are destroyed in reverse declaration order, so the span ends while it
+is still the current one, and the caller's context is restored after that.
 
 ### Three states of `StartSpanOptions::parent`
 
-Only the first consults the slot:
+Only the first one reads the slot:
 
 | `opts.parent` | result |
 |---|---|
@@ -131,20 +133,21 @@ Only the first consults the slot:
 | **set and valid** | that context is the parent; the slot is ignored |
 | **set but invalid** | an explicit **root**, fresh trace ID; the slot is *not* consulted |
 
-The third row is easy to write by accident — `.parent = SpanContext{}` is not
-`.parent = {}`, and it means the opposite.
+The third row is easy to write by accident. `.parent = SpanContext{}` and
+`.parent = {}` look alike but mean opposite things.
 
 `StartSpan` and `StartAsCurrentSpan` resolve the parent identically. The only
 difference is that `StartAsCurrentSpan` also installs.
 
 ## The thread boundary
 
-**There is no cross-thread inheritance, and there will not be** (ICP 0025 §3
-contract 4). A newly created thread starts from a default-constructed
-`Context`. Installing a hook at thread creation is not something a library can
-do portably, and every mechanism that fakes it — wrapping `std::thread`,
-interposing `pthread_create` — is a surprise in someone else's process. This
-matches opentelemetry-cpp's `RuntimeContext`, which is also per-thread.
+**A new thread does not inherit its creator's context, and microtel won't
+add that** ([ICP 0025](../../docs/icps/0025-propagation-core.md) §3, contract
+4). A newly created thread starts from a default-constructed `Context`. A
+library can't portably hook thread creation, and the ways of faking it
+(wrapping `std::thread`, interposing `pthread_create`) surprise whoever owns
+the rest of the process. opentelemetry-cpp's `RuntimeContext` is per-thread
+for the same reason.
 
 So a bare worker produces its own trace:
 
@@ -154,10 +157,10 @@ std::thread worker([&tracer] {
 });
 ```
 
-That is the `orphan trace_id` in the output — a different trace, which in a
-real service is the bug where half your work vanishes from the request.
+That's the `orphan trace_id` in the output. In a real service this is the bug
+where half the work vanishes from the request's trace.
 
-The documented pattern is one line on each side:
+The fix is one line on each side of the boundary:
 
 ```cpp
 const microtel::Context carried = microtel::CurrentContext();     // copy out
@@ -168,19 +171,19 @@ std::thread worker([&tracer, carried] {
 });
 ```
 
-The copy is the `noexcept`, allocation-free one described above, so capturing
-it by value in a lambda or a queued task costs nothing worth thinking about.
-After `installed`, everything the worker starts parents into the caller's
-trace with no parent argument anywhere — which is the `carried trace_id` in the
-output, equal to the request's.
+The copy is the `noexcept`, allocation-free one described above, so
+capturing it by value in a lambda or a queued task is cheap. Once `installed`
+exists, everything the worker starts parents into the caller's trace without a
+parent argument anywhere. That's the `carried trace_id` in the output, which
+matches the request's.
 
-`installed` must be destroyed on the worker thread, which a lambda-local gives
-you automatically.
+`installed` has to be destroyed on the worker thread. Making it a local inside
+the lambda takes care of that.
 
 ## The unsampled path
 
-When the sampler drops a span, `StartAsCurrentSpan` **still installs** (ICP
-0025 §3 contract 3), and the two sources of truth disagree on purpose:
+When the sampler drops a span, `StartAsCurrentSpan` still installs a context
+(ICP 0025 §3, contract 3), and the handle and the slot deliberately disagree:
 
 ```
 span->IsSampled()                = false
@@ -189,30 +192,31 @@ CurrentContext() trace_id        = a45776f9…  <- the slot
 CurrentContext() sampled flag    = false
 ```
 
-- `span->GetContext()` is **invalid**, because the handle is a process-wide
-  no-op singleton. It cannot hold per-span state without breaking the
-  zero-allocation guarantee for unsampled spans (`docs/memory-model.md` §8.1).
-- `CurrentContext().active_span_context` carries the **real** trace and span
-  IDs with the sampled flag cleared.
+`span->GetContext()` is invalid because the handle for a dropped span is a
+process-wide no-op singleton. Giving it per-span state would break the
+zero-allocation guarantee for unsampled spans
+([`docs/memory-model.md`](../../docs/memory-model.md) §8.1).
+`CurrentContext().active_span_context`, on the other hand, carries the real
+trace and span IDs with the sampled flag cleared.
 
-That is what keeps children of an unsampled span in the same trace, and what
-lets a propagator still emit a coherent `traceparent` across a hop. **On the
-unsampled path, `CurrentContext()` is the accurate source** — which matters
-directly for [`distributed_handoff/`](../distributed_handoff/), where the thing
-going on the wire has to be right whether or not this process is recording.
+That keeps the children of an unsampled span in the same trace, and lets a
+propagator emit a coherent `traceparent` across a hop. **On the unsampled path,
+read `CurrentContext()`, not the handle.** This matters for
+[`distributed_handoff/`](../distributed_handoff/), where whatever goes on the
+wire has to be correct whether or not this process is recording.
 
 The example builds a second provider with `MakeAlwaysOffSampler()` to show
-this. It also passes `WithProfileName("unsampled")`, and that is not
-decoration: profile names identify live providers within the process, an
-unnamed profile is `"default"`, and a second `Build()` without a distinct name
-fails with `DuplicateProfileName` while the first provider is alive.
+this. It also has to pass `WithProfileName("unsampled")`. Profile names
+identify live providers within the process and an unnamed profile is
+`"default"`, so a second `Build()` without a distinct name fails with
+`DuplicateProfileName` while the first provider is alive.
 
 ## What you will see in Grafana
 
-**Two** traces, and the pair is the point.
+Two traces, and it's the contrast between them that matters:
 
-1. The request trace — `http.handler` with `user.load` → `db.query`,
-   `page.render`, and `worker.carried` under it. Five spans produced by four
+1. The request trace: `http.handler` with `user.load` → `db.query`,
+   `page.render`, and `worker.carried` under it. That's five spans from four
    functions and one worker thread, none of which was handed a parent.
 2. A single-span trace containing only `worker.orphan`.
 
@@ -220,7 +224,7 @@ fails with `DuplicateProfileName` while the first provider is alive.
 { resource.service.name = "microtel-context-propagation" }
 ```
 
-The always-off provider's trace ID appears in neither: it exports nothing, and
-`curl http://localhost:3200/api/traces/<that id>` is a 404. That is the correct
-result — dropped means dropped — and it is worth checking once, because it is
-the difference between "unsampled" and "lost".
+The always-off provider's trace ID is in neither. It exports nothing, and
+`curl http://localhost:3200/api/traces/<that id>` returns a 404. That's the
+correct result, since a dropped span is never sent. Check it once so
+you know what "unsampled" looks like and don't mistake it for data loss.

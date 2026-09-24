@@ -1,24 +1,24 @@
 # `tests/wire/`
 
 Protocol byte-level coverage for the encoder and the OTLP/HTTP codec.
-This directory holds **no fixture files**: each theme below names the
-tests that cover it, all of them under
-[`tests/unit/wire/`](../unit/wire/). Responses are built byte-for-byte
-in the test rather than loaded from disk — same contract, no separate
-corpus to drift.
+This directory holds no tests or fixture files. It is an index: each
+theme below names the tests that cover it, all of them under
+[`tests/unit/wire/`](../unit/wire/). Responses are built byte for byte
+in the test instead of being loaded from disk, so there is no separate
+corpus to drift out of step with the code.
 
 For the gRPC codec, see [`tests/grpc-wire/`](../grpc-wire/).
 
-## Themes → covering tests
+## Themes and the tests that cover them
 
 | Theme | Tests |
 |---|---|
-| `encoder/` — `ExportTraceServiceRequest` payloads, field by field, decoded back and compared | [`tests/unit/wire/otlp_encoder_test.cpp`](../unit/wire/otlp_encoder_test.cpp) (`OtlpEncoderTest.*`), plus [`otlp_metric_encoder_test.cpp`](../unit/wire/otlp_metric_encoder_test.cpp) and [`otlp_log_encoder_test.cpp`](../unit/wire/otlp_log_encoder_test.cpp) |
-| `encoder/` — arena lifetime under the encoder | [`tests/unit/wire/upb_arena_test.cpp`](../unit/wire/upb_arena_test.cpp) |
-| `http/` — partial-success body parsing | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) (`ParseRejectedSpansTest.*`), `HttpWireCodecTest.PartialSuccess_*` |
-| `http/` — gzip request compression and response inflation | [`tests/unit/wire/gzip_test.cpp`](../unit/wire/gzip_test.cpp), `HttpWireCodecTest.Send_Compression*`, `HttpWireCodecTest.Response_Gzip*` |
+| Encoder: `ExportTraceServiceRequest` payloads, field by field, decoded back and compared | [`tests/unit/wire/otlp_encoder_test.cpp`](../unit/wire/otlp_encoder_test.cpp) (`OtlpEncoderTest.*`), plus [`otlp_metric_encoder_test.cpp`](../unit/wire/otlp_metric_encoder_test.cpp) and [`otlp_log_encoder_test.cpp`](../unit/wire/otlp_log_encoder_test.cpp) |
+| Encoder: arena lifetime under the encoder | [`tests/unit/wire/upb_arena_test.cpp`](../unit/wire/upb_arena_test.cpp) |
+| HTTP: partial-success body parsing | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) (`ParseRejectedSpansTest.*`), `HttpWireCodecTest.PartialSuccess_*` |
+| HTTP: gzip request compression and response inflation | [`tests/unit/wire/gzip_test.cpp`](../unit/wire/gzip_test.cpp), `HttpWireCodecTest.Send_Compression*`, `HttpWireCodecTest.Response_Gzip*` |
 
-## `error-model.md` §7.1 rows → covering tests
+## `error-model.md` §7.1 rows and the tests that cover them
 
 One test per row of the OTLP/HTTP classification matrix, all in
 [`tests/unit/wire/http/http_wire_codec_test.cpp`](../unit/wire/http/http_wire_codec_test.cpp).
@@ -39,11 +39,11 @@ One test per row of the OTLP/HTTP classification matrix, all in
 | Decompressed body > `max_decompressed_bytes` | `Response_DecompressionBomb_RecordsDecompressionTooLarge` |
 | Body unparseable / malformed encoding | `Response_UnknownContentEncoding_IsMalformed`, `Response_CorruptGzipBody_IsMalformed` |
 
-## Bar
+## Rules
 
-- **Deterministic bytes.** A response a test asserts on is built by the
-  test, byte for byte; CI regenerates nothing.
-- **No external dependencies.** No collector, no network. The live
-  check is `tests/conformance/`.
-- **One test per matrix row.** A row with no test in the table above is
-  an open gap, and the table is where it has to show.
+- Bytes are deterministic. A response a test asserts on is built by the
+  test, byte for byte, and CI regenerates nothing.
+- No external dependencies: no collector, no network. The live check is
+  [`tests/conformance/`](../conformance/).
+- Every row of the matrix has a test. A row with no test in the table
+  above is an open gap, and the table is where that has to show.

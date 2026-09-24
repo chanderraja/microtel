@@ -1,8 +1,8 @@
 # `tests/conformance/`
 
-End-to-end against a real OpenTelemetry Collector. Nine test binaries,
-27 enabled tests and 2 deliberately disabled tripwires. Every test
-skips unless [`ci/scripts/conformance.sh`](../../ci/scripts/conformance.sh)
+End-to-end tests against a real OpenTelemetry Collector: nine test
+binaries holding 29 tests, none of them disabled. Every test skips
+unless [`ci/scripts/conformance.sh`](../../ci/scripts/conformance.sh)
 has started a collector and exported the environment contract below.
 
 ## What this proves
@@ -12,7 +12,7 @@ payloads emitted by microtel are accepted by receivers implementing the
 pinned OTLP specification version, over both OTLP/HTTP-protobuf and
 OTLP/gRPC.
 
-This is the gate for the v1.0 release per spec §13.5:
+This is a release gate per spec §13.5:
 
 > OTLP/HTTP trace export passes integration tests against the pinned
 > OpenTelemetry Collector matrix.
@@ -22,19 +22,19 @@ This is the gate for the v1.0 release per spec §13.5:
 ## Boundary vs. the other tiers
 
 A real receiver is the only thing that proves acceptance. Every other
-tier has microtel — or a peer microtel's authors wrote — on both sides
-of the wire, so its green says the client agrees with itself.
+tier has microtel, or a peer microtel's authors wrote, on both sides
+of the wire, so a green run there says the client agrees with itself.
 
-- **`unit/`** — one type against mocks. Includes the byte-level wire
-  corpus under [`tests/unit/wire/`](../unit/wire/): what microtel
+- `unit/` tests one type against mocks. That includes the byte-level
+  wire corpus under [`tests/unit/wire/`](../unit/wire/): what microtel
   *writes*, asserted against hand-encoded byte fixtures in the test
   sources.
-- **`integration/`** — real components wired together against fakes at
-  the system boundary (sockets, the clock).
-- **`conformance/`** — the bytes leave the process and a receiver
-  written by the OpenTelemetry and gRPC projects decodes them. The
-  assertions read the collector's own output, which is downstream of
-  its protobuf decode.
+- `integration/` wires real components together against fakes at the
+  system boundary (sockets, the clock).
+- `conformance/` sends the bytes out of the process to a receiver
+  written by the OpenTelemetry and gRPC projects. The assertions read
+  the collector's own output, which is downstream of its protobuf
+  decode.
 
 Consequence, enforced in [`CMakeLists.txt`](CMakeLists.txt):
 `${CMAKE_SOURCE_DIR}/src` is **not** on the include path here. A test
@@ -75,16 +75,16 @@ sum of every theme's worst case.
 
 | Header | What |
 |---|---|
-| [`conformance_env.hpp`](support/conformance_env.hpp) | `GetEnv`, `UniqueMarker` (a per-run needle), and `ConformanceEnabled` — the skip-or-fail contract below. |
+| [`conformance_env.hpp`](support/conformance_env.hpp) | `GetEnv`, `UniqueMarker` (a per-run needle), and `ConformanceEnabled`, which implements the skip-or-fail contract below. |
 | [`collector_output.hpp`](support/collector_output.hpp) | Reads back what the collector wrote: `PollForLineContaining` and `CountOccurrences`. |
-| [`provider_builder.hpp`](support/provider_builder.hpp) | `ConfigureConformanceBuilder` — endpoint, protocol, and timeouts short enough to fail fast instead of becoming a ctest timeout. |
+| [`provider_builder.hpp`](support/provider_builder.hpp) | `ConfigureConformanceBuilder`: endpoint, protocol, and timeouts short enough to fail fast instead of turning into a ctest timeout. |
 
 ### `collector/config.yaml`
 
 Four named `otlp` receivers, each on its own port pair, so a test picks
 a transport-security posture by picking an endpoint rather than by
-restarting the collector. All four feed one traces pipeline —
-`batch` processor, then the `file` exporter — so every test asserts
+restarting the collector. All four feed one traces pipeline (the
+`batch` processor, then the `file` exporter), so every test asserts
 against one output file whichever port it used.
 
 | Receiver | gRPC | HTTP | Posture |
@@ -102,7 +102,7 @@ diagnostic when the gate fails).
 plaintext, which is the original intent: no TLS means an auth failure
 cannot possibly be a trust failure. Its HTTP port (4348) carries the
 same server certificate as `otlp/tls`, because microtel cannot reach a
-plaintext collector HTTP receiver at all — microtel is HTTP/2-only and
+plaintext collector HTTP receiver at all: microtel is HTTP/2-only and
 that receiver is HTTP/1.1-only (issue #166,
 [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §4). The HTTP
 auth tests buy the isolation back by pinning the correct CA in every
@@ -145,8 +145,8 @@ On a failing run the script dumps the collector's logs and its
 Prometheus metrics to stderr before removing the container.
 
 **Plain `ctest` skips this tier, by design.** The binaries are
-registered like any other test, so `ctest --test-dir build` runs them —
-and every test skips, because none of the environment variables below
+registered like any other test, so `ctest --test-dir build` runs them,
+and every test skips because none of the environment variables below
 is set. That is what keeps a developer box, and the `compile`,
 `sanitizers` and `coverage` CI jobs, green without a collector.
 
@@ -158,16 +158,16 @@ consumed through [`support/conformance_env.hpp`](support/conformance_env.hpp).
 | Variable | Meaning |
 |---|---|
 | `MICROTEL_CONFORMANCE_REQUIRE` | set once the collector is healthy; turns a missing variable from a skip into a failure |
-| `MICROTEL_CONFORMANCE_HTTP_ENDPOINT` | `http://127.0.0.1:4318` — plaintext, used only by the negative test |
-| `MICROTEL_CONFORMANCE_GRPC_ENDPOINT` | `http://127.0.0.1:4317` — plaintext, the gRPC default |
+| `MICROTEL_CONFORMANCE_HTTP_ENDPOINT` | `http://127.0.0.1:4318`, plaintext, used only by the negative test |
+| `MICROTEL_CONFORMANCE_GRPC_ENDPOINT` | `http://127.0.0.1:4317`, plaintext, the gRPC default |
 | `MICROTEL_CONFORMANCE_HTTP_TLS_ENDPOINT` | `https://localhost:4328` |
 | `MICROTEL_CONFORMANCE_GRPC_TLS_ENDPOINT` | `https://localhost:4327` |
 | `MICROTEL_CONFORMANCE_HTTP_MTLS_ENDPOINT` | `https://localhost:4338` |
 | `MICROTEL_CONFORMANCE_GRPC_MTLS_ENDPOINT` | `https://localhost:4337` |
-| `MICROTEL_CONFORMANCE_HTTP_AUTH_ENDPOINT` | `https://localhost:4348` — `https`, per the asymmetry above |
+| `MICROTEL_CONFORMANCE_HTTP_AUTH_ENDPOINT` | `https://localhost:4348` (`https`, because of the asymmetry above) |
 | `MICROTEL_CONFORMANCE_GRPC_AUTH_ENDPOINT` | `http://127.0.0.1:4347` |
 | `MICROTEL_CONFORMANCE_CA` | the run's CA, for `TlsOptions::ca_bundle` |
-| `MICROTEL_CONFORMANCE_WRONG_CA` | an unrelated CA — the negative control for CA pinning |
+| `MICROTEL_CONFORMANCE_WRONG_CA` | an unrelated CA, the negative control for CA pinning |
 | `MICROTEL_CONFORMANCE_CLIENT_CERT` | client certificate for the mTLS receivers |
 | `MICROTEL_CONFORMANCE_CLIENT_KEY` | matching client key |
 | `MICROTEL_CONFORMANCE_AUTH_TOKEN` | the bearer token `bearertokenauth` accepts |
@@ -188,7 +188,7 @@ if (!ConformanceEnabled(kHttpEndpointEnv, endpoint))
 
 Outside the gate it returns false and the test skips. Inside the gate
 `MICROTEL_CONFORMANCE_REQUIRE` is set, so a missing variable records an
-`ADD_FAILURE()` first — broken plumbing in the runner fails loudly
+`ADD_FAILURE()` first, so broken plumbing in the runner fails loudly
 instead of silently skipping everything. The runner's second guard is
 independent: before exporting anything it counts
 `ctest -N -L conformance` and exits 2 if the answer is zero, so a
@@ -202,22 +202,22 @@ protojson object per `ResourceSpans` batch to `/out/traces.jsonl`. That
 file is the only place a test can observe what the collector
 *understood*, as opposed to what microtel claims it sent.
 
-- **Positive assertions** poll that file for a line containing the
-  run's `UniqueMarker()` — delivery is asynchronous, so `ForceFlush`
-  returning only means microtel handed the batch over — and then assert
-  substrings of that line. The expected fragments are the pinned
+- Positive assertions poll that file for a line containing the run's
+  `UniqueMarker()`, and then assert substrings of that line. Polling is
+  needed because delivery is asynchronous: `ForceFlush` returning only
+  means microtel handed the batch over. The expected fragments are the pinned
   image's protojson rendering: hex ids, camelCase keys, typed value
   envelopes, int64 as a quoted string. Every one was read off a real
   run against the pinned image rather than derived from the proto
   definitions, which is also why a pin bump is a procedure and not a
-  version edit — see
+  version edit. See
   [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §2 for the
   pin and §5 for how to move it.
-- **Exactly-once assertions** use `CountOccurrences` rather than a
-  presence check, so a retry the collector accepted twice fails instead
-  of passing quietly.
-- **Negative assertions** read `Provider::GetExporterHealth()` —
-  `connection_state`, `batches_failed`, `last_error_message` — and then
+- Exactly-once assertions use `CountOccurrences` instead of a presence
+  check, so a retry the collector accepted twice fails instead of
+  passing quietly.
+- Negative assertions read `Provider::GetExporterHealth()`
+  (`connection_state`, `batches_failed`, `last_error_message`) and then
   assert the marker never appears in the output file at all.
 
 The two suites share one set of fragment constants because encoding is
@@ -233,30 +233,25 @@ per-run marker are normalised
 |---|---|---|
 | Partial-success responses | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) and the two codec tests, against hand-encoded byte fixtures | A collector configured to accept spans never returns a `partial_success` body, so this tier cannot elicit one. |
 | Retry and backoff timing | [`tests/unit/exporter/retry_policy_test.cpp`](../unit/exporter/retry_policy_test.cpp), [`tests/integration/sdk/exporter_health_test.cpp`](../integration/sdk/exporter_health_test.cpp) against fakes | Needs a clock the test controls. Here the negative tests run a near-zero retry budget precisely to *avoid* the schedule. |
-| Restart recovery (collector bounced mid-export) | deferred — [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
-| Metrics conformance | deferred to v1.2 — [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
+| Restart recovery (collector bounced mid-export) | deferred; see [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
+| Metrics conformance | deferred to v1.2; see [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
 | Throughput and delivery rate at volume | the weekly [`interop.yml`](../../.github/workflows/interop.yml) workflow | Slow, and not a merge gate. |
 
 ## Known-defect tripwires
 
 Five defects were found by building this tier. None of them is asserted
-as desired behaviour. Each is handled one of three ways:
+as desired behaviour. One is still open and pinned by a test that fails
+when the defect is fixed; the other four are fixed, and the test that
+guarded each one was turned into a regression test instead of being
+deleted.
 
-- **Pinned by a test that fails when the defect is fixed** — #166.
-- **Parked as a `DISABLED_` assertion**, already written, waiting to be
-  re-enabled — #169.
-- **Left conspicuously unasserted**, with the reason recorded in the
-  source — #167.
-- **Fixed since** — #168, #171. The pinning test was tightened into a
-  regression test rather than deleted.
-
-Nothing here turns green by accident when a fix lands. When one of the
-first kind fails, do not delete it — invert it.
+When the pinned test for #166 starts failing, don't delete it. Invert
+it.
 
 | Issue | What guards it |
 |---|---|
-| #166 — plaintext OTLP/HTTP unreachable (h2c vs an HTTP/1.1-only receiver) | `http/plaintext_gap_test.cpp` → `PlaintextHttpUnreachable` asserts `Connect()` to `:4318` **fails**. Invert it into a positive delivery test against `MICROTEL_CONFORMANCE_HTTP_ENDPOINT` when either side gains the missing half. |
-| #167 — `InstrumentationScope` carries the service name, not `GetTracer(name, version)` | Nothing in this tier asserts on `ScopeSpans.scope`. The absence is the tripwire: asserting the current output would enshrine the bug. |
-| #168 — `TraceId::ToHex()` / `SpanId::ToHex()` declared in a public header, defined nowhere | **Fixed.** `src/api/` (`microtel_api`) now defines both, and `{http,grpc}/basic_export_test.cpp` call the public formatter directly — this tier builds against public headers only, so it is the thing that hit the link error and is now the thing that proves the encoding matches the collector's. |
-| #169 — 22 of 24 `drop_counters` never written | `WrongTokenIncrementsNonRetryableDropCounter` in both `http/auth_test.cpp` and `grpc/auth_test.cpp`. Kept rather than deleted, and split out rather than weakening `WrongTokenRejected`, so the assertion is waiting when the counters are wired. |
-| #171 — `grpc-status` and `grpc-message` discarded; `last_error_message` is a fixed literal | **Fixed.** `grpc/auth_test.cpp` now asserts both halves separately: `last_error_message` names the status (`"UNAUTHENTICATED (16)"`, matching what its HTTP sibling does with `"401"`) and carries a fragment of the collector's own `grpc-message`. The tripwire became the regression test. |
+| #166 (open): plaintext OTLP/HTTP unreachable (h2c vs an HTTP/1.1-only receiver) | `http/plaintext_gap_test.cpp` → `PlaintextHttpUnreachable` asserts `Connect()` to `:4318` **fails**. Invert it into a positive delivery test against `MICROTEL_CONFORMANCE_HTTP_ENDPOINT` when either side gains the missing half. |
+| #167 (fixed): `InstrumentationScope` carried the service name instead of the `GetTracer(name, version)` scope | `{http,grpc}/basic_export_test.cpp` assert the scope name and version on the wire (`kScopeJson`). Until the fix (ICP 0023), this tier deliberately asserted nothing about `ScopeSpans.scope`, so as not to enshrine the bug. |
+| #168 (fixed): `TraceId::ToHex()` / `SpanId::ToHex()` declared in a public header but defined nowhere | `src/api/` (`microtel_api`) now defines both, and `{http,grpc}/basic_export_test.cpp` call the public formatter directly. This tier builds against public headers only, so it is what hit the link error, and it is now what proves the encoding matches the collector's. |
+| #169 (fixed): 22 of 24 `drop_counters` never written | `WrongTokenIncrementsNonRetryableDropCounter` in both `http/auth_test.cpp` and `grpc/auth_test.cpp`. It ran as a `DISABLED_` test until the counters were wired, and was kept separate from `WrongTokenRejected` so an accounting regression is distinguishable from a classification one. |
+| #171 (fixed): `grpc-status` and `grpc-message` discarded; `last_error_message` was a fixed literal | `grpc/auth_test.cpp` asserts both halves separately: `last_error_message` names the status (`"UNAUTHENTICATED (16)"`, matching what its HTTP sibling does with `"401"`) and carries a fragment of the collector's own `grpc-message`. |

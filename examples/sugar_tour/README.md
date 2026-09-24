@@ -2,14 +2,14 @@
 
 Every helper in `microtel::sugar`, inside one small order pipeline.
 
-The sugar layer is **header-only** and adds nothing to your link closure: each
-helper compiles to the two or three public calls you would otherwise have
-written. So this example is not about capability — it is about what the call
-sites look like, and about a trace that reads as a story rather than a
-checklist of API names.
+The sugar layer is header-only and adds nothing to your link closure. Each
+helper compiles down to the two or three public calls you would otherwise have
+written by hand, so the sugar gives you no new capability. What this example
+shows is how the call sites look with it, and a trace that reads like a
+sequence of events instead of a list of API names.
 
-The story: an order is submitted, its cart validated, inventory reserved, the
-card declined, and the reservation released.
+Here's the sequence: an order is submitted, its cart is validated, inventory
+is reserved, the card is declined, and the reservation is released.
 
 ```
 order.submit                                       Server, status=Error
@@ -21,9 +21,9 @@ order.submit                                       Server, status=Error
 └── inventory.release                              mt::Span
 ```
 
-**Not one function passes a span or a parent to the function it calls.** Every
-sugar helper is `StartAsCurrentSpan` underneath; the mechanism is
-[`context_propagation/`](../context_propagation/)'s subject.
+**No function passes a span or a parent to the function it calls.** Every
+sugar helper calls `StartAsCurrentSpan` underneath; see
+[`context_propagation/`](../context_propagation/) for how that works.
 
 ## Run it
 
@@ -46,7 +46,7 @@ view it:  http://localhost:3000  (home dashboard: microtel — recent traces)
      or:  curl -s http://localhost:3200/api/traces/04e2b1fa78ab325c22156b42e4c99921
 ```
 
-A different collector is `argv[1]`.
+To export to a different collector, pass its endpoint as the first argument.
 
 ## The alias nobody declares
 
@@ -54,19 +54,20 @@ A different collector is `argv[1]`.
 namespace mt = microtel::sugar;   // in your code, never in ours
 ```
 
-The namespace is `microtel::sugar`. No microtel header declares `mt`: a library
-that squats a two-character global name has taken something it cannot give
-back. It costs you one line per file, and the call sites then read the way
-`microtel-roadmap.md` §5 writes them.
+The namespace is `microtel::sugar`. No microtel header declares `mt`, because
+a library that claims a two-character global name takes it away from every
+program that includes it. Declaring the alias yourself costs one line per file,
+and then your call sites look the way
+[`microtel-roadmap.md`](../../microtel-roadmap.md) §5 writes them.
 
-One consequence to know about: `microtel::sugar::Span` is a *function*, so
-inside the sugar headers the core types are spelled fully-qualified
-(`::microtel::Span`). In your code the two never collide — `mt::Span(...)` is
-the factory, `microtel::Span` is the class.
+One thing to be aware of: `microtel::sugar::Span` is a function, so inside the
+sugar headers the core types are written fully qualified (`::microtel::Span`).
+In your own code the two don't collide. `mt::Span(...)` is the factory and
+`microtel::Span` is the class.
 
 ## The five forms
 
-### `MICROTEL_TRACE_FUNCTION(tracer)` — "just trace this function"
+### `MICROTEL_TRACE_FUNCTION(tracer)`: trace this function
 
 ```cpp
 void ValidateCart(microtel::Tracer& tracer)
@@ -76,28 +77,30 @@ void ValidateCart(microtel::Tracer& tracer)
 }
 ```
 
-A macro rather than a function because only a *declaration* can create the
-variable whose lifetime is the scope. Two things to expect:
+It's a macro because only a declaration can create a variable whose lifetime
+is the enclosing scope. Two things to expect.
 
-- **It takes the tracer.** `microtel-roadmap.md` §5 writes it with no argument;
-  that shape needs a process-global tracer, and microtel has none. Adding a
-  mutable global with static-destruction-order problems underneath a
-  convenience macro is not a trade this project makes — recorded as
-  Discrepancy 1 in [ICP 0028](../../docs/icps/0028-sugar-surface.md).
-- **The span name is the full function signature.** It is
-  `std::source_location::current().function_name()`, so in Grafana the span
-  above is named `void (anonymous namespace)::ValidateCart(microtel::Tracer &)`,
-  not `ValidateCart`. That is the honest cost of a name you did not have to
-  type. When you want a short, stable, hand-picked one, `mt::Span` is the
-  helper that takes it.
+It takes the tracer as an argument. `microtel-roadmap.md` §5 writes it with no
+argument, but that form needs a process-global tracer, and microtel doesn't
+have one. The project chose not to add a mutable global, with its
+static-destruction-order problems, just to support a convenience macro. This
+is recorded as Discrepancy 1 in
+[ICP 0028](../../docs/icps/0028-sugar-surface.md).
 
-The declared variable is `__LINE__`-uniqued and `const`, so you cannot name it
-— which is the point. `const` is deliberate too: a scope that cannot be moved
-out of cannot be destroyed out of order, which is the one programming error
-[ICP 0025](../../docs/icps/0025-propagation-core.md) §3 documents and does not
-check.
+The span name is the full function signature. It comes from
+`std::source_location::current().function_name()`, so in Grafana the span
+above is named `void (anonymous namespace)::ValidateCart(microtel::Tracer &)`
+and not just `ValidateCart`. That's the price of a name you didn't have to
+type. When you want a short, stable name of your own choosing, use `mt::Span`,
+which takes one.
 
-### `mt::Span(tracer, name, {attrs}, kind)` — a scoped span with inline attributes
+The variable the macro declares gets a `__LINE__`-based unique name, so you
+can't refer to it, and it is `const`. Both are intentional: a scope you can't
+move out of can't be destroyed out of order, which is the one programming
+error [ICP 0025](../../docs/icps/0025-propagation-core.md) §3 documents but
+doesn't check for.
+
+### `mt::Span(tracer, name, {attrs}, kind)`: a scoped span with inline attributes
 
 ```cpp
 const auto charge = mt::Span(tracer, "payment.charge",
@@ -105,31 +108,32 @@ const auto charge = mt::Span(tracer, "payment.charge",
                              microtel::SpanKind::Client);
 ```
 
-`attributes` is **viewed, not owned**: the `std::initializer_list`'s backing
-array lives to the end of the enclosing full-expression, and the attributes are
-copied into the span record inside the call. The returned scope holds no
-reference to them, so there is nothing to keep alive.
+`mt::Span` only views the attributes you pass; it doesn't take ownership. The
+`std::initializer_list`'s backing array lives until the end of the enclosing
+full-expression, and the attributes are copied into the span record during the
+call. The returned scope holds no reference to them, so you have nothing to
+keep alive.
 
-### `mt::Traced(tracer, name, callable)` — run something inside a span, keep its result
+### `mt::Traced(tracer, name, callable)`: run something inside a span and keep its result
 
 ```cpp
 return mt::Traced(tracer, "inventory.reserve",
                   [&tracer]() -> std::int64_t { ...; return units; });
 ```
 
-The return type is forwarded exactly (`decltype(auto)`): a value stays a value,
+The return type is forwarded exactly (`decltype(auto)`). A value stays a value,
 a reference stays a reference, `void` stays `void`, and the span ends after the
-return value has been initialised. `Traced` is conditionally `noexcept` —
-`noexcept` iff invoking the callable is — so a `noexcept` caller keeps its
-guarantee.
+return value has been initialised. `Traced` is `noexcept` exactly when invoking
+the callable is, so a `noexcept` caller keeps its guarantee.
 
-**If the callable throws, the exception propagates *unrecorded*.** The span is
-ended by `ScopedSpan`'s destructor during unwinding, and that is all. Recording
-it is `mt::TryCatch`, roadmap §5 v1.4; a `Traced` that swallowed-and-rethrew
-would make that helper redundant and this one surprising. To record an
-exception today, catch it and call `RecordException` — as below.
+**If the callable throws, the exception propagates without being recorded.**
+`ScopedSpan`'s destructor ends the span during unwinding, and nothing else
+happens. Recording exceptions is the job of `mt::TryCatch`, planned for v1.4
+(roadmap §5). If `Traced` caught and rethrew, `TryCatch` would be redundant and
+`Traced` would behave surprisingly. To record an exception today, catch it and
+call `RecordException`, as shown next.
 
-### `mt::RecordException(span, e)` — `Error` status *and* the `exception` event
+### `mt::RecordException(span, e)`: `Error` status plus the `exception` event
 
 ```cpp
 catch (const PaymentDeclined& declined)
@@ -138,25 +142,28 @@ catch (const PaymentDeclined& declined)
 }
 ```
 
-Two calls in one: `SetStatus(Error, e.what())` and
-`AddEvent("exception", {exception.type, exception.message})`.
+It makes two calls for you: `SetStatus(Error, e.what())` and
+`AddEvent("exception", {exception.type, exception.message})`. A few details:
 
-- **`exception.type` is mangled.** It is `typeid(e).name()`, so the event
-  carries `N12_GLOBAL__N_115PaymentDeclinedE`, not `PaymentDeclined`.
-  Deliberate: demangling needs `abi::__cxa_demangle`, which allocates on an
-  error path and is ABI-specific, while the mangled form is stable and
-  greppable. Use the `RecordException(span, type, message)` overload when you
-  want a pretty name — it is also the overload for `-fno-rtti` builds, since
-  `typeid` is what the other one costs.
-- **Setting `Error` status diverges from opentelemetry-cpp**, whose
-  similarly-named `Span::RecordException` does not. Roadmap §5 v1.1 specifies
-  both halves, and spec §18.1 excludes sugar from conformance testing, so this
-  helper is not measured against the OTel API surface.
-- `exception.stacktrace` and `exception.escaped` are omitted: microtel captures
-  no stack traces, and whether an exception escaped the span's scope is not
-  knowable from inside the helper.
+`exception.type` is the mangled name. It comes from `typeid(e).name()`, so the
+event carries `N12_GLOBAL__N_115PaymentDeclinedE` rather than
+`PaymentDeclined`. That was a deliberate choice: demangling needs
+`abi::__cxa_demangle`, which allocates on an error path and is ABI-specific,
+while the mangled form is stable and easy to grep for. If you want a readable
+name, use the `RecordException(span, type, message)` overload. That overload is
+also the one to use in `-fno-rtti` builds, because the other one needs
+`typeid` and is only declared when RTTI is enabled.
 
-### `mt::AttrKey` — spell a key once
+Setting `Error` status is a difference from opentelemetry-cpp, whose
+similarly named `Span::RecordException` leaves the status alone. Roadmap §5
+v1.1 specifies both the status and the event, and spec §18.1 excludes sugar
+from conformance testing, so this helper isn't measured against the OTel API.
+
+`exception.stacktrace` and `exception.escaped` are left out. microtel doesn't
+capture stack traces, and the helper has no way to know whether the exception
+escaped the span's scope.
+
+### `mt::AttrKey`: write a key once
 
 ```cpp
 constexpr mt::AttrKey kOrderId{"order.id"};
@@ -165,25 +172,25 @@ kOrderId.Set(*charge, std::string{order_id});                  // on a live span
 mt::Span(tracer, "order.submit", {kOrderId(std::string{id})}); // as a KeyValue
 ```
 
-`constexpr` at namespace scope is constant-initialised: no allocation anywhere
-in the type, no static-initialisation order to reason about, and a
-`string_view` whose length is fixed at compile time — no `strlen` at each of N
-call sites where the compiler cannot see the literal. Plus a distinct type, so
-a key cannot be passed where a value is expected.
+A `constexpr` key at namespace scope is constant-initialised. The type never
+allocates, there's no static-initialisation order to think about, and the
+`string_view` length is fixed at compile time, so there's no `strlen` at call
+sites where the compiler can't see the literal. It is also a distinct type, so
+you can't pass a key where a value is expected.
 
-The key is **borrowed** and must outlive the object — a string literal is the
-intended argument.
+The key string is borrowed and must outlive the `AttrKey`. Pass a string
+literal.
 
-What `AttrKey` deliberately does *not* buy in v1.1 is pre-encoded wire bytes.
-That would be an ABI change on `attribute.hpp` and would put wire encoding in a
-public header, against CLAUDE.md rule 13. Roadmap §4 v1.5 schedules the
-optimisation; shipping the plain binder now is what makes it
-source-compatible for callers when it lands.
+In v1.1, `AttrKey` does not pre-encode wire bytes. Doing that would change the
+ABI of `attribute.hpp` and put wire encoding in a public header, which the
+project's dependency rules (rule 13 in [`CLAUDE.md`](../../CLAUDE.md)) forbid.
+Roadmap §4 schedules the optimisation for v1.5, and because the plain binder
+ships now, callers' source won't need to change when it lands.
 
 ## The same span without sugar
 
-`mt::Span` is the one worth desugaring, because it is where the lifetime rule
-lives. This:
+`mt::Span` is the helper worth expanding by hand, because that's where the
+lifetime rule comes in. This:
 
 ```cpp
 const auto charge = mt::Span(tracer, "payment.charge",
@@ -204,23 +211,24 @@ const microtel::ScopedSpan charge = tracer.StartAsCurrentSpan(
      .attributes = microtel::AttributeSpan{attrs.begin(), attrs.size()}});
 ```
 
-Three things the sugar is saving you, in order of how often they bite:
+Here is what the sugar saves you, starting with what trips people up most
+often:
 
-1. **All four fields of `StartSpanOptions`**, every time. A partial designated
-   initialiser trips `-Wmissing-field-initializers` under the `-Werror` these
-   examples build with.
-2. **The `initializer_list` → `AttributeSpan` conversion**, which is a borrowed
-   `std::span` and therefore a lifetime question you have to answer. Inside one
-   full-expression the answer is "fine"; hoisted to a named variable, as above,
-   you now have to keep `attrs` alive at least as long as the call.
-3. **The spelling of `.parent = {}`** to mean "inherit", which is not obviously
-   different from `.parent = SpanContext{}` — and that one means the *opposite*:
-   a set-but-invalid parent is an explicit root with a fresh trace ID, and the
-   current context is not consulted at all.
+1. Writing all four fields of `StartSpanOptions` every time. A partial
+   designated initialiser triggers `-Wmissing-field-initializers`, which these
+   examples build with as an error (`-Werror`).
+2. The `initializer_list` → `AttributeSpan` conversion. `AttributeSpan` is a
+   borrowed `std::span`, so you have to think about lifetime. Within one
+   full-expression it's fine; once you hoist the list into a named variable, as
+   above, you have to keep `attrs` alive for at least as long as the call.
+3. Writing `.parent = {}` to mean "inherit". It looks a lot like
+   `.parent = SpanContext{}`, which means the opposite: a set-but-invalid parent
+   makes an explicit root with a fresh trace ID and ignores the current context
+   entirely.
 
-Everything else is identical, including the type: sugar defines no RAII type of
-its own, so the end-then-restore ordering lives in exactly one place
-(`ScopedSpan`'s member declaration order, ICP 0025 §3).
+Everything else is identical, including the type. The sugar defines no RAII
+type of its own, so the end-then-restore ordering is defined in exactly one
+place: the declaration order of `ScopedSpan`'s members (ICP 0025 §3).
 
 ## What you will see in Grafana
 
@@ -230,11 +238,12 @@ Filter to this run:
 { resource.service.name = "microtel-sugar-tour" }
 ```
 
-Seven spans in one trace. `order.submit` and `payment.charge` are red —
-`payment.charge` because `RecordException` set `Error`, `order.submit` because
-the pipeline set it after compensating. Open `payment.charge` and the
-`exception` event is there with the mangled `exception.type`.
+You'll see seven spans in one trace. `order.submit` and `payment.charge` are
+red: `payment.charge` because `RecordException` set `Error`, and `order.submit`
+because the pipeline set it after releasing the reservation. Open
+`payment.charge` to find the `exception` event with the mangled
+`exception.type`.
 
-The example always declines, so the error path is always the one you see. That
-is on purpose: a green trace teaches nothing that `basic_trace` does not
-already show.
+The card is always declined, so you always see the error path. An all-green
+trace wouldn't show anything that [`basic_trace`](../basic_trace/) doesn't
+already.

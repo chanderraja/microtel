@@ -8,38 +8,43 @@
 - **Upstream license:** [CC0-1.0](LICENSE) (public domain dedication; compatible with Apache-2.0)
 - **Vendored at:** 2026-05-04
 
-## What is it
+## What it is
 
 A C++11-compatible implementation of `std::expected<T, E>` with a stable API
 that mirrors the C++23 standard library's `std::expected`. Header-only.
 
 ## Why microtel vendors this
 
-Per [ICP 0002](../../docs/icps/0002-vendor-tl-expected.md), microtel pins its
-language standard at C++20 to preserve the RHEL 8 + devtoolset-11 commitment
-in `microtel-spec.md` §1, but uses `expected`-shaped return types in the
-public API and internal interfaces. C++20 does not include `std::expected`;
-that ships in C++23.
+microtel's language floor is C++20, which keeps the RHEL 8 + devtoolset-11
+commitment in `microtel-spec.md` §1, but its public API and internal
+interfaces return `expected`-shaped types. `std::expected` only arrived in
+C++23. [ICP 0002](../../docs/icps/0002-vendor-tl-expected.md) covers the
+decision.
 
-`tl::expected` fills the gap until microtel adopts C++23. Public surface area
-is wrapped in [`include/microtel/expected.hpp`](../../include/microtel/expected.hpp),
-which exposes `microtel::Expected<T, E>` and `microtel::Unexpected<E>` as
-aliases. When the project's compiler floor moves to C++23, the wrapper aliases
-flip over to `std::expected` / `std::unexpected` with no public-API change.
+`tl::expected` fills that gap. The public surface goes through
+[`include/microtel/expected.hpp`](../../include/microtel/expected.hpp), which
+exposes `microtel::Expected<T, E>`, `microtel::Unexpected<E>` and
+`microtel::make_unexpected()`. The aliases already resolve to `std::expected` /
+`std::unexpected` when a translation unit is compiled as C++23 and
+`<expected>` is available, and to `tl::expected` otherwise, so raising the
+floor to C++23 later needs no public-API change.
 
 ## Closure impact
 
-**None.** This is a single header, zero runtime symbols, zero new shared
-library. The runtime closure pinned in `microtel-spec.md` §9.1 (nghttp2,
-OpenSSL, upb, zlib, optional spdlog) is unchanged.
+None. It is a single header with no runtime symbols and no shared library.
+The runtime closure pinned in `microtel-spec.md` §9.1 (nghttp2, OpenSSL, upb,
+zlib, optional spdlog) is unchanged.
 
-The CC0-1.0 license adds no new attribution requirement to compiled artefacts.
-Source-distribution `THIRD_PARTY_NOTICES.md` lists tl::expected for
-completeness.
+The header is installed alongside microtel's own, as
+`<includedir>/microtel/vendor/tl/expected.hpp`, because the public
+`expected.hpp` includes it. The CC0-1.0 license adds no attribution
+requirement to compiled artefacts;
+[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) lists tl::expected
+for completeness.
 
 ## Update procedure
 
-Per `microtel-spec.md` §9.6:
+Following the vendored-dependency policy in `microtel-spec.md` §9.6:
 
 1. Pick the new upstream tag.
 2. Update the pin in this README (tag, commit SHA, vendored-at date).
@@ -53,8 +58,10 @@ Per `microtel-spec.md` §9.6:
      still compiles with both branches (`-std=c++20` exercises the
      `tl::expected` branch; `-std=c++23` exercises the `std::expected`
      branch).
-5. CI runs the M0 header-check, plus (post-M3) the full test suite, including
-   collector interop and fuzz.
+5. CI runs the header compile check and the full test suite under both C++20
+   and C++23. §9.6 also requires the collector interop and fuzz suites before
+   merge; those are the weekly `interop.yml` and `fuzz.yml` workflows, so
+   trigger both manually on the PR branch.
 6. Merge after reviewer sign-off.
 
 ## Files

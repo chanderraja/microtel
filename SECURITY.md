@@ -5,16 +5,11 @@
 | Version | Status | Security updates |
 |---|---|---|
 | 1.1.x | current release | ✅ supported |
-| 1.0.x | superseded minor | ❌ unsupported — upgrade to 1.1.x |
-| < 1.0 | pre-release | ❌ unsupported — upgrade to 1.1.x |
+| < 1.1 | development snapshots | ❌ unsupported — use 1.1.x |
 
-Only the latest minor of the latest major is supported, so 1.0.x went
-end-of-life when 1.1.0 shipped; 1.1.x is a drop-in upgrade from it (same major,
-`find_package(microtel 1.0)` is satisfied by 1.1). The 18-month security window
-in the policy below applies to a previous **major**, which does not exist yet.
-
-The pre-1.0 tags were development snapshots. They receive no security fixes; the
-supported path off one is to upgrade.
+Only the latest minor of the latest major is supported. The 18-month security
+window in the policy below applies to a previous **major**, which does not
+exist yet.
 
 The policy this matrix will follow as further releases land:
 

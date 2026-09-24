@@ -43,6 +43,7 @@ headers.
 | [0027](0027-multi-profile-threading.md) | Multi-profile — named `Provider`s at full independence | Accepted | — (v1.1 packet 3.1) |
 | [0028](0028-sugar-surface.md) | The sugar layer's public surface — `microtel::sugar` | Accepted | — (v1.1 sugar packet) |
 | [0029](0029-auth-caller-count-correction.md) | Auth-provider caller-count correction (§4.9 LOCKED sentence) | Accepted | — (docs only) |
+| [0030](0030-compile-time-feature-selection.md) | Compile-time feature selection — `MICROTEL_WITH_*` | Draft | — |
 
 **0027 is not the amendment [ICP 0024](0024-v1.1-rescope.md) forecast for it.**
 0024 filed the number against `docs/control-plane-design.md` §9 (the fourth

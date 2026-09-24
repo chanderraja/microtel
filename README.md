@@ -279,9 +279,8 @@ governor, SMT on). The numbers come from the committed snapshot in
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
 | Benchmark binary size | **15.4 MB** | **15.4 MB** | 38.5 MB | 16.8 MB |
 
-Some figures differ from the v1.0 README because the harness changed; the
-snapshot notes explain why. The methodology is in
-[docs/bench-spec.md](docs/bench-spec.md), and [plots.html](docs/bench-results/plots.html) has interactive plots and the raw
+The methodology is in [docs/bench-spec.md](docs/bench-spec.md), and
+[plots.html](docs/bench-results/plots.html) has interactive plots and the raw
 per-sample data. To reproduce with Docker or Podman:
 
 ```bash

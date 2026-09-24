@@ -145,7 +145,7 @@ Before M0 closed, ICPs were encouraged but optional. They were used for changes 
 ## Process
 
 1. PR an ICP into `docs/icps/`.
-2. Reviewer sign-off (single reviewer pre-1.0).
+2. Reviewer sign-off (single reviewer for now).
 3. Merge the ICP before the implementing PR, so the implementing PR can reference it by number.
 4. The implementing PR makes the substantive changes.
 

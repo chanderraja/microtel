@@ -60,7 +60,7 @@ Track C — OTLP/gRPC wire codec.
   [`tests/integration/transport/http2_send_test.cpp`](../../../tests/integration/transport/http2_send_test.cpp)
   against a real nghttp2 peer.
 - `tests/fuzz/grpc_codec_fuzz.cpp`: a libFuzzer harness over the
-  response-parser entry point, required for the v1.0 release per spec §13.5.
+  response-parser entry point, a release requirement per spec §13.5.
 - `tests/conformance/grpc/`: end-to-end against a real collector.
 
 ## Style notes

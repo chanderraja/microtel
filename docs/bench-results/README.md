@@ -7,25 +7,25 @@ doesn't produce them. A local `cd bench && ./bench.sh` writes to
 only existed for people who had run the harness themselves.
 
 The snapshot was refreshed on 2026-09-16 for the v1.1.0 tag, on the same host
-as the v1.0 snapshot (Ryzen 5 5600G, 12 cores, `powersave` governor, SMT on,
+as the previous snapshot (Ryzen 5 5600G, 12 cores, `powersave` governor, SMT on,
 podman 5.8.4, kernel 7.1.13-200.fc44). Host load was 0.12 at the start. Before
 committing, the environment block was diffed against the previous snapshot as
 [`RELEASING.md`](../../RELEASING.md) §5 requires, and every identity field
 matched. Without that, the deltas below would mean nothing.
 
-## Changes since v1.0 that come from the harness
+## Harness changes since the previous snapshot
 
 Three numbers moved because the harness was fixed. Read this before comparing
-against the v1.0 snapshot.
+against the previous snapshot.
 
 1. **Latency percentiles are rank-interpolated**
    ([#261](https://github.com/chanderraja/microtel/issues/261)/[#262](https://github.com/chanderraja/microtel/pull/262)).
    `Percentile()` used to return log2-bucket midpoints, so every percentile
-   ≥128 ns was a multiple of 192 ns. That is where v1.0's `192`/`384`/`768 ns`
+   ≥128 ns was a multiple of 192 ns. That is where the previous snapshot's `192`/`384`/`768 ns`
    came from. Values are now interpolated within the bucket: microtel p50
    `192 → 229`, p95 `384 → 486.5`; otelcpp p50 `768 → 807.5`. Both sides were
    quantised, so the old 4.0× p50 ratio was partly a bucketing artifact, and
-   the same-host ratio is 3.5×. v1.1 did not get slower: throughput over the
+   the same-host ratio is 3.5×. microtel did not get slower: throughput over the
    same interval is within noise (microtel −4.0%, microtel-grpc +0.1%, and the
    unchanged otelcpp SUTs +6.0% / +8.0%).
 2. **Delivery and drop percentages use `spans_expected`**
@@ -73,7 +73,7 @@ binary moved 2 088 bytes across the same rebuild.
 
 The run carries two warnings, left in `results.md` and `results.json`: the
 CPU governor was `powersave` and SMT was enabled. They widen the spread but
-don't change the order-of-magnitude comparisons in the README. The v1.0
+don't change the order-of-magnitude comparisons in the README. The previous
 snapshot had a third warning for host load (0.81); this run started at 0.12.
 
 Two other profiles, `realistic-request` and `compression`, were run on the same

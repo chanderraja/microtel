@@ -8,7 +8,7 @@ This document is intentionally short — the heavy details live in other documen
 
 ## Project status
 
-microtel is **released — v1.0**. The architecture has settled, the interfaces in [docs/interfaces.md](docs/interfaces.md) are locked, and the rules are enforced by CI rather than by review taste.
+The current release is v1.1.0. The architecture has settled, the interfaces in [docs/interfaces.md](docs/interfaces.md) are locked, and the rules are enforced by CI rather than by review taste.
 
 **External contributions are welcome.** Bugs, fixes, tests, docs and features all take the same route: an Issue or an ICP where one is needed, then a PR that passes CI and a maintainer review. The discipline hasn't loosened — TDD gates, RAII, and the fixed dependency closure are still non-negotiable — but nothing is closed off because of who's typing.
 
@@ -107,7 +107,7 @@ A formal code of conduct will be adopted before the first public release. In the
 
 By contributing, you agree that your contributions are licensed under the project's [Apache 2.0 license](LICENSE).
 
-The decision between **DCO sign-off** (`Signed-off-by:` line in commit messages) and a **CLA** is TBD before the first public release. Pre-1.0 contributors will be asked to confirm consent under the chosen mechanism once finalized. See [microtel-spec.md §19 Governance](microtel-spec.md).
+The decision between **DCO sign-off** (`Signed-off-by:` line in commit messages) and a **CLA** is TBD before the first public release. Existing contributors will be asked to confirm consent under the chosen mechanism once finalized. See [microtel-spec.md §19 Governance](microtel-spec.md).
 
 ---
 

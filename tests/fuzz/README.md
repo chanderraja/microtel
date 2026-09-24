@@ -1,7 +1,7 @@
 # `tests/fuzz/`
 
 libFuzzer harnesses for adversarial inputs. `microtel-spec.md` §13.5
-makes them a v1.0 release requirement:
+makes them a release requirement:
 
 > Fuzzing (gRPC framing/trailer paths, TOML parser, response-size
 > limits), soak tests, perf gates in CI, collector interop matrix CI...

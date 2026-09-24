@@ -12,7 +12,7 @@ payloads emitted by microtel are accepted by receivers implementing the
 pinned OTLP specification version, over both OTLP/HTTP-protobuf and
 OTLP/gRPC.
 
-This is the gate for the v1.0 release per spec §13.5:
+This is a release gate per spec §13.5:
 
 > OTLP/HTTP trace export passes integration tests against the pinned
 > OpenTelemetry Collector matrix.

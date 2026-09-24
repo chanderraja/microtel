@@ -71,6 +71,7 @@ The project uses pull requests on GitHub. The same process applies to everyone, 
 - Short summary line (≤ 72 characters).
 - Optional longer body explaining *why*, not *what*.
 - Reference the issue if applicable: `Fixes #42` or `Refs #42`.
+- Sign off every commit (`git commit -s`); see [License and DCO](#license-and-dco).
 
 ### Interface changes
 
@@ -107,7 +108,9 @@ A formal code of conduct will be adopted before the first public release. In the
 
 By contributing, you agree that your contributions are licensed under the project's [Apache 2.0 license](LICENSE).
 
-The decision between **DCO sign-off** (`Signed-off-by:` line in commit messages) and a **CLA** is TBD before the first public release. Existing contributors will be asked to confirm consent under the chosen mechanism once finalized. See [microtel-spec.md §19 Governance](microtel-spec.md).
+microtel uses the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), not a CLA. Every commit must carry a `Signed-off-by:` line whose name and email match the commit author. It certifies that you wrote the change, or otherwise have the right to submit it under the project's license. `git commit -s` adds the line for you; to sign off commits already on a branch, run `git rebase --signoff master`.
+
+There is nothing to sign up front and no agreement to file. Commits merged before the DCO was adopted are not re-signed.
 
 ---
 

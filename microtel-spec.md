@@ -975,7 +975,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 ## 19. Governance
 
 - **License:** Apache 2.0.
-- **Contribution model:** DCO or CLA, decided before first public release.
+- **Contribution model:** DCO (`Signed-off-by:` on every commit). No CLA. See `CONTRIBUTING.md`.
 - **Security policy:** `SECURITY.md` with a private disclosure email and supported-versions list; coordinated disclosure preferred.
 - **Release cadence:** monthly pre-1.0; quarterly stable after 1.0.
 - **Compatibility policy:** semantic versioning; the public C++ API is stable within a major version. Wire compatibility is tracked against a pinned OTel spec version, with changes called out per release.

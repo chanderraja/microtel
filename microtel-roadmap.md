@@ -404,7 +404,7 @@ The `bench/` directory evolves alongside the project:
 
 ### Community and governance
 - **Pre-1.0:** small core team; CODEOWNERS for each track.
-- **v1.0 → v1.4:** maintain DCO/CLA, security policy, regular release cadence (monthly pre-1.0, quarterly stable).
+- **v1.0 → v1.4:** maintain DCO sign-off, security policy, regular release cadence (monthly pre-1.0, quarterly stable).
 - **v2.0:** consider donating to a foundation (CNCF if the leaf/concentrator pattern resonates) — depends on adoption signals.
 - **v3.0:** stable maintainer model with multiple organizations contributing if the project has reached real adoption.
 

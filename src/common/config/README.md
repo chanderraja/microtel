@@ -1,61 +1,82 @@
 # `src/common/config/`
 
-## Purpose
+## What lives here
 
-Parses `microtel.toml`, resolves env-var overlays, validates, freezes,
-and hands a final `Config` value back to `SdkBuilder`. Plus the two
-auth-provider implementations.
+The configuration layer that `SdkBuilder` runs at `Build()`: parse
+`microtel.toml` ([`toml_loader.cpp`](toml_loader.cpp)), overlay environment
+variables ([`env_resolver.cpp`](env_resolver.cpp)), validate
+([`config_validator.cpp`](config_validator.cpp)), and hand back a frozen
+`Config` ([`config.hpp`](config.hpp)). The two auth-provider implementations
+live here too ([`auth_providers.cpp`](auth_providers.cpp)). Built as
+`microtel_config`.
 
 The frozen `Config` is the input every other component sees during
-construction. There is no runtime mutation of config in v1; hot reload
-is a v1.1+ feature.
+construction, and nothing mutates it afterwards. v1.1 adds four runtime setters
+on `Provider` (`SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`,
+`SetLogLevel`, [ICP 0026](../../../docs/icps/0026-provider-setters.md)); they
+act on the built pipeline, not on `Config`. File-driven hot reload through a
+control plane is deferred to v1.2
+([`docs/control-plane-design.md`](../../../docs/control-plane-design.md)).
 
 ## Owner
 
 Track E — Configuration.
 
-## Implements
+## What it implements
 
-- The TOML parser usage (parser library selected in M2 chunk 5)
-- Env-var reading per the precedence in `docs/configuration.md` §1
-- The resolved `Config` value type
-- Validation: every entry in `docs/configuration.md` §3 has its
-  validator here, mapping failures to `ConfigError::Kind`
-- `internal::IAuthProvider` realisations: `StaticHeadersAuthProvider`
-  and `CallbackAuthProvider` (with TTL cache)
+- TOML parsing with toml++ v3.4.0, selected in
+  [ICP 0004](../../../docs/icps/0004-vendor-tomlplusplus.md).
+- Env-var reading, following the precedence in `docs/configuration.md` §1.
+  [`env_resolver.hpp`](env_resolver.hpp) lists the `OTEL_*` variables it
+  reads; the `MICROTEL_*` ones (`MICROTEL_LOG_LEVEL`,
+  `MICROTEL_RESOURCE_DETECTORS_STRICT`) are applied in
+  [`env_resolver.cpp`](env_resolver.cpp).
+- The resolved `Config` value type.
+- Validation. Every entry in `docs/configuration.md` §3 has its validator here,
+  and failures map to `ConfigError::Kind`.
+- The `internal::IAuthProvider` realisations `StaticHeadersAuthProvider` and
+  `CallbackAuthProvider` (with a TTL cache).
 
-## Depends on
+## Dependencies
 
-- A TOML parser library (selection in M2 chunk 5; candidates: `toml++`,
-  `cpptoml`, both header-only)
-- `microtel::Error`, `microtel::ConfigError` from
-  [`src/common/`](../) base headers
+- toml++ (`tomlplusplus::tomlplusplus`, header-only, fetched with
+  `FetchContent`). It is linked `PRIVATE` and wrapped in
+  `$<BUILD_INTERFACE:>`, so `libmicrotel_config.a` carries no toml symbol and
+  toml++ never reaches the install export set.
+- `microtel::Error` and `microtel::ConfigError` from
+  [`include/microtel/error.hpp`](../../../include/microtel/error.hpp).
 
-## Test entry points
+## Tests
 
-- `tests/unit/common/config/` — every setting has its precedence (code
-  vs env vs file vs default), validation (happy + every documented
-  failure), and edge-case test.
-- `tests/unit/common/auth/` — static-headers and callback paths,
-  TTL-cache behaviour.
-- `tests/fuzz/toml_fuzz.cpp` — adversarial TOML inputs (M9 hardening).
+- `tests/unit/common/config/`: `config_test.cpp` checks each setting's
+  precedence (code vs env vs file vs default), validation (the happy path and
+  every documented failure) and edge cases; `forbid_insecure_tls_test.cpp`
+  covers the ON half of the `MICROTEL_FORBID_INSECURE_TLS` gate (issue #200).
+- `tests/unit/common/auth/auth_providers_test.cpp`: the static-headers and
+  callback paths, and TTL-cache behaviour.
+- `tests/fuzz/toml_fuzz.cpp`: adversarial TOML inputs.
 
 ## Style notes
 
 - **Eager validation.** `SdkBuilder::Build` validates at construction
-  time and returns `microtel::Expected<Provider, ConfigError>`. No
-  network preflight here — that's the `microtel --preflight` CLI
-  surface (`docs/error-model.md` §8).
+  time and returns `microtel::Expected<std::shared_ptr<Provider>, ConfigError>`.
+  There is no network preflight here; that is the `microtel-preflight` CLI
+  (`--preflight=…`, `docs/error-model.md` §8).
 - **Strict by default.** Unknown TOML keys raise `ConfigError::UnknownKey`
   unless `[config] unknown_keys = "warn" | "ignore"`.
 - **Auth callback runs on the exporter worker thread** (LOCKED —
-  `interfaces.md` §4.9). Document this in the public
-  `WithAuthProvider` API; user code must be thread-safe.
-- **Secret redaction at the boundary** per `docs/configuration.md` §5.
-  The resolved-config dump emitted at `info` level redacts
-  `Authorization` headers, client secrets, token-provider outputs.
+  `interfaces.md` §4.9). Since the trace, metric and log codecs share one auth
+  provider, up to three exporter workers may call it concurrently
+  ([ICP 0029](../../../docs/icps/0029-auth-caller-count-correction.md)).
+  The public `WithAuthProvider` API documents this; user code must be
+  thread-safe.
+- **Secrets.** `docs/configuration.md` §5 specifies a redacted resolved-config
+  dump at `info` level (`Authorization` headers, client secrets and
+  token-provider outputs redacted). It is not implemented: `Build()` logs no
+  config dump, only the two `Warn` lines for plaintext OTLP/HTTP and
+  `tls.insecure = true`. Redaction belongs at that boundary when the dump
+  lands.
 - **Env-var precedence** per `docs/configuration.md` §1: code > env >
-  file > defaults. `MICROTEL_*` wins over `OTEL_*` on overlap; v1
-  defines no overlap, so the rule is dormant but documented.
-- **Frozen at `Build` time.** No mutation API. Hot reload arrives in
-  v1.1's control plane.
+  file > defaults. `MICROTEL_*` wins over `OTEL_*` on overlap. v1 defines no
+  overlap, so the rule is dormant but documented.
+- **Frozen at `Build` time.** `Config` has no mutation API.

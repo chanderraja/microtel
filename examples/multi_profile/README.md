@@ -1,13 +1,13 @@
 # `multi_profile`
 
-Two independent named providers in one process, and the registry that lets
-code find one without being handed a pointer.
+Two independent named providers in one process, plus the registry that lets
+code find one of them without being handed a pointer.
 
 The example builds a `"frontend"` and a `"backend"` profile with different
-service names and different samplers, emits from both, looks the backend up by
-name from a function that received nothing, and then walks the three registry
-rules that trip people up: a duplicate name is refused, `Shutdown` does not
-release a name, destruction does.
+service names and different samplers, and emits spans from both. A function
+that receives no arguments then looks the backend up by name. After that it
+walks through the registry rules that tend to trip people up: a duplicate name
+is refused, `Shutdown` does not release a name, and destruction does.
 
 ## Run it
 
@@ -41,7 +41,14 @@ shutting down
   after Shutdown, GetProvider("frontend"): live  (a name is freed by destruction, not by Shutdown)
   after destruction, GetProvider("frontend"): nullptr
   GetProvider("backend"):  live  (still owned here)
+
+Both services should now appear in Grafana's service list:
+  { resource.service.name = "microtel-frontend-example" }
+  { resource.service.name = "microtel-backend-example" }
 ```
+
+The endpoint defaults to the shared stack's OTLP/gRPC receiver; pass a
+different one as the first argument.
 
 ## Two profiles, nothing shared
 
@@ -62,22 +69,22 @@ auto backend = microtel::SdkBuilder{}
                    .Build();
 ```
 
-A profile is **not** an overlay on a shared pipeline. Each one owns its
-endpoint, protocol, TLS material, sampler, `Resource`, processors, worker
-threads, transport and I/O thread, and shares none of them
-([ICP 0027](../../docs/icps/0027-multi-profile-threading.md)). Both export to
-the same collector here, which is the least interesting thing they could do —
-the shape this exists for is one profile to your own collector and another to a
-vendor, or a high-volume profile sampled hard next to an audit profile sampled
-not at all.
+Each profile is a complete pipeline of its own. It owns its endpoint, protocol,
+TLS material, sampler, `Resource`, processors, worker threads, transport and
+I/O thread, and shares none of them with any other profile
+([ICP 0027](../../docs/icps/0027-multi-profile-threading.md)). Both profiles
+export to the same collector here, which is the least interesting thing they
+could do. In practice you would point one profile at your own collector and
+another at a vendor, or run a heavily sampled high-volume profile next to an
+audit profile that keeps everything.
 
-The samplers differ to make the independence visible rather than asserted: the
-frontend keeps everything it starts, the backend keeps everything except its
+The samplers differ so you can see the independence in the output. The
+frontend keeps everything it starts; the backend keeps everything except its
 health check. `backend.healthz` is dropped at `StartSpan` and never reaches a
-queue — the console line says so, and Tempo agrees.
+queue. The console line reports that, and Tempo agrees.
 
-`WithProfileName` is compared **byte for byte**. No normalisation, no case
-folding: `"backend"` and `"Backend"` are two profiles.
+`WithProfileName` compares names byte for byte, with no normalisation and no
+case folding, so `"backend"` and `"Backend"` are two different profiles.
 
 ## Finding a profile from code that was handed nothing
 
@@ -94,22 +101,22 @@ std::string RecordBackendWork()
 }
 ```
 
-This is the whole reason the registry exists. A host that builds its profiles
-in one place can pass the `shared_ptr<Provider>` around and never call
-`GetProvider` — and should. The call is for instrumentation that cannot be
-reached that way: library code, a plugin, a signal-handler-adjacent callback,
-anything whose signature you do not control.
+This is why the registry exists. If your host builds its profiles in one place,
+pass the `shared_ptr<Provider>` around and don't call `GetProvider` at all.
+The lookup is for instrumentation you can't reach that way: library code, a
+plugin, a signal-handler-adjacent callback, anything whose signature you don't
+control.
 
-`GetProvider()` with no argument is the default-profile accessor — it looks up
-`"default"`, the name a provider built without `WithProfileName` carries. This
-example names both of its profiles, so the default slot is empty and the call
-returns `nullptr`, which the run prints.
+`GetProvider()` with no argument is the default-profile accessor. It looks up
+`"default"`, which is the name a provider gets when it is built without
+`WithProfileName`. This example names both of its profiles, so the default slot
+is empty and the call returns `nullptr`, as the run shows.
 
 ## Registry semantics
 
-`GetProvider` returns a **borrowed, non-owning** pointer. It never transfers
-ownership and a lookup never extends a lifetime — the owner is whoever holds
-the `shared_ptr<Provider>` that `Build()` returned.
+`GetProvider` returns a borrowed, non-owning pointer. It never transfers
+ownership, and a lookup never extends a provider's lifetime. The owner is
+whoever holds the `shared_ptr<Provider>` that `Build()` returned.
 
 | Event | `GetProvider(name)` | Why |
 |---|---|---|
@@ -118,22 +125,24 @@ the `shared_ptr<Provider>` that `Build()` returned.
 | After destruction | `nullptr` | the destructor releases the slot, before it tears anything down |
 | In a `fork()` child | `nullptr` | every slot is emptied in the child, so it can re-`Build()` under the same names |
 
-The run demonstrates rows two and three back to back: `live` after both
-providers are shut down, `nullptr` for the frontend the moment its last
-`shared_ptr` is dropped, and `live` still for the backend, which `main` is
-still holding.
+The run shows rows two and three back to back. Both providers are still `live`
+after they have been shut down. The frontend goes to `nullptr` as soon as its
+last `shared_ptr` is dropped, while the backend, which `main` still holds,
+stays `live`.
 
-The pointer **dangles across destruction**, like every non-owning pointer in
-this API. What is guaranteed is that a *subsequent* lookup returns `nullptr`
-rather than the corpse. A program that destroys providers while other threads
-look them up has to synchronise that itself; the documented usage — look
-profiles up after building them, hold the pointer, destroy at process teardown
-— never meets the race.
+Like every non-owning pointer in this API, the one `GetProvider` hands you
+dangles once the provider is destroyed. The guarantee is that a later lookup
+returns `nullptr` instead of the destroyed object. If your program destroys
+providers while other threads are looking them up, you have to synchronise
+that yourself. The intended pattern (look profiles up after building them,
+hold the pointer, destroy at process teardown) never runs into the race.
 
-One more lifetime rule the example has to respect, and which the header
-currently gets wrong ([#285](https://github.com/chanderraja/microtel/issues/285)):
-a `Tracer` borrows its provider's pipeline through raw pointers and **must not
-outlive it**. The frontend's tracer is scoped away before `frontend.reset()`.
+There is one more lifetime rule the example has to respect, and the header
+currently documents it wrongly
+([#285](https://github.com/chanderraja/microtel/issues/285)): a `Tracer`
+borrows its provider's pipeline through raw pointers and must not outlive the
+provider. That is why the frontend's tracer goes out of scope before
+`frontend.reset()`.
 
 ### Duplicate names fail loudly
 
@@ -143,16 +152,17 @@ under profile name 'backend'; shutting a provider down does not release its name
 destroying it does
 ```
 
-Never last-wins. The live provider keeps the name and the *new* `Build()` is
-the one that fails, with `ConfigError::Kind::DuplicateProfileName`. Two
-concurrent `Build()`s of the same name produce exactly one provider and exactly
-one error — the registry resolves the race by lowest slot index, so the outcome
-is deterministic rather than whichever thread got there first.
+The live provider keeps the name, and the new `Build()` is the one that fails,
+with `ConfigError::Kind::DuplicateProfileName`. The second build never
+replaces the first. If two threads call `Build()` with the same name at the
+same time, you get exactly one provider and exactly one error. The registry
+settles the race by lowest slot index, so the outcome is deterministic and
+doesn't depend on which thread got there first.
 
-The sibling failure is `ConfigError::Kind::ProfileLimitExceeded`: the process
-holds a fixed maximum number of live providers, and the number is carried in
-the error message rather than in any header you include, because it is internal
-and raising it is a rebuild, not an ICP.
+The related failure is `ConfigError::Kind::ProfileLimitExceeded`. A process can
+hold only a fixed number of live providers. That number is internal, so it
+appears in the error message and not in any public header; raising it takes a
+rebuild, and no ICP.
 
 ## What Grafana shows
 
@@ -163,7 +173,7 @@ microtel-backend-example
 microtel-frontend-example
 ```
 
-In **Explore → Tempo**, one query each:
+In **Explore → Tempo**, run one query for each:
 
 ```
 { resource.service.name = "microtel-frontend-example" }   # 1 trace: frontend.request
@@ -171,19 +181,21 @@ In **Explore → Tempo**, one query each:
 { name = "backend.healthz" }                              # 0 — dropped at StartSpan
 ```
 
-Two service names from one process is the observable difference between a
-profile and a knob. There is no way to get this by reconfiguring a single
-provider: `service.name` is part of the `Resource`, the `Resource` is fixed at
-`Build()`, and none of the four hot-reload setters touches it.
+Two service names from one process is what a second profile gets you that a
+configuration change can't. `service.name` is part of the `Resource`, the
+`Resource` is fixed at `Build()`, and none of the four hot-reload setters
+touches it, so a single provider can't be reconfigured into this.
 
 ## What to notice in the code
 
-- **`GetProvider` returns a raw pointer, and the null check is not optional.**
-  A name that was never built, a provider already destroyed, and a
-  `fork()`ed child all return `nullptr`.
-- **Each provider is shut down explicitly**, in the order the program chooses.
-  Destructors would do it, with a small finite timeout, but then the teardown
-  order is member-destruction order and the flush statuses are not observable.
-- **The duplicate-name attempt is real code, not a comment.** It builds, it
-  fails, and the program prints the failure — an example that only *claims* an
-  error case is an example that stops being true the day the error changes.
+`GetProvider` returns a raw pointer, and you must check it for null. A name
+that was never built, a provider that has already been destroyed, and a
+`fork()`ed child all give you `nullptr`.
+
+Each provider is shut down explicitly, in the order the program chooses. The
+destructors would do it too, with a small finite timeout, but then teardown
+follows member-destruction order and you can't see the flush statuses.
+
+The duplicate-name attempt is real code. It builds, it fails, and the program
+prints the failure. An example that only claims an error case in a comment
+stops being accurate the day that error changes.

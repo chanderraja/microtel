@@ -1,50 +1,53 @@
 # `tests/fakes/`
 
-**Logic-bearing** test doubles. Used when a mock isn't enough.
+Test doubles that carry logic, for the cases where a mock isn't enough.
 
 ## What lives here
 
-| Fake | Interface | Why a fake (not a mock) |
+| Fake | Interface | Why a fake and not a mock |
 |---|---|---|
-| `fake_clock.hpp`              | `internal::IClock`           | Tests advance time on demand; the clock must respond consistently to `Now()` calls between advances. |
-| `fake_steady_clock.hpp`       | `internal::ISteadyClock`     | Same. |
-| `fake_transport.hpp`          | `internal::ITransport`       | In-memory loopback against a `FakeServer` that scripts protocol-level responses. |
-| `fake_reactor.hpp`            | `internal::IReactor`         | Tests script event timelines; the fake dispatches them on registered callbacks deterministically. |
-| `fake_diagnostics_sink.hpp`   | `internal::IDiagnosticsSink` | Stores counters as plain `uint64_t` and exposes them for assertions. |
-| `fake_auth_provider.hpp`      | `internal::IAuthProvider`    | TTL-cache simulation: tests configure cache lifetime + miss/hit sequences. |
-| `fake_resource_detector.hpp`  | `internal::IResourceDetector` | Returns a configured `Resource`; trivial but logically distinct from a mock. |
-| `fake_span_processor.hpp`     | `internal::ISpanProcessor`   | Stores received spans in a vector for inspection. |
-| `fake_exporter.hpp`           | `internal::IExporter`        | Records batches in memory and exposes them. |
-| `fake_logger.hpp`             | `microtel::Logger`           | Captures every emitted `LogRecord` for inspection. |
-| `fake_span.hpp`               | `microtel::Span`             | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests to assert on. |
-| `fake_tracer.hpp`             | `microtel::Tracer`           | Records every `StartSpan` (name, options) and hands out a fresh recording `FakeSpan` per call. |
-| `fake_provider.hpp`           | `microtel::Provider`         | Records tracer/meter acquisitions and flush/shutdown timeouts; returns configured statuses. |
-| `fake_meter.hpp`              | `microtel::Meter`            | Records instrument creations, returns recording sync instruments, captures observable callbacks for test-driven collection cycles. |
+| `fake_clock.hpp`                  | `internal::IClock`              | Tests advance time on demand, and `Now()` must answer consistently between advances. |
+| `fake_steady_clock.hpp`           | `internal::ISteadyClock`        | Same. |
+| `fake_transport.hpp`              | `internal::ITransport`          | Keeps every `RequestSpec` it receives and serves scripted `TransportResult`s in FIFO order, resolving each `Send` synchronously. |
+| `fake_reactor.hpp`                | `internal::IReactor`            | Tests script event timelines; the fake dispatches them to registered callbacks deterministically. |
+| `fake_wire_codec.hpp`             | `internal::IWireCodec`          | Serves scripted `WireResult`s in FIFO order, so retry-then-succeed and retry-until-exhausted can be driven from a queue. |
+| `fake_diagnostics_sink.hpp`       | `internal::IDiagnosticsSink`    | Stores counters as plain `uint64_t` and exposes them for assertions. |
+| `fake_auth_provider.hpp`          | `internal::IAuthProvider`       | Simulates the TTL cache: tests configure the cache lifetime and the miss/hit sequence. |
+| `fake_resource_detector.hpp`      | `internal::IResourceDetector`   | Returns a configured `Resource`. Trivial, but logically distinct from a mock. |
+| `fake_span_processor.hpp`         | `internal::ISpanProcessor`      | Stores received spans in a vector for inspection. |
+| `fake_exporter.hpp`               | `internal::IExporter`           | Records batches in memory and exposes them. |
+| `fake_log_record_processor.hpp`   | `internal::ILogRecordProcessor` | Records every emitted `LogRecord` with its scope, for `SdkLogger` tests. |
+| `fake_log_exporter.hpp`           | `internal::ILogExporter`        | Captures every exported batch for assertions on record counts, scope grouping and `Resource`. |
+| `fake_logger.hpp`                 | `microtel::Logger`              | Captures every emitted `LogRecord` for inspection. |
+| `fake_span.hpp`                   | `microtel::Span`                | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests. |
+| `fake_tracer.hpp`                 | `microtel::Tracer`              | Records every `StartSpan` (name and options) and hands out a fresh recording `FakeSpan` per call. |
+| `fake_provider.hpp`               | `microtel::Provider`            | Records tracer and meter acquisitions and flush/shutdown timeouts, and returns configured statuses. |
+| `fake_meter.hpp`                  | `microtel::Meter`               | Records instrument creations, returns recording sync instruments, and captures observable callbacks so tests can drive a collection cycle. |
 
-## Bar
+## Rules
 
-- **Logic is OK.** That's what distinguishes a fake from a mock.
-- **Deterministic.** No real clocks, no real I/O, no sleeps. Tests
-  drive time, events, and responses explicitly.
-- **No threads.** The fake clock and reactor exist precisely so tests
-  can avoid real concurrency. If a fake needs to spawn a thread, the
-  design is wrong.
-- **Test-only by name.** Lives in `microtel::testing` namespace; never
-  exposed in production headers.
+- Logic is allowed. That is the difference between a fake and a mock.
+- Fakes are deterministic: no real clocks, no real I/O, no sleeps. The
+  test drives time, events and responses explicitly.
+- Fakes don't start threads. The fake clock and reactor exist so tests
+  can avoid real concurrency; a fake that needs its own thread means
+  the design is wrong. (A fake may still be *called* from a production
+  worker thread. `FakeWireCodec::send_call_count` is atomic for that
+  reason.)
+- Fakes are test-only. They live in the `microtel::testing` namespace
+  and never appear in production headers.
 
 ## Naming
 
-`Fake<InterfaceName>` — `FakeClock`, `FakeTransport`, `FakeReactor`.
-Same namespace + naming as `tests/mocks/`.
+`Fake<InterfaceName>`, e.g. `FakeClock`, `FakeTransport`,
+`FakeReactor`. Same namespace and naming scheme as `tests/mocks/`.
 
-## Promotion path
+## Promoting a mock to a fake
 
-Sometimes a mock starts simple, then a test needs scripted behaviour,
-then another needs more, and the mock accretes logic. When that
-happens, **promote to a fake**. Don't grow logic on a mock; the mock
-class becomes a fake and the file moves from `tests/mocks/` to
-`tests/fakes/`.
+A mock sometimes starts simple, then one test needs scripted behaviour,
+then another needs more, and the mock picks up logic. When that
+happens, promote it: don't grow logic on a mock. The class becomes a
+fake and the file moves from `tests/mocks/` to `tests/fakes/`.
 
-The reverse promotion (fake → mock) doesn't happen — once logic exists
-in a test double, it stays a fake even if some tests configure the
-fake to be a no-op.
+It never goes the other way. Once a test double has logic it stays a
+fake, even if some tests configure it as a no-op.

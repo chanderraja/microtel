@@ -1,16 +1,18 @@
 # blackhole-sink
 
-A zero-logic OTLP receiver used as the benchmarking target for microtel.
-It accepts spans over OTLP/gRPC and OTLP/HTTP, counts them with atomic
-counters, and discards everything else.  Latency and throughput reflect the
-microtel SDK and network path, not any collector work.
+A minimal OTLP receiver used as the benchmark target. It accepts spans
+over OTLP/gRPC and OTLP/HTTP, counts them with atomic counters, and
+discards everything else, so latency and throughput reflect the SDK
+under test and the network path with no collector work mixed in.
+Metrics and logs requests are accepted and counted as requests and
+bytes, but their contents are not decoded.
 
 ## Ports
 
 | Port | Protocol | Endpoint |
 |------|----------|----------|
-| 4317 | gRPC (plaintext) | OTLP TraceService.Export |
-| 4318 | HTTP/2 cleartext (h2c) | POST /v1/traces, /v1/metrics, /v1/logs |
+| 4317 | gRPC (plaintext) | OTLP TraceService.Export, MetricsService.Export |
+| 4318 | HTTP/2 cleartext (h2c) | POST /v1/traces (parsed), /v1/metrics and /v1/logs (stubbed) |
 | 19080 | HTTP/1.1 | GET /health, GET /stats, POST /reset |
 
 ## Control API
@@ -47,7 +49,7 @@ real delivery:
 
 `bytes_received` means the same thing on both: the compressed size of what
 arrived. grpc-go inflates before the handler runs, so the gRPC path cannot
-measure the request inside the handler — `StatsHandlerOption()` installs a
+measure the request inside the handler. Instead, `StatsHandlerOption()` installs a
 `grpc.StatsHandler` that records `stats.InPayload.WireLength` per RPC and the
 handler reads that instead of `proto.Size` ([#228](https://github.com/chanderraja/microtel/issues/228)).
 `WireLength` includes the 5-byte gRPC length-prefix header, so uncompressed
@@ -56,6 +58,14 @@ gRPC byte baselines are 5 bytes per message higher than before that landed.
 Any server registering these handlers must pass `StatsHandlerOption()`;
 without it `bytes_received` silently falls back to the uncompressed
 `proto.Size`.
+
+## Response delay
+
+Setting `SINK_RESPONSE_DELAY_MS` makes the trace handlers (and the gRPC
+metrics handler) sleep that many milliseconds before responding. The
+stubbed HTTP metrics and logs routes are not delayed. The driver sets it from
+`--sink-delay-ms` to push the batch span processor's queue toward
+saturation in the backpressure profile.
 
 ## Run with Docker
 
@@ -70,7 +80,7 @@ docker run --rm -p 4317:4317 -p 4318:4318 -p 19080:19080 blackhole-sink
 go run ./cmd/blackhole-sink
 ```
 
-Requires Go 1.22+.
+Requires Go 1.25+ (the `go` directive in `go.mod`).
 
 ## gRPC reflection
 

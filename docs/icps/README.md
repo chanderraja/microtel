@@ -1,16 +1,18 @@
 # Interface Change Proposals (ICPs)
 
-ICPs are short markdown documents that record breaking changes to interfaces locked in M0, or material changes to architecture documents that contributors and AI agents read as durable rules.
+An ICP is a short markdown document that records a breaking change to an
+interface locked in M0, or a material change to an architecture document that
+contributors and AI agents treat as a standing rule.
 
-Per spec §13.2, an ICP is **lightweight, but visible**. A few paragraphs. They are heads-up documents, not multi-week reviews.
+Keep them light (spec §13.2): a few paragraphs that give people a heads-up.
+They are not meant to become multi-week reviews.
 
 ## Index
 
-Status at a glance. **Append-only** (see File naming): nothing here is removed,
-including superseded proposals — the rationale is the point, and an accepted
-ICP is a decision still in force, not a spent one. Several are referenced
-directly from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp`, and the
-headers.
+The index is append-only (see File naming). Nothing is removed, including
+superseded proposals, because the rationale is what the record is for and an
+accepted ICP is a decision that still applies. Several are referenced directly
+from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp` and the headers.
 
 | ICP | Subject | Status | Implemented by |
 |---|---|---|---|
@@ -44,35 +46,34 @@ headers.
 | [0028](0028-sugar-surface.md) | The sugar layer's public surface — `microtel::sugar` | Accepted | — (v1.1 sugar packet) |
 | [0029](0029-auth-caller-count-correction.md) | Auth-provider caller-count correction (§4.9 LOCKED sentence) | Accepted | — (docs only) |
 
-**0027 is not the amendment [ICP 0024](0024-v1.1-rescope.md) forecast for it.**
-0024 filed the number against `docs/control-plane-design.md` §9 (the fourth
-thread role). That amendment is still unwritten and now travels with the v1.2
-socket; 0027 went to the other `docs/threading-model.md` amendment v1.1 needs,
-which is multi-profile's.
+[ICP 0024](0024-v1.1-rescope.md) reserved number 0027 for an amendment to
+`docs/control-plane-design.md` §9 (the fourth thread role). That amendment is
+still unwritten and will now come with the v1.2 socket. 0027 went instead to
+the other `docs/threading-model.md` amendment v1.1 needed, for multi-profile.
 
-"Implemented by" is recorded only where a commit explicitly applies the ICP.
-A dash means the link was not determinable from commit messages, **not** that
-the ICP is unimplemented — several of the early ones were applied as part of
-the milestone that motivated them. Grepping for the ICP number finds passing
-mentions as often as implementations, so the column is deliberately sparse
-rather than speculatively filled.
+"Implemented by" is filled in only where a commit explicitly applies the ICP.
+A dash means commit messages don't say which change implemented it; it does
+not mean the ICP is unimplemented. Several early ones were applied as part of
+the milestone that prompted them. Grepping for an ICP number turns up passing
+mentions as often as implementations, so the column is left sparse instead of
+guessed.
 
-### ICP 0009 — resolved, and worth remembering
+### ICP 0009: a cautionary example
 
 0009 proposed relaxing `ITransport::Send` from "single-caller" to "safe for
-concurrent callers", so the M12 metrics pipeline could share one transport.
-**The relaxation shipped and the ICP did not**: `SdkBuilder::Build` has built
-three codecs over one transport since M12, each driven by its own exporter
-worker, while `interfaces.md` §4.1 went on stating — LOCKED — that concurrent
+concurrent callers" so the M12 metrics pipeline could share one transport.
+The relaxation shipped but the ICP did not. Since M12, `SdkBuilder::Build`
+has built three codecs over one transport, each driven by its own exporter
+worker, while `interfaces.md` §4.1 went on stating, as a LOCKED claim, that concurrent
 `Send` was a contract violation. The TSAN test 0009 specified was never
 written.
 
-Nothing ever raced; the implementation was mechanically safe exactly as 0009
-argued. But the contract asserted the opposite of the code for four
-milestones, and the evidence for the safety claim did not exist until #156.
+Nothing ever raced, and the implementation was safe for exactly the reasons
+0009 gave. But for four milestones the contract said the opposite of what the
+code did, and there was no evidence for the safety claim until #156.
 
-Kept here as the worked example of what issue #134 is about: the gap is not
-that a document drifted, it is that nothing ever checked one against the other.
+It stays here because it shows what issue #134 is about. Documents drift; the
+real problem was that nothing checked the document against the code.
 
 ## LOCKED claims cite code (ICP 0021)
 
@@ -87,31 +88,33 @@ Every LOCKED marker carries one of two annotations:
 (LOCKED — intent)                                       a claim about intent
 ```
 
-A citation names a **function or member — never a line number**, because line
-numbers rot: one added in #149 was already stale by #144.
+A citation names a function or member, never a line number. Line numbers go
+stale: one added in #149 was already wrong by #144.
 
 [`ci/scripts/citation-check.py`](../../ci/scripts/citation-check.py) (CI job
 `citation-check`, a required status check) enforces it in two passes:
 
-- **Resolution**, over every document under `docs/`: a cited file must exist and
+- Resolution, over every document under `docs/`: a cited file must exist and
   a cited symbol must appear in it. A stale citation fails the build wherever it
   is written.
-- **Coverage**, only over documents carrying a `**Citation policy:** complete`
-  line in their header: every LOCKED marker must be annotated, `cites` or
-  `intent`. Opt-in is per document because the issue #134 audit of all ~90
-  markers is open work; a document is flipped to `complete` by the pass that
-  reconciles it. [`docs/threading-model.md`](../threading-model.md) is the first.
+- Coverage, only over documents with a `**Citation policy:** complete` line in
+  their header: every LOCKED marker there must be annotated with either `cites`
+  or `intent`. Documents opt in one at a time because the issue #134 audit of
+  all ~90 markers is still open, and the pass that reconciles a document is the
+  one that flips it to `complete`.
+  [`docs/threading-model.md`](../threading-model.md) was the first.
 
-The check is deliberately weak — it proves a symbol exists, not that the
-sentence around it is true. It is worth its cost because it catches the failure
-mode that is undetectable by reading: `ShutdownState`, named as the shutdown
-"single source of truth" in three normative documents, was present in no commit
-for four milestones. Run it locally with `ci/scripts/citation-check.py`, and
-`--self-test` to see it fail on purpose.
+The check is weak on purpose. It proves a symbol exists, not that the sentence
+around it is true. That is still worth having, because it catches a failure
+you can't spot by reading: `ShutdownState`, which three normative documents
+called the shutdown "single source of truth", did not exist in any commit for
+four milestones. Run it locally with `ci/scripts/citation-check.py`, and add
+`--self-test` to watch it fail on purpose.
 
-**LOCKED has never meant "verified".** It means changing the claim needs an ICP.
-Every marker in the repository was written in the M0 commit, before there was
-code to check it against; ICP 0021 is what that cost.
+LOCKED has never meant "verified". It means that changing the claim requires
+an ICP. Every marker in the repository was written in the M0 commit, before
+there was any code to check it against, and ICP 0021 is the cleanup that
+followed.
 
 ## When an ICP is required
 
@@ -133,18 +136,18 @@ After M0 closes, an ICP is required for:
 
 ## Pre-M0-close ICPs
 
-Pre-close, the ICP process is *encouraged but optional*. It is a useful pattern for changes that materially reshape the M0 deliverable set or amend CLAUDE.md / spec / repository-layout.md in ways that future contributors should be able to find. ICP 0001 is an example.
+Before M0 closed, ICPs were encouraged but optional. They were used for changes that reshaped the M0 deliverable set or amended CLAUDE.md, the spec or repository-layout.md in ways later contributors would need to find. ICP 0001 is one.
 
 ## File naming
 
-`NNNN-short-slug.md`, four-digit zero-padded, monotonically increasing. Append-only — superseded ICPs stay; a new ICP records the supersession.
+`NNNN-short-slug.md`, four digits, zero-padded and increasing. The directory is append-only: a superseded ICP stays, and a new ICP records the supersession.
 
 ## Process
 
 1. PR an ICP into `docs/icps/`.
 2. Reviewer sign-off (single reviewer pre-1.0).
-3. Merge the ICP **before** the implementing PR, so the implementing PR can reference it by number.
-4. Implementing PR makes the substantive changes.
+3. Merge the ICP before the implementing PR, so the implementing PR can reference it by number.
+4. The implementing PR makes the substantive changes.
 
 ## Required sections
 

@@ -1,53 +1,59 @@
 # `tests/fuzz/`
 
-libFuzzer harnesses for adversarial inputs. Required for v1.0 release
-per `microtel-spec.md` §13.5:
+libFuzzer harnesses for adversarial inputs. `microtel-spec.md` §13.5
+makes them a v1.0 release requirement:
 
 > Fuzzing (gRPC framing/trailer paths, TOML parser, response-size
 > limits), soak tests, perf gates in CI, collector interop matrix CI...
 
-## Required harnesses (per spec §13.5 / §14.2 / §16)
+## Required harnesses (spec §13.5, §14.2, §16)
 
 | File | Surface |
 |---|---|
-| `grpc_codec_fuzz.cpp`         | The gRPC response parser entry point. Validates split-prefix, multi-frame, trailer parsing, RetryInfo decoding. |
-| `toml_fuzz.cpp`               | The `microtel.toml` parser. Adversarial TOML inputs. |
-| `response_decompression_fuzz.cpp` | Decompression-bomb protection; bounded by `max_decompressed_bytes`. |
-| `otlp_response_fuzz.cpp`      | The `ExportTraceServiceResponse` proto parser (partial-success path). |
+| `grpc_codec_fuzz.cpp`         | The gRPC response parser entry point: split prefixes, multiple frames, trailer parsing, `RetryInfo` decoding. |
+| `toml_fuzz.cpp`               | The `microtel.toml` parser, fed adversarial TOML. |
+| `response_decompression_fuzz.cpp` | Decompression-bomb protection, bounded by `max_decompressed_bytes`. |
+| `otlp_response_fuzz.cpp`      | The `ExportTraceServiceResponse` proto parser (the partial-success path). |
 
 ## v1.1 harnesses
 
 | File | Surface |
 |---|---|
-| `baggage_fuzz.cpp` | The W3C `baggage` header parser. Required by the v1.1 ships-when gate clause 3 ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Asserts the three grammar limits and `FromHeader`/`ToHeader` round-trip stability, not just crash-freedom. |
-| `provider_setters_fuzz.cpp` | The four hot-reload `Provider` setters' validation surface ([ICP 0026](../../docs/icps/0026-provider-setters.md)), required by the v1.1 ships-when gate clause 2. The input is a *program*, not a value: byte 0 picks the provider's shape and the rest is a stream of opcodes replayed against one live provider, so interleavings are fuzzed alongside ranges. Asserts that `InvalidArgument` comes back exactly when the harness independently judges the value bad, that nothing but `Completed` / `InvalidArgument` / `Unsupported` comes back before `Shutdown`, and that `Unsupported` depends on the pipeline rather than on history. |
+| `baggage_fuzz.cpp` | The W3C `baggage` header parser, required by clause 3 of the v1.1 ships-when gate ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Besides crash-freedom, it asserts the three grammar limits and that `FromHeader`/`ToHeader` round-trips are stable. |
+| `provider_setters_fuzz.cpp` | The validation surface of the four hot-reload `Provider` setters ([ICP 0026](../../docs/icps/0026-provider-setters.md)), required by clause 2 of the same gate. The input is a program rather than a value: byte 0 picks the provider's shape, and the rest is a stream of opcodes replayed against one live provider, so interleavings get fuzzed along with ranges. It asserts that `InvalidArgument` comes back exactly when the harness independently judges the value bad, that nothing but `Completed`, `InvalidArgument` or `Unsupported` comes back before `Shutdown`, and that `Unsupported` depends on the pipeline and not on history. |
 
 ## Invariants
 
-Per `docs/grpc-wire-protocol.md` §7.4 — and applicable to every fuzz
-harness:
+From `docs/grpc-wire-protocol.md` §7.4, applied to every harness:
 
-- **No crashes.**
-- **No ASAN / UBSAN / TSAN findings.**
-- **Memory growth is bounded** by the configured response-size limits
-  regardless of input.
-- **No infinite loops.** Parser always makes progress or terminates.
+- No crashes.
+- No ASan, UBSan or TSan findings.
+- Memory growth stays bounded by the configured response-size limits,
+  whatever the input.
+- No infinite loops. The parser always makes progress or terminates.
+
+## Inputs
+
+Each harness has two committed input directories:
+
+- `corpus/<harness>/` holds seed inputs. The fuzzing job starts from
+  these.
+- `crashes/<harness>/` holds confirmed crashing inputs. Once the bug is
+  fixed, the input stays as a regression check. Every `crashes/`
+  directory is empty today (apart from `.gitkeep`).
 
 ## CI
 
-Fuzzing runs as a periodic CI job, not a per-PR gate (it's slow and
-noisy). Mutation testing follows the same pattern (per spec §14.2).
-Findings open issues for follow-up; they do not block PRs.
+Fuzzing itself is not a per-PR gate, because it is slow and its
+findings are non-deterministic. [`fuzz.yml`](../../.github/workflows/fuzz.yml)
+runs every harness weekly (default 120 s each, adjustable on a manual
+dispatch) and uploads any crashing input as an artifact. Mutation
+testing follows the same pattern (spec §14.2). Findings open issues;
+they don't block PRs.
 
-## Reproduction
-
-Each crashing input is committed under a per-harness `crashes/`
-subdirectory once a finding is confirmed. The harness re-runs against
-its `crashes/` corpus on every PR — that part *is* a hard gate. Once
-fixed, the input stays in the corpus as a regression check.
-
-The gate is [`ci/scripts/corpus-check.sh`](../../ci/scripts/corpus-check.sh),
-run by the `corpus-check` job in `ci.yml`. To reproduce it locally:
+Replaying `crashes/` is a hard gate on every PR. The gate is
+[`ci/scripts/corpus-check.sh`](../../ci/scripts/corpus-check.sh), run by
+the `corpus-check` job in `ci.yml`. To reproduce it locally:
 
 ```bash
 cmake -S . -B build-fuzz \
@@ -57,9 +63,9 @@ cmake --build build-fuzz
 ci/scripts/corpus-check.sh build-fuzz
 ```
 
-It replays every committed input with `-runs=1` and fails on any non-zero
-exit, printing the harness output so the sanitizer report is visible. A
-missing harness binary is an error rather than a skip: a renamed target
-must not silently stop being checked. Empty `crashes/` directories — the
-current state for every harness — pass, and the script says so
-rather than implying coverage it does not have.
+The script replays every committed input with `-runs=1` and fails on any
+non-zero exit, printing the harness output so the sanitizer report is
+visible. A missing harness binary is an error, not a skip, so a renamed
+target can't silently stop being checked. Empty `crashes/` directories
+pass, and the script says so instead of implying coverage it doesn't
+have.

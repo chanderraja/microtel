@@ -1,29 +1,28 @@
 # `tests/grpc-wire/`
 
 The gRPC response corpus from `docs/grpc-wire-protocol.md` §7.2 and spec
-§13.5. This directory holds **no fixture files**: every entry in the
-corpus is covered by a test that builds the response in code, and the
-table below says which one.
+§13.5. This directory holds no fixture files. Every entry in the corpus
+is covered by a test that builds the response in code, and the table
+below says which one.
 
-That is a deliberate reading of the corpus rather than a shortfall
-against it. The corpus splits in two along the line the codec's
-interface draws:
+That is a deliberate reading of the corpus, and it splits in two along
+the line the codec's interface draws.
 
-- **Response *content*** — statuses, trailers, `RetryInfo`, the
-  partial-success body. `FakeTransport` hands the codec an exact
-  `TransportResult`, which is a byte-stable fixture expressed in C++
-  rather than in a file, and is checked without a socket. These live in
-  [`tests/unit/wire/grpc/`](../unit/wire/grpc/).
-- **Response *framing*** — GOAWAY, RST_STREAM, and a message split
-  across DATA frames. None of these are reachable through
-  `FakeTransport`: they happen *below* `ITransport`, and a fake that
-  hands over one finished body cannot express them. They need a real
-  nghttp2 peer, so they live in
-  [`tests/integration/transport/http2_send_test.cpp`](../integration/transport/http2_send_test.cpp),
-  driving the real codec over the real transport against an in-process
-  server scripted to produce the frame in question.
+Response content (statuses, trailers, `RetryInfo`, the partial-success
+body) is tested in [`tests/unit/wire/grpc/`](../unit/wire/grpc/).
+`FakeTransport` hands the codec an exact `TransportResult`, which is a
+byte-stable fixture written in C++ instead of in a file, and the check
+needs no socket.
 
-## Required corpus entries → covering tests
+Response framing (GOAWAY, RST_STREAM, a message split across DATA
+frames) can't be reached through `FakeTransport`. These happen below
+`ITransport`, and a fake that hands over one finished body cannot
+express them. They need a real nghttp2 peer, so they live in
+[`tests/integration/transport/http2_send_test.cpp`](../integration/transport/http2_send_test.cpp),
+which drives the real codec over the real transport against an
+in-process server scripted to produce the frame in question.
+
+## Required corpus entries and the tests that cover them
 
 | # | Corpus entry (`grpc-wire-protocol.md` §7.2) | Test |
 |---|---|---|
@@ -50,22 +49,22 @@ Related but outside the corpus: the malformed-framing rows
 `Response_TrailingBytesAfterMessage_IsMalformed`) cover §2.3's rejection
 cases, and `tests/fuzz/grpc_codec_fuzz.cpp` fuzzes the same parser.
 
-## M1 ground-truth
+## M1 ground truth
 
-The M1 spike (now deleted; recoverable at the `v0.1.1-m1` tag) verified
+The M1 spike (since deleted, but recoverable at the `v0.1.1-m1` tag) verified
 three of these against a real `otel/opentelemetry-collector:0.151.0`:
 the happy path, the trailer-only response with non-zero status, and the
 split-frame request. `tests/conformance/` is where that end-to-end
 check lives now.
 
-## Bar
+## Rules
 
-- **Deterministic responses.** A response a test asserts on is built
-  byte-for-byte by the test, never regenerated and never sampled from a
-  live peer.
-- **No real collector.** The point is testing the parser against bytes.
-  The in-process nghttp2 server the framing rows use is a scripted peer,
-  not a collector; the collector lives in `tests/conformance/`.
-- **A new corpus entry adds a row above.** An entry with no test in this
-  table is an open gap, and saying so here is the whole purpose of the
-  table.
+- Responses are deterministic. A response a test asserts on is built
+  byte for byte by the test. It is never regenerated and never sampled
+  from a live peer.
+- No real collector. The point is to test the parser against bytes. The
+  in-process nghttp2 server the framing rows use is a scripted peer; the
+  collector lives in `tests/conformance/`.
+- A new corpus entry adds a row above. An entry with no test in this
+  table is an open gap, and making that visible is what the table is
+  for.

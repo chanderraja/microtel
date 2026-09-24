@@ -1,9 +1,10 @@
-# third_party/upb — vendored upb runtime
+# third_party/upb: vendored upb runtime
 
-`upb` is the small, allocation-light protobuf runtime that microtel uses to
-encode OTLP messages on the wire. Per spec §9.5 we vendor a pinned subset
-rather than depending on an installed protobuf-cpp runtime: it keeps the
-runtime dependency closure to {nghttp2, OpenSSL, zlib} + this directory.
+`upb` is the small, allocation-light protobuf runtime microtel uses to
+encode OTLP messages. We vendor a pinned subset of it instead of depending
+on an installed protobuf C++ runtime, which keeps the runtime dependency
+closure to nghttp2, OpenSSL, zlib, optional spdlog, and this directory
+(spec §9.1; the vendoring rules are in §9.6).
 
 ## Pin
 
@@ -17,7 +18,7 @@ runtime dependency closure to {nghttp2, OpenSSL, zlib} + this directory.
 
 `utf8_range` (a sibling under `third_party/utf8_range/`) is a hard
 dependency of `upb/wire/decode.c` and is vendored from the same protobuf
-release at the same commit. It carries a separate MIT license — see
+release at the same commit. It carries a separate MIT license; see
 `third_party/utf8_range/LICENSE`.
 
 ## What's vendored
@@ -37,7 +38,7 @@ upb/wire/         — wire encode + decode
 upb/generated_code_support.h — umbrella include for generated `.upb.h`
 ```
 
-What's **not** vendored (and why):
+What's not vendored, and why:
 
 - `upb/io/`, `upb/json/`, `upb/text/`, `upb/util/` — JSON / text encoding,
   reflection-driven I/O. v1 only emits binary protobuf, no text or JSON.
@@ -49,9 +50,10 @@ What's **not** vendored (and why):
 - `upb/bazel/`, `BUILD*` files — the bazel build is upstream-only.
 - `*.hpp` C++ wrappers — optional convenience headers we don't consume.
 
-The one file here that is **not** upstream is
+Two files here are not upstream: `CMakeLists.txt` (see below) and
 [`microtel_upb_rename.h`](microtel_upb_rename.h), which renames every
-globally-visible vendored symbol to `microtel_*`. It is force-included with
+globally-visible vendored symbol to `microtel_<upstream name>`
+(`microtel_upb_*`, `microtel_utf8_range_*`). The header is force-included with
 `-include` rather than `#include`d, so the vendored sources above stay
 byte-identical to upstream. Its comment block carries the rationale (ICP 0020
 Decision 4), the regeneration recipe, and the one residual the mechanism cannot
@@ -72,21 +74,29 @@ no in-place patches. To bump:
 5. Refresh `LICENSE` and the pin table in this README.
 6. Refresh `third_party/utf8_range/{utf8_range.h,utf8_range.c,LICENSE}` from
    the same upstream commit.
-7. Regenerate the upb accessors under `gen/` (see M3-F2 docs).
-8. Regenerate [`microtel_upb_rename.h`](microtel_upb_rename.h) — a bump can add,
+7. Regenerate the upb accessors under `gen/` with
+   [`ci/scripts/regen-protos.sh`](../../ci/scripts/regen-protos.sh), using
+   `protoc` and the upb plugins built from the new tag. Its header comment
+   has the build recipe. The `regen-check` CI job fails if `gen/` is stale.
+8. Regenerate [`microtel_upb_rename.h`](microtel_upb_rename.h). A bump can add,
    remove, or rename globals, and every one of them must ship `microtel_`-
    prefixed (ICP 0020 Decision 4). The recipe is in that header's comment block.
    `ci/scripts/symbol-scan.sh` fails the build if any global escapes the list,
    so a forgotten regeneration is caught rather than silently shipped.
-9. Run the full test suite — the wire round-trip tests will catch any
-   incompatible field-number or descriptor-format changes immediately.
+9. Run the full test suite. The wire round-trip tests catch incompatible
+   field-number or descriptor-format changes immediately.
 
 A bump that touches the wire encode/decode contract goes through the ICP
 process (`docs/icps/`) since it changes a load-bearing dependency for
 every byte microtel emits.
 
-## No CMake yet
+## Build
 
-This commit only vendors source. The CMake target that compiles upb into
-a `microtel_upb` static library lands with M3-F2 alongside the generated
-accessors that consume it.
+[`CMakeLists.txt`](CMakeLists.txt) compiles the runtime into the static
+library `microtel_upb_runtime`, force-including the rename header. The
+generated accessors under `gen/` build into `microtel_upb_gen` on top of
+it, and `microtel_encoder` (`src/wire/encoder/`) is the only production
+code that consumes either. The archive is installed and exported as
+`microtel::upb_runtime`, because a static link closure needs it, but its
+headers are not installed and the target is exported-but-unsupported
+(ICP 0020 Decision 2).

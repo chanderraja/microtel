@@ -1,47 +1,45 @@
 # `tests/integration/`
 
-Multi-component flows. Real production components wired together,
-talking to fakes (and sometimes a containerised collector) at the
-outer edges.
+Multi-component flows: real production components wired together, with
+fakes or an in-process server at the outer edges. Tests here are
+registered with the ctest label `integration`, and unlike unit tests
+they may include headers from `src/` directly.
 
-## What goes here vs. unit/
+## What goes here and what goes in `unit/`
 
-- **`unit/`** — one type, mocked dependencies, < 1 ms.
-- **`integration/`** — two or more types from `src/`, with fakes only
-  at the system boundary (sockets, the collector, the clock).
-  Per-test budget is forgiving (up to ~1 s).
+- `unit/` tests one type against mocked dependencies, in under 1 ms.
+- `integration/` tests two or more types from `src/` together, with
+  fakes only at the system boundary (sockets, the collector, the
+  clock). The time budget is looser: most tests finish in well under a
+  second, and a few that open real sockets take several.
 
-If the test wires real `src/sdk/` + real `src/exporter/` + real
-`src/wire/encoder/` against a `FakeTransport`, it's integration. If it
-wires `src/exporter/` against `MockWireCodec`, it's unit (in
-`tests/unit/exporter/`).
+If a test wires the real `src/sdk/`, `src/exporter/` and
+`src/wire/encoder/` against a `FakeTransport`, it's an integration
+test. If it wires `src/exporter/` against a `MockWireCodec`, it's a
+unit test and belongs in `tests/unit/exporter/`.
 
-## Suggested subdirectories
+## Layout
 
-These are conventional names; create as the work lands:
-
-| Subdirectory | Theme |
+| Subdirectory | What it covers |
 |---|---|
-| `sdk_export_pipeline/` | Span end-to-end through real SDK + exporter against fakes. |
-| `transport_loopback/`  | Real transport against an in-process server. |
-| `transport_goaway/`    | GOAWAY mid-batch, RST_STREAM, reconnect. |
-| `lifecycle/`           | `ForceFlush` / `Shutdown` timeout, idempotency, destructor-safety. |
-| `fork/`                | `fork()` boundary: child observes `m_state = Closed`, re-init works. |
-| `backpressure/`        | Multi-producer queue overflow, drop-newest vs drop-oldest. |
-| `partial_success/`     | Partial-success response with rejected items, never retried. |
+| `transport/` | `Http2Transport` over a real loopback socket against an in-process nghttp2 server: connect, send, TLS certificate verification (ICP 0022), and the frame-level gRPC cases (GOAWAY, RST_STREAM, split DATA frames) that `FakeTransport` cannot express. |
+| `sdk/` | The export pipeline built by a real `SdkBuilder`: exporter health counters, the retry budget, auth-failure blast radius, and exemplar and log trace-correlation wiring. |
+| `sugar/` | The single integration test for the v1.1 sugar layer (ICP 0028 §3): a sugar-only call tree driven through `SdkTracer` and `BatchSpanProcessor` to an exporter. |
+| `otelcpp_shim/` | All three signals driven through the opentelemetry-cpp API onto a real microtel `Provider`, over loopback HTTP/2, with the captured OTLP bytes decoded and checked. |
 
-## Bar
+## Rules
 
-- **Real components, fakes at the edges.** Use `FakeTransport`,
-  `FakeReactor`, `FakeClock` rather than mocking individual methods.
-- **Sanitizer-clean.** ASan + TSan + UBSan all green on every test
-  here (CI gate per spec §13.5 / §14.2).
-- **Deterministic.** Use fakes that advance on demand; no sleeps.
-  Sleeps in tests are a code smell.
+- Use real components with fakes at the edges. Reach for
+  `FakeTransport`, `FakeReactor` and `FakeClock` rather than mocking
+  individual methods.
+- Every test here must be clean under ASan, TSan and UBSan (a CI gate,
+  spec §13.5 and §14.2).
+- Keep tests deterministic. Don't use a fixed sleep to wait for
+  something to happen. Where a test does have to wait on a real socket
+  or worker, it polls for the condition with a deadline.
 
-## Local collector
+## Collector
 
-Some integration tests need a real collector for byte-level
-verification. The collector spins up via the docker compose stack the
-M1 spike used (now removed); reintroduce a similar
-`tests/integration/docker/` if needed during M3.
+No test here talks to a real collector. The docker compose stack the M1
+spike used was removed, and byte-level checks against a live collector
+now live in [`tests/conformance/`](../conformance/).

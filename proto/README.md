@@ -1,9 +1,9 @@
 # proto/ — Vendored OpenTelemetry protocol definitions
 
-This directory contains a pinned copy of the [`opentelemetry-proto`][upstream]
-schema used by microtel's OTLP encoder. Per spec §9.6 the wire definitions are
-vendored — not fetched at configure time — so a clone of microtel always
-contains everything needed to regenerate the encoder.
+A pinned copy of the [`opentelemetry-proto`][upstream] schema that microtel's
+OTLP encoder is generated from. The definitions are vendored instead of being
+fetched at configure time (spec §9.6), so a clone always has everything needed
+to regenerate the encoder.
 
 [upstream]: https://github.com/open-telemetry/opentelemetry-proto
 
@@ -18,8 +18,8 @@ contains everything needed to regenerate the encoder.
 
 ## What's vendored (and what's not)
 
-We vendor only the `.proto` files microtel encodes against. The **trace** files
-(the v1 signal) encode an `ExportTraceServiceRequest`:
+Only the `.proto` files microtel encodes against are vendored. The trace files
+encode an `ExportTraceServiceRequest`:
 
 ```
 opentelemetry/proto/common/v1/common.proto
@@ -28,28 +28,28 @@ opentelemetry/proto/trace/v1/trace.proto
 opentelemetry/proto/collector/trace/v1/trace_service.proto
 ```
 
-The **metrics** files are vendored ahead of the M12 metrics implementation
-(v1.2; see `docs/metrics-design.md` §10):
+The metrics files back the metrics implementation, which is experimental
+until v1.2 (see `docs/metrics-design.md` §10):
 
 ```
 opentelemetry/proto/metrics/v1/metrics.proto
 opentelemetry/proto/collector/metrics/v1/metrics_service.proto
 ```
 
-The **logs** files are vendored for the M14 logs implementation (v1.3):
+The logs files back the logs implementation, experimental until v1.3:
 
 ```
 opentelemetry/proto/logs/v1/logs.proto
 opentelemetry/proto/collector/logs/v1/logs_service.proto
 ```
 
-`profiles/` from upstream remains intentionally excluded; it lands when that
-signal lands in microtel (roadmap v2.0+).
+Upstream's `profiles/` is left out on purpose. It comes in when microtel
+supports that signal (roadmap v2.0+).
 
 ## Refreshing the pin
 
-The pin is refreshed by replacing the vendored files above wholesale from a
-matching upstream tag — never patched in-place. To bump:
+Refresh the pin by replacing the vendored files wholesale from an upstream
+tag. Never patch them in place. To bump:
 
 1. `git -C /tmp clone --branch <new-tag> https://github.com/open-telemetry/opentelemetry-proto.git`
 2. Copy the vendored files above into this directory, preserving paths.
@@ -57,16 +57,16 @@ matching upstream tag — never patched in-place. To bump:
 4. Refresh `LICENSE` from the upstream tree.
 5. Regenerate the upb-generated accessors via `ci/scripts/regen-protos.sh`
    (see `gen/README.md` for the toolchain).
-6. Run the full test suite — wire tests will catch any incompatible field
-   number changes immediately.
+6. Run the full test suite. The wire tests catch incompatible field number
+   changes.
 
-A bump that touches `trace.proto` (or, once wired, `metrics.proto`) semantics
-goes through the ICP process (`docs/icps/`), since it changes the on-the-wire
-contract microtel guarantees.
+A bump that changes the semantics of `trace.proto` needs an ICP
+(`docs/icps/`), because it changes the wire contract microtel guarantees. The
+same will apply to `metrics.proto` and `logs.proto` once those signals are
+supported.
 
 ## Why a directory and not a submodule
 
-A vendored copy has no clone-time fetch, no submodule init dance for users,
-and a clear blast radius for security review (just diff this directory).
-The footprint is ~75 KB total — well below the threshold where a submodule
-would be worth the operational cost.
+A vendored copy needs no fetch or submodule init after cloning, and a
+security review only has to diff this directory. The `.proto` files come to
+about 75 KB, too small for a submodule to be worth the trouble.

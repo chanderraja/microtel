@@ -1,8 +1,35 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
 **Companion to:** `microtel-spec.md` (v0.10, the v1 spec)
-**Status:** Draft v0.1
-**Scope:** Multi-year evolution from v1.0 (traces-only exporter) through full OTel SDK conformance and embedded deployments.
+**Status:** Draft v0.1. Implementation status updated 2026-09-23 against v1.1.0.
+**Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
+
+---
+
+## Implementation status (as of v1.1.0)
+
+The release themes in §4 were planned as a sequence, but the code did not
+follow it exactly. Metrics, logs, the spdlog log bridge and the otel-cpp shim
+were all built during the v1 milestones (M12–M17) and ship today as
+**experimental**: they work and are tested, but carry no compatibility promise
+and no collector conformance coverage yet. The v1.2 and v1.3 themes are
+therefore mostly about finishing and stabilizing that code, not writing it.
+
+| Theme | Status | What remains |
+|---|---|---|
+| Trace runtime + OTLP exporter | Done | Open bugs only (#271, #223) |
+| v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (not started, untracked) |
+| v1.2 Metrics | Mostly done, experimental | Async-callback deadline (#237); retry for metric export (#222); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
+| v1.2 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024) |
+| v1.3 Logs | Mostly done, experimental | Retry for log export (#222); glog and log4cxx bridges; collector conformance tests; logs bench profile; logs cookbook |
+| Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
+| v1.4 Conformance push | Not started | Custom samplers are reachable through `SamplerHandle` but not a documented extension point; histogram buckets can be set per instrument but not through Views |
+| v1.5 Performance & footprint | Partial | Static-archive install and `find_package` exist (ICP 0020); measured size targets and compile-time feature selection are proposed in ICP 0030; coroutines, pooling, HTTP/3 not started |
+| v2.x, v3.0 | Not started | |
+
+Status markers in §4 and §5 use the same words: *done*, *partial* (with what
+is missing), *not started*. Where a bullet names an API that ended up with a
+different name, the bullet has been corrected to the shipped name.
 
 ---
 
@@ -32,8 +59,8 @@ Each release advances along the four-tier model from spec §2.2. The progression
 
 | Release | Tier 1 (wire) | Tier 2 (data-model) | Tier 3 (API-adapter) | Tier 4 (SDK conformance) |
 |---|---|---|---|---|
-| **v1.0** | traces | traces | — (shim is M17, post-v1.0) | — |
-| **v1.1** | traces | traces | experimental: traces | — |
+| **v1.0** | traces | traces | experimental: all three (shim, M17) | — |
+| **v1.1** | traces | traces | experimental: all three | — |
 | **v1.2** | traces, metrics | traces, metrics | experimental: traces, metrics | — |
 | **v1.3** | all three signals | all three signals | experimental: all three | — |
 | **v1.4** | all three | all three | **beta: all three** | partial |
@@ -45,15 +72,15 @@ Each release advances along the four-tier model from spec §2.2. The progression
 
 "Profiles" refers to OpenTelemetry's continuous-profiling signal, which is still stabilizing upstream as of this writing. It graduates onto the roadmap once upstream marks it stable.
 
-> **Tier 3 is a plan, not shipped code — read this before citing the table.** No
-> API-adapter shim exists today, which is why the `v1.0` row's Tier 3 cell now
-> reads `—`: the shipped v1.0 tag is traces at Tier 1 and Tier 2 and nothing at
-> Tier 3. The later rows remain targets, and the table's incremental Tier 3
-> progression (traces → traces+metrics → all three) is
-> **superseded**: the shim is scheduled as **M17** and lands *after* all three
-> signals shipped (M12/M13/M14), so its first release covers traces, metrics,
-> and logs at once. Tier 1 and Tier 2 columns are unaffected. See
-> [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md).
+> **The Tier 3 column's original incremental plan (traces, then metrics, then
+> all three) was superseded.** The shim was built as M17, after all three
+> signals existed (M12–M14), so it covered traces, metrics and logs from its
+> first release. It lives in `src/adapters/otelcpp/` and is installed as
+> source under `include/microtel-shim/`, never as a prebuilt library (see
+> [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md)). It is experimental;
+> the beta gates in §10 are not met. Tier 1 and Tier 2 columns still describe
+> the *supported* signals: metrics and logs are on the wire today, but they
+> are not claimed at those tiers until their conformance coverage lands.
 
 ---
 
@@ -63,6 +90,8 @@ Each release advances along the four-tier model from spec §2.2. The progression
 
 **Theme:** Prove the wedge. Smallest credible OTel-compat trace runtime over OTLP/HTTP and OTLP/gRPC.
 
+**Status:** done. Open work is bug fixes (#271, #223).
+
 Covered in detail in `microtel-spec.md` §13. Brief recap:
 
 - C++20 trace SDK (Tracer, Span, W3C Trace Context, AlwaysOn / AlwaysOff / TraceIdRatio / ParentBased samplers, BatchSpanProcessor)
@@ -70,7 +99,7 @@ Covered in detail in `microtel-spec.md` §13. Brief recap:
 - Production correctness: partial-success, retry policies, GOAWAY/RST_STREAM, fork-safety, deterministic shutdown
 - Static config + OTel env-var fallback, no hot reload
 - Preflight CLI flag, exporter-health API, internal logging
-- Experimental compat shims released as separate packages (see the Tier 3 note under §3)
+- Experimental compat shims *(done for all three signals, but shipped as installed source rather than a separate package; see the Tier 3 note under §3)*
 
 Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, covering all three signals, per [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
@@ -82,14 +111,16 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Make v1 actually nice to operate, layer on the ergonomics that v1.0 deliberately deferred.
 
-- **Sugar layer** (`microtel::sugar`): function-scoped spans via `std::source_location`, RAII scoped spans with inline attributes, traced-lambda helpers, exception recording, scoped timers (active once metrics arrive in v1.2), pre-bound `AttrKey` for hot paths. Python equivalents using decorators and context managers. See §5 below for full sugar evolution.
-- **Hot reload via public setters.** Four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — driven from whatever administrative surface the host application already has. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1. The Unix-domain-socket server, its length-prefixed JSON wire, and the `microtelctl` client are deferred to **v1.2**; see [ICP 0024](docs/icps/0024-v1.1-rescope.md) and `docs/control-plane-design.md`.
-- **W3C Baggage propagation.** Inject + extract.
-- **Composable sampler chains.** `microtel::sampler::Chain({...})` with built-in rule-based combinators over what a head sampler can see at `ShouldSample` time — sample-on-attribute, sample-on-name, sample-on-kind. **Not** sample-on-duration: the decision is made before the span runs, so duration-based selection is tail sampling and belongs in the collector.
-- **Multi-profile within one process.** Named providers with independent endpoints, samplers, and Resources.
-- **Auth recipes, not built-in providers.** OAuth2 client credentials and AWS SigV4 ship as documented `AuthCallback` recipes — [`docs/auth-callback-recipes.md`](docs/auth-callback-recipes.md) — over the shipped `WithAuthProvider` surface, with no code in the runtime. That document also records where the surface falls short of the claim: OAuth2 fits it; SigV4 needs per-request headers and a payload hash the callback never sees, so it signs at a sidecar until a per-request header hook exists. mTLS rotation likely v1.2 (more involved).
-- **Resource detectors:** process (`process.pid`, `process.executable.name`, `process.command_line`) and host (`host.name`, `host.id`).
-- **`microtelctl` packaging — deferred to v1.2** with the socket server it drives: standalone Go binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package — reconciles the v1.0 "single shared library + Python wheel" claim.
+**Status:** done, shipped as v1.1.0. All five "ships when" gates are met. Python sugar moved to M18 with the rest of the Python bindings, and mTLS rotation has not been started.
+
+- **Sugar layer** (`microtel::sugar`): function-scoped spans via `std::source_location`, RAII scoped spans with inline attributes, traced-lambda helpers, exception recording, scoped timers (active once metrics arrive in v1.2), pre-bound `AttrKey` for hot paths. Python equivalents using decorators and context managers. See §5 below for full sugar evolution. *(C++ done, [ICP 0028](docs/icps/0028-sugar-surface.md); scoped timers not started; Python not started, moved to M18.)*
+- **Hot reload via public setters.** Four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — driven from whatever administrative surface the host application already has. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1. The Unix-domain-socket server, its length-prefixed JSON wire, and the `microtelctl` client are deferred to **v1.2**; see [ICP 0024](docs/icps/0024-v1.1-rescope.md) and `docs/control-plane-design.md`. *(Setters done, with a TSAN hammer test and a fuzz harness.)*
+- **W3C Baggage propagation.** Inject + extract. *(Done, [ICP 0025](docs/icps/0025-propagation-core.md).)*
+- **Composable sampler chains.** `MakeChainSampler(ChainMode, ...)` with built-in rule-based combinators (`MakeAttributeRuleSampler`, `MakeSpanNameRuleSampler`, `MakeSpanKindRuleSampler`) over what a head sampler can see at `ShouldSample` time — sample-on-attribute, sample-on-name, sample-on-kind. **Not** sample-on-duration: the decision is made before the span runs, so duration-based selection is tail sampling and belongs in the collector. *(Done.)*
+- **Multi-profile within one process.** Named providers with independent endpoints, samplers, and Resources. *(Done: `WithProfileName` and `microtel::GetProvider(name)`, [ICP 0027](docs/icps/0027-multi-profile-threading.md).)*
+- **Auth recipes, not built-in providers.** OAuth2 client credentials and AWS SigV4 ship as documented `AuthCallback` recipes — [`docs/auth-callback-recipes.md`](docs/auth-callback-recipes.md) — over the shipped `WithAuthProvider` surface, with no code in the runtime. That document also records where the surface falls short of the claim: OAuth2 fits it; SigV4 needs per-request headers and a payload hash the callback never sees, so it signs at a sidecar until a per-request header hook exists. *(Recipes done.)* mTLS rotation likely v1.2 (more involved). *(Not started, and no issue tracks it yet.)*
+- **Resource detectors:** process (`process.pid`, `process.executable.name`, `process.executable.path`, `process.command`, `process.command_args`) and host (`host.name`, `host.id`). *(Done.)*
+- **`microtelctl` packaging — deferred to v1.2** with the socket server it drives: standalone Go binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package — reconciles the v1.0 "single shared library + Python wheel" claim. *(Not started.)*
 
 **Ships when:**
 
@@ -99,7 +130,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 4. Roadmap and spec are amended for the socket/microtelctl deferral (threat-model + hot-reload-socket-fuzz gates move with it to v1.2), the OAuth2/SigV4 → AuthCallback-recipes substitution, and the sample-on-duration correction.
 5. Every issue on the v1.1 milestone is closed or explicitly re-milestoned with a recorded reason.
 
-**Anti-goals in v1.1:** still no metrics, no logs, no full SDK conformance claim, no Windows.
+**Anti-goals in v1.1:** no *supported* metrics or logs (both ship as experimental, see the status section at the top), no full SDK conformance claim, no Windows.
 
 ---
 
@@ -107,20 +138,22 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Second signal lands.
 
-**Prerequisite milestone (M11 from spec):** `docs/metrics-design.md` lands first, with reviewer sign-off. Covers the semantic decisions that v1.0 deliberately deferred: aggregation temporality (delta vs cumulative), cardinality limits, histogram bucket configuration, async-instrument callback semantics, reader/exporter interaction, views, exemplars roadmap.
+**Status:** mostly done and shipping as experimental. The work left is finishing the gaps marked below, adding collector conformance tests, and building the control plane that ICP 0024 moved here (not started). Open issues are on the v1.2 milestone.
+
+**Prerequisite milestone (M11 from spec):** `docs/metrics-design.md` lands first, with reviewer sign-off. Covers the semantic decisions that v1.0 deliberately deferred: aggregation temporality (delta vs cumulative), cardinality limits, histogram bucket configuration, async-instrument callback semantics, reader/exporter interaction, views, exemplars roadmap. *(Done.)*
 
 Then implementation:
 
-- **Sync instruments:** Counter, UpDownCounter, Gauge, Histogram.
-- **Async instruments:** ObservableCounter, ObservableUpDownCounter, ObservableGauge with callback semantics defined in the design doc.
-- **MetricReader / MetricExporter pipeline** sharing the existing OTLP encoder and transport infrastructure.
-- **Aggregation temporality** with delta and cumulative paths; per-metric configuration.
-- **Cardinality limits** with explicit overflow attribute (per OTel spec) and drop accounting.
-- **Views API** (basic — rename, attribute filter, aggregation override). Full views deferred to v1.4.
-- **Exemplars** linked to active span context where present.
-- **`mt::Timer` sugar wired into histograms** — completes the sugar layer's deferred-during-v1.1 piece.
+- **Sync instruments:** Counter, UpDownCounter, Gauge, Histogram. *(Done, plus an `ExponentialHistogram` instrument.)*
+- **Async instruments:** ObservableCounter, ObservableUpDownCounter, ObservableGauge with callback semantics defined in the design doc. *(Partial: the per-collection callback deadline is not enforced, #237.)*
+- **MetricReader / MetricExporter pipeline** sharing the existing OTLP encoder and transport infrastructure. *(Done over both protocols. Partial: metric export has no retry, #222.)*
+- **Aggregation temporality** with delta and cumulative paths; per-metric configuration. *(Partial: delta and cumulative work, but temporality is set once per provider; no per-instrument or per-View override.)*
+- **Cardinality limits** with explicit overflow attribute (per OTel spec) and drop accounting. *(Done.)*
+- **Views API** (basic — rename, attribute filter, aggregation override). Full views deferred to v1.4. *(Partial: rename, attribute allowlist and drop work; aggregation override is missing.)*
+- **Exemplars** linked to active span context where present. *(Partial: one exemplar per attribute set rather than OTel reservoirs; `OTEL_METRICS_EXEMPLAR_FILTER` is not read.)*
+- **`mt::Timer` sugar wired into histograms** — completes the sugar layer's deferred-during-v1.1 piece. *(Not started.)*
 
-**Compatibility tier:** Tier 1 and Tier 2 advance to include metrics. Tier 3 shim adds metric instruments, still experimental.
+**Compatibility tier:** Tier 1 and Tier 2 advance to include metrics. Tier 3 shim adds metric instruments, still experimental. *(The shim's metric instruments are already done.)*
 
 **Anti-goals in v1.2:** no logs yet, no advanced exemplar formats, no metric backfill / persistence.
 
@@ -130,13 +163,15 @@ Then implementation:
 
 **Theme:** Third signal lands. All OTLP signal coverage.
 
-- **OTel Logs API:** Logger, LogRecord, severity levels, attribute schema.
-- **OTLP/logs export** on both wire protocols.
-- **Trace context correlation:** logs emitted within an active span carry the `trace_id` and `span_id` automatically.
+**Status:** mostly done and shipping as experimental. Remaining: retry for log export (#222), the glog and log4cxx bridges, collector conformance tests, and a logs bench profile.
+
+- **OTel Logs API:** Logger, LogRecord, severity levels, attribute schema. *(Done.)*
+- **OTLP/logs export** on both wire protocols. *(Done. Partial: no retry, #222.)*
+- **Trace context correlation:** logs emitted within an active span carry the `trace_id` and `span_id` automatically. *(Done.)*
 - **Bridge adapters as separate packages:**
-  - `microtel-bridge-spdlog`: a spdlog sink that converts spdlog records to OTel LogRecords. The natural pairing given microtel's internal logging dependency.
-  - `microtel-bridge-glog`: same for `glog`.
-  - `microtel-bridge-log4cxx`: same for `log4cxx`.
+  - `microtel-bridge-spdlog`: a spdlog sink that converts spdlog records to OTel LogRecords. The natural pairing given microtel's internal logging dependency. *(Done, in-tree as `microtel/adapters/spdlog_sink.hpp` rather than a separate package.)*
+  - `microtel-bridge-glog`: same for `glog`. *(Not started.)*
+  - `microtel-bridge-log4cxx`: same for `log4cxx`. *(Not started.)*
   - Bridges are independently versioned packages.
 
 **Compatibility tier:** Tier 1 and Tier 2 reach all three signals. Tier 3 shim becomes "experimental: all three."
@@ -149,13 +184,15 @@ Then implementation:
 
 **Theme:** Move compat shims from experimental to beta; first partial Tier 4 claim.
 
+**Status:** not started, apart from two pieces noted below.
+
 - **Compat shims to beta.** Tested against ≥10 representative real-world applications drawn from the OTel community demos and contributed adopters. Shim API surface frozen at OTel spec version X.Y. Documented deprecation policy.
 - **Auto-instrumentation for select libraries:** database clients (libpq, mysqlclient), HTTP clients (libcurl, cpp-httplib), gRPC clients via the standard interceptor mechanism. Each instrumentation is a separate package. Python auto-instrumentation follows the OTel-Python contrib pattern.
 - **Resource detectors expanded:** Kubernetes (downward API), AWS (EC2 IMDS, ECS task metadata, EKS), GCP (metadata server), Azure (IMDS).
-- **Span Processors as a public extension point.** Until v1.4, processors are internal-only. v1.4 publishes the `Processor` interface as stable, allowing third-party span processors (filtering, enrichment, fan-out).
-- **Custom Samplers as a documented extension point.** Same pattern.
+- **Span Processors as a public extension point.** Until v1.4, processors are internal-only. v1.4 publishes the `Processor` interface as stable, allowing third-party span processors (filtering, enrichment, fan-out). *(Not started: `ISpanProcessor` is internal.)*
+- **Custom Samplers as a documented extension point.** Same pattern. *(Partial: a custom sampler can be passed through `SamplerHandle`, but the interface is in `internal::` and undocumented.)*
 - **Persistent storage option.** Optional disk-backed retry queue for failed batches that survives process restart. Off by default, opt-in via config. Useful for satellite, edge, and intermittent-connectivity deployments.
-- **Full Views API.** Custom buckets, attribute hashing, stream-level renames.
+- **Full Views API.** Custom buckets, attribute hashing, stream-level renames. *(Partial: custom histogram buckets can be set per instrument at creation, not through Views.)*
 
 **Compatibility tier:** Tier 4 reaches "partial." Specifically: span semantics, metric instrument semantics, log record semantics conform; the "everything in the spec" surface is not yet 100%.
 
@@ -167,12 +204,14 @@ Then implementation:
 
 **Theme:** Squeeze the last drop. The v1.0 numbers prove the wedge; v1.5 makes them luxurious.
 
+**Status:** partial. Static archives with `find_package` support and a consumer build check exist today; the rest is not started.
+
 - **Coroutine API.** Async export with `co_await` for users on coroutines-aware code. Returns `microtel::Task<ExportResult>`. Callback API stays as the supported v1.0 surface.
 - **Connection pooling.** Optional multi-connection mode for very-high-throughput deployments where one HTTP/2 connection's flow-control becomes the bottleneck. Off by default.
 - **Optimized hot path.** Compile-time attribute key encoding (for callers using `mt::AttrKey`), refined lock-free MPSC, possible move to a fully wait-free hot path on x86-64 / ARM64.
-- **Static-link optimizations.** First-class CMake support for `-Bstatic` builds, with measured size targets. Currently mostly-static is supported; v1.5 makes it a tested release configuration.
+- **Static-link optimizations.** First-class CMake support for `-Bstatic` builds, with measured size targets. Currently mostly-static is supported; v1.5 makes it a tested release configuration. *(Partial: microtel ships only static archives, installed per [ICP 0020](docs/icps/0020-install-and-package-config.md) and checked by `ci/scripts/consumer-smoke.sh`. Measured size targets and compile-time feature selection are proposed in ICP 0030 (PR #293).)*
 - **HTTP/3 transport (experimental).** The `Transport` interface gains an nghttp3-based implementation. Configurable per-endpoint. Experimental in v1.5; may stabilize in v2.0 or stay experimental indefinitely depending on real-world usage signals.
-- **Refined benchmarks.** The `bench/` directory gets richer scenarios: bursty traffic, high-cardinality metrics, long-tail latency under collector pressure.
+- **Refined benchmarks.** The `bench/` directory gets richer scenarios: bursty traffic, high-cardinality metrics, long-tail latency under collector pressure. *(Partial: backpressure, soak and hot-loop-metrics profiles exist; bursty and high-cardinality do not.)*
 
 **Anti-goals in v1.5:** still no Windows, no coroutine-only API (callback always supported).
 
@@ -181,6 +220,8 @@ Then implementation:
 ### v2.0 — Leaf / Concentrator Architecture
 
 **Theme:** Embedded story. Open the door for fleets of constrained devices to participate in OTel.
+
+**Status:** not started.
 
 Covered in detail in `microtel-spec.md` §17.4. Recap:
 
@@ -203,6 +244,8 @@ Covered in detail in `microtel-spec.md` §17.4. Recap:
 
 **Theme:** Reach the smallest devices.
 
+**Status:** not started.
+
 - **nanopb encoder backend** for microtel-leaf. Same leaf API; encoder swapped at build time.
 - **Static memory pools throughout** the leaf. No malloc anywhere.
 - **Documented RAM/flash budgets** per leaf configuration. Target: **< 15 KB flash, < 2 KB RAM** for a minimal trace-only leaf on Cortex-M0+.
@@ -217,6 +260,8 @@ Covered in detail in `microtel-spec.md` §17.4. Recap:
 
 **Theme:** Big-fleet deployments need operations features the single-process model doesn't have.
 
+**Status:** not started.
+
 - **Concentrator clustering.** HA pairs sharing leaf state. A leaf can fail over between concentrators without losing in-flight telemetry. Built on a small consensus protocol or a shared backing store; design TBD in v2.2 design doc.
 - **Concentrator-side advanced sampling.** Head-based and tail-based sampling at the concentrator, since leaves emit raw and concentrators have the budget for more sophisticated decisions.
 - **Leaf authentication.** A small protocol on top of the existing leaf-to-concentrator transport for mutual authentication and integrity. Detail TBD.
@@ -227,6 +272,8 @@ Covered in detail in `microtel-spec.md` §17.4. Recap:
 ### v3.0 — Full SDK Conformance
 
 **Theme:** Tier 4 claim. microtel passes the full OpenTelemetry SDK conformance test suite.
+
+**Status:** not started.
 
 - **Pass full conformance.** Every requirement in the OTel SDK spec, with caveats explicit and minimal.
 - **Stable shims.** Compat shims graduate from beta to stable; no longer "experimental migration aids" but supported peers of the native API.
@@ -247,19 +294,21 @@ The sugar layer (`microtel::sugar` and Python equivalents) grows continuously ra
 None. The native API is direct OTel-style: `tracer->StartSpan(...)`, `span->SetAttribute(...)`, `span->End()`.
 
 ### v1.1 (sugar layer's introduction release)
-- `MICROTEL_TRACE_FUNCTION()` — function-scoped span auto-named via `std::source_location`.
-- `mt::Span("name", {attrs})` — RAII scoped span with inline attributes.
-- `mt::Traced("name", lambda)` — trace a lambda; returns the lambda's value.
-- `mt::RecordException(span, e)` — sets Error status + adds exception event.
-- `mt::AttrKey("http.method")` — pre-bound attribute key for hot paths (skips per-call string lookup).
-- Python: `@mt.trace_function` decorator, `mt.span(...)` context manager, `mt.traced(name, callable)`, `mt.record_exception(span, e)`.
+The shipped names are in `microtel::sugar` ([ICP 0028](docs/icps/0028-sugar-surface.md)); the plan wrote them as `mt::`.
+- `MICROTEL_TRACE_FUNCTION(tracer)` — function-scoped span auto-named via `std::source_location`. *(Done.)*
+- `sugar::Span("name", {attrs})` — RAII scoped span with inline attributes. *(Done.)*
+- `sugar::Traced("name", lambda)` — trace a lambda; returns the lambda's value. *(Done.)*
+- `sugar::RecordException(span, e)` — sets Error status + adds exception event. *(Done.)*
+- `sugar::AttrKey("http.method")` — pre-bound attribute key for hot paths. *(Done as a stored key; the per-call lookup saving is left to v1.5's compile-time key encoding.)*
+- Python: `@mt.trace_function` decorator, `mt.span(...)` context manager, `mt.traced(name, callable)`, `mt.record_exception(span, e)`. *(Not started, moved to M18.)*
 
 ### v1.2 (metrics arrive)
-- `mt::Timer("histogram_name")` — RAII timer recording duration to a histogram on destruction. Was deferred from v1.1 because histograms didn't exist yet.
-- `mt::Counter<T>(...)` — pre-bound counter helper for hot paths.
-- Python: `@mt.timed("histogram_name")` decorator, `mt.counter("name", ...)`.
+- `mt::Timer("histogram_name")` — RAII timer recording duration to a histogram on destruction. Was deferred from v1.1 because histograms didn't exist yet. *(Not started. Histograms now exist, so nothing blocks it.)*
+- `mt::Counter<T>(...)` — pre-bound counter helper for hot paths. *(Not started.)*
+- Python: `@mt.timed("histogram_name")` decorator, `mt.counter("name", ...)`. *(Not started.)*
 
 ### v1.4 (conformance / extension push)
+*(Not started. The `Span::AddLink` primitive the linking helpers need already exists.)*
 - Auto-instrumentation hooks for `std::async`, `std::thread`, coroutines.
 - Span linking helpers: `mt::Linked(span)`, `mt::FollowsFrom(span)` for cross-trace relationships.
 - `mt::TryCatch(span, lambda)` — wrap a lambda, auto-record exceptions to the span.
@@ -282,6 +331,8 @@ None. The native API is direct OTel-style: `tracer->StartSpan(...)`, `span->SetA
 ## 6. Performance and footprint trajectory
 
 The v1.0 footprint targets in spec §10.5 are stretch numbers pending prototype. The trajectory across releases:
+
+*(Status: the table below was written assuming shared libraries. microtel ships static archives only (`libmicrotel_*.a` behind `microtel::microtel`), and per-library sizes have not been measured or published yet; release notes so far report only the benchmark binary size. ICP 0030 (PR #293) proposes the CI size report that would fill this in.)*
 
 | Release | Core exporter (`libmicrotel-exporter.so`) | Full SDK (`libmicrotel-sdk.so`) | Total dynamic closure |
 |---|---|---|---|
@@ -338,16 +389,16 @@ A few themes don't fit a single milestone but progress across releases:
 ### Performance benchmarks
 The `bench/` directory evolves alongside the project:
 - **v1.0:** establishes baseline against `opentelemetry-cpp` for traces.
-- **v1.2:** adds metrics workload profiles.
-- **v1.3:** adds logs workload profiles.
+- **v1.2:** adds metrics workload profiles. *(Done early: `hot-loop-metrics`.)*
+- **v1.3:** adds logs workload profiles. *(Not started.)*
 - **v1.5:** adds high-cardinality, bursty, and outage-recovery scenarios.
 - **v2.0:** adds leaf footprint measurement and concentrator throughput.
 
 ### Documentation
 - **v1.0:** spec, migration guide, README, compatibility matrix, interop matrix.
-- **v1.1:** hot-reload setter guide — what is reloadable, what is not, and why.
-- **v1.2:** metrics design doc (M11 from v1 spec); control plane operator guide, threat model.
-- **v1.3:** logs cookbook with bridge examples.
+- **v1.1:** hot-reload setter guide — what is reloadable, what is not, and why. *(Partial: covered by `examples/hot_reload/README.md` and `docs/control-plane-design.md` §2; no standalone guide.)*
+- **v1.2:** metrics design doc (M11 from v1 spec); control plane operator guide, threat model. *(Metrics design doc done; the other two not started.)*
+- **v1.3:** logs cookbook with bridge examples. *(Partial: `docs/logs-design.md` and the spdlog adapter README only.)*
 - **v1.4:** conformance matrix, extension-author guide, auto-instrumentation cookbook.
 - **v2.0:** leaf programming guide, concentrator deployment guide, embedded examples.
 
@@ -404,6 +455,7 @@ Brief notes on decisions whose rationale spans multiple releases and influences 
 | Control plane in v1.1, not v1.0 | v0.9 spec | Adds Unix socket server, JSON wire, CLI, REPL, attack surface, threat model. Too much for v1.0 alongside transport correctness. | v1.1+ |
 | Leaf encoder is upb first, nanopb later | v0.5 spec | Larger embedded targets are most of the addressable audience and reuse microtel's existing encoder closure. nanopb adds reach to true MCU class. | v2.0, v2.1 |
 | Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](docs/icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
+| Metrics, logs and the otel-cpp shim built ahead of their themes, shipped as experimental | M12–M17 | The code was ready before the release themes that name it. Shipping it marked experimental lets people use it now, while the v1.2 and v1.3 themes keep the job of stabilizing it: closing the gaps, adding conformance tests, and making the compatibility promise. | v1.2, v1.3, Tier 3 |
 
 This log is appended to, never rewritten. When a decision is reversed, the original entry stays and a new entry records the reversal with rationale — the control-plane deferral is the first.
 

@@ -46,8 +46,9 @@ Resource:
   [`resource_detectors.cpp`](resource_detectors.cpp), behind the public
   `MakeProcessDetector` / `MakeHostDetector` factories. The spec §12.7
   composition that merges them with the config lives in
-  [`resource_builder.cpp`](resource_builder.cpp). k8s and cloud detectors are
-  future work.
+  [`resource_builder.cpp`](resource_builder.cpp), which also logs the
+  resolved Resource once per `Build()` at `Info` (sorted, redacted, capped;
+  issue #284). k8s and cloud detectors are future work.
 
 Traces:
 

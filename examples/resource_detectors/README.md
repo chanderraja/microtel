@@ -157,10 +157,16 @@ no reason to, since the detectors do it. It's only here so you can compare the
 console with the span without having to trust either one alone.
 
 Nothing in the program reads the merged `Resource`. There's no public accessor
-for it, and microtel doesn't log it at init yet (spec §12.7 says it should;
-see [#284](https://github.com/chanderraja/microtel/issues/284)). For now the
-backend is the only place you can see the merged result, which is why this
-example emits a span instead of printing a table.
+for it, but `Build()` logs it once at `Info` (spec §12.7), so the merged
+result shows up on stderr, or in your `LogSink` if you installed one:
+
+```
+resolved resource (profile "default", 3 attributes): deployment.environment="prod", host.name="node-7", service.name="checkout"
+```
+
+Keys are sorted, values of secret-looking keys print as `<redacted>`, and a
+long Resource is cut off with `...and N more`. The example still emits a span,
+so you can also check that the backend received the same attributes.
 
 `OTEL_RESOURCE_ATTRIBUTES` is read here only to echo it. microtel reads the
 variable itself inside `Build()`. The `std::getenv` call in `main` just labels

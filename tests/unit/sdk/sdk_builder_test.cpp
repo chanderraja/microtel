@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -493,6 +494,21 @@ public:
                                    });
     }
 
+    /// @brief How many Info lines contain every one of `needles`.
+    [[nodiscard]] std::size_t InfoCount(std::initializer_list<std::string_view> needles) const
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            m_entries,
+            [needles](const auto& entry)
+            {
+                return entry.first == microtel::LogLevel::Info &&
+                       std::ranges::all_of(
+                           needles,
+                           [&entry](std::string_view needle)
+                           { return entry.second.find(needle) != std::string::npos; });
+            }));
+    }
+
 private:
     std::vector<std::pair<microtel::LogLevel, std::string>> m_entries;
 };
@@ -553,6 +569,29 @@ TEST(SdkBuilderTest, Build_HttpsEndpoint_DoesNotWarnAboutPlaintext)
 
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));
+}
+
+// Issue #284: spec §12.7 — each Build() logs its resolved Resource once, at
+// Info, naming the profile, so two named providers give two distinct lines.
+TEST(SdkBuilderTest, Build_MultiProfile_LogsOneResolvedResourceLinePerProvider)
+{
+    const LogCapture capture;
+    const auto first = microtel::SdkBuilder()
+                           .WithEndpoint("https://localhost:4318")
+                           .WithServiceName("svc-one")
+                           .WithProfileName("resource-log-one")
+                           .Build();
+    const auto second = microtel::SdkBuilder()
+                            .WithEndpoint("https://localhost:4318")
+                            .WithServiceName("svc-two")
+                            .WithProfileName("resource-log-two")
+                            .Build();
+
+    ASSERT_TRUE(first.has_value()) << first.error().message;
+    ASSERT_TRUE(second.has_value()) << second.error().message;
+    EXPECT_EQ(capture.InfoCount({"resolved resource"}), 2U);
+    EXPECT_EQ(capture.InfoCount({"resolved resource", "\"resource-log-one\"", "svc-one"}), 1U);
+    EXPECT_EQ(capture.InfoCount({"resolved resource", "\"resource-log-two\"", "svc-two"}), 1U);
 }
 
 TEST(SdkBuilderTest, Build_InsecureTls_Warns)

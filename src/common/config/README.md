@@ -75,7 +75,9 @@ Track E — Configuration.
   token-provider outputs redacted). It is not implemented: `Build()` logs no
   config dump, only the two `Warn` lines for plaintext OTLP/HTTP and
   `tls.insecure = true`. Redaction belongs at that boundary when the dump
-  lands.
+  lands. The resolved Resource is logged (at `Info`, from
+  `src/sdk/resource_builder.cpp`) with a by-key redaction of its own; see
+  `docs/configuration.md` §5.
 - **Env-var precedence** per `docs/configuration.md` §1: code > env >
   file > defaults. `MICROTEL_*` wins over `OTEL_*` on overlap. v1 defines no
   overlap, so the rule is dormant but documented.

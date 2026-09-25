@@ -22,8 +22,8 @@ namespace microtel::sdk
 /// rest are counted in a trailing "...and N more" marker.
 inline constexpr std::size_t kMaxLoggedResourceAttributes = 32;
 
-/// @brief Most characters of one rendered value the resolved-Resource log line
-/// keeps; a longer value is cut and ends in "...".
+/// @brief Most characters of one rendered, escaped value the resolved-Resource log line
+/// keeps; a longer value is cut (never inside an escape) and ends in "...".
 inline constexpr std::size_t kMaxLoggedResourceValueChars = 128;
 
 /// @brief Compose the `Provider`'s Resource per `microtel-spec.md` §12.7.
@@ -44,7 +44,9 @@ inline constexpr std::size_t kMaxLoggedResourceValueChars = 128;
 ///
 /// On success the composed Resource is logged once at `Info` through
 /// `internal::LogImpl` (spec §12.7, "the resolved Resource is logged at
-/// init"): keys sorted, values of secret-looking keys redacted, at most
+/// init"): keys sorted, keys and string values escaped (backslash, double
+/// quote, control characters) so none can split the line, values of
+/// secret-looking keys redacted, at most
 /// `kMaxLoggedResourceAttributes` pairs and `kMaxLoggedResourceValueChars`
 /// characters per value.
 ///

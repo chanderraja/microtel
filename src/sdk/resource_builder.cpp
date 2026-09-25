@@ -119,9 +119,88 @@ constexpr std::array<std::string_view, 8> kSecretKeyFragments = {
     return std::format("{}", value);
 }
 
+constexpr unsigned char kFirstPrintable = 0x20;
+constexpr unsigned char kDelete = 0x7F;
+constexpr std::size_t kSimpleEscapeLen = 2;  // backslash + one char
+constexpr std::size_t kHexEscapeLen = 4;     // backslash + 'x' + two hex digits
+
+/// @brief Append `c` to `out`, escaped if it is a backslash, a double quote
+/// or a control character. Bytes >= 0x80 (UTF-8) pass through unchanged.
+void AppendEscaped(std::string& out, char c)
+{
+    switch (c)
+    {
+        case '\\':
+            out += "\\\\";
+            return;
+        case '"':
+            out += "\\\"";
+            return;
+        case '\n':
+            out += "\\n";
+            return;
+        case '\r':
+            out += "\\r";
+            return;
+        case '\t':
+            out += "\\t";
+            return;
+        default:
+            break;
+    }
+    const auto byte = static_cast<unsigned char>(c);
+    if (byte < kFirstPrintable || byte == kDelete)
+    {
+        out += std::format("\\x{:02X}", byte);
+        return;
+    }
+    out += c;
+}
+
+/// @brief `text` with backslash, double quote and control characters escaped,
+/// so that no key or value can split the log line or blur its `key="value"`
+/// boundaries (issue #315).
+[[nodiscard]] std::string Escape(std::string_view text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text)
+    {
+        AppendEscaped(out, c);
+    }
+    return out;
+}
+
+/// @brief The longest prefix of an escaped `rendered` that fits in `cap`
+/// characters without cutting an escape sequence in half. `Escape` turns
+/// every literal backslash into `\\`, so a backslash always starts one.
+[[nodiscard]] std::size_t SafeCutPoint(std::string_view rendered, std::size_t cap)
+{
+    std::size_t pos = 0;
+    while (pos < rendered.size())
+    {
+        const std::string_view rest = rendered.substr(pos);
+        std::size_t len = 1;
+        if (rest.starts_with("\\x"))
+        {
+            len = kHexEscapeLen;
+        }
+        else if (rest.starts_with('\\'))
+        {
+            len = kSimpleEscapeLen;
+        }
+        if (pos + len > cap)
+        {
+            break;
+        }
+        pos += len;
+    }
+    return pos;
+}
+
 [[nodiscard]] std::string Render(const std::string& value)
 {
-    return "\"" + value + "\"";
+    return "\"" + Escape(value) + "\"";
 }
 
 template <typename T>
@@ -148,7 +227,7 @@ template <typename T>
     std::string rendered = std::visit([](const auto& held) { return Render(held); }, kv.value);
     if (rendered.size() > kMaxLoggedResourceValueChars)
     {
-        rendered.resize(kMaxLoggedResourceValueChars);
+        rendered.resize(SafeCutPoint(rendered, kMaxLoggedResourceValueChars));
         rendered += kEllipsis;
     }
     return rendered;
@@ -180,7 +259,7 @@ void LogResolvedResource(const Resource& resource, std::string_view profile_name
     for (const KeyValue* kv : std::span{sorted}.first(shown))
     {
         line += separator;
-        line += kv->key + "=" + LoggedValue(*kv);
+        line += Escape(kv->key) + "=" + LoggedValue(*kv);
         separator = ", ";
     }
     if (sorted.size() > shown)

@@ -50,11 +50,12 @@ internal::WireResult RetryEngine::Resolve(const internal::WireResult& first_atte
     {
         return first_attempt;
     }
-    auto retried = RunRetryLoop(retry);
+    auto retried = RunRetryLoop(first_attempt, retry);
     if (!retried.has_value())
     {
-        // The retry budget was already spent on entry, so no further attempt
-        // was made and the fan-out result stands as this batch's outcome.
+        // No retry was made — the first backoff would have reached the retry
+        // budget, or Shutdown cut it short — so the fan-out result stands as
+        // this batch's outcome.
         return first_attempt;
     }
     if (retried->success && m_diag != nullptr)
@@ -66,25 +67,24 @@ internal::WireResult RetryEngine::Resolve(const internal::WireResult& first_atte
     return std::move(*retried);
 }
 
-std::optional<internal::WireResult> RetryEngine::RunRetryLoop(const RetryAttempt& retry)
+std::optional<internal::WireResult> RetryEngine::RunRetryLoop(
+    const internal::WireResult& first_attempt, const RetryAttempt& retry)
 {
     const std::uint32_t max_attempts = (m_policy.max_attempts > 0U) ? m_policy.max_attempts : 1U;
     const auto budget_deadline = ClockNow() + m_policy.retry_budget;
 
-    // The fan-out already made attempt 0. If the budget is spent before the
-    // first retry, make none: the caller's own result is the outcome.
-    if (ClockNow() >= budget_deadline)
-    {
-        return std::nullopt;
-    }
-
+    // The fan-out already made attempt 0. Every retry, the first included,
+    // backs off on the result before it (issue #311): the fan-out's
+    // `retry_after` and `initial_backoff` govern the wait before attempt 1.
     std::optional<internal::WireResult> last;
-    bool retry_again = true;
-    for (std::uint32_t attempt = 1U; retry_again && attempt < max_attempts; ++attempt)
+    for (std::uint32_t attempt = 1U; attempt < max_attempts; ++attempt)
     {
+        const internal::WireResult& previous = last.has_value() ? *last : first_attempt;
+        if (!BackOffBeforeRetry(previous, attempt, budget_deadline))
+        {
+            break;
+        }
         last = retry();
-        retry_again =
-            attempt + 1U < max_attempts && BackOffBeforeRetry(*last, attempt, budget_deadline);
     }
     return last;
 }
@@ -97,7 +97,9 @@ bool RetryEngine::BackOffBeforeRetry(const internal::WireResult& last,
     {
         return false;
     }
-    const auto backoff = ComputeBackoff(attempt, m_policy, last.retry_after, DrawJitter01());
+    // `ComputeBackoff` counts from 0 = the wait before the second attempt,
+    // so the first retry (attempt 1) waits `initial_backoff`.
+    const auto backoff = ComputeBackoff(attempt - 1U, m_policy, last.retry_after, DrawJitter01());
     // Look-ahead, per `docs/sequences/retry-after-failure.md` §4: exit when
     // the *upcoming* sleep would reach or pass the budget, not once the
     // budget is already spent (issue #195). `backoff` is never negative.

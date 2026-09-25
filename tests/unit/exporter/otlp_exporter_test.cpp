@@ -358,9 +358,9 @@ TEST(OtlpExporterTest, Retry_BudgetExhausted_StopsAfterFirstAttempt)
 //
 // The fake clock never advances on its own, so "already spent" is never true
 // once the loop is running: without the look-ahead every attempt is made and
-// every backoff slept. With it, attempt 1 is made (the budget was not spent
-// on entry) and the loop exits rather than sleeping a full second against a
-// 1 ms budget.
+// every backoff slept. With it, the loop exits rather than sleeping a full
+// second against a 1 ms budget. Since issue #311 the first retry backs off
+// too, so that exit comes before attempt 1.
 TEST(OtlpExporterTest, Retry_BackoffWouldOutlastBudget_ExitsWithoutSleeping)
 {
     mtmk::MockOtlpEncoder encoder;
@@ -388,10 +388,10 @@ TEST(OtlpExporterTest, Retry_BackoffWouldOutlastBudget_ExitsWithoutSleeping)
     ASSERT_EQ(exporter.ForceFlush(std::chrono::milliseconds{5000}), mt::Status::Completed);
     const auto elapsed = std::chrono::steady_clock::now() - started;
 
-    // Attempt 0 is the fan-out; attempt 1 is the single retry the budget lets
-    // the loop start. The backoff after it costs 1 s against a 1 ms budget, so
-    // the loop exits instead of taking it.
-    EXPECT_EQ(codec.send_call_count.load(), 2);
+    // Attempt 0 is the fan-out. The backoff before attempt 1 costs 1 s
+    // against a 1 ms budget, so the loop exits instead of taking it and the
+    // fan-out result stands (issue #311).
+    EXPECT_EQ(codec.send_call_count.load(), 1);
     // And it exits *before* the sleep: without the look-ahead the loop spends
     // two whole seconds of backoff on a budget of one millisecond.
     EXPECT_LT(elapsed, std::chrono::milliseconds{400});
@@ -781,8 +781,9 @@ TEST(OtlpExporterTest, Retry_ShutdownDuringBackoff_ReturnsWithinTimeout)
     mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
 
     (void)exporter.Export(MakeBatch());
-    // Fan-out plus the immediate first retry; the worker then sleeps.
-    ASSERT_TRUE(WaitForSends(codec, 2));
+    // The fan-out only; the worker then sleeps before the first retry
+    // (issue #311).
+    ASSERT_TRUE(WaitForSends(codec, 1));
 
     const auto started = std::chrono::steady_clock::now();
     const auto status = exporter.Shutdown(kShutdownTimeout);
@@ -790,7 +791,33 @@ TEST(OtlpExporterTest, Retry_ShutdownDuringBackoff_ReturnsWithinTimeout)
 
     EXPECT_LT(elapsed, kShutdownReturnBound);
     EXPECT_EQ(status, mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count.load(), 2) << "no retry after Shutdown";
+    EXPECT_EQ(codec.send_call_count.load(), 1) << "no retry after Shutdown";
     EXPECT_EQ(DropCount(sink, mt::DropReason::RetryBudgetExhausted), 1U);
     EXPECT_EQ(sink.batches_failed, 1U);
+}
+
+// Issue #311: the first retry backs off too. The fan-out's own `retry_after`
+// (HTTP `Retry-After`, gRPC `RetryInfo`) is honoured before attempt 1 instead
+// of the server being hit again at once.
+TEST(OtlpExporterTest, Retry_FirstRetryWaitsForFanOutRetryAfter)
+{
+    constexpr auto kFanOutRetryAfter = std::chrono::milliseconds{60};
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.scripted_results.push_back(
+        mti::WireResult{.success = false, .retryable = true, .retry_after = kFanOutRetryAfter});
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.retry_policy = ZeroDelayRetry(5);
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    const auto started = std::chrono::steady_clock::now();
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds{5}), mt::Status::Completed);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_EQ(codec.send_call_count.load(), 2);
+    EXPECT_GE(elapsed, kFanOutRetryAfter) << "the fan-out's retry_after is slept before attempt 1";
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RetryableFailureRecovered), 1U);
 }

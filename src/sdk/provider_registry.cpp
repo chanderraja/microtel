@@ -19,21 +19,20 @@ namespace microtel::sdk
 namespace
 {
 
-/// The slots, and a count of child-handler runs (`ForkChildHandlerRuns`).
+/// The slots, and a count of fork sweeps run (`ForkSweepRuns`).
 ///
 /// A `pthread_atfork` handler takes no arguments, so the providers it must
 /// reach have to be reachable from a global. Both are only ever touched
 /// atomically.
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 Registry g_slots{};
-std::atomic<std::size_t> g_child_handler_runs{0};
+std::atomic<std::size_t> g_fork_sweep_runs{0};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /// Runs in the child after `fork()`. Nothing but the sweep, so that what the
 /// handler does is testable without forking (`MarkForkedChildProviders`).
 extern "C" void ForkChildHandler() noexcept
 {
-    g_child_handler_runs.fetch_add(1, std::memory_order_relaxed);
     MarkForkedChildProviders();
 }
 
@@ -109,6 +108,8 @@ extern "C" void ForkChildHandler() noexcept
 
 void MarkForkedChildProviders() noexcept
 {
+    g_fork_sweep_runs.fetch_add(1, std::memory_order_relaxed);
+
     // Clearing is deliberate, and it is a trade. The child's supported move is
     // to re-`Build()` (`docs/sequences/fork-survival.md`, option A), naturally
     // under the same profile names, which would collide with the stale
@@ -168,9 +169,9 @@ void DeregisterProvider(SdkProvider* provider) noexcept
     }
 }
 
-std::size_t ForkChildHandlerRuns() noexcept
+std::size_t ForkSweepRuns() noexcept
 {
-    return g_child_handler_runs.load(std::memory_order_relaxed);
+    return g_fork_sweep_runs.load(std::memory_order_relaxed);
 }
 
 SdkProvider* FindProvider(std::string_view name) noexcept

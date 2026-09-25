@@ -106,19 +106,20 @@ void DeregisterProvider(SdkProvider* provider) noexcept;
 /// @threadsafety Safe to call from a fork child handler; see ICP 0027 §3.
 void MarkForkedChildProviders() noexcept;
 
-/// @brief How many times the `pthread_atfork` child handler has run in this
-///        process image.
+/// @brief How many times `MarkForkedChildProviders` has run in this process
+///        image.
 ///
 /// A test seam, and the only way to count handler registrations from outside:
-/// every registration of the handler runs once per `fork()`, so a child that
-/// reads this and subtracts the value its parent saw learns how many copies are
-/// installed — none, one, or a double registration. Production code has no
-/// reason to call it.
+/// every registration of the `pthread_atfork` child handler runs the sweep once
+/// per `fork()`, and nothing else in a child runs it, so a child that reads this
+/// and subtracts the value its parent saw learns how many copies are installed
+/// — none, one, or a double registration. Production code has no reason to
+/// call it.
 ///
 /// @return the count, inherited across `fork()` like any other memory.
 ///
 /// @threadsafety Thread-safe, lock-free.
-[[nodiscard]] std::size_t ForkChildHandlerRuns() noexcept;
+[[nodiscard]] std::size_t ForkSweepRuns() noexcept;
 
 /// @brief Find the live provider registered under @p name.
 ///

@@ -162,8 +162,8 @@ int RunInChildWithin(const std::function<int()>& child_body, std::chrono::millis
 /// would leave every provider live in the child, 2 a double registration.
 int CountInstalledForkHandlers()
 {
-    const std::size_t before = mts::ForkChildHandlerRuns();
-    return RunInChild([before] { return static_cast<int>(mts::ForkChildHandlerRuns() - before); });
+    const std::size_t before = mts::ForkSweepRuns();
+    return RunInChild([before] { return static_cast<int>(mts::ForkSweepRuns() - before); });
 }
 
 /// Build one named provider through the public builder.

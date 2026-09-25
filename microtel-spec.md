@@ -802,7 +802,7 @@ These gates run on every PR including AI-coding-agent PRs — agents and humans 
 
 **Test layout:** `tests/<unit|integration|conformance|wire|fuzz>/<component>/`.
 
-**Build option:** `MICROTEL_BUILD_TESTS=ON|OFF` (default ON). When OFF, the entire test tree is skipped — useful for cross-compilation, constrained-environment builds, and embedded leaf builds in v2.0+.
+**Build option:** `MICROTEL_BUILD_TESTS=ON|OFF` (default ON). When OFF, the entire test tree is skipped — useful for cross-compilation, constrained-environment builds, and embedded leaf builds from v1.3.
 
 **CI gates** (all must pass on every PR):
 - Diff coverage threshold met (above).
@@ -948,17 +948,17 @@ Preceded by **M11 metrics design doc** (`docs/metrics-design.md`) covering aggre
 
 ### 18.3 v1.3 — Logs
 
-After metrics. Includes a bridge from spdlog (and likely glog, log4cxx) to OTel logs as adapter packages.
+After metrics. Includes a bridge from spdlog (and likely glog, log4cxx) to OTel logs as adapter packages. v1.3 also carries the leaf / concentrator architecture (§18.4) as an experimental feature, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md); logs do not wait for it.
 
-### 18.4 v2.0 — Leaf / concentrator architecture
+### 18.4 v1.3 — Leaf / concentrator architecture (experimental; stable in v2.0)
 
-A common pattern in embedded deployments is fleets of constrained devices (modems, controllers, line cards, MCU-class peripherals) that cannot run microtel as designed but still need to emit telemetry. v2.0 introduces a two-component model.
+A common pattern in embedded deployments is fleets of constrained devices (modems, controllers, line cards, MCU-class peripherals) that cannot run microtel as designed but still need to emit telemetry. v1.3 introduces a two-component model as an experimental feature, and v2.0 makes its API stable ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) moved it from v2.0).
 
 **microtel-leaf:** A pure-**C** library targeted at constrained embedded systems. C, not C++, because leaf-class targets often have no C++ runtime, no exceptions, no RTTI, and many RTOSes have C-only build paths. The leaf encodes OTLP messages and hands the bytes to an application-supplied transport (UART, CAN, BLE, proprietary radio, custom UDP — bake nothing in). No threading, no batching, no retries, no TLS, no HTTP.
 
-**microtel (concentrator role):** Existing microtel gains a leaf-receiver path that ingests leaf payloads, enriches them with Resource attributes from its config, runs the standard batching / sampling / export pipeline, and ships to the upstream collector via OTLP/HTTP or OTLP/gRPC.
+**microtel (concentrator role):** Existing microtel gains a leaf-receiver path, driven by an ingest call the application makes (microtel opens no inbound socket), that decodes leaf payloads, enriches them with Resource attributes from its config, runs the standard batching / sampling / export pipeline, and ships to the upstream collector via OTLP/HTTP or OTLP/gRPC.
 
-**Encoder strategy:** v2.0 ships with **upb on the leaf** (covers larger embedded targets — Linux-on-ARM, OpenWrt-class, Cortex-A, beefier Cortex-R). v2.1+ adds a **nanopb** backend for true MCU-class targets (Cortex-M, no MMU, no libc allocator, sub-256 KB flash). Same leaf API, encoder swapped at build time. The leaf's public API is encoder-agnostic by design — opaque buffer types, builder functions, no `upb_*` or `pb_*` symbols leaking out. The wire format is the contract.
+**Encoder strategy:** the leaf ships with **two backends from v1.3**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. **upb** covers larger embedded targets (Linux-on-ARM, OpenWrt-class, Cortex-A, beefier Cortex-R); **nanopb** covers true MCU-class targets (Cortex-M, no MMU, no libc allocator, sub-256 KB flash). Same leaf API, identical OTLP bytes. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf artifact only. v2.1 adds the gated Cortex-M0+ budget, static pools and reference ports. The leaf's public API is encoder-agnostic by design — opaque buffer types, builder functions, no `upb_*` or `pb_*` symbols leaking out. The wire format is the contract.
 
 **Time handling:** three modes (concentrator-stamped, sync-relative, boot-relative), configurable per leaf.
 
@@ -968,7 +968,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 2. The encoder design does not assume all telemetry originates from in-process SDK objects. v2 may optimize pre-encoded OTLP ingestion, but **v1 only guarantees that external telemetry can enter through the same processing pipeline after decoding** — concatenating pre-encoded OTLP bytes is not guaranteed semantically valid in general and isn't promised.
 3. A `Receiver` interface sits alongside the existing exporter abstraction; v1 ships only the implicit API-instrumentation receiver.
 
-**Out of scope for v2.0:** RTOS ports, reliable delivery on the leaf-to-concentrator link, time synchronization beyond the three documented modes, leaf-side sampling.
+**Out of scope for the leaf (v1.3 and v2.0):** RTOS ports, reliable delivery on the leaf-to-concentrator link, time synchronization beyond the three documented modes, leaf-side sampling.
 
 ---
 

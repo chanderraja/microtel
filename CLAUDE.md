@@ -88,7 +88,7 @@ CI runs clang-tidy with a SonarQube-aligned ruleset; full list in `docs/coding-s
 
 ### Dependency discipline
 
-12. **The runtime dependency closure for v1 is fixed:** nghttp2, OpenSSL, upb (vendored), zlib, plus optional spdlog. **No new runtime dependencies without an ICP.** This is the project's whole reason to exist.
+12. **The runtime dependency closure for v1 is fixed:** nghttp2, OpenSSL, upb (vendored), zlib, plus optional spdlog, plus nanopb (vendored, renamed `microtel_pb_*`) linked into the leaf artifact only, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md). **No new runtime dependencies without an ICP.** This is the project's whole reason to exist.
 13. **No shipped microtel artifact links or contains symbols from gRPC, abseil, or the protobuf C++ runtime.** Enforced mechanically by [`ci/scripts/symbol-scan.sh`](ci/scripts/symbol-scan.sh) (CI job `symbol-scan`, a required status check), which scans every `libmicrotel_*.a` and the `microtel-preflight` binary and fails on any symbol — **defined or undefined** — whose demangled name begins with `absl::`, `absl_`, `grpc::`, `grpc_`, `GRPC_`, or `google::protobuf::`. Undefined references count: an archive carrying `U absl::…` makes abseil a link requirement for every consumer. Vendored upb and utf8_range are members of the closure and are **not** violations — but they ship **renamed**: every globally-visible vendored symbol carries a `microtel_` prefix (`microtel_upb_*`, `microtel_utf8_range_*`), applied by the force-included [`third_party/upb/microtel_upb_rename.h`](third_party/upb/microtel_upb_rename.h) per [ICP 0020](docs/icps/0020-install-and-package-config.md) Decision 4, so a consumer who also links a real upb cannot get two definitions and a silent static-link selection. A second `symbol-scan` pass fails the build on any *unprefixed* `upb_*` / `utf8_range_*` global. The upb-generated `google_protobuf_*` and `opentelemetry_*` C accessor names under `gen/` are unchanged — they are not upb runtime symbols. The wire encoder is upb; the HTTP/2 transport is nghttp2 directly.
 
     Optional **source-distributed** adapters may compile against third-party headers already present in the consumer's build, provided they add nothing to the consumer's link closure. See [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md).
@@ -163,7 +163,7 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 - **Don't use `goto`, raw `new`/`delete`, `using namespace` in headers**, or any banned C function.
 - **Don't introduce `std::shared_ptr` without justification** in the PR description.
 - **Don't write "smart mocks"** — mocks are dumb, fakes have logic.
-- **Don't expose upb symbols** outside `src/wire/encoder/`. The `OtlpEncoder` C++ wrapper is the only file that touches upb directly.
+- **Don't expose upb symbols** outside `src/wire/encoder/` and the leaf's own directory ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md)). In the runtime, the `OtlpEncoder` C++ wrapper is the only file that touches upb directly.
 
 ---
 

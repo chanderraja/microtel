@@ -22,10 +22,11 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 | v1.2 Metrics | Mostly done, experimental | Async-callback deadline (#237); retry for metric export (#222); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.2 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024) |
 | v1.3 Logs | Mostly done, experimental | Retry for log export (#222); glog and log4cxx bridges; collector conformance tests; logs bench profile; logs cookbook |
+| v1.3 Leaf / concentrator | Not started; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Design doc; C leaf with upb and nanopb backends; concentrator ingest path; the ship gates in the ICP |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
 | v1.4 Conformance push | Not started | Custom samplers are reachable through `SamplerHandle` but not a documented extension point; histogram buckets can be set per instrument but not through Views |
 | v1.5 Performance & footprint | Partial | Static-archive install and `find_package` exist (ICP 0020); measured size targets and compile-time feature selection are proposed in ICP 0030; coroutines, pooling, HTTP/3 not started |
-| v2.x, v3.0 | Not started | |
+| v2.x, v3.0 | Not started | v2.0 now stabilises the leaf and receiver APIs rather than introducing them |
 
 Status markers in §4 and §5 use the same words: *done*, *partial* (with what
 is missing), *not started*. Where a bullet names an API that ended up with a
@@ -69,6 +70,8 @@ Each release advances along the four-tier model from spec §2.2. The progression
 | **v2.1** | + MCU leaf | + MCU leaf | stable | partial+ |
 | **v2.2** | + concentrator HA | stable | stable | partial+ |
 | **v3.0** | all + profiles | all + profiles | stable | **full conformance claim** |
+
+The leaf ships as experimental in v1.3 with both encoder backends ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md)). The v2.0 and v2.1 rows are where it is claimed at a tier.
 
 "Profiles" refers to OpenTelemetry's continuous-profiling signal, which is still stabilizing upstream as of this writing. It graduates onto the roadmap once upstream marks it stable.
 
@@ -159,9 +162,9 @@ Then implementation:
 
 ---
 
-### v1.3 — Logs
+### v1.3 — Logs + Leaf / Concentrator
 
-**Theme:** Third signal lands. All OTLP signal coverage.
+**Theme:** Third signal lands, and the embedded story starts. Logs reach supported; the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md)).
 
 **Status:** mostly done and shipping as experimental. Remaining: retry for log export (#222), the glog and log4cxx bridges, collector conformance tests, and a logs bench profile.
 
@@ -176,7 +179,15 @@ Then implementation:
 
 **Compatibility tier:** Tier 1 and Tier 2 reach all three signals. Tier 3 shim becomes "experimental: all three."
 
-**Anti-goals in v1.3:** no log-side sampling (collector handles it), no structured-log search features (not microtel's job).
+**Leaf / concentrator (experimental).** Moved from v2.0. Covered in detail in `microtel-spec.md` §18.4. *(Not started. `docs/leaf-concentrator-design.md` must be signed off before any code.)*
+
+- **microtel-leaf**, a pure-C library for constrained embedded systems. No threading, no batching, no retries, no TLS, no HTTP. Encodes OTLP messages and hands the bytes to an application-supplied transport.
+- **Two encoder backends from the first release**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. upb covers Linux-on-ARM, OpenWrt-class and Cortex-A/R targets (`< 30 KB` flash target); nanopb covers Cortex-M (`< 15 KB` flash target). Same leaf API and identical OTLP bytes from both. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf only.
+- **Concentrator role** in main microtel: the application hands it leaf payloads through an ingest call; it decodes them, enriches with Resource attributes from config (`device-id → service.*`), runs the standard sampling / batching / export pipeline, and ships to the upstream collector over OTLP/HTTP or OTLP/gRPC. No inbound socket.
+- **Time handling:** three modes — concentrator-stamped, sync-relative, boot-relative — configurable per leaf in the concentrator's config.
+- **Late Resource enrichment** and the **Receiver abstraction** arrive as new public API, marked experimental.
+
+**Anti-goals in v1.3:** no log-side sampling (collector handles it), no structured-log search features (not microtel's job); for the leaf, no RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link (application transport's job).
 
 ---
 
@@ -217,40 +228,33 @@ Then implementation:
 
 ---
 
-### v2.0 — Leaf / Concentrator Architecture
+### v2.0 — Leaf / Concentrator Goes Stable
 
-**Theme:** Embedded story. Open the door for fleets of constrained devices to participate in OTel.
+**Theme:** Embedded story, stabilised. The leaf and concentrator introduced as experimental in v1.3 become a supported, stable API.
 
 **Status:** not started.
 
-Covered in detail in `microtel-spec.md` §17.4. Recap:
-
-- **microtel-leaf**, a pure-C library (`< 30 KB` flash target) for constrained embedded systems. No threading, no batching, no retries, no TLS, no HTTP. Encodes OTLP messages and hands the bytes to an application-supplied transport.
-- **Concentrator role** in main microtel: ingests leaf payloads, enriches with Resource attributes from config (`device-id → service.*`), runs the standard batching / sampling / export pipeline, ships to upstream collector via existing OTLP/HTTP or OTLP/gRPC.
-- **Encoder strategy:** v2.0 ships with **upb on the leaf** — covers Linux-on-ARM, OpenWrt-class, Cortex-A and beefier Cortex-R targets. Leaf API is encoder-agnostic by design; nanopb backend lands in v2.1.
-- **Time handling:** three modes — concentrator-stamped, sync-relative, boot-relative — configurable per leaf in the concentrator's config.
-- **Late Resource enrichment.** Promotes the v1-internal hook to a public stable API.
+- **Leaf C API stable** for both encoder backends.
+- **Late Resource enrichment.** The public API introduced in v1.3 becomes stable.
 - **Receiver abstraction.** Public stable API. Third parties can write custom receivers (e.g., legacy proprietary protocol → OTLP).
 
 **Compatibility tier:** Tier 3 promotes to **stable** for all three signals — the leaf-and-concentrator deployment story is enough adoption surface that the shim API can no longer be experimental.
 
-**Major-version bump because:** the `Receiver` and Resource-enrichment hooks become public (breaking change to the previously-internal interface). v1.x line continues for 18 months.
+**Major-version bump because:** any breaking changes that the experimental leaf, `Receiver` and Resource-enrichment APIs turn out to need are collected here. (The original reason, making internal interfaces public, no longer applies: v1.3 introduces them as new API, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md).) v1.x line continues for 18 months.
 
-**Anti-goals in v2.0:** no full RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link (application transport's job).
+**Anti-goals in v2.0:** unchanged from the leaf's v1.3 list: no full RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link.
 
 ---
 
-### v2.1 — Nanopb Backend for True MCU Support
+### v2.1 — True MCU Support
 
 **Theme:** Reach the smallest devices.
 
 **Status:** not started.
 
-- **nanopb encoder backend** for microtel-leaf. Same leaf API; encoder swapped at build time.
 - **Static memory pools throughout** the leaf. No malloc anywhere.
-- **Documented RAM/flash budgets** per leaf configuration. Target: **< 15 KB flash, < 2 KB RAM** for a minimal trace-only leaf on Cortex-M0+.
+- **Documented RAM/flash budgets** per leaf configuration, now **gated in CI**: **< 15 KB flash, < 2 KB RAM** for a minimal trace-only nanopb leaf on Cortex-M0+. (The nanopb backend itself moved to v1.3, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md).)
 - **Concrete reference ports:** STM32 HAL, Zephyr, FreeRTOS examples in `examples/leaf/`. Not formal RTOS integrations — examples.
-- **Wire-format conformance tests** add nanopb as a second backend through the same gauntlet that already covered upb in v2.0.
 
 **Anti-goals in v2.1:** still no formal RTOS integrations as part of microtel core.
 
@@ -339,11 +343,11 @@ The v1.0 footprint targets in spec §10.5 are stretch numbers pending prototype.
 | v1.0 | < 800 KB stretch | < 1.5 MB stretch | < 3 MB stretch |
 | v1.1 | unchanged | + sugar (header-only-ish) | + spdlog |
 | v1.2 | + control plane (separate so) | + metrics SDK | + Go ctl binary |
-| v1.3 | unchanged | + logs SDK | unchanged |
+| v1.3 | + leaf (experimental): upb < 30 KB / nanopb < 15 KB flash targets | + logs SDK, + concentrator ingest | leaf closure: upb or nanopb, plus libc |
 | v1.4 | unchanged | + extension surface | + auto-instr packages (separate) |
 | v1.5 | refined | refined | + nghttp3 (optional) |
-| v2.0 | leaf: < 30 KB flash | unchanged | leaf closure: nghttp2 + OpenSSL + upb |
-| v2.1 | leaf: < 15 KB flash | unchanged | leaf: nanopb only |
+| v2.0 | leaf API stable | unchanged | unchanged |
+| v2.1 | nanopb leaf: < 15 KB flash, gated | unchanged | unchanged |
 | v3.0 | TBD | TBD (full conformance) | TBD |
 
 **The overarching size discipline:** every minor release publishes its full footprint matrix as part of release notes. Regressions versus the previous release require a documented justification or a fix.
@@ -357,9 +361,9 @@ How the pitch to potential users evolves:
 - **v1.0:** *"OTLP/gRPC and OTLP/HTTP wire compat, no gRPC library, < 3 MB closure."* Best for: embedded Linux, edge, CNF, air-gapped, anyone whose pain point is the gRPC dependency closure.
 - **v1.1:** *"…plus a real operational surface — preflight, and hot reload you drive from the admin surface you already have."* Adds: ops-heavy deployments where the gRPC closure isn't the only friction.
 - **v1.2:** *"…plus production-quality metrics with explicit cardinality control, and out-of-process administration."* Adds: teams currently using the OTLP/HTTP exporter or Prometheus push gateway and wanting cleaner aggregation.
-- **v1.3:** *"…plus logs with built-in trace correlation."* Adds: full-signal users currently running stock OTel-cpp and wanting the footprint reduction.
+- **v1.3:** *"…plus logs with built-in trace correlation, and a leaf library for embedded fleets, down to Cortex-M."* Adds: full-signal users currently running stock OTel-cpp and wanting the footprint reduction, and the constrained-device fleet audience the project's embedded positioning was always aimed at.
 - **v1.4:** *"…plus auto-instrumentation for major libraries and a beta compat shim."* Adds: teams that want to migrate from stock OTel-cpp without code changes.
-- **v2.0:** *"…plus a leaf library for embedded fleets."* Adds: the constrained-device fleet audience the project's embedded positioning was always aimed at.
+- **v2.0:** *"…and the leaf API is stable."* Adds: fleet operators who need a compatibility promise before committing firmware to it.
 - **v3.0:** *"Full OpenTelemetry SDK, just smaller and faster."* The general pitch.
 
 ---
@@ -370,7 +374,7 @@ What we're explicitly **not** doing in each phase:
 
 | Phase | Not doing |
 |---|---|
-| v1.x core | Windows; full SDK conformance claim; leaf/embedded; control plane (until v1.2); auto-instrumentation (until v1.4) |
+| v1.x core | Windows; full SDK conformance claim; a stable leaf API (experimental from v1.3); control plane (until v1.2); auto-instrumentation (until v1.4) |
 | v2.x | Full SDK conformance claim; profiles signal; formal RTOS integrations as core; leaf-side sampling; concentrator-side persistence beyond optional disk queue |
 | v3.0 | Nothing meaningful left as anti-goals — coverage is full |
 | All phases | Vendor-specific exporters (Datadog, New Relic, etc.) — collectors handle that; semantic-convention helper packages tied to specific OTel spec versions (we stay out of the semconv treadmill in core, may ship as separate optional package) |
@@ -392,7 +396,7 @@ The `bench/` directory evolves alongside the project:
 - **v1.2:** adds metrics workload profiles. *(Done early: `hot-loop-metrics`.)*
 - **v1.3:** adds logs workload profiles. *(Not started.)*
 - **v1.5:** adds high-cardinality, bursty, and outage-recovery scenarios.
-- **v2.0:** adds leaf footprint measurement and concentrator throughput.
+- **v1.3:** adds leaf footprint measurement (both backends) and concentrator throughput. *(Moved from v2.0.)*
 
 ### Documentation
 - **v1.0:** spec, migration guide, README, compatibility matrix, interop matrix.
@@ -400,7 +404,7 @@ The `bench/` directory evolves alongside the project:
 - **v1.2:** metrics design doc (M11 from v1 spec); control plane operator guide, threat model. *(Metrics design doc done; the other two not started.)*
 - **v1.3:** logs cookbook with bridge examples. *(Partial: `docs/logs-design.md` and the spdlog adapter README only.)*
 - **v1.4:** conformance matrix, extension-author guide, auto-instrumentation cookbook.
-- **v2.0:** leaf programming guide, concentrator deployment guide, embedded examples.
+- **v1.3:** leaf programming guide, concentrator deployment guide, embedded examples. *(Moved from v2.0.)*
 
 ### Community and governance
 - **Pre-1.0:** small core team; CODEOWNERS for each track.
@@ -456,6 +460,7 @@ Brief notes on decisions whose rationale spans multiple releases and influences 
 | Leaf encoder is upb first, nanopb later | v0.5 spec | Larger embedded targets are most of the addressable audience and reuse microtel's existing encoder closure. nanopb adds reach to true MCU class. | v2.0, v2.1 |
 | Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](docs/icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
 | Metrics, logs and the otel-cpp shim built ahead of their themes, shipped as experimental | M12–M17 | The code was ready before the release themes that name it. Shipping it marked experimental lets people use it now, while the v1.2 and v1.3 themes keep the job of stabilizing it: closing the gaps, adding conformance tests, and making the compatibility promise. | v1.2, v1.3, Tier 3 |
+| Leaf / concentrator in v1.3 as experimental, with upb **and** nanopb leaf backends | [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Reverses the release target of §18.4 and the "upb first, nanopb later" row above. The leaf is the strongest pitch for IoT fleets, and most of those devices are Cortex-M, which only nanopb reaches. Nothing in the design needed a major version: the receiver and enrichment hooks never existed as internal interfaces, so they arrive as new API. v2.0 becomes the release where that API goes stable. | v1.3, v2.0, v2.1 |
 
 This log is appended to, never rewritten. When a decision is reversed, the original entry stays and a new entry records the reversal with rationale — the control-plane deferral is the first.
 

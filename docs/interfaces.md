@@ -924,7 +924,7 @@ Every interface in this document has a mock or a fake (sometimes both). The sele
 - Public-API headers (`include/microtel/`) — see the headers themselves; the interfaces here are internal.
 - Implementation choices left to M3 (queue data structure, exact backoff formula) — see the relevant model document.
 - Auth providers beyond static + callback (OAuth2, SigV4) — v1.1+; will gain new sub-interfaces under `IAuthProvider` if needed.
-- The `IReceiver` interface from spec §17.4 (v2.0 leaf/concentrator) — out of v1 scope. The seam exists architecturally but is not realised in v1.
+- The `IReceiver` interface for the leaf/concentrator (spec §18.4). Not realised yet; it arrives in v1.3 as experimental public API per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md), with its contract defined in `docs/leaf-concentrator-design.md`.
 
 ## 7. Sign-off log
 

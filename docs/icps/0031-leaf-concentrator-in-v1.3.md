@@ -1,6 +1,6 @@
 # ICP 0031: move leaf / concentrator, with both encoder backends, into v1.3
 
-**Status:** Draft.
+**Status:** Accepted — signed off 2026-09-25.
 **Affected interfaces / docs:**
 - `microtel-spec.md` §18.3 and §18.4
 - `microtel-roadmap.md`:

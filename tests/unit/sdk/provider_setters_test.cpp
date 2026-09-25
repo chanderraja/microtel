@@ -9,10 +9,9 @@
 // that contract, one section per setter, plus the two enumerators the ICP adds
 // to `Status`.
 //
-// Validation is deliberately stricter than `SdkBuilder::Build` (ICP 0026
-// Discrepancy 1): a zero queue, a zero batch size or a non-positive delay
-// passes `Build()` today and produces a processor that never drains or spins.
-// Tightening `Build()` is a separate change; the setters reject all of them.
+// `SetBatchOptions` validates with the same rule set as `SdkBuilder::Build`
+// (issue #267, closing ICP 0026 Discrepancy 1); the agreement between the two
+// is asserted in batch_options_validation_test.cpp.
 
 #include "microtel/internal/sampler.hpp"
 #include "microtel/log_sink.hpp"

@@ -205,6 +205,13 @@ microtel_add_test(
     SOURCES sdk_builder_test.cpp
     LIBS    microtel_sdk)
 
+# Issue #267: SdkBuilder::Build and Provider::SetBatchOptions share one
+# BatchOptions validator — code, TOML and the setter over one table of cases.
+microtel_add_test(
+    NAME    batch_options_validation_test
+    SOURCES batch_options_validation_test.cpp
+    LIBS    microtel_sdk)
+
 # SdkProvider::ForceFlush two-stage flush (processor → exporter).
 # Concurrency regression: Provider is documented thread-safe; GetMeter/
 # GetLogger raced ForceFlush/Shutdown on the lazily-built members. Meaningful

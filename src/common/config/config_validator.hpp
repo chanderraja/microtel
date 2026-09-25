@@ -8,8 +8,34 @@
 
 #include "common/config/config.hpp"
 
+#include <optional>
+#include <string_view>
+
 namespace microtel::config
 {
+
+/// @brief Why a `BatchOptions` was refused.
+///
+/// Both views point at string literals, so a fault costs no allocation and
+/// outlives any call.
+struct BatchOptionsFault
+{
+    std::string_view field;    ///< the `microtel.toml` key, e.g. `sdk.max_queue_size`
+    std::string_view message;  ///< what is wrong with it
+};
+
+/// @brief The one `BatchOptions` rule set (issue #267).
+///
+/// Shared by `Validate` (hence `SdkBuilder::Build` and `microtel-preflight`)
+/// and `Provider::SetBatchOptions`, so the builder and the setter accept and
+/// reject exactly the same values. Rejects, checked in this order:
+///   - `max_queue_size == 0` (every record is refused on arrival);
+///   - `max_export_batch_size == 0` (the queue never drains);
+///   - `max_export_batch_size > max_queue_size`;
+///   - `schedule_delay <= 0ms` (the worker's wait turns into a spin).
+///
+/// @return The first rule @p opts breaks, or `std::nullopt` if it is coherent.
+[[nodiscard]] std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noexcept;
 
 /// @brief Resolve the remaining defaults in a Config and validate the result.
 ///
@@ -25,7 +51,8 @@ namespace microtel::config
 ///     `MICROTEL_FORBID_INSECURE_TLS=ON` (spec §12.3).
 ///   - TLS file readability (ca_bundle, client_cert, client_key).
 ///   - mTLS key-cert pairing (both or neither).
-///   - Batch: max_export_batch_size ≤ max_queue_size.
+///   - Batch: `CheckBatchOptions` — non-zero queue and batch sizes,
+///     max_export_batch_size ≤ max_queue_size, positive schedule_delay.
 ///
 /// On success `cfg.endpoint` holds the parsed URL components, `cfg.protocol`
 /// holds the resolved protocol, and `cfg.service_name` holds `unknown_service`

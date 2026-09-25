@@ -11,6 +11,7 @@
 #include "microtel/status.hpp"
 #include "microtel/tracer.hpp"
 
+#include "common/config/config_validator.hpp"
 #include "common/internal_log.hpp"
 #include "sdk/batch_log_record_processor.hpp"
 #include "sdk/batch_span_processor.hpp"
@@ -22,9 +23,13 @@
 #include "sdk/sdk_meter.hpp"
 #include "sdk/sdk_tracer.hpp"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -389,20 +394,6 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
 namespace
 {
 
-/// ICP 0026 §3's table for `BatchOptions`, which is **stricter than
-/// `SdkBuilder::Build`** and deliberately so: `config::Validate` rejects only
-/// `max_export_batch_size > max_queue_size`, so a zero queue, a zero batch
-/// size or a zero delay passes `Build()` today and produces a processor that
-/// never drains or spins. Tightening `Build()` changes what an existing
-/// configuration does at startup and is tracked separately (ICP 0026
-/// Discrepancy 1); a *new* value arriving through the reload door has no such
-/// excuse.
-[[nodiscard]] bool BatchOptionsAreCoherent(const BatchOptions& opts) noexcept
-{
-    return opts.max_queue_size != 0U && opts.max_export_batch_size != 0U &&
-           opts.max_export_batch_size <= opts.max_queue_size && opts.schedule_delay.count() > 0;
-}
-
 /// The setters' rejection channel. `Status` carries which *kind* of rejection;
 /// which field and what range go here, at Warn — which is also what makes
 /// `SetLogLevel` self-consistent, a rejected setter call being an internal log
@@ -410,6 +401,24 @@ namespace
 void WarnRejected(std::string_view detail) noexcept
 {
     internal::LogImpl(LogLevel::Warn, detail);
+}
+
+/// Room for the prefix plus the longest `config::BatchOptionsFault` message;
+/// `snprintf` truncates rather than overflows if a message ever outgrows it.
+constexpr std::size_t kBatchRejectionBufferSize = 128;
+
+/// `WarnRejected` for a `BatchOptions` fault, composed on the stack so the
+/// `noexcept` setter never allocates to report a rejection.
+void WarnBatchRejected(const config::BatchOptionsFault& fault) noexcept
+{
+    std::array<char, kBatchRejectionBufferSize> buf{};
+    const int written = std::snprintf(buf.data(),
+                                      buf.size(),
+                                      "SetBatchOptions rejected: %.*s",
+                                      static_cast<int>(fault.message.size()),
+                                      fault.message.data());
+    const auto len = std::min(static_cast<std::size_t>(std::max(written, 0)), buf.size() - 1);
+    WarnRejected(std::string_view{buf.data(), len});
 }
 
 }  // namespace
@@ -420,12 +429,11 @@ Status SdkProvider::SetBatchOptions(const BatchOptions& opts) noexcept
     {
         return Status::AlreadyShutDown;
     }
-    if (!BatchOptionsAreCoherent(opts))
+    // The rule set `SdkBuilder::Build` applies through `config::Validate`
+    // (issue #267): a value is accepted here exactly when it would build.
+    if (const auto fault = config::CheckBatchOptions(opts))
     {
-        WarnRejected(
-            "SetBatchOptions rejected: max_queue_size and max_export_batch_size must both be "
-            "non-zero, max_export_batch_size must not exceed max_queue_size, and schedule_delay "
-            "must be greater than zero");
+        WarnBatchRejected(*fault);
         return Status::InvalidArgument;
     }
     if (m_batch_span_processor == nullptr)

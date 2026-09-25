@@ -487,8 +487,13 @@ path (so a `LogSink` receives it and `logging.level` filters it):
 resolved resource (profile "default", 3 attributes): deployment.environment="prod", host.name="node-7", service.name="checkout"
 ```
 
-Keys are sorted. At most 32 attributes are listed, then `...and N more`, and a
-value longer than 128 characters is cut and ends in `...`. A value whose key
+Keys are sorted. In keys and string values (array elements included), a
+backslash prints as `\\`, a double quote as `\"`, newline, carriage return and
+tab as `\n`, `\r` and `\t`, and any other control character as `\xHH`, so no
+attribute can split the line; UTF-8 passes through unchanged (issue #315). At
+most 32 attributes are listed, then `...and N more`, and a value longer than
+128 characters after escaping is cut, never inside an escape, and ends in
+`...`. A value whose key
 contains `authorization`, `secret`, `token`, `password`, `passwd`,
 `credential`, `api_key` or `apikey` (any case) is printed as `<redacted>`.
 That list is the §12.6 rule applied by key; it is the only redaction code in

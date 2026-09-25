@@ -585,3 +585,133 @@ TEST(ResourceBuilderTest, ResolvedResource_RendersEveryValueType)
         EXPECT_NE(line.find(expected), std::string::npos) << expected << " in: " << line;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Issue #315 — the resolved-Resource line escapes keys and string values
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// @brief The resolved-Resource line for a config carrying one extra attribute.
+[[nodiscard]] std::string ResolvedLineWith(std::string key, mt::AttributeValue value)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = std::move(key), .value = std::move(value)});
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    EXPECT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    return OnlyResolvedLine(logs);
+}
+
+}  // namespace
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesNewline)
+{
+    const std::string line = ResolvedLineWith("cmd", std::string{"a\nb"});
+    EXPECT_EQ(line.find('\n'), std::string::npos) << line;
+    EXPECT_NE(line.find(R"(cmd="a\nb")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesCarriageReturn)
+{
+    const std::string line = ResolvedLineWith("cmd", std::string{"a\rb"});
+    EXPECT_EQ(line.find('\r'), std::string::npos) << line;
+    EXPECT_NE(line.find(R"(cmd="a\rb")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesTab)
+{
+    const std::string line = ResolvedLineWith("cmd", std::string{"a\tb"});
+    EXPECT_EQ(line.find('\t'), std::string::npos) << line;
+    EXPECT_NE(line.find(R"(cmd="a\tb")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesDoubleQuote)
+{
+    const std::string line = ResolvedLineWith("cmd", std::string{R"(a", x="b)"});
+    EXPECT_NE(line.find(R"(cmd="a\", x=\"b")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesBackslash)
+{
+    const std::string line = ResolvedLineWith("path", std::string{R"(C:\dir\n)"});
+    EXPECT_NE(line.find(R"(path="C:\\dir\\n")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesOtherControlCharactersAsHex)
+{
+    const std::string line = ResolvedLineWith("cmd", std::string{"a\x01z\x1fz\x7f"});
+    EXPECT_NE(line.find(R"(cmd="a\x01z\x1Fz\x7F")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesStringArrayElements)
+{
+    const std::string line =
+        ResolvedLineWith("args", std::vector<std::string>{"--a\nb", R"(say "hi")"});
+    EXPECT_EQ(line.find('\n'), std::string::npos) << line;
+    EXPECT_NE(line.find(R"(args=["--a\nb", "say \"hi\""])"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_EscapesKeys)
+{
+    const std::string line = ResolvedLineWith("bad\nkey\"", std::string{"v"});
+    EXPECT_EQ(line.find('\n'), std::string::npos) << line;
+    EXPECT_NE(line.find(R"(bad\nkey\"="v")"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_TruncationNeverSplitsATwoCharEscape)
+{
+    // Opening quote + 126 'x' is 127 chars; the "\n" escape would straddle the
+    // 128-char cap, so it is dropped whole rather than leaving a lone '\'.
+    constexpr std::size_t kFill = ms::kMaxLoggedResourceValueChars - 2;
+    const std::string line = ResolvedLineWith("big", std::string(kFill, 'x') + "\nyyyy");
+    EXPECT_NE(line.find("big=\"" + std::string(kFill, 'x') + "..."), std::string::npos) << line;
+    EXPECT_EQ(line.find(std::string(kFill, 'x') + "\\"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_TruncationNeverSplitsAHexEscape)
+{
+    // Opening quote + 125 'x' is 126 chars; "\x01" needs four and would cross
+    // the cap after "\x", so it is dropped whole.
+    constexpr std::size_t kFill = ms::kMaxLoggedResourceValueChars - 3;
+    const std::string line = ResolvedLineWith("big", std::string(kFill, 'x') + "\x01yyyy");
+    EXPECT_NE(line.find("big=\"" + std::string(kFill, 'x') + "..."), std::string::npos) << line;
+    EXPECT_EQ(line.find(std::string(kFill, 'x') + "\\"), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_CapAppliesToTheEscapedForm)
+{
+    // 100 newlines escape to 200 chars, so the cap cuts the escaped form.
+    constexpr std::size_t kNewlines = 100;
+    const std::string line = ResolvedLineWith("nl", std::string(kNewlines, '\n'));
+    const auto start = line.find("nl=");
+    ASSERT_NE(start, std::string::npos) << line;
+    const auto end = line.find(", service.name=", start);
+    ASSERT_NE(end, std::string::npos) << line;
+    const std::string value = line.substr(start + 3, end - start - 3);
+    EXPECT_EQ(value.find('\n'), std::string::npos) << line;
+    // The quote plus 63 escapes is 127 chars; a 64th escape would cross the cap.
+    std::string expected = "\"";
+    for (std::size_t i = 0; i < (ms::kMaxLoggedResourceValueChars - 1) / 2; ++i)
+    {
+        expected += "\\n";
+    }
+    expected += "...";
+    EXPECT_EQ(value, expected) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_PassesUtf8Through)
+{
+    const std::string utf8 = "caf\xc3\xa9-\xe6\x97\xa5\xe6\x9c\xac";
+    const std::string line = ResolvedLineWith("host.name", utf8);
+    EXPECT_NE(line.find("host.name=\"" + utf8 + "\""), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_RedactedValueStaysRedacted)
+{
+    const std::string line = ResolvedLineWith("api.token", std::string{"a\nb"});
+    EXPECT_NE(line.find("api.token=<redacted>"), std::string::npos) << line;
+}

@@ -8,6 +8,8 @@
 #include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include "common/config/table_merge.hpp"
+
 #include <charconv>
 #include <cstdlib>
 #include <string>
@@ -129,7 +131,7 @@ namespace
     {
         return microtel::make_unexpected(headers.error());
     }
-    cfg.headers = std::move(*headers);
+    MergeHeaders(cfg.headers, *headers);
     return {};
 }
 
@@ -210,7 +212,7 @@ namespace
     {
         return microtel::make_unexpected(attrs.error());
     }
-    cfg.resource_attrs = std::move(*attrs);
+    MergeResourceAttrs(cfg.resource_attrs, *attrs);
     return {};
 }
 

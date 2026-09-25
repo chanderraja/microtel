@@ -20,6 +20,8 @@ Resolved precedence, **highest to lowest** (LOCKED — spec §12.1):
 
 **Resolution is per-setting**, not per-source. If `service.name` is set in code and `service.version` is set in env, both win in their respective slots; neither shadows the other.
 
+**Each key of a table is its own setting.** For the table-valued settings — `[resource]` / `WithResource` / `OTEL_RESOURCE_ATTRIBUTES` (§3.2) and `[exporter.headers]` / `WithHeaders` / `OTEL_EXPORTER_OTLP_HEADERS` (§3.3) — a higher-precedence source overrides only the keys it names; every other key survives from the lower-precedence sources. `OTEL_RESOURCE_ATTRIBUTES=host.rack=b12` over a `[resource]` table that sets `deployment.environment` and `service.namespace` resolves to all three. No source replaces a whole table (issue #257; changed in v1.1.1, before which a higher source replaced the table wholesale).
+
 **OTel-standard `OTEL_*` env vars are honoured alongside microtel-specific `MICROTEL_*` ones.** Where both an OTEL and a MICROTEL env var name the same setting, MICROTEL wins (it is more specific to this implementation). v1 does not currently define any such overlap; if one is added later it must be called out here.
 
 **Strict-by-default unknown keys.** Unknown keys in `microtel.toml` raise `ConfigError::Kind::UnknownKey` at `Build()` time. Mixed-version deployments may relax via:
@@ -99,18 +101,19 @@ entirely.)
 
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
-| `[resource]` table | `WithResource({...})` | `OTEL_RESOURCE_ATTRIBUTES` (csv `k=v,k=v`) | — | empty | Detector contributions merge per spec §12.7 (detectors first, then env, then user). |
+| `[resource]` table | `WithResource({...})` | `OTEL_RESOURCE_ATTRIBUTES` (csv `k=v,k=v`) | — | empty | Merged per key across sources (§1): each source overrides only the keys it names. Keys compare exactly (case-sensitive). Detector contributions sit below all of them (spec §12.7). |
 | — | `WithResourceDetector(d)` | — | — | no detectors | Registration order is significant; a later detector overrides an earlier one. |
 | `sdk.resource_detectors_strict` | — | — | `MICROTEL_RESOURCE_DETECTORS_STRICT` | `false` (lenient) | `true`/`1` or `false`/`0`; any other env value is `ConfigError::EnvParseFailure`. |
 
-**Composition order.** `Build()` merges four layers, key by key, each
+**Composition order.** `Build()` merges three layers, key by key, each
 overriding the one before it (`Resource::Merge`):
 
 1. Built-in defaults — the `unknown_service` placeholder, and only when nothing
    configured a service name.
 2. Detectors, in `WithResourceDetector` registration order.
-3. Environment (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`).
-4. File and code (`[resource]`, `WithResource`, `WithServiceName`).
+3. Configuration — itself resolved key by key in §1's order: `microtel.toml`
+   (`[service]`, `[resource]`), then environment (`OTEL_SERVICE_NAME`,
+   `OTEL_RESOURCE_ATTRIBUTES`), then code (`WithServiceName`, `WithResource`).
 
 A detector therefore cannot override anything an operator configured, but it
 *can* replace the `unknown_service` placeholder, which is a default rather than
@@ -144,7 +147,7 @@ not a failure under either policy.
 | `exporter.endpoint` | `WithEndpoint(s)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | none (required) | If unset, `Build` fails with `ConfigError::EndpointMalformed`. |
 | `exporter.protocol` | `WithProtocol(p)` | `OTEL_EXPORTER_OTLP_PROTOCOL` | — | **`http`**, or `grpc` for a `grpc://` / `grpcs://` endpoint | `http` or `grpc`. See "Endpoint scheme and protocol" below. |
 | `exporter.compression` | `WithCompressionGzip(b)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | — | off | TOML/env value is `gzip` to enable; anything else is off. The code setter is a `bool`, not a codec name — gzip is the only compression v1 implements. Controls **requests**: gzip request bodies with `content-encoding: gzip` (HTTP) or frame flag `0x01` with `grpc-encoding: gzip` (gRPC). Responses are independent — `accept-encoding` / `grpc-accept-encoding: gzip` is advertised whatever this is set to, and a compressed response is inflated under `MemoryLimitOptions::max_decompressed_bytes`. |
-| `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Static headers, fixed for the process lifetime; runtime auth via `WithAuthProvider` is separate. `WithAuthProvider` has no TOML or env surface — it takes a callable. See [`auth-callback-recipes.md`](auth-callback-recipes.md) for OAuth2 and SigV4, and for what the callback runs on (an exporter worker) before you put I/O in it. |
+| `[exporter.headers]` table | `WithHeaders({...})` | `OTEL_EXPORTER_OTLP_HEADERS` (csv `k=v,k=v`) | — | empty | Merged per key across sources (§1): each source overrides only the headers it names. Header names compare ASCII case-insensitively (`authorization` overrides `Authorization`; the higher source's spelling is kept). Static headers, fixed for the process lifetime; runtime auth via `WithAuthProvider` is separate. `WithAuthProvider` has no TOML or env surface — it takes a callable. See [`auth-callback-recipes.md`](auth-callback-recipes.md) for OAuth2 and SigV4, and for what the callback runs on (an exporter worker) before you put I/O in it. |
 
 **Endpoint scheme and protocol.** Four schemes are accepted. Two of them are
 microtel shorthand that carries a protocol; two say nothing about it.

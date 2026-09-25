@@ -23,6 +23,7 @@
 #include "common/config/config.hpp"
 #include "common/config/config_validator.hpp"
 #include "common/config/env_resolver.hpp"
+#include "common/config/table_merge.hpp"
 #include "common/config/toml_loader.hpp"
 #include "common/internal_log.hpp"
 #include "exporter/otlp_exporter.hpp"
@@ -637,7 +638,7 @@ void SdkBuilder::Impl::ApplyExporterOverrides(config::Config& cfg) const
     }
     if (headers)
     {
-        cfg.headers = *headers;
+        config::MergeHeaders(cfg.headers, *headers);
     }
     if (tls)
     {
@@ -665,7 +666,7 @@ void SdkBuilder::Impl::ApplyResourceOverrides(config::Config& cfg) const
     }
     if (resource_attrs)
     {
-        cfg.resource_attrs = *resource_attrs;
+        config::MergeResourceAttrs(cfg.resource_attrs, *resource_attrs);
     }
     if (batch)
     {

@@ -64,6 +64,38 @@ TEST(SdkBuilderTest, Build_AllOptions_Succeeds)
     ASSERT_TRUE(result.has_value());
 }
 
+TEST(SdkBuilderTest, Build_CodeTablesMergeOverEnvTables_Succeeds)
+{
+    // Issue #257: WithResource / WithHeaders merge per key over the env layer
+    // rather than replacing it. The per-key results are asserted in
+    // config_test's TableMergeTest, through the same config::MergeResourceAttrs
+    // / MergeHeaders calls; Build() exposes no resolved Config to assert on
+    // here, so this drives the builder's code-layer path end to end.
+    struct EnvGuard
+    {
+        EnvGuard() = default;
+        EnvGuard(const EnvGuard&) = delete;
+        EnvGuard& operator=(const EnvGuard&) = delete;
+        EnvGuard(EnvGuard&&) = delete;
+        EnvGuard& operator=(EnvGuard&&) = delete;
+        ~EnvGuard() noexcept
+        {
+            (void)unsetenv("OTEL_RESOURCE_ATTRIBUTES");
+            (void)unsetenv("OTEL_EXPORTER_OTLP_HEADERS");
+        }
+    } const guard;
+
+    (void)setenv("OTEL_RESOURCE_ATTRIBUTES", "a=env-a,b=env-b", 1);
+    (void)setenv("OTEL_EXPORTER_OTLP_HEADERS", "X-Tenant=acme,X-Region=eu", 1);
+
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint("https://localhost:4318")
+                      .WithResource({{.key = "b", .value = std::string{"code-b"}}})
+                      .WithHeaders({{.key = "x-tenant", .value = std::string{"globex"}}})
+                      .Build();
+    ASSERT_TRUE(result.has_value());
+}
+
 TEST(SdkBuilderTest, Build_CalledTwice_SecondCallReturnsConsumedError)
 {
     microtel::SdkBuilder builder;

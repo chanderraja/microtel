@@ -15,10 +15,12 @@
 
 #include "common/config/config_validator.hpp"
 #include "common/config/env_resolver.hpp"
+#include "common/config/table_merge.hpp"
 #include "common/config/toml_loader.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1075,4 +1077,258 @@ TEST(OverlayEnvTest, MicrotelLogLevelOverridesTheTomlValue)
     ASSERT_TRUE(result.has_value()) << result.error().message;
     EXPECT_EQ(cfg.log_level, mt::LogLevel::Debug);
     UnsetEnv("MICROTEL_LOG_LEVEL");
+}
+
+// ---------------------------------------------------------------------------
+// Table-valued settings merge per key (issue #257, ICP 0032 Decision 1)
+//
+// Each key of `[resource]` and `[exporter.headers]` is its own setting. A
+// higher-precedence source overrides the keys it names and leaves the rest of
+// the lower-precedence table in place. The "code" layer below is what
+// `SdkBuilder::WithResource` / `WithHeaders` apply, through the same
+// `MergeResourceAttrs` / `MergeHeaders` calls `SdkBuilder` makes.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// The value `table` holds for `key`, or "<absent>". Fails the test if `key`
+/// (compared exactly) appears more than once.
+std::string ValueOf(const std::vector<mt::KeyValue>& table, const std::string& key)
+{
+    const auto n = std::ranges::count(table, key, &mt::KeyValue::key);
+    EXPECT_LE(n, 1) << "duplicate key " << key;
+    const auto it = std::ranges::find(table, key, &mt::KeyValue::key);
+    if (it == table.end())
+    {
+        return "<absent>";
+    }
+    return std::get<std::string>(it->value);
+}
+
+constexpr const char* kFileResource = R"toml(
+[resource]
+"deployment.environment" = "prod"
+"service.namespace"      = "payments"
+"host.rack"              = "a01"
+)toml";
+
+constexpr const char* kFileHeaders = R"toml(
+[exporter.headers]
+"Authorization" = "Bearer file"
+"X-Tenant"      = "acme"
+"X-Region"      = "eu"
+)toml";
+
+/// File layer then env layer, the order `SdkBuilder::Build` runs them in.
+mc::Config FileThenEnv(const char* toml)
+{
+    auto file_cfg = mc::ParseTomlString(toml);
+    EXPECT_TRUE(file_cfg.has_value()) << file_cfg.error().message;
+    mc::Config cfg = file_cfg.value_or(mc::Config{});
+    const auto r = mc::OverlayEnv(cfg);
+    EXPECT_TRUE(r.has_value()) << r.error().message;
+    return cfg;
+}
+
+}  // namespace
+
+TEST(TableMergeTest, Resource_FileAndEnv_EnvOverridesItsKeyAndFileKeysSurvive)
+{
+    // The issue's example: an env var that never names the file's other keys
+    // must not drop them.
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "host.rack=b12");
+    const auto cfg = FileThenEnv(kFileResource);
+    ASSERT_EQ(cfg.resource_attrs.size(), 3U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "deployment.environment"), "prod");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "service.namespace"), "payments");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "host.rack"), "b12");
+}
+
+TEST(TableMergeTest, Resource_FileAndEnv_EnvOnlyKeyIsAdded)
+{
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "k8s.pod.name=p-1");
+    const auto cfg = FileThenEnv(kFileResource);
+    ASSERT_EQ(cfg.resource_attrs.size(), 4U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "k8s.pod.name"), "p-1");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "host.rack"), "a01");
+}
+
+TEST(TableMergeTest, Resource_FileAndCode_CodeOverridesOnlyItsKeys)
+{
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    auto cfg = FileThenEnv(kFileResource);
+    mc::MergeResourceAttrs(cfg.resource_attrs,
+                           {{.key = "service.namespace", .value = std::string{"billing"}}});
+    ASSERT_EQ(cfg.resource_attrs.size(), 3U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "deployment.environment"), "prod");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "service.namespace"), "billing");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "host.rack"), "a01");
+}
+
+TEST(TableMergeTest, Resource_EnvAndCode_CodeOverridesOnlyItsKeys)
+{
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "a=env-a,b=env-b");
+    mc::Config cfg;
+    ASSERT_TRUE(mc::OverlayEnv(cfg).has_value());
+    mc::MergeResourceAttrs(cfg.resource_attrs, {{.key = "b", .value = std::string{"code-b"}}});
+    ASSERT_EQ(cfg.resource_attrs.size(), 2U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "a"), "env-a");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "b"), "code-b");
+}
+
+TEST(TableMergeTest, Resource_AllThreeLayers_EachKeyResolvesAtItsHighestSource)
+{
+    // deployment.environment: file only.  service.namespace: file < env.
+    // host.rack: file < env < code.  env.only: env only.  code.only: code only.
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=env-ns,host.rack=env-rack,env.only=e");
+    auto cfg = FileThenEnv(kFileResource);
+    mc::MergeResourceAttrs(cfg.resource_attrs,
+                           {{.key = "host.rack", .value = std::string{"code-rack"}},
+                            {.key = "code.only", .value = std::string{"c"}}});
+    ASSERT_EQ(cfg.resource_attrs.size(), 5U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "deployment.environment"), "prod");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "service.namespace"), "env-ns");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "host.rack"), "code-rack");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "env.only"), "e");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "code.only"), "c");
+}
+
+TEST(TableMergeTest, Resource_KeysAreCaseSensitive)
+{
+    // OTel attribute keys are case-sensitive: "Host.Rack" is a different key.
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "Host.Rack=b12");
+    const auto cfg = FileThenEnv(kFileResource);
+    ASSERT_EQ(cfg.resource_attrs.size(), 4U);
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "host.rack"), "a01");
+    EXPECT_EQ(ValueOf(cfg.resource_attrs, "Host.Rack"), "b12");
+}
+
+TEST(TableMergeTest, Headers_FileAndEnv_EnvAddsKeyAndFileKeysSurvive)
+{
+    // A dropped auth header fails every export: an env var that adds one
+    // header must not wipe the file's Authorization.
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "X-Trace-Source=leaf");
+    const auto cfg = FileThenEnv(kFileHeaders);
+    ASSERT_EQ(cfg.headers.size(), 4U);
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "Bearer file");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Tenant"), "acme");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Region"), "eu");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Trace-Source"), "leaf");
+}
+
+TEST(TableMergeTest, Headers_FileAndEnv_EnvOverridesSameKey)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "X-Tenant=globex");
+    const auto cfg = FileThenEnv(kFileHeaders);
+    ASSERT_EQ(cfg.headers.size(), 3U);
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "Bearer file");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Tenant"), "globex");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Region"), "eu");
+}
+
+TEST(TableMergeTest, Headers_FileAndCode_CodeOverridesOnlyItsKeys)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    auto cfg = FileThenEnv(kFileHeaders);
+    mc::MergeHeaders(cfg.headers, {{.key = "Authorization", .value = std::string{"Bearer code"}}});
+    ASSERT_EQ(cfg.headers.size(), 3U);
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "Bearer code");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Tenant"), "acme");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Region"), "eu");
+}
+
+TEST(TableMergeTest, Headers_EnvAndCode_CodeOverridesOnlyItsKeys)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer env,X-Tenant=acme");
+    mc::Config cfg;
+    ASSERT_TRUE(mc::OverlayEnv(cfg).has_value());
+    mc::MergeHeaders(cfg.headers, {{.key = "X-Tenant", .value = std::string{"globex"}}});
+    ASSERT_EQ(cfg.headers.size(), 2U);
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "Bearer env");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Tenant"), "globex");
+}
+
+TEST(TableMergeTest, Headers_AllThreeLayers_EachKeyResolvesAtItsHighestSource)
+{
+    // X-Region: file only.  X-Tenant: file < env.  Authorization: file < env <
+    // code.  X-Env: env only.  X-Code: code only.
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "X-Tenant=env-t,Authorization=Bearer env,X-Env=e");
+    auto cfg = FileThenEnv(kFileHeaders);
+    mc::MergeHeaders(cfg.headers,
+                     {{.key = "Authorization", .value = std::string{"Bearer code"}},
+                      {.key = "X-Code", .value = std::string{"c"}}});
+    ASSERT_EQ(cfg.headers.size(), 5U);
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Region"), "eu");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Tenant"), "env-t");
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "Bearer code");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Env"), "e");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Code"), "c");
+}
+
+TEST(TableMergeTest, Headers_KeysCompareCaseInsensitively)
+{
+    // HTTP field names are case-insensitive (RFC 9110 §5.1), and HTTP/2 sends
+    // them lowercased: "authorization" from env is the same header as the
+    // file's "Authorization". Keeping both would send two credentials. The
+    // overriding source's spelling and value win.
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer env,x-TENANT=globex");
+    const auto cfg = FileThenEnv(kFileHeaders);
+    ASSERT_EQ(cfg.headers.size(), 3U);
+    EXPECT_EQ(ValueOf(cfg.headers, "Authorization"), "<absent>");
+    EXPECT_EQ(ValueOf(cfg.headers, "authorization"), "Bearer env");
+    EXPECT_EQ(ValueOf(cfg.headers, "x-TENANT"), "globex");
+    EXPECT_EQ(ValueOf(cfg.headers, "X-Region"), "eu");
+}
+
+TEST(TableMergeTest, Headers_CaseInsensitiveOverrideReplacesEveryCaseVariant)
+{
+    // A lower layer may already carry two spellings of one header (a TOML
+    // table can hold "Authorization" and "authorization" as distinct keys).
+    // Overriding that header replaces both, not just the first.
+    std::vector<mt::KeyValue> base{{.key = "Authorization", .value = std::string{"one"}},
+                                   {.key = "X-Keep", .value = std::string{"k"}},
+                                   {.key = "authorization", .value = std::string{"two"}}};
+    mc::MergeHeaders(base, {{.key = "AUTHORIZATION", .value = std::string{"three"}}});
+    ASSERT_EQ(base.size(), 2U);
+    EXPECT_EQ(ValueOf(base, "AUTHORIZATION"), "three");
+    EXPECT_EQ(ValueOf(base, "X-Keep"), "k");
+}
+
+TEST(TableMergeTest, EmptyOverridingTableLeavesBaseUntouched)
+{
+    std::vector<mt::KeyValue> resource{{.key = "a", .value = std::string{"1"}}};
+    std::vector<mt::KeyValue> headers{{.key = "A", .value = std::string{"1"}}};
+    mc::MergeResourceAttrs(resource, {});
+    mc::MergeHeaders(headers, {});
+    ASSERT_EQ(resource.size(), 1U);
+    ASSERT_EQ(headers.size(), 1U);
+    EXPECT_EQ(ValueOf(resource, "a"), "1");
+    EXPECT_EQ(ValueOf(headers, "A"), "1");
+}
+
+TEST(TableMergeTest, KeyRepeatedWithinOneSourceResolvesToLastOccurrence)
+{
+    std::vector<mt::KeyValue> resource;
+    std::vector<mt::KeyValue> headers;
+    mc::MergeResourceAttrs(
+        resource,
+        {{.key = "a", .value = std::string{"1"}}, {.key = "a", .value = std::string{"2"}}});
+    mc::MergeHeaders(
+        headers,
+        {{.key = "X-A", .value = std::string{"1"}}, {.key = "x-a", .value = std::string{"2"}}});
+    ASSERT_EQ(resource.size(), 1U);
+    ASSERT_EQ(headers.size(), 1U);
+    EXPECT_EQ(ValueOf(resource, "a"), "2");
+    EXPECT_EQ(ValueOf(headers, "x-a"), "2");
 }

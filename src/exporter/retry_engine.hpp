@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -44,7 +45,7 @@ using RetryAttempt = std::function<internal::WireResult()>;
 class RetryEngine final
 {
 public:
-    RetryEngine(RetryPolicyConfig policy,
+    RetryEngine(const RetryPolicyConfig& policy,
                 internal::IDiagnosticsSink* diag,
                 internal::ISteadyClock* clock) noexcept;
 
@@ -82,15 +83,24 @@ private:
     ///         entry and no attempt was made.
     [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(const RetryAttempt& retry);
     /// @return `false` when `Abort` ended (or had already ended) the sleep.
+    /// @brief After a failed retry, sleep the backoff if another attempt is
+    ///        due. @return `true` to make the next attempt.
+    [[nodiscard]] bool BackOffBeforeRetry(const internal::WireResult& last,
+                                          std::uint32_t attempt,
+                                          internal::TimePointSteady budget_deadline);
     [[nodiscard]] bool SleepUnlessAborted(std::chrono::milliseconds backoff);
     void RecordOutcome(const internal::WireResult& result, std::string_view failure_stage) noexcept;
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
     [[nodiscard]] double DrawJitter01() noexcept;
+    [[nodiscard]] static std::uint64_t ClockSeed() noexcept;
 
     RetryPolicyConfig m_policy;
     internal::IDiagnosticsSink* m_diag;
     internal::ISteadyClock* m_clock;
-    std::mt19937_64 m_rng;
+    // Backoff jitter only: spreading retries out needs no unpredictability, so
+    // a non-cryptographic engine is right here. Same finding as the trace
+    // exporter's former engine, accepted in SonarCloud there.
+    std::mt19937_64 m_rng{ClockSeed()};  // NOSONAR(cpp:S2245) jitter only
 
     std::mutex m_mu;
     std::condition_variable m_cv;

@@ -20,13 +20,10 @@
 namespace microtel::exporter
 {
 
-RetryEngine::RetryEngine(RetryPolicyConfig policy,
+RetryEngine::RetryEngine(const RetryPolicyConfig& policy,
                          internal::IDiagnosticsSink* diag,
                          internal::ISteadyClock* clock) noexcept
-    : m_policy(policy),
-      m_diag(diag),
-      m_clock(clock),
-      m_rng(static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()))
+    : m_policy(policy), m_diag(diag), m_clock(clock)
 {
 }
 
@@ -82,23 +79,33 @@ std::optional<internal::WireResult> RetryEngine::RunRetryLoop(const RetryAttempt
     }
 
     std::optional<internal::WireResult> last;
-    for (std::uint32_t attempt = 1U; attempt < max_attempts; ++attempt)
+    bool retry_again = true;
+    for (std::uint32_t attempt = 1U; retry_again && attempt < max_attempts; ++attempt)
     {
         last = retry();
-        if (last->success || !last->retryable || attempt + 1U >= max_attempts)
-        {
-            break;
-        }
-        const auto backoff = ComputeBackoff(attempt, m_policy, last->retry_after, DrawJitter01());
-        // Look-ahead, per `docs/sequences/retry-after-failure.md` §4: exit when
-        // the *upcoming* sleep would reach or pass the budget, not once the
-        // budget is already spent (issue #195). `backoff` is never negative.
-        if (ClockNow() + backoff >= budget_deadline || !SleepUnlessAborted(backoff))
-        {
-            break;
-        }
+        retry_again =
+            attempt + 1U < max_attempts && BackOffBeforeRetry(*last, attempt, budget_deadline);
     }
     return last;
+}
+
+bool RetryEngine::BackOffBeforeRetry(const internal::WireResult& last,
+                                     std::uint32_t attempt,
+                                     internal::TimePointSteady budget_deadline)
+{
+    if (last.success || !last.retryable)
+    {
+        return false;
+    }
+    const auto backoff = ComputeBackoff(attempt, m_policy, last.retry_after, DrawJitter01());
+    // Look-ahead, per `docs/sequences/retry-after-failure.md` §4: exit when
+    // the *upcoming* sleep would reach or pass the budget, not once the
+    // budget is already spent (issue #195). `backoff` is never negative.
+    if (ClockNow() + backoff >= budget_deadline)
+    {
+        return false;
+    }
+    return SleepUnlessAborted(backoff);
 }
 
 bool RetryEngine::SleepUnlessAborted(std::chrono::milliseconds backoff)
@@ -152,9 +159,14 @@ internal::TimePointSteady RetryEngine::ClockNow() const noexcept
     return std::chrono::steady_clock::now();
 }
 
+std::uint64_t RetryEngine::ClockSeed() noexcept
+{
+    return static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
 double RetryEngine::DrawJitter01() noexcept
 {
-    std::uniform_real_distribution<double> dist{0.0, 1.0};
+    std::uniform_real_distribution dist{0.0, 1.0};
     return dist(m_rng);
 }
 

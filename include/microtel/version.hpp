@@ -28,8 +28,8 @@ namespace microtel
 
 inline constexpr std::uint32_t kVersionMajor = 1;
 inline constexpr std::uint32_t kVersionMinor = 1;
-inline constexpr std::uint32_t kVersionPatch = 0;
+inline constexpr std::uint32_t kVersionPatch = 1;
 
-inline constexpr std::string_view kVersionString = "1.1.0";
+inline constexpr std::string_view kVersionString = "1.1.1";
 
 }  // namespace microtel

@@ -34,6 +34,13 @@ struct SpanIdentity
     /// The protocol the configuration actually resolves to, not a fixed
     /// string: a preflight run against a gRPC endpoint has to say `grpc`.
     std::string protocol;
+
+    /// @brief `microtel.version` attribute and the preflight tracer's version.
+    ///
+    /// The hand-maintained literal in `preflight.cpp`. It has no compile-time
+    /// guard against `microtel::kVersionString` and once went unbumped for
+    /// several releases (`RELEASING.md` §1), so a test pins the two together.
+    std::string version;
 };
 
 /// @brief Resolve what spec §6.4 requires the synthetic span to report.

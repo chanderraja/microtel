@@ -6,53 +6,37 @@ doesn't produce them. A local `cd bench && ./bench.sh` writes to
 `bench/results/`, which is gitignored, so the README used to link a path that
 only existed for people who had run the harness themselves.
 
-The snapshot was refreshed on 2026-09-16 for the v1.1.0 tag, on the same host
-as the previous snapshot (Ryzen 5 5600G, 12 cores, `powersave` governor, SMT on,
-podman 5.8.4, kernel 7.1.13-200.fc44). Host load was 0.12 at the start. Before
-committing, the environment block was diffed against the previous snapshot as
-[`RELEASING.md`](../../RELEASING.md) §5 requires, and every identity field
-matched. Without that, the deltas below would mean nothing.
+The snapshot was refreshed on 2026-09-25 for the v1.1.1 tag, from a clean
+checkout of the release commit (`683b237`), on the same host as the previous
+snapshot (Ryzen 5 5600G, 12 cores, SMT on, podman 5.8.4, kernel
+7.1.13-200.fc44). Host load was 0.28 at the start. Before committing, the
+environment block was diffed against the previous snapshot as
+[`RELEASING.md`](../../RELEASING.md) §5 requires.
 
-## Harness changes since the previous snapshot
+## Changes since the previous snapshot
 
-Three numbers moved because the harness was fixed. Read this before comparing
-against the previous snapshot.
+**One identity field changed: the CPU governor is `performance`, where the
+v1.1.0 snapshot used `powersave`.** Every other field matches (CPU model, core
+count, SMT, kernel, container engine). A governor change moves numbers for code
+that hasn't changed, so don't read the deltas below as microtel getting faster
+or slower. Compare SUTs within this run instead: they all ran under the same
+governor, minutes apart.
 
-1. **Latency percentiles are rank-interpolated**
-   ([#261](https://github.com/chanderraja/microtel/issues/261)/[#262](https://github.com/chanderraja/microtel/pull/262)).
-   `Percentile()` used to return log2-bucket midpoints, so every percentile
-   ≥128 ns was a multiple of 192 ns. That is where the previous snapshot's `192`/`384`/`768 ns`
-   came from. Values are now interpolated within the bucket: microtel p50
-   `192 → 229`, p95 `384 → 486.5`; otelcpp p50 `768 → 807.5`. Both sides were
-   quantised, so the old 4.0× p50 ratio was partly a bucketing artifact, and
-   the same-host ratio is 3.5×. microtel did not get slower: throughput over the
-   same interval is within noise (microtel −4.0%, microtel-grpc +0.1%, and the
-   unchanged otelcpp SUTs +6.0% / +8.0%).
-2. **Delivery and drop percentages use `spans_expected`**
-   ([#215](https://github.com/chanderraja/microtel/issues/215)/[#230](https://github.com/chanderraja/microtel/pull/230),
-   [#229](https://github.com/chanderraja/microtel/issues/229)/[#275](https://github.com/chanderraja/microtel/pull/275)).
-   The blackhole sink couldn't inflate gzip'd bodies and divided by the wrong
-   denominator, which reported 300% delivery on the multi-span
-   `realistic-request` profile. It now reports 100.00%. The `hot-loop-traces`
-   profile committed here doesn't show it, since nothing drops and 0 over
-   either denominator is 0.
-3. **gRPC `bytes_received` counts wire bytes**
-   ([#228](https://github.com/chanderraja/microtel/issues/228)/[#275](https://github.com/chanderraja/microtel/pull/275)),
-   including the 5-byte length-prefix frame header, and counts the compressed
-   body instead of the inflated proto size. Uncompressed gRPC gains 5 bytes
-   per message: in the `compression` profile gRPC is `342.1724` B/span against
-   `342.1619` for HTTP, a `0.0105 × 10 000 = 105` byte difference over 21
-   messages, which is 21 × 5. Here it shows as `wire_bytes_per_span` going
-   62.16 → 62.17 on `microtel-grpc` while `microtel` (HTTP) is unchanged.
+Against v1.1.0, the unchanged otelcpp SUTs moved −3.7% (gRPC) and −2.0% (HTTP)
+in spans/sec; microtel moved +2.5% (HTTP) and +0.8% (gRPC). All of it is inside
+this host's run-to-run spread. StartSpan p50 is 236 ns for microtel against
+812 ns for otelcpp-gRPC, a 3.4× ratio (3.5× in the previous snapshot, within
+the same spread).
 
-The `compression` profile now also shows gzip's real saving, which the old
-accounting hid: 342.16 B/span uncompressed against 39.15 gzip'd (8.7×), with
-the gzip SUTs going from a meaningless 0% delivery to a measured 100%.
+The microtel binary grew from **15,359,952 to 15,952,688 bytes (+3.9%)**
+because of v1.1.1 code: the shared retry engine for all three signals, per-key
+merging of table-valued settings, and the resolved-Resource log line, which
+brings in `std::format`. The unchanged otelcpp-gRPC binary is byte-identical
+across the rebuild.
 
-The microtel binary did grow, from **14,229,216 to 15,359,952 bytes (+7.9%)**,
-because of v1.1 feature code (sampler chains, propagation core, baggage, sugar,
-the four setters, multi-profile). For comparison, the unchanged otelcpp-gRPC
-binary moved 2 088 bytes across the same rebuild.
+The other two profiles in the same session: `realistic-request` shows 100%
+delivery for both SUTs, and `compression` shows 342.2 B/span uncompressed
+against 39.2 gzip'd (8.7×), both unchanged from v1.1.0.
 
 ## Files
 
@@ -68,18 +52,19 @@ binary moved 2 088 bytes across the same rebuild.
 |---|---|
 | Profile | `hot-loop-traces` — 10 000 spans/sample, 10 samples, 1 000 warmup spans, blackhole sink |
 | SUTs | `microtel`, `microtel-grpc`, `otelcpp-grpc`, `otelcpp-http` |
-| Generated | 2026-09-16 |
+| Generated | 2026-09-25 (release commit `683b237`) |
 | Host | AMD Ryzen 5 5600G, 12 physical cores, Fedora, podman 5.8.4 |
 
-The run carries two warnings, left in `results.md` and `results.json`: the
-CPU governor was `powersave` and SMT was enabled. They widen the spread but
-don't change the order-of-magnitude comparisons in the README. The previous
-snapshot had a third warning for host load (0.81); this run started at 0.12.
+The run carries one warning, left in `results.md` and `results.json`: SMT
+was enabled. It widens the spread but doesn't change the order-of-magnitude
+comparisons in the README. The governor warning the previous snapshot carried
+is gone because this run used `performance`.
 
 Two other profiles, `realistic-request` and `compression`, were run on the same
 host in the same session. They aren't committed here, since this directory
 holds only the profile the root README quotes, but the delivery and
-compression figures above come from them.
+compression figures above come from them. Each profile started with host
+load below 0.5 and the governor at `performance`, checked before and after.
 
 ## Refreshing it
 

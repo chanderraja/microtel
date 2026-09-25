@@ -1,12 +1,12 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
 **Companion to:** `microtel-spec.md` (v0.10, the v1 spec)
-**Status:** Draft v0.1. Implementation status updated 2026-09-23 against v1.1.0.
+**Status:** Draft v0.1. Implementation status updated 2026-09-25 against v1.1.1.
 **Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
 
 ---
 
-## Implementation status (as of v1.1.0)
+## Implementation status (as of v1.1.1)
 
 The release themes in §4 were planned as a sequence, but the code did not
 follow it exactly. Metrics, logs, the spdlog log bridge and the otel-cpp shim
@@ -19,8 +19,8 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 |---|---|---|
 | Trace runtime + OTLP exporter | Done | Open bugs only (#271, #223) |
 | v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (v1.4, #297) |
-| v1.1.1 Patch | Not started | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); log the resolved Resource (#284). Prerequisites for the concentrator ([ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)) |
-| v1.2 Logs | Mostly done, experimental | Retry for log export (#222, in v1.1.1); glog and log4cxx bridges; collector conformance tests; logs bench profile; logs cookbook |
+| v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
+| v1.2 Logs | Mostly done, experimental | glog and log4cxx bridges; collector conformance tests; logs bench profile; logs cookbook |
 | v1.2 Leaf / concentrator | Not started; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Design doc; C leaf with upb and nanopb backends; concentrator ingest path; the ship gates in the ICP |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
@@ -143,10 +143,10 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Logs go supported, and the embedded story starts: the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md), renumbered from v1.3 by [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)).
 
-**Status:** mostly done and shipping as experimental. Remaining: retry for log export (#222), the glog and log4cxx bridges, collector conformance tests, and a logs bench profile.
+**Status:** mostly done and shipping as experimental. Remaining: the glog and log4cxx bridges, collector conformance tests, and a logs bench profile.
 
 - **OTel Logs API:** Logger, LogRecord, severity levels, attribute schema. *(Done.)*
-- **OTLP/logs export** on both wire protocols. *(Done. Partial: no retry, #222.)*
+- **OTLP/logs export** on both wire protocols. *(Done, with retry since v1.1.1, #222.)*
 - **Trace context correlation:** logs emitted within an active span carry the `trace_id` and `span_id` automatically. *(Done.)*
 - **Bridge adapters as separate packages:**
   - `microtel-bridge-spdlog`: a spdlog sink that converts spdlog records to OTel LogRecords. The natural pairing given microtel's internal logging dependency. *(Done, in-tree as `microtel/adapters/spdlog_sink.hpp` rather than a separate package.)*
@@ -180,7 +180,7 @@ Then implementation:
 
 - **Sync instruments:** Counter, UpDownCounter, Gauge, Histogram. *(Done, plus an `ExponentialHistogram` instrument.)*
 - **Async instruments:** ObservableCounter, ObservableUpDownCounter, ObservableGauge with callback semantics defined in the design doc. *(Partial: the per-collection callback deadline is not enforced, #237.)*
-- **MetricReader / MetricExporter pipeline** sharing the existing OTLP encoder and transport infrastructure. *(Done over both protocols. Partial: metric export has no retry, #222.)*
+- **MetricReader / MetricExporter pipeline** sharing the existing OTLP encoder and transport infrastructure. *(Done over both protocols, with retry since v1.1.1, #222.)*
 - **Aggregation temporality** with delta and cumulative paths; per-metric configuration. *(Partial: delta and cumulative work, but temporality is set once per provider; no per-instrument or per-View override.)*
 - **Cardinality limits** with explicit overflow attribute (per OTel spec) and drop accounting. *(Done.)*
 - **Views API** (basic — rename, attribute filter, aggregation override). Full views deferred to v1.5. *(Partial: rename, attribute allowlist and drop work; aggregation override is missing.)*

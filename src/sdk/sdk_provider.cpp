@@ -57,7 +57,11 @@ constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
 }  // namespace
 
 SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
-    : m_diagnostics(std::move(args.diagnostics)),
+    : m_trace(std::make_shared<TracePipeline>(TracePipeline{
+          .diagnostics = std::move(args.diagnostics),
+          .sampler = std::move(args.sampler),
+          .processor = std::move(args.processor),
+      })),
       m_encoder(std::move(args.encoder)),
       m_auth(std::move(args.auth)),
       m_transport(std::move(args.transport)),
@@ -71,10 +75,8 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_metric_temporality(args.metric_temporality),
       m_metric_max_cardinality(args.metric_max_cardinality),
       m_log_batch_opts(args.log_batch_opts),
-      m_processor(std::move(args.processor)),
       m_batch_span_processor(args.batch_span_processor),
       m_resource(std::move(args.resource)),
-      m_sampler(std::move(args.sampler)),
       m_span_limits(args.span_limits),
       m_connect_opts(std::move(args.connect_opts)),
       m_view_registry(std::make_shared<ViewRegistry>(std::move(args.view_registry))),
@@ -96,6 +98,14 @@ SdkProvider::~SdkProvider() noexcept
     // construction — passes through this as a no-op.
     DeregisterProvider(this);
     (void)Shutdown(kProviderDestructorTimeout);
+    // The span processor is shared with the tracers (TracePipeline), so it may
+    // be destroyed after the exporter below. Its worker is the one part of it
+    // that can still be inside the exporter: Shutdown only waits for it up to
+    // a timeout, and a caller's earlier Shutdown may have used a shorter one.
+    if (m_batch_span_processor != nullptr)
+    {
+        m_batch_span_processor->JoinWorker();
+    }
 }
 
 void SdkProvider::MarkForkedChild() noexcept
@@ -105,13 +115,15 @@ void SdkProvider::MarkForkedChild() noexcept
 
 std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::string_view version)
 {
+    // The tracer shares m_trace, so it — and every span it starts — keeps the
+    // sampler, processor and sink alive past this provider (issue #285).
     return std::make_shared<SdkTracer>(
-        m_sampler.Get(),
-        m_processor.get(),
-        m_resource,
+        m_trace->sampler.Get(),
+        m_trace->processor.get(),
+        m_trace,
         internal::InstrumentationScope{.name = std::string{name}, .version = std::string{version}},
         m_span_limits,
-        m_diagnostics.get());
+        m_trace->diagnostics.get());
 }
 
 Expected<void, Error> SdkProvider::Connect()
@@ -122,7 +134,7 @@ Expected<void, Error> SdkProvider::Connect()
         // The eager path. The codecs' lazy EnsureConnected covers the other
         // one; a given connect attempt runs through exactly one of the two,
         // so the counter never double-counts a single failure.
-        m_diagnostics->RecordDrop(DropReason::ConnectFailure);
+        m_trace->diagnostics->RecordDrop(DropReason::ConnectFailure);
     }
     return result;
 }
@@ -135,7 +147,7 @@ Status SdkProvider::ForceFlush(std::chrono::milliseconds timeout) noexcept
         // Recorded here and nowhere else: the processor and exporter arms
         // below can each time out, but the user made one ForceFlush call and
         // must see one drop.
-        m_diagnostics->RecordDrop(DropReason::ForceFlushTimeout);
+        m_trace->diagnostics->RecordDrop(DropReason::ForceFlushTimeout);
     }
     return status;
 }
@@ -145,7 +157,7 @@ Status SdkProvider::FlushPipeline(std::chrono::milliseconds timeout) noexcept
     // Two-stage flush: drain the BSP queue into the exporter queue first,
     // then drain the exporter queue (actual HTTP sends). Both are async
     // workers; flushing only the processor leaves batches undelivered.
-    const Status s = m_processor->ForceFlush(timeout);
+    const Status s = m_trace->processor->ForceFlush(timeout);
     if (s != Status::Completed)
     {
         return s;
@@ -238,7 +250,7 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     // stops building pipeline components (and spawning their threads).
     m_shut_down.store(true, std::memory_order_release);
 
-    Status status = m_processor->Shutdown(timeout);
+    Status status = m_trace->processor->Shutdown(timeout);
     // Every component below still runs even if an earlier one timed out: a
     // partial teardown would leak threads and sockets. Their statuses are
     // folded in rather than discarded.
@@ -267,14 +279,14 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     {
         // One user-visible Shutdown call, one drop — however many of the six
         // components ran out of time.
-        m_diagnostics->RecordDrop(DropReason::ShutdownTimeout);
+        m_trace->diagnostics->RecordDrop(DropReason::ShutdownTimeout);
     }
     return status;
 }
 
 HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 {
-    HealthSnapshot health = m_diagnostics->Snapshot();
+    HealthSnapshot health = m_trace->diagnostics->Snapshot();
     // Connection state is read live from the transport; the sink's
     // SetConnectionState channel is wired up in increment 26.
     health.connection_state = m_transport->GetState();
@@ -283,7 +295,7 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 
 internal::IDiagnosticsSink& SdkProvider::DiagnosticsSink() noexcept
 {
-    return *m_diagnostics;
+    return *m_trace->diagnostics;
 }
 
 std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
@@ -324,7 +336,7 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                            .version = std::string{version}},
             m_metric_producer,
             m_metric_max_cardinality,
-            m_diagnostics.get(),
+            m_trace->diagnostics.get(),
             m_view_registry,
             &m_current_span_source);
     }
@@ -346,7 +358,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     if (!m_log_processor)
     {
         auto built = std::make_unique<BatchLogRecordProcessor>(
-            m_log_exporter.get(), m_resource, m_log_batch_opts, m_diagnostics.get());
+            m_log_exporter.get(), m_resource, m_log_batch_opts, m_trace->diagnostics.get());
         batch_processor = built.get();
         m_log_processor = std::move(built);
     }
@@ -366,7 +378,7 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
             internal::InstrumentationScope{.name = std::string{name},
                                            .version = std::string{version}},
             &m_current_span_source,  // trace-correlation seam (ICP 0025 §3)
-            m_diagnostics.get(),
+            m_trace->diagnostics.get(),
             LogLimitOptions{});
     }
     return entry;
@@ -502,7 +514,8 @@ Status SdkProvider::SetSamplerRatio(double ratio) noexcept
         return Status::InvalidArgument;
     }
 
-    if (auto* const sampler = m_sampler.Get(); sampler == nullptr || !sampler->TrySetRatio(ratio))
+    if (auto* const sampler = m_trace->sampler.Get();
+        sampler == nullptr || !sampler->TrySetRatio(ratio))
     {
         WarnRejected(
             "SetSamplerRatio: the configured sampler has no ratio to retune - nothing changed");

@@ -7,7 +7,6 @@
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/internal/sampler.hpp"
-#include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/tracer.hpp"
@@ -24,8 +23,11 @@ namespace microtel::sdk
 /// returns the noop singleton with zero allocation. Otherwise heap-allocates
 /// an `SdkSpan`, calls `OnStart`, and returns an owning `SpanHandle`.
 ///
-/// Non-owning references to the sampler and processor are borrowed — the
-/// `Provider` (or test fixture) keeps them alive for the tracer's lifetime.
+/// The sampler, processor and diagnostics sink are reached through raw
+/// pointers, kept alive by `owner`, which the tracer holds and hands to every
+/// sampled span it starts. `SdkProvider` passes its `TracePipeline`, which is
+/// what lets a tracer — and its spans — outlive the provider (issue #285). A
+/// test fixture that keeps the pointees alive itself may pass `nullptr`.
 ///
 /// @threadsafety Thread-safe — concurrent `StartSpan` calls from multiple
 ///               threads are safe. The sampler and processor must themselves
@@ -33,12 +35,17 @@ namespace microtel::sdk
 class SdkTracer final : public microtel::Tracer
 {
 public:
+    /// @param sampler, processor borrowed; kept alive by @p owner.
+    /// @param owner shared owner of what @p sampler, @p processor and
+    ///        @p diagnostics point at, or `nullptr` when the caller guarantees
+    ///        they outlive the tracer and every span it starts. Type-erased:
+    ///        the tracer only holds it, and copies it into each sampled span.
     /// @param diagnostics non-owning diagnostics sink handed to every span
     ///        this tracer starts, or `nullptr` to disable drop accounting.
-    ///        Borrowed for the tracer's lifetime.
+    ///        Kept alive by @p owner.
     SdkTracer(internal::ISampler* sampler,
               internal::ISpanProcessor* processor,
-              std::shared_ptr<const Resource> resource,
+              std::shared_ptr<const void> owner,
               internal::InstrumentationScope scope,
               SpanLimitOptions limits,
               internal::IDiagnosticsSink* diagnostics = nullptr) noexcept;
@@ -75,7 +82,7 @@ private:
 
     internal::ISampler* m_sampler;
     internal::ISpanProcessor* m_processor;
-    std::shared_ptr<const Resource> m_resource;
+    std::shared_ptr<const void> m_owner;
     internal::InstrumentationScope m_scope;
     SpanLimitOptions m_limits;
     internal::IDiagnosticsSink* m_diagnostics;

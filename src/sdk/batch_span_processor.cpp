@@ -112,6 +112,11 @@ constexpr auto kBspDestructorTimeout = std::chrono::milliseconds(5000);
 BatchSpanProcessor::~BatchSpanProcessor() noexcept
 {
     (void)Shutdown(kBspDestructorTimeout);
+    JoinWorker();
+}
+
+void BatchSpanProcessor::JoinWorker() noexcept
+{
     if (m_worker.joinable())
     {
         m_worker.join();

@@ -21,6 +21,7 @@
 #include "sdk/current_span_source.hpp"
 #include "sdk/diagnostics_counters.hpp"
 #include "sdk/metric_attribute_set.hpp"
+#include "sdk/trace_pipeline.hpp"
 #include "sdk/view_registry.hpp"
 
 #include <atomic>
@@ -73,6 +74,10 @@ struct SdkProviderArgs
     ///       site write `.batch_span_processor = p.get(), .processor =
     ///       std::move(p)` without a second local to survive the move.
     BatchSpanProcessor* batch_span_processor{nullptr};
+    /// @brief The span processor. It may outlive `exporter` — a tracer that
+    ///        outlives the provider keeps it alive (issue #285) — so once
+    ///        `Shutdown` has returned it must drop in `OnEnd` rather than
+    ///        reach the exporter.
     std::unique_ptr<internal::ISpanProcessor> processor;
     std::shared_ptr<const Resource> resource;
     SamplerHandle sampler;
@@ -112,10 +117,13 @@ struct SdkProviderArgs
 /// @brief Production `Provider` wiring the full export pipeline.
 ///
 /// Owns the pipeline end-to-end: encoder → transport → codec → exporter →
-/// processor. Members are declared so that reverse-destruction (i.e. the
-/// compiler-generated destructor) tears down the processor first, then the
-/// exporter, then the codec and transport, preserving the happens-before chain
-/// required by TSAN and the threading model (interfaces.md §6).
+/// processor. `~SdkProvider` shuts the pipeline down and joins the span
+/// processor's worker; members are then declared so that reverse-destruction
+/// tears down the exporter, then the codec and transport, preserving the
+/// happens-before chain required by TSAN and the threading model
+/// (interfaces.md §6). The span processor, sampler and diagnostics sink are
+/// shared with the tracers this provider hands out (`TracePipeline`), so they
+/// go last — here, or later with the last tracer or span still holding them.
 ///
 /// @threadsafety Thread-safe. All methods may be called from any thread.
 class SdkProvider final : public microtel::Provider
@@ -179,9 +187,10 @@ public:
     /// shape `MetricReaderPtr` exists for.
     [[nodiscard]] Status SetMetricInterval(std::chrono::milliseconds interval) noexcept override;
 
-    /// No provider lock at all. `m_sampler` is assigned once at construction
-    /// and never reassigned, so the raw `ISampler*` every `SdkTracer` caches
-    /// keeps pointing at the same live object; only its ratio moves.
+    /// No provider lock at all. `m_trace->sampler` is assigned once at
+    /// construction and never reassigned, so the raw `ISampler*` every
+    /// `SdkTracer` caches keeps pointing at the same live object; only its
+    /// ratio moves.
     [[nodiscard]] Status SetSamplerRatio(double ratio) noexcept override;
 
     /// A thin forwarder to `internal::SetMinLogLevel`, so the operator surface
@@ -252,18 +261,31 @@ private:
 
 public:
 private:
-    // Declared before every other member → destroyed last, so the sink stays
-    // alive past any late RecordDrop from the metric machinery (or any other
-    // pipeline component) during reverse-order teardown — same reasoning as
-    // the m_metric_codec ordering note below.
+    // The diagnostics sink, the sampler and the span processor, shared with
+    // every SdkTracer and sampled SdkSpan this provider hands out so that a
+    // tracer outliving the provider still has what it dereferences (issue
+    // #285, `sdk/trace_pipeline.hpp`).
     //
-    // Heap-allocated rather than held by value because the eagerly-built
-    // exporters need a pointer to it at *their* construction time, which is
-    // before this Provider exists. SdkBuilder::Build creates it, hands the raw
-    // pointer to the exporters, and moves ownership in here. DiagnosticsCounters
-    // is neither copyable nor movable (it holds atomics), so a value member
-    // could not be transferred in.
-    std::unique_ptr<DiagnosticsCounters> m_diagnostics;
+    // shared_ptr, not unique_ptr: ownership is genuinely joint — the
+    // `Provider::GetTracer` contract is that the tracer stays valid until both
+    // it and the provider are gone, and either may go first. The refcount is
+    // touched once per GetTracer and once per sampled span, where the span's
+    // former Resource reference used to be, so the hot path pays no extra
+    // atomic operation.
+    //
+    // Declared before every other member → destroyed last (when this is the
+    // last reference), so the sink stays alive past any late RecordDrop from
+    // the metric machinery (or any other pipeline component) during
+    // reverse-order teardown — same reasoning as the m_metric_codec ordering
+    // note below. The span processor is released here too, after the trace
+    // exporter it borrows; ~SdkProvider joins its worker first, so it no
+    // longer reaches the exporter by then.
+    //
+    // The sink is heap-allocated rather than held by value because the
+    // eagerly-built exporters need a pointer to it at *their* construction
+    // time, which is before this Provider exists. SdkBuilder::Build creates it,
+    // hands the raw pointer to the exporters, and moves ownership in here.
+    std::shared_ptr<TracePipeline> m_trace;
     /// Set by `Shutdown` before it tears anything down, so `GetMeter` and
     /// `GetLogger` stop building pipeline components afterwards. Without it
     /// either could construct a `PeriodicExportingMetricReader` or a
@@ -300,11 +322,9 @@ private:
     // Guarded by m_logger_mu: the seed a later GetLogger builds the processor
     // from, and the value SetBatchOptions writes.
     BatchOptions m_log_batch_opts;
-    // BSP thread — destroyed before trace exporter.
-    std::unique_ptr<internal::ISpanProcessor> m_processor;
-    // Borrowed alias of m_processor when it batches, else null. Assigned once
-    // at construction and never reassigned, so it needs no lock — the same
-    // reasoning m_sampler rests on.
+    // Borrowed alias of m_trace->processor when it batches, else null.
+    // Assigned once at construction and never reassigned, so it needs no lock
+    // — the same reasoning m_trace->sampler rests on.
     BatchSpanProcessor* m_batch_span_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).
     std::unique_ptr<PeriodicExportingMetricReader> m_metric_reader;
@@ -317,7 +337,6 @@ private:
     BatchLogRecordProcessor* m_log_batch_processor{nullptr};
 
     std::shared_ptr<const Resource> m_resource;
-    SamplerHandle m_sampler;
     SpanLimitOptions m_span_limits;
     internal::ConnectOptions m_connect_opts;
 

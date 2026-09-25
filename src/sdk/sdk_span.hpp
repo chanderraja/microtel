@@ -8,7 +8,6 @@
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/provider.hpp"
-#include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/trace.hpp"
@@ -37,15 +36,20 @@ namespace microtel::sdk
 class SdkSpan final : public microtel::Span
 {
 public:
+    /// @param processor borrowed; kept alive by @p owner.
+    /// @param owner shared owner of what @p processor and @p diagnostics point
+    ///        at, or `nullptr` when the caller guarantees they outlive the
+    ///        span. `SdkTracer` passes its provider's `TracePipeline`, so a span
+    ///        may end after its provider is gone (issue #285).
     /// @param diagnostics non-owning diagnostics sink, or `nullptr` to
-    ///        disable drop accounting. Borrowed for the span's lifetime.
+    ///        disable drop accounting. Kept alive by @p owner.
     SdkSpan(SpanContext context,
             SpanContext parent_context,
             std::string_view name,
             SpanKind kind,
             std::chrono::system_clock::time_point start_time,
             internal::ISpanProcessor* processor,
-            std::shared_ptr<const Resource> resource,
+            std::shared_ptr<const void> owner,
             internal::InstrumentationScope scope,
             SpanLimitOptions limits,
             internal::IDiagnosticsSink* diagnostics = nullptr) noexcept;
@@ -75,7 +79,7 @@ private:
     void RecordDropped(DropReason reason, std::uint64_t n = 1) const noexcept;
 
     internal::ISpanProcessor* m_processor;
-    std::shared_ptr<const Resource> m_resource;
+    std::shared_ptr<const void> m_owner;
     internal::InstrumentationScope m_scope;
     SpanLimitOptions m_limits;
     internal::IDiagnosticsSink* m_diagnostics;

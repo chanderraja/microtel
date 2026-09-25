@@ -12,9 +12,11 @@ namespace microtel
 
 /// @brief Issues spans for one instrumentation scope.
 ///
-/// Obtained from `Provider::GetTracer(name, version)`. The tracer holds a
-/// non-owning back-reference to the `Provider`; the application must not hold
-/// a `Tracer` past the `Provider`'s shutdown / destruction.
+/// Obtained from `Provider::GetTracer(name, version)`. The tracer shares
+/// ownership of the provider's trace pipeline, so it — and every `Span` it
+/// starts — stays valid after the `Provider` is shut down or destroyed. From
+/// then on each span is dropped and counted as `post_shutdown`
+/// (`docs/threading-model.md` §8).
 ///
 /// `StartSpan` is the hot-path entry point — `noexcept` and never blocks on
 /// I/O. On the unsampled path, `StartSpan` returns a no-op `Span` handle and

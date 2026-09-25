@@ -259,6 +259,7 @@ export MICROTEL_CONFORMANCE_CLIENT_CERT="${CERT_DIR_ABS}/client.crt"
 export MICROTEL_CONFORMANCE_CLIENT_KEY="${CERT_DIR_ABS}/client.key"
 export MICROTEL_CONFORMANCE_AUTH_TOKEN="microtel-conformance-token"
 export MICROTEL_CONFORMANCE_OUTPUT_FILE="${OUT_DIR_ABS}/traces.jsonl"
+export MICROTEL_CONFORMANCE_LOGS_OUTPUT_FILE="${OUT_DIR_ABS}/logs.jsonl"
 
 # ---------------------------------------------------------------------------
 # Run

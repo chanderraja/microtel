@@ -3,11 +3,15 @@
 
 #pragma once
 
+#include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/metric_encoder.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/wire_codec.hpp"
 #include "microtel/provider.hpp"
+
+#include "exporter/retry_engine.hpp"
+#include "exporter/retry_policy.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -30,6 +34,8 @@ struct OtlpMetricExporterConfig
     std::size_t max_queue_size = 256;
     /// @brief Per-export deadline passed to `IWireCodec::Send`.
     std::chrono::milliseconds export_deadline{std::chrono::seconds(10)};
+    /// @brief Retry / backoff policy — the same engine and defaults as traces.
+    RetryPolicyConfig retry_policy{};
 };
 
 /// @brief Metrics export pipeline — the metrics analogue of `OtlpExporter`.
@@ -41,7 +47,8 @@ struct OtlpMetricExporterConfig
 /// The `IWireCodec` must be pointed at the OTLP metrics endpoint
 /// (`/v1/metrics` for HTTP, metrics gRPC path for gRPC-over-HTTP/2).
 ///
-/// Retry / backoff are deferred to the M5 metrics analogue.
+/// A retryable failure is retried by `RetryEngine`, the engine the trace
+/// exporter uses: same classification, backoff, budget and drop accounting.
 ///
 /// **Dependencies (all non-owning):**
 /// - `IMetricEncoder` — required.
@@ -54,10 +61,13 @@ class OtlpMetricExporter final : public internal::IMetricExporter
 public:
     /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
     ///        and batch accounting. Borrowed for the exporter's lifetime.
+    /// @param clock non-owning steady clock for the retry budget, or `nullptr`
+    ///        for `std::chrono::steady_clock`. Borrowed, as `diag` is.
     explicit OtlpMetricExporter(internal::IMetricEncoder* encoder,
                                 internal::IWireCodec* codec,
                                 OtlpMetricExporterConfig config = {},
-                                internal::IDiagnosticsSink* diag = nullptr) noexcept;
+                                internal::IDiagnosticsSink* diag = nullptr,
+                                internal::ISteadyClock* clock = nullptr) noexcept;
 
     ~OtlpMetricExporter() noexcept override;
 
@@ -81,12 +91,6 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void ProcessBatches(std::vector<internal::MetricBatchHandle>& batches);
-    /// @brief Report one batch's outcome. No-op without a sink.
-    /// @note No retry loop here, so a failure is one attempt rather than a
-    ///       resolved outcome — only the batch counters move, and the
-    ///       delivery `DropReason`s stay with the trace exporter until
-    ///       metrics get retries of their own.
-    void RecordOutcome(const internal::WireResult& result) noexcept;
     /// @brief Add `n` to the counter for `reason`. No-op without a sink.
     ///        Lock-free, so it is safe under `m_mu`.
     void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
@@ -106,6 +110,9 @@ private:
     internal::IWireCodec* m_codec;
     OtlpMetricExporterConfig m_config;
     internal::IDiagnosticsSink* m_diag;
+    /// @brief Retry loop and final-outcome accounting. Before `m_worker`,
+    ///        which uses it from the moment it starts.
+    RetryEngine m_retry;
 
     std::deque<internal::MetricBatchHandle> m_queue;
     std::mutex m_mu;

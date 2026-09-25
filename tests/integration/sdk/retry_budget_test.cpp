@@ -19,6 +19,9 @@
 // Integration tier: this opens a real socket and is wall-clock-bounded, which
 // the unit tier's <1ms / no-I/O bar excludes.
 
+#include "microtel/log_record.hpp"
+#include "microtel/logger.hpp"
+#include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/status.hpp"
@@ -28,7 +31,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace
@@ -123,4 +128,77 @@ TEST(RetryBudgetIntegrationTest, ConfiguredRetryBudgetBoundsTheExporterRetryLoop
         << "retry loop; giving up took " << elapsed_ms.count()
         << "ms, which means SdkBuilder left OtlpExporterConfig::retry_policy "
            "default-constructed (issue #179)";
+}
+
+// ---------------------------------------------------------------------------
+// Issue #222: the metric and log exporters now retry through the same engine,
+// so the same knob must reach them. Same harness and ceiling as above; only
+// the signal differs. Without the wiring the log / metric exporter runs
+// RetryPolicyConfig's 5-minute default and the schedule outlives the ceiling.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+void ExpectRetriedAndLost(const microtel::HealthSnapshot& health)
+{
+    EXPECT_GE(DropCount(health, microtel::DropReason::RetryBudgetExhausted), 1U)
+        << "the batch must end in the retried-and-lost funnel";
+    EXPECT_GE(health.batches_failed, 1U);
+    EXPECT_EQ(health.batches_sent, 0U);
+}
+
+// Build against the closed port, produce one record of the signal under test,
+// flush, and check the retry loop was entered and bounded by the budget.
+void ExpectSignalRetryBoundedByBudget(
+    const std::function<void(microtel::Provider&)>& produce_one_record)
+{
+    auto result = microtel::SdkBuilder()
+                      .WithEndpoint(kClosedPortEndpoint)
+                      .WithTimeouts(microtel::TimeoutOptions{
+                          .connect = std::chrono::milliseconds(200),
+                          .tls_handshake = std::chrono::milliseconds(200),
+                          .per_export = std::chrono::milliseconds(200),
+                          .retry_budget = kConfiguredRetryBudget,
+                          .flush = std::chrono::seconds(30),
+                          .shutdown = std::chrono::seconds(10),
+                      })
+                      .Build();
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const std::shared_ptr<microtel::Provider> provider = std::move(*result);
+
+    const auto started = std::chrono::steady_clock::now();
+    produce_one_record(*provider);
+    ASSERT_EQ(provider->ForceFlush(std::chrono::seconds(30)), microtel::Status::Completed);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    ExpectRetriedAndLost(provider->GetExporterHealth());
+    EXPECT_LT(elapsed_ms, kGiveUpCeiling)
+        << "giving up took " << elapsed_ms.count()
+        << "ms: SdkBuilder did not pass retry_budget to this signal's exporter";
+}
+
+}  // namespace
+
+TEST(RetryBudgetIntegrationTest, ConfiguredRetryBudgetBoundsTheLogExporterRetryLoop)
+{
+    ExpectSignalRetryBoundedByBudget(
+        [](microtel::Provider& provider)
+        {
+            microtel::LogRecord record;
+            record.body = std::string{"doomed-export"};
+            provider.GetLogger("retry-budget-wiring")->Emit(std::move(record));
+        });
+}
+
+TEST(RetryBudgetIntegrationTest, ConfiguredRetryBudgetBoundsTheMetricExporterRetryLoop)
+{
+    ExpectSignalRetryBoundedByBudget(
+        [](microtel::Provider& provider)
+        {
+            provider.GetMeter("retry-budget-wiring")
+                ->CreateCounter<std::int64_t>("doomed.export", "", "1")
+                ->Add(1, {});
+        });
 }

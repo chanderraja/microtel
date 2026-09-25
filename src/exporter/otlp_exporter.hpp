@@ -9,6 +9,7 @@
 #include "microtel/internal/otlp_encoder.hpp"
 #include "microtel/internal/wire_codec.hpp"
 
+#include "exporter/retry_engine.hpp"
 #include "exporter/retry_policy.hpp"
 
 #include <atomic>
@@ -18,8 +19,6 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
-#include <optional>
-#include <random>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -45,14 +44,14 @@ struct OtlpExporterConfig
 /// and returns immediately. The worker drains the queue, encodes each batch
 /// via `IOtlpEncoder`, and submits the encoded bytes to `IWireCodec::Send`.
 ///
-/// **M3 note:** retry / backoff / jitter are deferred to M5. One encode+send
-/// attempt is made per batch; failures are dropped without retry.
+/// A retryable failure is retried by `RetryEngine`, the engine the metric
+/// and log exporters share (`RetryPolicyConfig`).
 ///
 /// **Dependencies (all non-owning):**
 /// - `IOtlpEncoder` — required.
 /// - `IWireCodec` — required; must be connected before first `Export` call.
 /// - `IDiagnosticsSink` — optional; used from M3-C onward.
-/// - `ISteadyClock` — optional; used for retry timing from M5 onward.
+/// - `ISteadyClock` — optional; used for the retry budget.
 ///
 /// @threadsafety `Export` is thread-safe. `ForceFlush` and `Shutdown` are
 ///   caller-thread-safe and idempotent.
@@ -83,23 +82,6 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
-    /// @brief Retry `batch` from `starting_attempt` until success, a
-    ///        non-retryable result, or exhaustion of attempts / retry budget.
-    /// @return The last `WireResult` observed, or `nullopt` when no further
-    ///         attempt was made (retry budget already spent on entry) — in
-    ///         which case the caller's own result is the batch's outcome.
-    [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(
-        const internal::BatchHandle& batch, std::uint32_t starting_attempt = 0U);
-    /// @brief Resolve one batch's terminal outcome: the fan-out result, or
-    ///        the last result of the retry loop when the fan-out result was
-    ///        retryable and further attempts were made.
-    [[nodiscard]] internal::WireResult ResolveOutcome(const internal::WireResult& first_attempt,
-                                                      const internal::BatchHandle& batch);
-    /// @brief Report one batch's terminal outcome to the diagnostics sink:
-    ///        the batch counter plus the `DropReason` the classification maps
-    ///        onto (`docs/error-model.md` §3). No-op when no sink was
-    ///        supplied.
-    void RecordOutcome(const internal::WireResult& result) noexcept;
     /// @brief Add `n` to the counter for `reason`. No-op when no sink was
     ///        supplied. Lock-free, so it is safe under `m_mu`.
     void RecordDropped(DropReason reason, std::uint64_t n) noexcept;
@@ -117,16 +99,15 @@ private:
     void RecordDrainFailure(std::string_view what) noexcept;
     /// @brief Publish the current queue depth. Caller must hold `m_mu`.
     void PublishQueueDepth() noexcept;
-    [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
-    [[nodiscard]] double DrawJitter01() noexcept;
 
     internal::IOtlpEncoder* m_encoder;
     internal::IWireCodec* m_codec;
     OtlpExporterConfig m_config;
     // NOLINTNEXTLINE(clang-diagnostic-unused-private-field) — used from M3-C onward
     internal::IDiagnosticsSink* m_diag;
-    internal::ISteadyClock* m_clock;
-    std::mt19937_64 m_rng;
+    /// @brief Retry loop and final-outcome accounting. Before `m_worker`,
+    ///        which uses it from the moment it starts.
+    RetryEngine m_retry;
 
     std::deque<internal::BatchHandle> m_queue;
     std::mutex m_mu;

@@ -206,7 +206,7 @@ retry_budget_ms = 5000
 Caller-provided timeouts to `ForceFlush(timeout)` and `Shutdown(timeout)` override the configured default.
 
 `retry_budget` caps the total elapsed time across all retry attempts for a
-single batch; the remaining retry parameters (attempt count, backoff shape,
+single batch, for traces, metrics and logs alike (issue #222); the remaining retry parameters (attempt count, backoff shape,
 jitter) are not configurable in v1 and keep the OTLP-recommended defaults in
 `RetryPolicyConfig`. The budget is checked between attempts, not enforced
 against one in flight: before each backoff the loop looks ahead and stops if

@@ -536,10 +536,12 @@ struct ExporterPack
 
     // `retry_budget` is the only retry axis TimeoutOptions exposes; the rest of
     // RetryPolicyConfig (attempts, backoff shape, jitter) has no config surface
-    // and keeps its OTLP-recommended in-class defaults.
+    // and keeps its OTLP-recommended in-class defaults. All three signals share
+    // the one policy (issue #222).
+    const exporter::RetryPolicyConfig retry_policy{.retry_budget = cfg.timeouts.retry_budget};
     const exporter::OtlpExporterConfig ex_cfg{
         .export_deadline = cfg.timeouts.per_export,
-        .retry_policy = {.retry_budget = cfg.timeouts.retry_budget},
+        .retry_policy = retry_policy,
     };
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
     // One sink across all three signals: batches_sent / batches_failed are
@@ -547,12 +549,14 @@ struct ExporterPack
     auto metric_exp = std::make_unique<exporter::OtlpMetricExporter>(
         encoder,
         metric_codec.get(),
-        exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export},
+        exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export,
+                                           .retry_policy = retry_policy},
         diag);
     auto log_exp = std::make_unique<exporter::OtlpLogExporter>(
         encoder,
         log_codec.get(),
-        exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export},
+        exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export,
+                                        .retry_policy = retry_policy},
         diag);
 
     return ExporterPack{

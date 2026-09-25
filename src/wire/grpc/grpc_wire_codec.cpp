@@ -519,12 +519,15 @@ struct RetrySearchSignal
 // Response DATA frame decoding — §2.3 (framing) and §5.2 (decompression)
 // ---------------------------------------------------------------------------
 
-/// Why a response frame yielded no message. Both are terminal; they differ
+/// Why a response frame yielded no message. All are terminal; they differ
 /// only in which counter and which operator message they produce.
 enum class FrameError : std::uint8_t
 {
     Malformed = 0,
     TooLarge = 1,
+    /// The frame was sound but its message is not a well-formed Export
+    /// response (issue #223).
+    UnparseableMessage = 2,
 };
 
 [[nodiscard]] std::uint32_t ReadFrameLength(std::span<const std::byte> body) noexcept
@@ -539,8 +542,8 @@ enum class FrameError : std::uint8_t
 ///
 /// Replaces an unconditional 5-byte skip that read neither the compression
 /// flag nor the declared length: a compressed or truncated response reached
-/// the protobuf parser as noise, and `ParseRejectedSpans` reports 0 for noise
-/// exactly as it does for an absent body — so a rejected batch looked clean.
+/// the protobuf parser as noise, and `ParseRejectedSpans` then reported 0 for
+/// noise exactly as for an absent body — so a rejected batch looked clean.
 ///
 /// @param body the whole response body; empty is a legal empty success.
 /// @param max_decompressed ceiling applied to a `CF = 0x01` message.
@@ -595,15 +598,23 @@ enum class FrameError : std::uint8_t
     {
         diag->RecordDrop(reason);
     }
-    const std::string_view message =
-        too_large ? "response exceeds max_decompressed_bytes" : "malformed gRPC response frame";
+    std::string_view message = "malformed gRPC response frame";
+    if (too_large)
+    {
+        message = "response exceeds max_decompressed_bytes";
+    }
+    else if (err == FrameError::UnparseableMessage)
+    {
+        message = "unparseable export response message";
+    }
     return internal::WireResult{
         .success = false,
-        // Neither is transient: a peer that mis-frames, or that answers with a
-        // decompression bomb, does the same on the retry. error-model.md §7.2
-        // makes both terminal. `Kind` is `Malformed` for both — the counter
-        // and the message carry the distinction, and `Error::Kind` is public
-        // surface not worth churning for it.
+        // None is transient: a peer that mis-frames, answers with an
+        // unparseable message, or with a decompression bomb, does the same on
+        // the retry. error-model.md §7.2 makes all of them terminal. `Kind` is
+        // `Malformed` for each — the counter and the message carry the
+        // distinction, and `Error::Kind` is public surface not worth churning
+        // for it.
         .retryable = false,
         .retry_after = {},
         .partial_success_rejected = 0,
@@ -770,11 +781,17 @@ void WarnMissingGrpcStatusOnce(int http_status, bool& already_warned)
     {
         return FrameFailure(message.error(), diag);
     }
+    const auto parsed = ParseRejectedSpans(*message);
+    if (parsed.outcome == PartialSuccessOutcome::Unparseable)
+    {
+        // error-model.md §7.2 "truncated message": terminal, malformed_response.
+        return FrameFailure(FrameError::UnparseableMessage, diag);
+    }
     return internal::WireResult{
         .success = true,
         .retryable = false,
         .retry_after = {},
-        .partial_success_rejected = ParseRejectedSpans(*message),
+        .partial_success_rejected = parsed.rejected,
         .error = {},
         .response_excerpt = {},
     };

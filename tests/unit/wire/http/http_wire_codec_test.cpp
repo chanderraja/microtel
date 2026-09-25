@@ -22,9 +22,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <span>
@@ -1132,4 +1134,123 @@ TEST(HttpWireCodecTest, SendAll_GzipBody_IsInflatedBeforeParsing)
     ASSERT_EQ(results.size(), 2U);
     EXPECT_EQ(results[0].partial_success_rejected, 9U);
     EXPECT_EQ(results[1].partial_success_rejected, 9U);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #223: an unparseable partial-success body is a malformed response
+// (error-model.md §7.1, last row), not a clean success. Each signal has its own
+// codec, so every case runs against the traces, metrics and logs paths.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr std::array<const char*, 3> kSignalPaths{"", "/v1/metrics", "/v1/logs"};
+
+struct PartialSuccessRun
+{
+    mti::WireResult result;
+    std::uint64_t malformed = 0;
+    std::uint64_t rejected_counted_by_codec = 0;
+};
+
+PartialSuccessRun SendWithBody(const char* signal_path, std::vector<std::byte> body)
+{
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    auto resp = OkResponse("200");
+    resp.response_body = std::move(body);
+    transport.default_response = resp;
+    auto cfg = MakeConfig();
+    cfg.signal_path = signal_path;
+    mtw::HttpWireCodec codec{&transport, cfg, nullptr, &sink};
+    auto result = codec.Send(MakePayload(), std::chrono::milliseconds(1000));
+    return {
+        .result = std::move(result),
+        .malformed = DropCount(sink, mt::DropReason::MalformedResponse),
+        .rejected_counted_by_codec = DropCount(sink, mt::DropReason::PartialSuccessRejection),
+    };
+}
+
+std::vector<std::byte> Bytes(std::initializer_list<std::uint8_t> raw)
+{
+    std::vector<std::byte> out;
+    out.reserve(raw.size());
+    for (const auto b : raw)
+    {
+        out.push_back(std::byte{b});
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(HttpWireCodecTest, PartialSuccess_AbsentFromNonEmptyBody_CleanSuccess)
+{
+    for (const char* path : kSignalPaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithBody(path, Bytes({0x10, 0x05}));  // unknown field only
+        EXPECT_TRUE(run.result.success);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 0U);
+    }
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_ValidZero_CleanSuccess)
+{
+    for (const char* path : kSignalPaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithBody(path, MakePartialSuccessBody(0U));
+        EXPECT_TRUE(run.result.success);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 0U);
+    }
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_ValidN_SuccessCarryingCount)
+{
+    for (const char* path : kSignalPaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithBody(path, MakePartialSuccessBody(9U));
+        EXPECT_TRUE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.result.partial_success_rejected, 9U);
+        EXPECT_EQ(run.malformed, 0U);
+        // The exporter's final-outcome funnel counts it, not the codec (§3).
+        EXPECT_EQ(run.rejected_counted_by_codec, 0U);
+    }
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_TruncatedBody_IsMalformed)
+{
+    for (const char* path : kSignalPaths)
+    {
+        SCOPED_TRACE(path);
+        // partial_success claims 5 bytes, 2 follow.
+        const auto run = SendWithBody(path, Bytes({0x0A, 0x05, 0x08, 0x2A}));
+        EXPECT_FALSE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 1U);
+        ASSERT_TRUE(run.result.error.has_value());
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+        EXPECT_EQ(run.result.error->kind, mt::Error::Kind::Malformed);
+    }
+}
+
+TEST(HttpWireCodecTest, PartialSuccess_GarbageBody_IsMalformedWithExcerpt)
+{
+    for (const char* path : kSignalPaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithBody(path, Bytes({'<', 'h', 't', 'm', 'l', '>'}));
+        EXPECT_FALSE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.malformed, 1U);
+        // The operator needs to see what came back instead of a response.
+        EXPECT_EQ(run.result.response_excerpt, "<html>");
+    }
 }

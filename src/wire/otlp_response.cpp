@@ -33,6 +33,16 @@ constexpr unsigned kVarintMaxShift = 64U;
 constexpr std::size_t kWireWidth64Bit = 8U;
 constexpr std::size_t kWireWidth32Bit = 4U;
 
+constexpr std::uint32_t kWtVarint = 0U;
+constexpr std::uint32_t kWt64Bit = 1U;
+constexpr std::uint32_t kWtLenDelim = 2U;
+constexpr std::uint32_t kWt32Bit = 5U;
+
+constexpr unsigned kTagFieldShift = 3U;
+constexpr std::uint64_t kTagWireTypeMask = 0x7U;
+// Protobuf field numbers are 1 .. 2^29 - 1; anything else is not a message.
+constexpr std::uint64_t kMaxFieldNumber = (std::uint64_t{1} << 29U) - 1U;
+
 // ---------------------------------------------------------------------------
 // Proto field numbers
 // ---------------------------------------------------------------------------
@@ -40,8 +50,9 @@ constexpr std::size_t kWireWidth32Bit = 4U;
 // ExportTraceServiceResponse
 constexpr std::uint32_t kFieldPartialSuccess = 1U;
 
-// ExportTracePartialSuccess
-constexpr std::uint32_t kFieldRejectedSpans = 1U;
+// Export{Trace,Metrics,Logs}PartialSuccess: rejected_spans /
+// rejected_data_points / rejected_log_records.
+constexpr std::uint32_t kFieldRejected = 1U;
 
 // ---------------------------------------------------------------------------
 // Proto wire-format reader
@@ -81,12 +92,34 @@ constexpr std::uint32_t kFieldRejectedSpans = 1U;
     return result;
 }
 
+struct Tag
+{
+    std::uint32_t field = 0;
+    std::uint32_t wire_type = 0;
+};
+
+// Reads a field tag, rejecting a truncated varint and an out-of-range field
+// number (0 included).
+[[nodiscard]] std::optional<Tag> ReadTag(ByteSpan& buf)
+{
+    const auto raw = ReadVarint(buf);
+    if (!raw.has_value())
+    {
+        return std::nullopt;
+    }
+    const std::uint64_t field = *raw >> kTagFieldShift;
+    if (field == 0U || field > kMaxFieldNumber)
+    {
+        return std::nullopt;
+    }
+    return Tag{
+        .field = static_cast<std::uint32_t>(field),
+        .wire_type = static_cast<std::uint32_t>(*raw & kTagWireTypeMask),
+    };
+}
+
 [[nodiscard]] bool SkipField(ByteSpan& buf, std::uint32_t wire_type)
 {
-    constexpr std::uint32_t kWtVarint = 0;
-    constexpr std::uint32_t kWtLenDelim = 2;
-    constexpr std::uint32_t kWt64Bit = 1;
-    constexpr std::uint32_t kWt32Bit = 5;
     if (wire_type == kWtVarint)
     {
         return ReadVarint(buf).has_value();
@@ -117,92 +150,98 @@ constexpr std::uint32_t kFieldRejectedSpans = 1U;
 }
 
 // ---------------------------------------------------------------------------
-// ExportTracePartialSuccess parser
+// Export*PartialSuccess parser
 // ---------------------------------------------------------------------------
 
 constexpr auto kMaxRejected = static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max());
 
-// Reads the rejected_spans varint (field 1) and caps it to uint32_t.
-[[nodiscard]] std::uint32_t ReadRejectedSpans(ByteSpan& data)
+// Reads the rejected-count varint and caps it to uint32_t.
+[[nodiscard]] bool ReadRejected(ByteSpan& data, std::uint32_t& rejected)
 {
     const auto v = ReadVarint(data);
     if (!v.has_value())
     {
-        return 0;
+        return false;
     }
-    return static_cast<std::uint32_t>(std::min(*v, kMaxRejected));
+    rejected = static_cast<std::uint32_t>(std::min(*v, kMaxRejected));
+    return true;
 }
 
-// Parses ExportTracePartialSuccess → rejected_spans.
-[[nodiscard]] std::uint32_t ParsePartialSuccess(ByteSpan data)
+// Walks one Export*PartialSuccess message to its end. A rejected count found
+// on the way overwrites @p rejected (protobuf merge: the last value wins).
+// @return false on any wire-format error.
+[[nodiscard]] bool ParsePartialSuccess(ByteSpan data, std::uint32_t& rejected)
 {
     while (!data.empty())
     {
-        const auto tag = ReadVarint(data);
+        const auto tag = ReadTag(data);
         if (!tag.has_value())
         {
-            return 0;
+            return false;
         }
-        const auto fn = static_cast<std::uint32_t>(*tag >> 3U);
-        const auto wt = static_cast<std::uint32_t>(*tag & 0x7U);
-        if (fn == kFieldRejectedSpans && wt == 0U)
+        const bool is_rejected = (tag->field == kFieldRejected && tag->wire_type == kWtVarint);
+        const bool ok =
+            is_rejected ? ReadRejected(data, rejected) : SkipField(data, tag->wire_type);
+        if (!ok)
         {
-            return ReadRejectedSpans(data);
-        }
-        if (!SkipField(data, wt))
-        {
-            return 0;
+            return false;
         }
     }
-    return 0;
+    return true;
 }
 
 // ---------------------------------------------------------------------------
-// ExportTraceServiceResponse parser
+// Export*ServiceResponse parser
 // ---------------------------------------------------------------------------
 
-// Reads the partial_success embedded message (field 1, wt=2).
-[[nodiscard]] std::uint32_t ExtractPartialSuccess(ByteSpan& data)
+constexpr PartialSuccessResult kUnparseable{
+    .outcome = PartialSuccessOutcome::Unparseable,
+    .rejected = 0,
+};
+
+// Reads the partial_success embedded message (field 1, wt=2) into @p result.
+[[nodiscard]] bool ExtractPartialSuccess(ByteSpan& data, PartialSuccessResult& result)
 {
     const auto inner = ReadLenDelim(data);
-    if (!inner.has_value())
+    if (!inner.has_value() || !ParsePartialSuccess(*inner, result.rejected))
     {
-        return 0;
+        return false;
     }
-    return ParsePartialSuccess(*inner);
+    result.outcome = PartialSuccessOutcome::Parsed;
+    return true;
 }
 
-// Parses ExportTraceServiceResponse → partial_success.rejected_spans.
-[[nodiscard]] std::uint32_t ParseResponse(ByteSpan data)
+// Walks an Export*ServiceResponse to its end: a count is only trusted when
+// the whole message around it parses.
+[[nodiscard]] PartialSuccessResult ParseResponse(ByteSpan data)
 {
+    PartialSuccessResult result{};
     while (!data.empty())
     {
-        const auto tag = ReadVarint(data);
+        const auto tag = ReadTag(data);
         if (!tag.has_value())
         {
-            return 0;
+            return kUnparseable;
         }
-        const auto fn = static_cast<std::uint32_t>(*tag >> 3U);
-        const auto wt = static_cast<std::uint32_t>(*tag & 0x7U);
-        if (fn == kFieldPartialSuccess && wt == 2U)
+        const bool is_partial_success =
+            (tag->field == kFieldPartialSuccess && tag->wire_type == kWtLenDelim);
+        const bool ok = is_partial_success ? ExtractPartialSuccess(data, result)
+                                           : SkipField(data, tag->wire_type);
+        if (!ok)
         {
-            return ExtractPartialSuccess(data);
-        }
-        if (!SkipField(data, wt))
-        {
-            return 0;
+            return kUnparseable;
         }
     }
-    return 0;
+    return result;
 }
 
 }  // namespace
 
-std::uint32_t ParseRejectedSpans(std::span<const std::byte> body) noexcept
+PartialSuccessResult ParseRejectedSpans(std::span<const std::byte> body) noexcept
 {
     if (body.empty())
     {
-        return 0;
+        return {};
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     const ByteSpan span{reinterpret_cast<const std::uint8_t*>(body.data()), body.size()};

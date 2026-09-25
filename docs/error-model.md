@@ -80,7 +80,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | `post_shutdown` | `BatchSpanProcessor` / `BatchLogRecordProcessor`, and each exporter's `Export` | call after `Shutdown` returned. Counted in records, as `queue_full` is |
 | `response_too_large` | wire codec, on a transport result flagged `response_too_large` | response body exceeded `max_response_bytes`, **or** the trailers exceeded `max_trailer_bytes`. The transport detects both as it accumulates (it owns the buffers), releases what it had, resets the stream, and fails the request; the codec counts it and classifies it terminal. `max_trailer_bytes` has no counter of its own — the `Error` message names which cap it was |
 | `decompression_too_large` | wire codec, per response whose decompression hit the ceiling | decompressed body exceeded `max_decompressed_bytes`. Recorded by both codecs: `content-encoding: gzip` on OTLP/HTTP, a `CF = 0x01` message on OTLP/gRPC. Decompression stops at the ceiling, so the bomb is never materialised |
-| `malformed_response` | wire codec, per observed malformed response | response could not be parsed (missing trailers, bad framing, unparseable proto). **Gap:** `ParseRejectedSpans` returns 0 for an unparseable body exactly as it does for an absent one, so a partial-success body that fails to parse is not yet distinguishable and is not counted |
+| `malformed_response` | wire codec, per observed malformed response | response could not be parsed (missing trailers, bad framing, unparseable proto). A 2xx / `OK` Export response whose body is not a well-formed protobuf message counts here too: `ParseRejectedSpans` tells an absent `partial_success` from an unparseable body, and the codec classifies the latter terminal (§7.1, §7.2) |
 | `partial_success_rejection` | exporter, in the final-outcome funnel | rejected items count from the response — see §6. The codec parses the count; the exporter records it, so one batch yields one accounting whatever the retry path did |
 | `non_retryable_failure` | exporter, in the final-outcome funnel | the batch's terminal outcome was a non-retryable failure (415, gRPC `INVALID_ARGUMENT`, etc.). Classification stays in the codec (§7); only the counting moved, so intermediate attempts cannot double-count |
 | `retryable_failure_recovered` | exporter | a retryable failure that subsequently succeeded — counted for visibility, not a drop |
@@ -229,7 +229,7 @@ The trace, metric and log exporters share one retry engine (`src/exporter/retry_
 | Decompressed body > `max_decompressed_bytes` | false | false | n/a | `decompression_too_large` |
 | Body unparseable as protobuf | false | false | n/a | `malformed_response` |
 
-The last row is the §3 parse-failure gap seen from the classification side: `ParseRejectedSpans` returns 0 for an unparseable body exactly as for an absent one, so such a response is currently classified as a clean success rather than reaching this row.
+The last row applies to a 2xx body: it is parsed as the signal's Export response, and a body that fails to parse — truncated, trailing bytes after a valid `partial_success`, or not protobuf at all — is terminal rather than a clean success. Unknown fields are skipped, so a body with no `partial_success` is still a success. Until v1.2 such a body was classified as a clean success (issue #223).
 
 ### 7.2 OTLP/gRPC
 

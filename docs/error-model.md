@@ -84,7 +84,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 | `partial_success_rejection` | exporter, in the final-outcome funnel | rejected items count from the response — see §6. The codec parses the count; the exporter records it, so one batch yields one accounting whatever the retry path did |
 | `non_retryable_failure` | exporter, in the final-outcome funnel | the batch's terminal outcome was a non-retryable failure (415, gRPC `INVALID_ARGUMENT`, etc.). Classification stays in the codec (§7); only the counting moved, so intermediate attempts cannot double-count |
 | `retryable_failure_recovered` | exporter | a retryable failure that subsequently succeeded — counted for visibility, not a drop |
-| `retry_budget_exhausted` | exporter, in the final-outcome funnel | the batch was retried and still lost. Covers budget exhaustion *and* running out of `max_attempts`: both are "retried, still gone" to an operator, and one exit is taken per batch |
+| `retry_budget_exhausted` | exporter, in the final-outcome funnel | the batch was retried and still lost. Covers budget exhaustion, running out of `max_attempts`, and a retry ended by `Shutdown` (§7): all are "retried, still gone" to an operator, and one exit is taken per batch |
 | `transport_busy` | wire codec, on a transport result flagged `transport_busy` | the transport's request queue was already at `ConnectOptions::max_pending_requests`, so `Send` refused the request instead of queueing it (§3.2 of `threading-model.md`). Nothing was written to the wire. Unlike `response_too_large` the classification stays **retryable** — a full queue drains — so the counter records an attempt that lost its batch, not a terminal outcome |
 | `connect_failure` | wire codec `EnsureConnected` (lazy path) and `Provider::Connect` (eager path) | TCP / TLS / ALPN handshake failed during initial connect or reconnect. The transport owns no diagnostics sink, so its callers record what they observe; a given attempt runs through exactly one of the two paths. One failed connect is one increment however many batches were waiting behind it |
 | `force_flush_timeout` | `Provider::ForceFlush` | `ForceFlush` deadline elapsed with records still queued. Recorded at the Provider and nowhere else: it drives several components that can each time out, and one user call must produce one drop |
@@ -208,6 +208,8 @@ The rejected-items error message from the response is captured (capped at `max_r
 ## 7. Retry classification matrix
 
 The wire codec — not the exporter — owns retry classification (per ICP 0001 and `interfaces.md`). The exporter respects the `WireResult::retryable` flag without reinterpretation.
+
+The trace, metric and log exporters share one retry engine (`src/exporter/retry_engine.hpp`), so this matrix, the backoff and retry budget, and the §3 final-outcome counters apply to every signal alike. Until v1.1.1 the metric and log exporters made one attempt per batch and never retried (issue #222). `Shutdown` wakes a retry that is sleeping in its backoff and ends that batch's retries; the batch counts as `retry_budget_exhausted`.
 
 ### 7.1 OTLP/HTTP
 

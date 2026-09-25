@@ -7,6 +7,7 @@
 #include "microtel/internal/encoded_payload.hpp"
 #include "microtel/status.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <mutex>
@@ -21,14 +22,19 @@ namespace microtel::exporter
 
 constexpr auto kDestructorShutdownTimeout = std::chrono::seconds(5);
 
+// Named in the recorded error when a failed result carries no `Error`.
+constexpr std::string_view kFailureStage = "log export failed at wire codec";
+
 OtlpLogExporter::OtlpLogExporter(internal::ILogEncoder* encoder,
                                  internal::IWireCodec* codec,
                                  OtlpLogExporterConfig config,
-                                 internal::IDiagnosticsSink* diag) noexcept
+                                 internal::IDiagnosticsSink* diag,
+                                 internal::ISteadyClock* clock) noexcept
     : m_encoder(encoder),
       m_codec(codec),
       m_config(config),
       m_diag(diag),
+      m_retry(config.retry_policy, diag, clock),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -95,6 +101,8 @@ microtel::Status OtlpLogExporter::Shutdown(std::chrono::milliseconds timeout) no
         ++m_flush_seq;
         m_cv.notify_all();
     }
+    // Outside m_mu: the engine's lock is a leaf (threading-model.md §4).
+    m_retry.Abort();
     const bool completed = [&]
     {
         std::unique_lock lock{m_mu};
@@ -116,25 +124,19 @@ void OtlpLogExporter::ProcessBatches(std::vector<internal::LogBatchHandle>& batc
         payloads.push_back(m_encoder->Encode(batch));
     }
     const auto results = m_codec->SendAll(std::move(payloads), m_config.export_deadline);
-    for (const auto& result : results)
+    // The fan-out counts as attempt 0. Exactly one outcome per batch:
+    // intermediate retryable failures are attempts, not failed batches.
+    // `at()`: a codec returning more results than batches throws into
+    // DrainQueue's catch rather than reading past the end.
+    for (std::size_t i = 0; i < results.size(); ++i)
     {
-        RecordOutcome(result);
+        const auto& batch = batches.at(i);
+        m_retry.Settle(
+            results.at(i),
+            [this, &batch]
+            { return m_codec->Send(m_encoder->Encode(batch), m_config.export_deadline); },
+            kFailureStage);
     }
-}
-
-void OtlpLogExporter::RecordOutcome(const internal::WireResult& result) noexcept
-{
-    if (m_diag == nullptr)
-    {
-        return;
-    }
-    if (result.success)
-    {
-        m_diag->RecordBatchSent();
-        return;
-    }
-    m_diag->RecordBatchFailed(result.error.value_or(
-        Error{.kind = Error::Kind::Network, .message = "log export failed at wire codec"}));
 }
 
 void OtlpLogExporter::RecordDropped(DropReason reason, std::uint64_t n) noexcept

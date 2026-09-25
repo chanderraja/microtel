@@ -15,12 +15,15 @@ the wire codecs, which know nothing about OpenTelemetry semantics.
 | [`otlp_exporter.hpp`](otlp_exporter.hpp) | `OtlpExporter` | traces |
 | [`otlp_metric_exporter.hpp`](otlp_metric_exporter.hpp) | `OtlpMetricExporter` | metrics |
 | [`otlp_log_exporter.hpp`](otlp_log_exporter.hpp) | `OtlpLogExporter` | logs |
-| [`retry_policy.hpp`](retry_policy.hpp) | `RetryPolicyConfig`, `ComputeBackoff` | traces only |
+| [`retry_policy.hpp`](retry_policy.hpp) | `RetryPolicyConfig`, `ComputeBackoff` | all three |
+| [`retry_engine.hpp`](retry_engine.hpp) | `RetryEngine` | all three |
 
-Only the trace exporter retries. It applies a retry budget, exponential backoff
-with jitter and a per-export deadline (`docs/sequences/retry-after-failure.md`).
-The metric and log exporters make one attempt per batch; their retry is
-deferred.
+All three exporters retry through one `RetryEngine`. It applies a retry
+budget, exponential backoff with jitter and a per-export deadline
+(`docs/sequences/retry-after-failure.md`), and records each batch's
+final-outcome counter. `Shutdown` wakes a backoff sleep and ends the retry
+loop (`docs/sequences/shutdown-drain.md`). Each exporter makes attempt 0
+itself as a `SendAll` fan-out, then hands each result to the engine.
 
 ## Owner
 
@@ -32,7 +35,7 @@ Track A — Trace SDK.
   `internal::ILogExporter` (declared in
   [`include/microtel/internal/`](../../include/microtel/internal/)
   `exporter.hpp`, `metric_exporter.hpp` and `log_exporter.hpp`).
-- Retry orchestration for traces, with defaults from the OTLP spec: 5 attempts,
+- Retry orchestration for every signal, with defaults from the OTLP spec: 5 attempts,
   1 s initial backoff, 32 s ceiling, 1.5× multiplier, ±20 % jitter, a 5-minute
   budget.
 - Drop accounting at the export boundary: `retryable_failure_recovered`,
@@ -62,7 +65,9 @@ Track A — Trace SDK.
   "never retried" rule (LOCKED — `error-model.md` §6).
 - `tests/unit/exporter/retry_policy_test.cpp`: backoff and jitter arithmetic.
 - `tests/unit/exporter/otlp_metric_exporter_test.cpp` and
-  `otlp_log_exporter_test.cpp`: the metric and log pipelines.
+  `otlp_log_exporter_test.cpp`: the metric and log pipelines, including the
+  same retry rows (recovered, exhausted, non-retryable, `retry_after`, partial
+  success, Shutdown during a backoff).
 - `tests/integration/sdk/retry_budget_test.cpp`,
   `auth_failure_export_test.cpp` and `exporter_health_test.cpp`: the exporter
   wired into a real SDK pipeline.

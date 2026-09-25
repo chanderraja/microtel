@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace mt = microtel;
@@ -725,4 +726,71 @@ TEST(OtlpExporterTest, Diagnostics_QueueDepthPublishedOnEnqueueAndDrain)
     // high-water mark.
     EXPECT_GT(sink.queue_depth_call_count, 0U);
     EXPECT_EQ(sink.queue_depth_now, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown during a retry backoff. docs/sequences/shutdown-drain.md: "backoff
+// sleep wakes; worker exits the retry loop". The sleep was a plain
+// `sleep_for`, so Shutdown's join waited out every remaining backoff — far
+// past its own timeout, and the destructor's (CLAUDE.md rule 15).
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Far longer than kShutdownReturnBound, so an uninterruptible sleep shows.
+constexpr auto kLongBackoff = std::chrono::seconds(10);
+constexpr auto kShutdownTimeout = std::chrono::milliseconds(500);
+// Generous for sanitizer builds, and still a fraction of kLongBackoff.
+constexpr auto kShutdownReturnBound = std::chrono::seconds(3);
+constexpr auto kWaitForSendBound = std::chrono::seconds(5);
+constexpr auto kPollInterval = std::chrono::milliseconds(1);
+
+bool WaitForSends(const mtmk::FakeWireCodec& codec, int n)
+{
+    const auto deadline = std::chrono::steady_clock::now() + kWaitForSendBound;
+    while (codec.send_call_count.load() < n)
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(kPollInterval);
+    }
+    return true;
+}
+
+}  // namespace
+
+TEST(OtlpExporterTest, Retry_ShutdownDuringBackoff_ReturnsWithinTimeout)
+{
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.default_result = mti::WireResult{.success = false, .retryable = true};
+
+    mte::OtlpExporterConfig cfg;
+    cfg.retry_policy = mte::RetryPolicyConfig{
+        .max_attempts = 3,
+        .initial_backoff = kLongBackoff,
+        .max_backoff = kLongBackoff,
+        .backoff_multiplier = 1.0,
+        .jitter_fraction = 0.0,
+        .retry_budget = std::chrono::minutes(5),
+    };
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    (void)exporter.Export(MakeBatch());
+    // Fan-out plus the immediate first retry; the worker then sleeps.
+    ASSERT_TRUE(WaitForSends(codec, 2));
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto status = exporter.Shutdown(kShutdownTimeout);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_LT(elapsed, kShutdownReturnBound);
+    EXPECT_EQ(status, mt::Status::Completed);
+    EXPECT_EQ(codec.send_call_count.load(), 2) << "no retry after Shutdown";
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RetryBudgetExhausted), 1U);
+    EXPECT_EQ(sink.batches_failed, 1U);
 }

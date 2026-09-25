@@ -47,8 +47,8 @@ The current release is **v1.1.0**, and the project follows SemVer.
 |---|---|
 | Traces | Supported. `Tracer` and `Span`; `StartAsCurrentSpan` with a thread-local context; W3C `traceparent`, `tracestate` and `baggage` inject/extract; head samplers (always on/off, trace-ID ratio, parent-based) and composable rule chains; batch span processor; process and host resource detectors; `HealthSnapshot` drop and queue counters. |
 | Operations | Supported since v1.1. Runtime setters on `Provider` (`SetBatchOptions`, `SetSamplerRatio`, `SetMetricInterval`, `SetLogLevel`); several named providers in one process via `GetProvider(name)`; static headers and a `WithAuthProvider` callback; TLS, custom CA and mTLS; gzip; the `microtel::sugar` convenience layer. |
-| Metrics | Implemented but experimental: all seven instruments, periodic reader, temporality, cardinality limits, views and exemplars. Scheduled to become supported in v1.2. Until then there is no compatibility guarantee and no conformance coverage. |
-| Logs | Implemented but experimental. Scheduled for v1.3, with the same caveat. |
+| Metrics | Implemented but experimental: all seven instruments, periodic reader, temporality, cardinality limits, views and exemplars. Scheduled to become supported in v1.3. Until then there is no compatibility guarantee and no conformance coverage. |
+| Logs | Implemented but experimental. Scheduled for v1.2, with the same caveat. |
 | opentelemetry-cpp API shim | Experimental, source-only and off by default. Routes existing `opentelemetry-cpp` API call sites to microtel; see [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md). |
 
 Not supported: plaintext OTLP/HTTP to an HTTP/1.1-only receiver (see

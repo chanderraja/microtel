@@ -182,6 +182,6 @@ A pin bump is one PR:
 
 | Item | Target |
 |---|---|
-| Metrics conformance against the collector | v1.2 |
+| Metrics conformance against the collector | v1.3 |
 | Restart-recovery scenario (collector bounced mid-export) | post-v1.0 |
 | Pinning `jaegertracing/all-in-one` | post-v1.0 |

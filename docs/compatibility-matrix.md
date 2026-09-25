@@ -22,7 +22,7 @@ Nothing reads either mechanically.
 |---|---|---|
 | OTLP/HTTP traces | Supported over TLS; **unsupported over plaintext against HTTP/1.1-only receivers** — see §4 | `tests/conformance/http/` |
 | OTLP/gRPC traces | Supported, plaintext and TLS | `tests/conformance/grpc/` |
-| OTLP metrics, both protocols | Implemented, **not** conformance-tested | unit tests only; collector conformance is deferred to v1.2 ([`interop-matrix.md`](interop-matrix.md) §6) |
+| OTLP metrics, both protocols | Implemented, **not** conformance-tested | unit tests only; collector conformance is deferred to v1.3 ([`interop-matrix.md`](interop-matrix.md) §6) |
 | OTLP logs, both protocols | Implemented, **not** conformance-tested | unit tests only; `Provider::GetLogger` per [ICP 0012](icps/0012-provider-get-logger.md) |
 | W3C Baggage propagation | Supported in v1.1 — `W3CBaggagePropagator`, full grammar, percent-encoding, opaque property tail, and the 180 / 4096 / 8192 limits | `tests/unit/api/baggage_test.cpp`, `tests/unit/api/baggage_propagator_test.cpp`, `tests/fuzz/baggage_fuzz.cpp`; [ICP 0025](icps/0025-propagation-core.md) §2 |
 | OTel SDK env vars (subset) | Partial | `tests/unit/common/config/`, [`configuration.md`](configuration.md) §3 |
@@ -59,7 +59,7 @@ being explicitly marked unsupported here**. This is that ledger.
 | A peer that hangs up under an in-flight write | Survivable: the export fails, the host process does not | `SIGPIPE` is suppressed per write — `MSG_NOSIGNAL` on plaintext sends, and a custom `BIO` carrying the same flag for TLS, covering `SSL_write` and the handshake writes inside `SSL_connect`. The host needs no `signal(SIGPIPE, SIG_IGN)` of its own, and microtel installs no handler and changes no process-wide disposition (`threading-model.md` §7.1). Evidence: `NoSignalIoTest` / `NoSignalBioTest` in `tests/unit/transport/nosignal_io_test.cpp`, plus the peer-reset tests in `tests/integration/transport/`. Issue #177. |
 | gzip request compression | Supported | conformance suites, both protocols |
 | Response decompression (`grpc-encoding` / `content-encoding: gzip`) | Supported, bounded by `max_decompressed_bytes` | `tests/unit/wire/grpc/`, `tests/unit/wire/http/`, `tests/fuzz/response_decompression_fuzz.cpp` |
-| HTTP/3 | Out of scope for v1 | spec §17; v1.5 experiment per roadmap |
+| HTTP/3 | Out of scope for v1 | spec §17; v1.6 experiment per roadmap |
 | Windows | Out of scope | spec §3 |
 
 ---

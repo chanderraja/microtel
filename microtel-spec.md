@@ -350,9 +350,9 @@ No long-running Unix socket server, no `microtelctl`, no JSON wire protocol, no 
 | Static config + OTel env-var fallback | ✅ | no hot reload in v1 |
 | Preflight CLI flag | ✅ | high-value, low-cost |
 | Internal diagnostic logging | ✅ | spdlog or minimal stderr |
-| **Metrics** | ❌ | v1.1 / v1.2, after a metrics design doc |
-| **Logs** | ❌ | after metrics |
-| **Control plane** (UDS, microtelctl) | ❌ | v1.2 / v2; v1.1 hot reload is public setters, no socket |
+| **Metrics** | ❌ | v1.3, after a metrics design doc (built early, shipping as experimental) |
+| **Logs** | ❌ | v1.2 (built early, shipping as experimental) |
+| **Control plane** (UDS, microtelctl) | ❌ | v1.4; v1.1 hot reload is public setters, no socket |
 | **Sugar layer** (`microtel::sugar`) | ❌ | v1.1 |
 | **Compat shims** (otel-cpp / otel-python) | experimental | not v1 load-bearing |
 | **Auth providers** beyond static + callback | ❌ | OAuth2 / SigV4 / mTLS-rotation are adapter packages or v1.x |
@@ -467,7 +467,7 @@ Component-separated to keep claims defensible:
 | `libmicrotel-sdk.so` (stripped, full v1 surface) | < 1.5 MB |
 | Total transitive dynamic closure | < 3 MB |
 | Python extension | measured separately |
-| Control-plane component | excluded from core size target (deferred to v1.2) |
+| Control-plane component | excluded from core size target (deferred to v1.4) |
 
 Benchmarks report both **dynamic-link** and **mostly-static** configurations. Dependency closure is measured with `lddtree` for dynamic and package artifact size for static. Realistic floors will be set after M0 and M2; the table above is stretch.
 
@@ -637,8 +637,9 @@ Conflicts between code-set, file-set, env-set, and detector-set Resource follow 
   independence, `SdkBuilder::WithProfileName` and `microtel::GetProvider`,
   [ICP 0027](docs/icps/0027-multi-profile-threading.md).)*
 - Composable sampler chains (single sampler only in v1). *(v1.1 ships them.)*
-- Long-running control-plane socket. *(Deferred to v1.2 —
-  [ICP 0024](docs/icps/0024-v1.1-rescope.md).)*
+- Long-running control-plane socket. *(Deferred to v1.4 —
+  [ICP 0024](docs/icps/0024-v1.1-rescope.md), then
+  [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md).)*
 
 These were v1.1+ (§17); the annotations say where each one landed.
 
@@ -802,7 +803,7 @@ These gates run on every PR including AI-coding-agent PRs — agents and humans 
 
 **Test layout:** `tests/<unit|integration|conformance|wire|fuzz>/<component>/`.
 
-**Build option:** `MICROTEL_BUILD_TESTS=ON|OFF` (default ON). When OFF, the entire test tree is skipped — useful for cross-compilation, constrained-environment builds, and embedded leaf builds from v1.3.
+**Build option:** `MICROTEL_BUILD_TESTS=ON|OFF` (default ON). When OFF, the entire test tree is skipped — useful for cross-compilation, constrained-environment builds, and embedded leaf builds from v1.2.
 
 **CI gates** (all must pass on every PR):
 - Diff coverage threshold met (above).
@@ -938,27 +939,27 @@ The compatibility matrix is the source of truth — claims of "drop-in" beyond w
 ### 18.1 v1.1 — Operational and ergonomic expansion
 
 - **Sugar layer** (`microtel::sugar`): function tracing via `std::source_location`, scoped spans, traced lambdas, exception recording, scoped timers, pre-bound attribute keys; Python decorator/context-manager equivalents. Sugar APIs are explicitly non-goals for compatibility testing — conformance tests target the OTel-like API and wire output, not convenience wrappers.
-- **Hot reload:** four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — called by the host application from its own administrative surface. The Unix-socket server, its length-prefixed JSON wire, `microtelctl`, `SIGHUP` reload, and the threat model for all of them are deferred to **v1.2**, per [ICP 0024](docs/icps/0024-v1.1-rescope.md).
+- **Hot reload:** four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — called by the host application from its own administrative surface. The Unix-socket server, its length-prefixed JSON wire, `microtelctl`, `SIGHUP` reload, and the threat model for all of them are deferred to **v1.4**, per [ICP 0024](docs/icps/0024-v1.1-rescope.md) and [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md).
 - **Multi-profile within one process:** several **named** `Provider`s at full independence — each with its own endpoint, protocol, TLS material, sampler, `Resource`, pipelines, worker threads and I/O thread. Named at build time with `SdkBuilder::WithProfileName`, found at runtime with `microtel::GetProvider(name)`, capped at eight live profiles, and duplicate names fail the build rather than displacing anyone. Per [ICP 0027](docs/icps/0027-multi-profile-threading.md), which also rescoped `docs/threading-model.md` §2.2 and §2.3 from *per process* to *per `Provider`*. The internal log level and the current-context slot stay process-wide and per-thread respectively; they are not per profile.
 - **Composable sampler chains.**
 
-### 18.2 v1.2 — Metrics
+### 18.2 v1.3 — Metrics
 
 Preceded by **M11 metrics design doc** (`docs/metrics-design.md`) covering aggregation temporality, cardinality limits, histograms, async instruments, reader/exporter interaction, views, exemplars. Reviewer sign-off before implementation.
 
-### 18.3 v1.3 — Logs
+### 18.3 v1.2 — Logs
 
-After metrics. Includes a bridge from spdlog (and likely glog, log4cxx) to OTel logs as adapter packages. v1.3 also carries the leaf / concentrator architecture (§18.4) as an experimental feature, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md); logs do not wait for it.
+Before metrics ([ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md) swapped the two releases). Includes a bridge from spdlog (and likely glog, log4cxx) to OTel logs as adapter packages. v1.2 also carries the leaf / concentrator architecture (§18.4) as an experimental feature, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) and [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md); logs do not wait for it.
 
-### 18.4 v1.3 — Leaf / concentrator architecture (experimental; stable in v2.0)
+### 18.4 v1.2 — Leaf / concentrator architecture (experimental; stable in v2.0)
 
-A common pattern in embedded deployments is fleets of constrained devices (modems, controllers, line cards, MCU-class peripherals) that cannot run microtel as designed but still need to emit telemetry. v1.3 introduces a two-component model as an experimental feature, and v2.0 makes its API stable ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) moved it from v2.0).
+A common pattern in embedded deployments is fleets of constrained devices (modems, controllers, line cards, MCU-class peripherals) that cannot run microtel as designed but still need to emit telemetry. v1.2 introduces a two-component model as an experimental feature, and v2.0 makes its API stable ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) moved it from v2.0; [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md) numbered that release v1.2).
 
 **microtel-leaf:** A pure-**C** library targeted at constrained embedded systems. C, not C++, because leaf-class targets often have no C++ runtime, no exceptions, no RTTI, and many RTOSes have C-only build paths. The leaf encodes OTLP messages and hands the bytes to an application-supplied transport (UART, CAN, BLE, proprietary radio, custom UDP — bake nothing in). No threading, no batching, no retries, no TLS, no HTTP.
 
 **microtel (concentrator role):** Existing microtel gains a leaf-receiver path, driven by an ingest call the application makes (microtel opens no inbound socket), that decodes leaf payloads, enriches them with Resource attributes from its config, runs the standard batching / sampling / export pipeline, and ships to the upstream collector via OTLP/HTTP or OTLP/gRPC.
 
-**Encoder strategy:** the leaf ships with **two backends from v1.3**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. **upb** covers larger embedded targets (Linux-on-ARM, OpenWrt-class, Cortex-A, beefier Cortex-R); **nanopb** covers true MCU-class targets (Cortex-M, no MMU, no libc allocator, sub-256 KB flash). Same leaf API, identical OTLP bytes. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf artifact only. v2.1 adds the gated Cortex-M0+ budget, static pools and reference ports. The leaf's public API is encoder-agnostic by design — opaque buffer types, builder functions, no `upb_*` or `pb_*` symbols leaking out. The wire format is the contract.
+**Encoder strategy:** the leaf ships with **two backends from v1.2**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. **upb** covers larger embedded targets (Linux-on-ARM, OpenWrt-class, Cortex-A, beefier Cortex-R); **nanopb** covers true MCU-class targets (Cortex-M, no MMU, no libc allocator, sub-256 KB flash). Same leaf API, identical OTLP bytes. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf artifact only. v2.1 adds the gated Cortex-M0+ budget, static pools and reference ports. The leaf's public API is encoder-agnostic by design — opaque buffer types, builder functions, no `upb_*` or `pb_*` symbols leaking out. The wire format is the contract.
 
 **Time handling:** three modes (concentrator-stamped, sync-relative, boot-relative), configurable per leaf.
 
@@ -968,7 +969,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 2. The encoder design does not assume all telemetry originates from in-process SDK objects. v2 may optimize pre-encoded OTLP ingestion, but **v1 only guarantees that external telemetry can enter through the same processing pipeline after decoding** — concatenating pre-encoded OTLP bytes is not guaranteed semantically valid in general and isn't promised.
 3. A `Receiver` interface sits alongside the existing exporter abstraction; v1 ships only the implicit API-instrumentation receiver.
 
-**Out of scope for the leaf (v1.3 and v2.0):** RTOS ports, reliable delivery on the leaf-to-concentrator link, time synchronization beyond the three documented modes, leaf-side sampling.
+**Out of scope for the leaf (v1.2 and v2.0):** RTOS ports, reliable delivery on the leaf-to-concentrator link, time synchronization beyond the three documented modes, leaf-side sampling.
 
 ---
 
@@ -981,7 +982,7 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 - **Compatibility policy:** semantic versioning; the public C++ API is stable within a major version. Wire compatibility is tracked against a pinned OTel spec version, with changes called out per release.
 - **ABI policy:** No stable C++ ABI guarantee before 1.0. After 1.0, public headers follow semver source compatibility. Binary ABI compatibility is best-effort within a minor release, **not** guaranteed across minor releases unless explicitly stated. Users requiring strict binary compatibility should pin to a specific minor version.
 - **Maintainer model:** CODEOWNERS required for core transport, encoder, SDK, Python, and packaging directories.
-- **Threat model** (initial): enumerated for the v1.2 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M9 (Hardening).
+- **Threat model** (initial): enumerated for the v1.4 control plane. v1 surfaces (config file parser, response decompression, gRPC framing, TOML parser) are fuzzed in M9 (Hardening).
 - **License scanning:** CI runs license scanning over vendored and generated code (upb, opentelemetry-proto). Release artifacts include third-party notices auto-generated from `third_party/*/README.md` license entries.
 - **CI quality gates** (per §14): test coverage thresholds, sanitizer-clean builds, clang-tidy with SonarQube-aligned rules, SonarQube Cloud OSS-tier scan with no critical/blocker issues, no flaky tests in queue beyond two weeks, RAII pattern enforcement, generated-code zero-diff verification.
 

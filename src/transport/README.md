@@ -5,7 +5,7 @@
 The HTTP/2 transport: an nghttp2 session over a plaintext or OpenSSL TLS
 socket, driven by an epoll I/O loop on its own thread, with per-stream
 in-flight state and reconnect after a drop. Both wire codecs sit on top of it.
-It is also the seam where an HTTP/3 transport could drop in for v1.5+ without
+It is also the seam where an HTTP/3 transport could drop in for v1.6+ without
 changing `IWireCodec`.
 
 | File | Contents |

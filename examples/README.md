@@ -65,7 +65,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 The planned set mirrors the v1.1 public surface; issue
 [#279](https://github.com/chanderraja/microtel/issues/279) is the epic.
 Metrics and logs examples will follow when those signals get conformance
-coverage in v1.2 and v1.3 (see [`microtel-roadmap.md`](../microtel-roadmap.md)).
+coverage in v1.3 and v1.2 respectively (see [`microtel-roadmap.md`](../microtel-roadmap.md)).
 
 ### Opt-in overlays
 

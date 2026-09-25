@@ -29,14 +29,14 @@ opentelemetry/proto/collector/trace/v1/trace_service.proto
 ```
 
 The metrics files back the metrics implementation, which is experimental
-until v1.2 (see `docs/metrics-design.md` §10):
+until v1.3 (see `docs/metrics-design.md` §10):
 
 ```
 opentelemetry/proto/metrics/v1/metrics.proto
 opentelemetry/proto/collector/metrics/v1/metrics_service.proto
 ```
 
-The logs files back the logs implementation, experimental until v1.3:
+The logs files back the logs implementation, experimental until v1.2:
 
 ```
 opentelemetry/proto/logs/v1/logs.proto

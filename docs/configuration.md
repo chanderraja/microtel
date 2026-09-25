@@ -476,6 +476,21 @@ redacted nor otherwise. The two `Warn` lines it can emit (plaintext OTLP/HTTP,
 and `insecure=true`) are the whole of what `Build()` says about the resolved
 configuration, and neither carries a header value, a credential or a path.
 
+The one exception is the resolved Resource (spec §12.7, issue #284). Each
+`Build()` logs it once at `Info`, as a single line through the internal log
+path (so a `LogSink` receives it and `logging.level` filters it):
+
+```
+resolved resource (profile "default", 3 attributes): deployment.environment="prod", host.name="node-7", service.name="checkout"
+```
+
+Keys are sorted. At most 32 attributes are listed, then `...and N more`, and a
+value longer than 128 characters is cut and ends in `...`. A value whose key
+contains `authorization`, `secret`, `token`, `password`, `passwd`,
+`credential`, `api_key` or `apikey` (any case) is printed as `<redacted>`.
+That list is the §12.6 rule applied by key; it is the only redaction code in
+microtel.
+
 Spec §12.6 describes the intended design: an `info`-level dump at `Build()`
 success with `Authorization` headers and client-secret-shaped values redacted,
 private-key *paths* preserved, token-provider outputs never logged, and an

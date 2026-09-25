@@ -781,7 +781,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     WarnOnRiskyConfig(cfg);
 
     // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
-    auto resource_result = sdk::BuildResource(cfg, m_impl->resource_detectors);
+    auto resource_result = sdk::BuildResource(cfg, m_impl->resource_detectors, *profile);
     if (!resource_result)
     {
         return make_unexpected(resource_result.error());

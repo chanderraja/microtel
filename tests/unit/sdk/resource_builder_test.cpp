@@ -15,11 +15,13 @@
 #include "microtel/resource.hpp"
 
 #include "common/config/config.hpp"
+#include "common/internal_log.hpp"
 #include "fakes/fake_resource_detector.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -125,9 +127,57 @@ public:
                                    });
     }
 
+    /// @brief Every captured line at `level` that contains `needle`.
+    [[nodiscard]] std::vector<std::string> Lines(microtel::LogLevel level,
+                                                 std::string_view needle) const
+    {
+        std::vector<std::string> out;
+        for (const auto& [lvl, text] : m_lines)
+        {
+            if (lvl == level && text.find(needle) != std::string::npos)
+            {
+                out.push_back(text);
+            }
+        }
+        return out;
+    }
+
 private:
     std::vector<std::pair<microtel::LogLevel, std::string>> m_lines;
 };
+
+/// @brief Restores the process-wide internal log level on scope exit.
+class MinLogLevelGuard
+{
+public:
+    explicit MinLogLevelGuard(microtel::LogLevel level) : m_saved(microtel::internal::MinLogLevel())
+    {
+        (void)microtel::internal::SetMinLogLevel(level);
+    }
+
+    ~MinLogLevelGuard()
+    {
+        (void)microtel::internal::SetMinLogLevel(m_saved);
+    }
+
+    MinLogLevelGuard(const MinLogLevelGuard&) = delete;
+    MinLogLevelGuard& operator=(const MinLogLevelGuard&) = delete;
+    MinLogLevelGuard(MinLogLevelGuard&&) = delete;
+    MinLogLevelGuard& operator=(MinLogLevelGuard&&) = delete;
+
+private:
+    microtel::LogLevel m_saved;
+};
+
+constexpr std::string_view kResolvedNeedle = "resolved resource";
+
+/// @brief The one resolved-Resource Info line captured, or "" after a failure.
+[[nodiscard]] std::string OnlyResolvedLine(const LogCapture& logs)
+{
+    const auto lines = logs.Lines(microtel::LogLevel::Info, kResolvedNeedle);
+    EXPECT_EQ(lines.size(), 1U);
+    return lines.empty() ? std::string{} : lines.front();
+}
 
 }  // namespace
 
@@ -353,4 +403,185 @@ TEST(ResourceBuilderTest, Strict_AllDetectorsSucceed_BuildsNormally)
 
     ASSERT_TRUE(res.has_value()) << res.error().message;
     EXPECT_EQ(Str(*res, "host.name"), "node-7");
+}
+
+// ---------------------------------------------------------------------------
+// Issue #284 — spec §12.7 "the resolved Resource is logged at init"
+// ---------------------------------------------------------------------------
+
+TEST(ResourceBuilderTest, ResolvedResource_LoggedOnceAtInfoPerBuild)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = "deployment.environment", .value = std::string{"prod"}});
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+    EXPECT_NE(line.find("service.name=\"checkout\""), std::string::npos) << line;
+    EXPECT_NE(line.find("deployment.environment=\"prod\""), std::string::npos) << line;
+
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    EXPECT_EQ(logs.Lines(microtel::LogLevel::Info, kResolvedNeedle).size(), 2U);
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_FilteredOutAtWarn)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Warn};
+    const microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    EXPECT_TRUE(logs.Lines(microtel::LogLevel::Info, kResolvedNeedle).empty());
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_KeysAreSorted)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = "zeta.attr", .value = std::int64_t{7}});
+
+    DetectorList detectors;
+    detectors.push_back(MakeFake(
+        "fake",
+        {{.key = "mid.attr", .value = true}, {.key = "alpha.attr", .value = std::string{"a"}}}));
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+
+    const auto alpha = line.find("alpha.attr=\"a\"");
+    const auto mid = line.find("mid.attr=true");
+    const auto service = line.find("service.name=");
+    const auto zeta = line.find("zeta.attr=7");
+    ASSERT_NE(alpha, std::string::npos) << line;
+    ASSERT_NE(mid, std::string::npos) << line;
+    ASSERT_NE(service, std::string::npos) << line;
+    ASSERT_NE(zeta, std::string::npos) << line;
+    EXPECT_LT(alpha, mid);
+    EXPECT_LT(mid, service);
+    EXPECT_LT(service, zeta);
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_RedactsSecretLookingValues)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = "auth.Token", .value = std::string{"s3cr3t-token"}});
+    cfg.resource_attrs.push_back({.key = "db.password", .value = std::string{"hunter2"}});
+    cfg.resource_attrs.push_back(
+        {.key = "authorization", .value = std::vector<std::string>{"Bearer abc"}});
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+
+    EXPECT_EQ(line.find("s3cr3t-token"), std::string::npos) << line;
+    EXPECT_EQ(line.find("hunter2"), std::string::npos) << line;
+    EXPECT_EQ(line.find("Bearer abc"), std::string::npos) << line;
+    EXPECT_NE(line.find("auth.Token=<redacted>"), std::string::npos) << line;
+    EXPECT_NE(line.find("db.password=<redacted>"), std::string::npos) << line;
+    EXPECT_NE(line.find("service.name=\"checkout\""), std::string::npos)
+        << "an ordinary key must not be redacted: " << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_TruncatesPastTheAttributeCap)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    constexpr std::size_t kExtra = 3;
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    for (std::size_t i = 0; i < ms::kMaxLoggedResourceAttributes + kExtra; ++i)
+    {
+        // Zero-padded so the sorted order is the numeric order.
+        std::string key =
+            "attr." + std::string(3 - std::to_string(i).size(), '0') + std::to_string(i);
+        cfg.resource_attrs.push_back({.key = std::move(key), .value = std::int64_t{1}});
+    }
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+
+    // Cap + extra from config, plus service.name: kExtra + 1 left over.
+    EXPECT_NE(line.find("...and " + std::to_string(kExtra + 1) + " more"), std::string::npos)
+        << line;
+    EXPECT_NE(line.find("attr.000=1"), std::string::npos) << line;
+    EXPECT_EQ(line.find("service.name="), std::string::npos)
+        << "service.name sorts last here and falls past the cap: " << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_CapsALongValue)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    constexpr std::size_t kLong = 4 * ms::kMaxLoggedResourceValueChars;
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = "big", .value = std::string(kLong, 'x')});
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+
+    EXPECT_EQ(line.find(std::string(ms::kMaxLoggedResourceValueChars + 1, 'x')), std::string::npos)
+        << line;
+    EXPECT_NE(line.find("big=\"" + std::string(ms::kMaxLoggedResourceValueChars - 1, 'x')),
+              std::string::npos)
+        << line;
+    EXPECT_NE(line.find("..."), std::string::npos) << line;
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_NamesTheProfile)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    const microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors, "payments").has_value());
+    EXPECT_NE(OnlyResolvedLine(logs).find("profile \"payments\""), std::string::npos);
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_StrictFailure_LogsNothing)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_detectors_strict = true;
+    DetectorList detectors;
+    detectors.push_back(MakeFailingFake("broken", "no /proc here"));
+
+    const LogCapture logs;
+    ASSERT_FALSE(ms::BuildResource(cfg, detectors).has_value());
+    EXPECT_TRUE(logs.Lines(microtel::LogLevel::Info, kResolvedNeedle).empty());
+}
+
+TEST(ResourceBuilderTest, ResolvedResource_RendersEveryValueType)
+{
+    const MinLogLevelGuard level{microtel::LogLevel::Info};
+    microtel::config::Config cfg = ConfigWithServiceName("checkout");
+    cfg.resource_attrs.push_back({.key = "v.bool", .value = false});
+    cfg.resource_attrs.push_back({.key = "v.double", .value = 1.5});
+    cfg.resource_attrs.push_back({.key = "v.bools", .value = std::vector<bool>{true, false}});
+    cfg.resource_attrs.push_back({.key = "v.ints", .value = std::vector<std::int64_t>{1, -2}});
+    cfg.resource_attrs.push_back({.key = "v.doubles", .value = std::vector<double>{0.25}});
+    cfg.resource_attrs.push_back({.key = "v.strings", .value = std::vector<std::string>{"a", "b"}});
+    const DetectorList detectors;
+
+    const LogCapture logs;
+    ASSERT_TRUE(ms::BuildResource(cfg, detectors).has_value());
+    const std::string line = OnlyResolvedLine(logs);
+
+    for (const std::string_view expected : {"v.bool=false",
+                                            "v.double=1.5",
+                                            "v.bools=[true, false]",
+                                            "v.ints=[1, -2]",
+                                            "v.doubles=[0.25]",
+                                            R"(v.strings=["a", "b"])",
+                                            "(7 attributes):"})
+    {
+        EXPECT_NE(line.find(expected), std::string::npos) << expected << " in: " << line;
+    }
 }

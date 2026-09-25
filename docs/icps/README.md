@@ -46,8 +46,8 @@ from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp` and the headers.
 | [0028](0028-sugar-surface.md) | The sugar layer's public surface — `microtel::sugar` | Accepted | — (v1.1 sugar packet) |
 | [0029](0029-auth-caller-count-correction.md) | Auth-provider caller-count correction (§4.9 LOCKED sentence) | Accepted | — (docs only) |
 | [0030](0030-compile-time-feature-selection.md) | Compile-time feature selection — `MICROTEL_WITH_*` | Draft | — |
-| [0031](0031-leaf-concentrator-in-v1.3.md) | Move leaf / concentrator, with upb and nanopb leaf backends, into v1.3 (experimental) | Draft | — |
-| [0032](0032-release-reorder-v1.1.1.md) | v1.1.1 patch release; v1.2 Logs + Leaf, v1.3 Metrics, v1.4 Control Plane, later themes +1 | Draft | — |
+| [0031](0031-leaf-concentrator-in-v1.3.md) | Move leaf / concentrator, with upb and nanopb leaf backends, into v1.3 (experimental) | Accepted | — (docs follow-up) |
+| [0032](0032-release-reorder-v1.1.1.md) | v1.1.1 patch release; v1.2 Logs + Leaf, v1.3 Metrics, v1.4 Control Plane, later themes +1 | Accepted | — (docs follow-up) |
 
 [ICP 0024](0024-v1.1-rescope.md) reserved number 0027 for an amendment to
 `docs/control-plane-design.md` §9 (the fourth thread role). That amendment is

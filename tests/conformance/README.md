@@ -234,7 +234,7 @@ per-run marker are normalised
 | Partial-success responses | [`tests/unit/wire/otlp_response_test.cpp`](../unit/wire/otlp_response_test.cpp) and the two codec tests, against hand-encoded byte fixtures | A collector configured to accept spans never returns a `partial_success` body, so this tier cannot elicit one. |
 | Retry and backoff timing | [`tests/unit/exporter/retry_policy_test.cpp`](../unit/exporter/retry_policy_test.cpp), [`tests/integration/sdk/exporter_health_test.cpp`](../integration/sdk/exporter_health_test.cpp) against fakes | Needs a clock the test controls. Here the negative tests run a near-zero retry budget precisely to *avoid* the schedule. |
 | Restart recovery (collector bounced mid-export) | deferred; see [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
-| Metrics conformance | deferred to v1.2; see [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
+| Metrics conformance | deferred to v1.3; see [`docs/interop-matrix.md`](../../docs/interop-matrix.md) §6 | |
 | Throughput and delivery rate at volume | the weekly [`interop.yml`](../../.github/workflows/interop.yml) workflow | Slow, and not a merge gate. |
 
 ## Known-defect tripwires

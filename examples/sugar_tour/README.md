@@ -128,7 +128,7 @@ the callable is, so a `noexcept` caller keeps its guarantee.
 
 **If the callable throws, the exception propagates without being recorded.**
 `ScopedSpan`'s destructor ends the span during unwinding, and nothing else
-happens. Recording exceptions is the job of `mt::TryCatch`, planned for v1.4
+happens. Recording exceptions is the job of `mt::TryCatch`, planned for v1.5
 (roadmap §5). If `Traced` caught and rethrew, `TryCatch` would be redundant and
 `Traced` would behave surprisingly. To record an exception today, catch it and
 call `RecordException`, as shown next.
@@ -184,7 +184,7 @@ literal.
 In v1.1, `AttrKey` does not pre-encode wire bytes. Doing that would change the
 ABI of `attribute.hpp` and put wire encoding in a public header, which the
 project's dependency rules (rule 13 in [`CLAUDE.md`](../../CLAUDE.md)) forbid.
-Roadmap §4 schedules the optimisation for v1.5, and because the plain binder
+Roadmap §4 schedules the optimisation for v1.6, and because the plain binder
 ships now, callers' source won't need to change when it lands.
 
 ## The same span without sugar

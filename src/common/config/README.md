@@ -15,7 +15,7 @@ construction, and nothing mutates it afterwards. v1.1 adds four runtime setters
 on `Provider` (`SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`,
 `SetLogLevel`, [ICP 0026](../../../docs/icps/0026-provider-setters.md)); they
 act on the built pipeline, not on `Config`. File-driven hot reload through a
-control plane is deferred to v1.2
+control plane is deferred to v1.4
 ([`docs/control-plane-design.md`](../../../docs/control-plane-design.md)).
 
 ## Owner

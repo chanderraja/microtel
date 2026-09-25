@@ -561,7 +561,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. `Shutdown` is invoked
 
 #### Allocation behavior
 
-- `OnStart`: typically zero work in v1 (no in-process span enrichment hooks until v1.4). Implementations may keep it as a no-op.
+- `OnStart`: typically zero work in v1 (no in-process span enrichment hooks until v1.5). Implementations may keep it as a no-op.
 - `OnEnd`: queue push only (`memory-model.md` §8.2), plus one `InstrumentationScope` copy taken on the caller thread so the queued record keeps its scope ([ICP 0023](icps/0023-span-processor-scope.md)).
 
 #### Mock and fake
@@ -924,7 +924,7 @@ Every interface in this document has a mock or a fake (sometimes both). The sele
 - Public-API headers (`include/microtel/`) — see the headers themselves; the interfaces here are internal.
 - Implementation choices left to M3 (queue data structure, exact backoff formula) — see the relevant model document.
 - Auth providers beyond static + callback (OAuth2, SigV4) — v1.1+; will gain new sub-interfaces under `IAuthProvider` if needed.
-- The `IReceiver` interface from spec §17.4 (v2.0 leaf/concentrator) — out of v1 scope. The seam exists architecturally but is not realised in v1.
+- The `IReceiver` interface for the leaf/concentrator (spec §18.4). Not realised yet; it arrives in v1.2 as experimental public API per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) and [ICP 0032](icps/0032-release-reorder-v1.1.1.md), with its contract defined in `docs/leaf-concentrator-design.md`.
 
 ## 7. Sign-off log
 

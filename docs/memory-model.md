@@ -82,7 +82,7 @@ private:
 - **Owned bytes plus size.** The buffer is heap-allocated by the encoder; the encoder transfers ownership to the caller (the exporter) on return.
 - **Move-only.** No copy. Sharing encoded bytes across owners is not a v1 concern.
 - **No upb type appears in this header.** The bytes are plain `std::byte`.
-- **Allocator.** Default `new[]`/`delete[]` (`std::default_delete<std::byte[]>`) in v1. A polymorphic-allocator (`pmr`) variant backed by a thread-local buffer pool is a v1.5 performance refinement gated on benchmark evidence; not in v1.
+- **Allocator.** Default `new[]`/`delete[]` (`std::default_delete<std::byte[]>`) in v1. A polymorphic-allocator (`pmr`) variant backed by a thread-local buffer pool is a v1.6 performance refinement gated on benchmark evidence; not in v1.
 
 ### 3.3 Lifetime of `EncodedPayload`
 

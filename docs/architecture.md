@@ -157,7 +157,7 @@ The deeper implementation notes for the gRPC codec — state machine, byte-level
 
 **Does not own:** any OTLP semantics. The transport sends bytes and surfaces response bytes; it does not parse OTLP responses.
 
-**Provides:** `ITransport` — `Connect`, `Send`, `Close`, plus a callback path for `OnResponse`. The interface is the seam where an `nghttp3`-based HTTP/3 transport could drop in for v1.5+; no HTTP/3 work in v1.
+**Provides:** `ITransport` — `Connect`, `Send`, `Close`, plus a callback path for `OnResponse`. The interface is the seam where an `nghttp3`-based HTTP/3 transport could drop in for v1.6+; no HTTP/3 work in v1.
 
 **Consumes:** `IReactor` (epoll/kqueue abstraction, present primarily as a test seam), the RAII wrappers in `src/common/raii/` (`Socket`, `SslCtx`, `SslSession`, `Nghttp2Session`).
 
@@ -228,10 +228,10 @@ A non-retryable failure (e.g., 415 Unsupported Media Type, or gRPC `RESOURCE_EXH
 
 The architecture deliberately accommodates these without implementing them:
 
-- **HTTP/3.** The `ITransport` seam is the drop-in point; nghttp3-based transport is v1.5+ if pursued.
+- **HTTP/3.** The `ITransport` seam is the drop-in point; nghttp3-based transport is v1.6+ if pursued.
 - **Metrics, logs.** The encoder, exporter, transport, and codec layers are signal-agnostic in shape but only the trace path is wired in v1. Metrics design is `M11` per the roadmap; metrics implementation is `M12`.
 - **Control plane / hot reload.** No long-running socket, no `microtelctl`, no JSON wire in v1. The frozen-`Config`-at-`Build` rule above is what makes v1 simple; v1.1 adds thread-safe `Provider` setters for the reloadable knobs, and the socket with its documented threat model is v1.2 per [ICP 0024](icps/0024-v1.1-rescope.md).
-- **Leaf / concentrator.** v2.0 adds a pure-C leaf library and a `Receiver` interface; v1 leaves space for the latter without implementing it.
+- **Leaf / concentrator.** v1.2 adds a pure-C leaf library (upb and nanopb backends) and a `Receiver` interface, both experimental, per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) and [ICP 0032](icps/0032-release-reorder-v1.1.1.md); v2.0 makes them stable. The design lives in `docs/leaf-concentrator-design.md`.
 - **Auto-instrumentation.** Manual only in v1.
 - **Sugar layer.** `microtel::sugar` arrives in v1.1; v1's API is the direct OTel-style surface.
 

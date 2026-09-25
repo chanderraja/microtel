@@ -1,6 +1,6 @@
 # ICP 0032: add a v1.1.1 patch release, swap v1.2 and v1.3, and split the control plane into v1.4
 
-**Status:** Draft.
+**Status:** Accepted — signed off 2026-09-25.
 **Affected interfaces / docs:**
 - `microtel-spec.md` §18.2, §18.3 and §18.4
 - `microtel-roadmap.md`:

@@ -194,11 +194,11 @@ int RunPreflight(int argc, char** argv, std::ostream& out, std::ostream& err)
     }
 
     // Export mode: send one synthetic span tagged so collectors can drop it.
-    auto tracer = provider->GetTracer("microtel-preflight", identity.version);
+    auto tracer = provider->GetTracer("microtel-preflight", std::string{kVersion});
     {
         auto span = tracer->StartSpan("microtel.preflight");
         span->SetAttribute("microtel.preflight", true);
-        span->SetAttribute("microtel.version", identity.version);
+        span->SetAttribute("microtel.version", std::string{kVersion});
         span->SetAttribute("microtel.protocol", identity.protocol);
         span->End();
     }

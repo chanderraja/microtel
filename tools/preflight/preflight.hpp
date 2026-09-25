@@ -35,11 +35,13 @@ struct SpanIdentity
     /// string: a preflight run against a gRPC endpoint has to say `grpc`.
     std::string protocol;
 
-    /// @brief `microtel.version` attribute and the preflight tracer's version.
+    /// @brief The version preflight reports: its `microtel.version` attribute
+    ///        and tracer version.
     ///
-    /// The hand-maintained literal in `preflight.cpp`. It has no compile-time
-    /// guard against `microtel::kVersionString` and once went unbumped for
-    /// several releases (`RELEASING.md` §1), so a test pins the two together.
+    /// Taken from the hand-maintained literal in `preflight.cpp`, which has no
+    /// compile-time guard against `microtel::kVersionString` and once went
+    /// unbumped for several releases (`RELEASING.md` §1). Exposed here so a
+    /// test can pin the two together.
     std::string version;
 };
 

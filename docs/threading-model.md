@@ -382,6 +382,16 @@ Concretely:
   `BatchSpanProcessor::OnEnd` and takes that processor's mutex with no path to
   the flag; a child calling it can still deadlock on a mutex held at fork time.
   Closing that needs a per-component fork check, tracked separately.
+- The handler is **registered once, while the library loads** — by a static
+  initialiser in `src/sdk/provider_registry.cpp`, not by the first `Build()`.
+  Until v1.2 the first registration installed it through `std::call_once`, and
+  a `fork()` while another thread was inside that call left the child's flag
+  permanently "in progress", so the child's first `Build()` — the recovery this
+  section supports — blocked forever (issue #271; ICP 0027 Discrepancy 4).
+  `pthread_once` and a function-local `static` have the same hole, and a
+  non-blocking compare-exchange trades it for a loser that registers before the
+  handler is in place. Load time needs no guard: nothing waits, and nothing can
+  register the handler twice.
 - There is **no parent and no prepare handler.** The rule previously asked the
   parent handler to "record a diagnostic that fork was observed"; there is
   nothing to record it to. `LogImpl` has no production call sites and is not

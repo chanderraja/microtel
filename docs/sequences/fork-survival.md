@@ -10,7 +10,7 @@
 - **Parent forking thread** — calls `fork()`.
 - **Other parent threads** — exporter worker, I/O thread; not present in the child.
 - **Child process** — only the forking thread survives.
-- **`pthread_atfork` handlers** — registered at first `Provider::Build`.
+- **`pthread_atfork` handler** — registered once while the library loads, before any `Build()` (issue #271; see `threading-model.md` §7).
 - **`m_state`** — atomic shutdown state, replicated by `fork()` into the child.
 
 ---

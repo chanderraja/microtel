@@ -37,9 +37,15 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <csignal>
+#include <cstddef>
+#include <functional>
+#include <latch>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -59,6 +65,17 @@ constexpr int kChildFirstProviderLive = 31;
 constexpr int kChildSecondProviderLive = 32;
 constexpr int kChildSlotNotCleared = 33;
 constexpr int kChildRebuildFailed = 34;
+// Not an exit code a child ever returns: RunInChildWithin's verdict when the
+// child had to be killed for running past its budget.
+constexpr int kChildTimedOut = -2;
+
+// Generous, because the point is "finishes" rather than "finishes fast": a
+// stranded child blocks forever, and a TSAN build is slow.
+constexpr auto kChildBuildBudget = std::chrono::seconds(20);
+constexpr auto kChildPollInterval = std::chrono::milliseconds(10);
+
+// Threads racing the first registration of a fresh process.
+constexpr std::size_t kFirstRegistrationRacers = 4;
 
 // Nothing here connects; the endpoint only has to parse.
 constexpr const char* kTestEndpoint = "https://localhost:4318";
@@ -111,7 +128,134 @@ int RunInChild(const std::function<int()>& child_body)
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+/// Run @p child_body in a forked child and give it @p budget to exit.
+///
+/// A child that is still running at the deadline is killed and reported as
+/// `kChildTimedOut`, so a hang fails the test instead of hanging the suite.
+int RunInChildWithin(const std::function<int()>& child_body, std::chrono::milliseconds budget)
+{
+    const pid_t pid = ::fork();
+    if (pid == 0)
+    {
+        ::_exit(child_body());
+    }
+    EXPECT_GT(pid, 0) << "fork failed";
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    int status = 0;
+    while (::waitpid(pid, &status, WNOHANG) == 0)
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            ::kill(pid, SIGKILL);
+            ::waitpid(pid, &status, 0);
+            return kChildTimedOut;
+        }
+        std::this_thread::sleep_for(kChildPollInterval);
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+/// How many copies of the child handler a `fork()` from here runs.
+///
+/// The child reports the delta over the count this process saw before forking,
+/// so the answer is the number of registrations installed now: 0 means a fork
+/// would leave every provider live in the child, 2 a double registration.
+int CountInstalledForkHandlers()
+{
+    const std::size_t before = mts::ForkChildHandlerRuns();
+    return RunInChild([before] { return static_cast<int>(mts::ForkChildHandlerRuns() - before); });
+}
+
+/// Build one named provider through the public builder.
+auto BuildNamed(std::string name)
+{
+    return mt::SdkBuilder().WithEndpoint(kTestEndpoint).WithProfileName(std::move(name)).Build();
+}
+
+/// Wait at @p start_gate with the other racers, then build @p name.
+///
+/// @return the provider, or nullptr if the build failed.
+std::shared_ptr<mt::Provider> BuildWhenReleased(std::latch& start_gate, std::string name)
+{
+    start_gate.arrive_and_wait();
+    auto provider = BuildNamed(std::move(name));
+    return provider.has_value() ? std::move(*provider) : nullptr;
+}
+
+/// Race `kFirstRegistrationRacers` `Build()`s, then count installed handlers.
+///
+/// Meant for a process that has registered nothing yet, so every racer is
+/// competing to be the first registration.
+int RaceFirstBuildsThenCountHandlers()
+{
+    std::vector<std::shared_ptr<mt::Provider>> built(kFirstRegistrationRacers);
+    std::latch start_gate{static_cast<std::ptrdiff_t>(kFirstRegistrationRacers)};
+    std::vector<std::thread> racers;
+    racers.reserve(kFirstRegistrationRacers);
+    for (std::size_t i = 0; i < kFirstRegistrationRacers; ++i)
+    {
+        racers.emplace_back(
+            [&built, &start_gate, i]
+            { built.at(i) = BuildWhenReleased(start_gate, "first-race-" + std::to_string(i)); });
+    }
+    for (auto& racer : racers)
+    {
+        racer.join();
+    }
+    for (const auto& provider : built)
+    {
+        if (provider == nullptr)
+        {
+            return kChildRebuildFailed;
+        }
+    }
+    return CountInstalledForkHandlers();
+}
+
 }  // namespace
+
+// Issue #271. The handler used to be installed by the first registration,
+// through std::call_once — and a fork() while another thread was inside that
+// call_once left the child's flag "in progress" forever, so the child's
+// Build(), the one recovery §7 supports, blocked for good. The handler is now
+// installed while the library loads, so there is no first-registration window
+// to fork into. The threadsafe death-test style re-executes this binary, which
+// is what makes the statement run in a process image that has never
+// registered a provider.
+TEST(ForkSafetyDeathTest, HandlerIsInstalledBeforeAnyRegistration)
+{
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(::_exit(CountInstalledForkHandlers()), ::testing::ExitedWithCode(1), "");
+}
+
+// However many threads race the first Build(), exactly one handler is
+// installed: a double registration would run the sweep twice per fork.
+TEST(ForkSafetyDeathTest, ConcurrentFirstBuildsInstallExactlyOneHandler)
+{
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(::_exit(RaceFirstBuildsThenCountHandlers()), ::testing::ExitedWithCode(1), "");
+}
+
+// The recovery itself, under a deadline: a child forked after the parent's
+// registration builds its own provider and returns, rather than blocking. The
+// parent's provider is built from mocks, as in the tests below, so the parent
+// has no worker threads at fork() time — TSAN refuses to start threads in the
+// child of a multi-threaded parent, and the child's Build() starts them.
+TEST(ForkSafetyTest, ChildBuildAfterForkCompletesWithinTimeout)
+{
+    auto parent = MakeRegisteredForkTestProvider("fork-timed");
+    ASSERT_EQ(mt::GetProvider("fork-timed"), parent.get());
+
+    const int rc = RunInChildWithin(
+        []
+        {
+            auto child = BuildNamed("fork-timed");
+            return child.has_value() ? kChildOk : kChildRebuildFailed;
+        },
+        kChildBuildBudget);
+
+    EXPECT_EQ(rc, kChildOk);
+}
 
 // Before the handler existed, the child inherited a provider that still looked
 // live and would happily build a BatchLogRecordProcessor — spawning a worker

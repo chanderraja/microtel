@@ -32,6 +32,10 @@ Track E — Configuration.
   `MICROTEL_RESOURCE_DETECTORS_STRICT`) are applied in
   [`env_resolver.cpp`](env_resolver.cpp).
 - The resolved `Config` value type.
+- Per-key merging of the table-valued settings (`resource_attrs`, `headers`)
+  across sources ([`table_merge.cpp`](table_merge.cpp), issue #257). The env
+  overlay and `SdkBuilder`'s code overrides both go through it; header names
+  compare case-insensitively, resource keys exactly.
 - Validation. Every entry in `docs/configuration.md` §3 has its validator here,
   and failures map to `ConfigError::Kind`.
 - The `internal::IAuthProvider` realisations `StaticHeadersAuthProvider` and

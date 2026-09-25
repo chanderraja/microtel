@@ -628,7 +628,7 @@ version = "1.2.3"
 "host.id"                = "auto"   # detect at startup
 ```
 
-Conflicts between code-set, file-set, env-set, and detector-set Resource follow OTel precedence: detectors run first, then environment, then user-supplied (file or code). The resolved Resource is logged at init.
+Resource detectors are the lowest-precedence source: a detector's attribute is overridden by the same key from any configured source. Among the configured sources (file, environment, code) the §12.1 order applies, and resolution is per attribute key — a higher source overrides only the keys it names and never discards the rest of a lower source's attributes. The resolved Resource is logged at init.
 
 ### 12.8 What's not in v1
 

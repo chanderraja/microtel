@@ -9,6 +9,7 @@
 add_library(microtel_config STATIC
     toml_loader.cpp
     env_resolver.cpp
+    table_merge.cpp
     config_validator.cpp
     auth_providers.cpp)
 

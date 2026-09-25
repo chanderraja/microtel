@@ -51,3 +51,17 @@ target_include_directories(otlp_log_exporter_test
 
 target_compile_options(otlp_log_exporter_test PRIVATE
     -Wno-missing-field-initializers)
+
+# Issue #311 — RetryEngine backoff schedule, first retry included.
+microtel_add_test(
+    NAME    retry_engine_test
+    SOURCES retry_engine_test.cpp
+    LIBS    microtel_exporter)
+
+target_include_directories(retry_engine_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+
+target_compile_options(retry_engine_test PRIVATE
+    -Wno-missing-field-initializers)

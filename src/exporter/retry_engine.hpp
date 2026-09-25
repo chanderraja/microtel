@@ -79,12 +79,14 @@ public:
 private:
     [[nodiscard]] internal::WireResult Resolve(const internal::WireResult& first_attempt,
                                                const RetryAttempt& retry);
-    /// @return The last result, or `nullopt` when the budget was spent on
-    ///         entry and no attempt was made.
-    [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(const RetryAttempt& retry);
-    /// @return `false` when `Abort` ended (or had already ended) the sleep.
-    /// @brief After a failed retry, sleep the backoff if another attempt is
-    ///        due. @return `true` to make the next attempt.
+    /// @return The last retry's result, or `nullopt` when no retry was made
+    ///         (the first backoff would reach the budget, or `Abort`).
+    [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(
+        const internal::WireResult& first_attempt, const RetryAttempt& retry);
+    /// @brief Before retry `attempt` (1 = the first retry), sleep the backoff
+    ///        computed from the previous result `last`.
+    /// @return `true` to make the attempt; `false` when `last` needs no
+    ///         retry, the sleep would reach the budget, or `Abort` ended it.
     [[nodiscard]] bool BackOffBeforeRetry(const internal::WireResult& last,
                                           std::uint32_t attempt,
                                           internal::TimePointSteady budget_deadline);

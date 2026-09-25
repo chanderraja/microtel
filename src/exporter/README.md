@@ -64,6 +64,8 @@ Track A — Trace SDK.
   `MockWireCodec` and `FakeWireCodec`, including the partial-success
   "never retried" rule (LOCKED — `error-model.md` §6).
 - `tests/unit/exporter/retry_policy_test.cpp`: backoff and jitter arithmetic.
+- `tests/unit/exporter/retry_engine_test.cpp`: the retry schedule, including
+  the backoff before the first retry (issue #311).
 - `tests/unit/exporter/otlp_metric_exporter_test.cpp` and
   `otlp_log_exporter_test.cpp`: the metric and log pipelines, including the
   same retry rows (recovered, exhausted, non-retryable, `retry_after`, partial

@@ -422,8 +422,8 @@ TEST(OtlpMetricExporterTest, Retry_NonRetryable_SingleAttemptAndRecordsNonRetrya
     EXPECT_EQ(sink.batches_failed, 1U);
 }
 
-// The engine's first retry follows the fan-out immediately; `retry_after`
-// governs the sleeps after that (the trace exporter's schedule). A server
+// The fan-out carries no `retry_after`, so the zero backoff lets the first
+// retry through; its `retry_after` then governs the next sleep. A server
 // asking for longer than the remaining budget ends the loop at once instead
 // of being retried early.
 TEST(OtlpMetricExporterTest, Retry_RetryAfterBeyondBudget_StopsRetrying)
@@ -512,8 +512,9 @@ TEST(OtlpMetricExporterTest, Retry_ShutdownDuringBackoff_ReturnsWithinTimeout)
     mte::OtlpMetricExporter exporter{&encoder, &codec, cfg, &sink};
 
     (void)exporter.Export(MakeBatch());
-    // Fan-out plus the immediate first retry; the worker then sleeps.
-    ASSERT_TRUE(WaitForSends(codec, 2));
+    // The fan-out only; the worker then sleeps before the first retry
+    // (issue #311).
+    ASSERT_TRUE(WaitForSends(codec, 1));
 
     const auto started = std::chrono::steady_clock::now();
     const auto status = exporter.Shutdown(kShutdownTimeout);
@@ -521,7 +522,33 @@ TEST(OtlpMetricExporterTest, Retry_ShutdownDuringBackoff_ReturnsWithinTimeout)
 
     EXPECT_LT(elapsed, kShutdownReturnBound);
     EXPECT_EQ(status, mt::Status::Completed);
-    EXPECT_EQ(codec.send_call_count.load(), 2) << "no retry after Shutdown";
+    EXPECT_EQ(codec.send_call_count.load(), 1) << "no retry after Shutdown";
     EXPECT_EQ(DropCount(sink, mt::DropReason::RetryBudgetExhausted), 1U);
     EXPECT_EQ(sink.batches_failed, 1U);
+}
+
+// Issue #311: the first retry backs off too. The fan-out's own `retry_after`
+// (HTTP `Retry-After`, gRPC `RetryInfo`) is honoured before attempt 1 instead
+// of the server being hit again at once.
+TEST(OtlpMetricExporterTest, Retry_FirstRetryWaitsForFanOutRetryAfter)
+{
+    constexpr auto kFanOutRetryAfter = std::chrono::milliseconds{60};
+    mtmk::MockMetricEncoder encoder;
+    mtmk::FakeWireCodec codec;
+    mtmk::FakeDiagnosticsSink sink;
+    codec.scripted_results.push_back(
+        mti::WireResult{.success = false, .retryable = true, .retry_after = kFanOutRetryAfter});
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpMetricExporterConfig cfg;
+    cfg.retry_policy = ZeroDelayRetry(5);
+    mte::OtlpMetricExporter exporter{&encoder, &codec, cfg, &sink};
+
+    const auto started = std::chrono::steady_clock::now();
+    (void)exporter.Export(MakeBatch());
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds{5}), mt::Status::Completed);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_EQ(codec.send_call_count.load(), 2);
+    EXPECT_GE(elapsed, kFanOutRetryAfter) << "the fan-out's retry_after is slept before attempt 1";
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RetryableFailureRecovered), 1U);
 }

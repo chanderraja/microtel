@@ -7,6 +7,7 @@
 #include "microtel/provider.hpp"
 
 #include "adapters/otelcpp/log_record_shim.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <memory>
 #include <string>
@@ -43,8 +44,11 @@ public:
     ///               `LoggerProviderShim::GetLogger`). Returned by `GetName`.
     /// @param logger the microtel logger to forward emitted records to. Must
     ///               be non-null.
-    LoggerShim(std::string name, std::shared_ptr<microtel::Logger> logger) noexcept
-        : m_name{std::move(name)}, m_logger{std::move(logger)}
+    /// @param options copied into every record `CreateLogRecord` returns.
+    LoggerShim(std::string name,
+               std::shared_ptr<microtel::Logger> logger,
+               ShimOptions options = {}) noexcept
+        : m_name{std::move(name)}, m_logger{std::move(logger)}, m_options{options}
     {
     }
 
@@ -57,7 +61,7 @@ public:
     CreateLogRecord() noexcept override
     {
         return opentelemetry::nostd::unique_ptr<opentelemetry::logs::LogRecord>{
-            std::make_unique<LogRecordShim>()};
+            std::make_unique<LogRecordShim>(m_options)};
     }
 
     void EmitLogRecord(opentelemetry::nostd::unique_ptr<opentelemetry::logs::LogRecord>&&
@@ -74,6 +78,7 @@ public:
 private:
     std::string m_name;
     std::shared_ptr<microtel::Logger> m_logger;
+    ShimOptions m_options;
 };
 
 /// @brief An otel-cpp logger provider backed by a microtel provider.
@@ -87,8 +92,10 @@ class LoggerProviderShim final : public opentelemetry::logs::LoggerProvider
 {
 public:
     /// @param provider the microtel provider to adapt. Must be non-null.
-    explicit LoggerProviderShim(std::shared_ptr<microtel::Provider> provider) noexcept
-        : m_provider{std::move(provider)}
+    /// @param options  copied into every logger this provider hands out.
+    explicit LoggerProviderShim(std::shared_ptr<microtel::Provider> provider,
+                                ShimOptions options = {}) noexcept
+        : m_provider{std::move(provider)}, m_options{options}
     {
     }
 
@@ -116,20 +123,26 @@ public:
                                             {version.data(), version.size()});
         return opentelemetry::nostd::shared_ptr<opentelemetry::logs::Logger>{
             std::make_shared<LoggerShim>(std::string{resolved_name.data(), resolved_name.size()},
-                                         std::move(logger))};
+                                         std::move(logger),
+                                         m_options)};
     }
 
 private:
     std::shared_ptr<microtel::Provider> m_provider;
+    ShimOptions m_options;
 };
 
 /// @brief Build an otel-cpp logger provider over a microtel provider, ready
 ///        for `opentelemetry::logs::Provider::SetLoggerProvider`.
+///
+/// @param options copied into the provider shim and every logger and log
+///                record it creates (ICP 0033). They limit log attributes,
+///                not the log body.
 [[nodiscard]] inline opentelemetry::nostd::shared_ptr<opentelemetry::logs::LoggerProvider>
-MakeLoggerProvider(std::shared_ptr<microtel::Provider> provider)
+MakeLoggerProvider(std::shared_ptr<microtel::Provider> provider, ShimOptions options = {})
 {
     return opentelemetry::nostd::shared_ptr<opentelemetry::logs::LoggerProvider>{
-        std::make_shared<LoggerProviderShim>(std::move(provider))};
+        std::make_shared<LoggerProviderShim>(std::move(provider), options)};
 }
 
 }  // namespace microtel::adapters::otelcpp

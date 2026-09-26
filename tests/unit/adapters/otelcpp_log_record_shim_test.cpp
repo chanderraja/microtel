@@ -8,6 +8,8 @@
 // asserted dropped while the name half survives.
 
 #include "adapters/otelcpp/log_record_shim.hpp"
+#include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <gtest/gtest.h>
 
@@ -15,11 +17,14 @@
 #include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace
 {
 
+using microtel::adapters::otelcpp::GetShimDiagnostics;
 using microtel::adapters::otelcpp::LogRecordShim;
+using microtel::adapters::otelcpp::ShimOptions;
 namespace otel_logs = opentelemetry::logs;
 
 TEST(OtelCppLogRecordShim, SetTimestampConverts)
@@ -90,6 +95,48 @@ TEST(OtelCppLogRecordShim, SetAttributeAppendsConvertedKeyValues)
     EXPECT_EQ(std::get<std::int64_t>(record.attributes[0].value), 3);
     EXPECT_EQ(record.attributes[1].key, "host");
     EXPECT_EQ(std::get<std::string>(record.attributes[1].value), "db-primary");
+}
+
+// ── ICP 0033: byte-span attribute value length limit ─────────────────────────
+
+TEST(OtelCppLogRecordShim, SetAttributeOmitsAnOverLimitByteSpanAndCountsIt)
+{
+    LogRecordShim shim{ShimOptions{.attribute_value_length_limit = std::uint32_t{4}}};
+    const std::uint8_t fits[] = {0xab, 0xcd};
+    const std::uint8_t over[] = {0xab, 0xcd, 0xef};
+    const auto before = GetShimDiagnostics();
+
+    shim.SetAttribute("fits",
+                      opentelemetry::common::AttributeValue{
+                          opentelemetry::nostd::span<const std::uint8_t>{fits, 2}});
+    shim.SetAttribute("over",
+                      opentelemetry::common::AttributeValue{
+                          opentelemetry::nostd::span<const std::uint8_t>{over, 3}});
+
+    const auto record = shim.ReleaseRecord();
+    ASSERT_EQ(record.attributes.size(), 1U);
+    EXPECT_EQ(record.attributes[0].key, "fits");
+    EXPECT_EQ(std::get<std::string>(record.attributes[0].value), "abcd");
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 1U);
+}
+
+TEST(OtelCppLogRecordShim, BodyIsNotAnAttributeAndIsNotLimited)
+{
+    // Limit 0 would omit any non-empty byte-span attribute; the body is kept
+    // whole and nothing is counted (ICP 0033 §3).
+    LogRecordShim shim{ShimOptions{.attribute_value_length_limit = std::uint32_t{0}}};
+    constexpr std::size_t kByteCount = 5000;
+    const std::vector<std::uint8_t> raw(kByteCount, 0x7fU);
+    const auto before = GetShimDiagnostics();
+
+    shim.SetBody(opentelemetry::common::AttributeValue{
+        opentelemetry::nostd::span<const std::uint8_t>{raw.data(), raw.size()}});
+
+    const auto record = shim.ReleaseRecord();
+    EXPECT_EQ(std::get<std::string>(record.body).size(), kByteCount * 2U);
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted);
 }
 
 TEST(OtelCppLogRecordShim, SetEventIdKeepsNameDropsNumericId)

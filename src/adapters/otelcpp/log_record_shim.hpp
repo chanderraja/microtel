@@ -8,6 +8,7 @@
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 #include "adapters/otelcpp/context_conversion.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -52,6 +53,11 @@ static_assert(static_cast<std::uint8_t>(opentelemetry::logs::Severity::kFatal4) 
 class LogRecordShim final : public opentelemetry::logs::LogRecord
 {
 public:
+    /// @param options the shim options, normally the creating logger's. They
+    ///                limit attributes only; the body is not an attribute and
+    ///                is never limited (ICP 0033 §3).
+    explicit LogRecordShim(ShimOptions options = {}) noexcept : m_options{options} {}
+
     void SetTimestamp(opentelemetry::common::SystemTimestamp timestamp) noexcept override
     {
         m_record.time = static_cast<std::chrono::system_clock::time_point>(timestamp);
@@ -70,14 +76,18 @@ public:
 
     void SetBody(const opentelemetry::common::AttributeValue& message) noexcept override
     {
-        m_record.body = ConvertAttributeValue(message);
+        m_record.body = detail::ConvertUnlimitedAttributeValue(message);
     }
 
     void SetAttribute(opentelemetry::nostd::string_view key,
                       const opentelemetry::common::AttributeValue& value) noexcept override
     {
-        m_record.attributes.push_back(
-            {.key = std::string{key.data(), key.size()}, .value = ConvertAttributeValue(value)});
+        auto converted = ConvertAttributeValue(value, m_options);
+        if (converted.has_value())
+        {
+            m_record.attributes.push_back(
+                {.key = std::string{key.data(), key.size()}, .value = *std::move(converted)});
+        }
     }
 
     void SetEventId(std::int64_t /*id*/,
@@ -115,6 +125,7 @@ public:
 
 private:
     microtel::LogRecord m_record;
+    ShimOptions m_options;
 };
 
 }  // namespace microtel::adapters::otelcpp

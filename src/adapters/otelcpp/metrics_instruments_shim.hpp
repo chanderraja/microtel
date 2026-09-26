@@ -8,6 +8,7 @@
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 #include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -37,6 +38,11 @@
 /// diagnostics: that path is unreachable from here, since the conversion
 /// fails above the SDK.
 ///
+/// **Attributes** convert through `ConvertKeyValues` under the instrument's
+/// `ShimOptions`: a byte-span attribute over the limit is left out and the
+/// measurement kept. On a metric the attribute set is the series identity, so
+/// that measurement lands in a different series (ICP 0033 §5; see README).
+///
 /// **Context parameters** on `Add`/`Record` carry exemplar correlation in
 /// otel-cpp; microtel has no exemplar surface in v1, so they are ignored.
 
@@ -57,8 +63,9 @@ template <typename OtelT, typename MicroT>
 class CounterShim final : public opentelemetry::metrics::Counter<OtelT>
 {
 public:
-    explicit CounterShim(std::shared_ptr<microtel::Counter<MicroT>> counter) noexcept
-        : m_counter{std::move(counter)}
+    explicit CounterShim(std::shared_ptr<microtel::Counter<MicroT>> counter,
+                         ShimOptions options = {}) noexcept
+        : m_counter{std::move(counter)}, m_options{options}
     {
     }
 
@@ -74,7 +81,7 @@ public:
 
     void Add(OtelT value, const otel_common::KeyValueIterable& attributes) noexcept override
     {
-        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes, m_options);
         Forward(value, microtel::AttributeSpan{converted});
     }
 
@@ -100,6 +107,7 @@ private:
     }
 
     std::shared_ptr<microtel::Counter<MicroT>> m_counter;
+    ShimOptions m_options;
 };
 
 /// @brief otel `UpDownCounter<OtelT>` over `microtel::UpDownCounter<MicroT>`.
@@ -109,8 +117,9 @@ template <typename OtelT, typename MicroT>
 class UpDownCounterShim final : public opentelemetry::metrics::UpDownCounter<OtelT>
 {
 public:
-    explicit UpDownCounterShim(std::shared_ptr<microtel::UpDownCounter<MicroT>> counter) noexcept
-        : m_counter{std::move(counter)}
+    explicit UpDownCounterShim(std::shared_ptr<microtel::UpDownCounter<MicroT>> counter,
+                               ShimOptions options = {}) noexcept
+        : m_counter{std::move(counter)}, m_options{options}
     {
     }
 
@@ -126,7 +135,7 @@ public:
 
     void Add(OtelT value, const otel_common::KeyValueIterable& attributes) noexcept override
     {
-        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes, m_options);
         m_counter->Add(static_cast<MicroT>(value), microtel::AttributeSpan{converted});
     }
 
@@ -139,6 +148,7 @@ public:
 
 private:
     std::shared_ptr<microtel::UpDownCounter<MicroT>> m_counter;
+    ShimOptions m_options;
 };
 
 /// @brief otel `Histogram<OtelT>` over `microtel::Histogram<MicroT>`.
@@ -146,8 +156,9 @@ template <typename OtelT, typename MicroT>
 class HistogramShim final : public opentelemetry::metrics::Histogram<OtelT>
 {
 public:
-    explicit HistogramShim(std::shared_ptr<microtel::Histogram<MicroT>> histogram) noexcept
-        : m_histogram{std::move(histogram)}
+    explicit HistogramShim(std::shared_ptr<microtel::Histogram<MicroT>> histogram,
+                           ShimOptions options = {}) noexcept
+        : m_histogram{std::move(histogram)}, m_options{options}
     {
     }
 
@@ -160,7 +171,7 @@ public:
                 const otel_common::KeyValueIterable& attributes,
                 const opentelemetry::context::Context& /*context*/) noexcept override
     {
-        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes, m_options);
         Forward(value, microtel::AttributeSpan{converted});
     }
 
@@ -179,6 +190,7 @@ private:
     }
 
     std::shared_ptr<microtel::Histogram<MicroT>> m_histogram;
+    ShimOptions m_options;
 };
 
 /// @brief otel `ObserverResultT<T>` writing into a microtel
@@ -190,7 +202,10 @@ template <typename T>
 class ObserverResultAdapter final : public opentelemetry::metrics::ObserverResultT<T>
 {
 public:
-    explicit ObserverResultAdapter(microtel::ObservableResult<T>& sink) noexcept : m_sink{sink} {}
+    ObserverResultAdapter(microtel::ObservableResult<T>& sink, ShimOptions options) noexcept
+        : m_sink{sink}, m_options{options}
+    {
+    }
 
     void Observe(T value) noexcept override
     {
@@ -199,12 +214,13 @@ public:
 
     void Observe(T value, const otel_common::KeyValueIterable& attributes) noexcept override
     {
-        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes, m_options);
         m_sink.Observe(value, microtel::AttributeSpan{converted});
     }
 
 private:
     microtel::ObservableResult<T>& m_sink;
+    ShimOptions m_options;
 };
 
 /// @brief Shared list of otel observer callbacks for one observable
@@ -222,6 +238,9 @@ template <typename T>
 class ObservableCallbackRegistry
 {
 public:
+    /// @param options applied to the attributes every callback observes.
+    explicit ObservableCallbackRegistry(ShimOptions options = {}) noexcept : m_options{options} {}
+
     void Add(opentelemetry::metrics::ObservableCallbackPtr callback, void* state)
     {
         const std::scoped_lock lock{m_mu};
@@ -257,7 +276,7 @@ public:
             const std::scoped_lock lock{m_mu};
             snapshot = m_callbacks;
         }
-        const auto adapter = std::make_shared<ObserverResultAdapter<T>>(result);
+        const auto adapter = std::make_shared<ObserverResultAdapter<T>>(result, m_options);
         for (const auto& entry : snapshot)
         {
             try
@@ -285,6 +304,7 @@ private:
 
     std::mutex m_mu;
     std::vector<Entry> m_callbacks;
+    ShimOptions m_options;
 };
 
 /// @brief otel `ObservableInstrument` fronting a registry; the paired

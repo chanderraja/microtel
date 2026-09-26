@@ -9,6 +9,7 @@
 
 #include "adapters/otelcpp/meter_shim.hpp"
 #include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "fakes/fake_provider.hpp"
 
 #include <gtest/gtest.h>
@@ -28,6 +29,7 @@ namespace
 
 using microtel::adapters::otelcpp::MeterProviderShim;
 using microtel::adapters::otelcpp::MeterShim;
+using microtel::adapters::otelcpp::ShimOptions;
 namespace otel_metrics = opentelemetry::metrics;
 
 struct MeterFixture
@@ -296,6 +298,85 @@ TEST(OtelCppMeterShim, ObservableKindsRouteToMatchingMicrotelCreates)
 }
 
 // ── MeterProviderShim + global registration ───────────────────────────────────
+
+// ── ICP 0033: byte-span attribute value length limit ─────────────────────────
+
+/// 4 hex characters: a 2-byte span fits, a 3-byte span does not.
+constexpr ShimOptions kFourCharLimit{.attribute_value_length_limit = std::uint32_t{4}};
+constexpr std::uint8_t kThreeBytes[] = {0x01, 0x02, 0x03};
+
+[[nodiscard]] opentelemetry::common::AttributeValue ThreeByteSpan()
+{
+    return opentelemetry::nostd::span<const std::uint8_t>{kThreeBytes, 3};
+}
+
+TEST(OtelCppMeterShim, SyncInstrumentsLeaveAnOverLimitByteAttributeOut)
+{
+    // The measurement is kept and lands in the series without that key: the
+    // documented metrics hazard (ICP 0033 §5), pinned here.
+    auto fake = std::make_shared<microtel::testing::FakeMeter>();
+    MeterShim shim{fake, kFourCharLimit};
+    auto counter = shim.CreateUInt64Counter("c");
+    auto updown = shim.CreateInt64UpDownCounter("u");
+    auto histogram = shim.CreateDoubleHistogram("h");
+    const auto before = microtel::adapters::otelcpp::GetShimDiagnostics();
+
+    counter->Add(1U, {{"route", "/api"}, {"blob", ThreeByteSpan()}});
+    updown->Add(-1, {{"blob", ThreeByteSpan()}});
+    histogram->Record(2.5, {{"blob", ThreeByteSpan()}}, opentelemetry::context::Context{});
+
+    ASSERT_EQ(fake->counters_i64.size(), 1U);
+    ASSERT_EQ(fake->counters_i64[0]->calls.size(), 1U);
+    ASSERT_EQ(fake->counters_i64[0]->calls[0].attributes.size(), 1U);
+    EXPECT_EQ(fake->counters_i64[0]->calls[0].attributes[0].key, "route");
+    ASSERT_EQ(fake->updowns_i64.size(), 1U);
+    ASSERT_EQ(fake->updowns_i64[0]->calls.size(), 1U);
+    EXPECT_TRUE(fake->updowns_i64[0]->calls[0].attributes.empty());
+    ASSERT_EQ(fake->histograms_double.size(), 1U);
+    ASSERT_EQ(fake->histograms_double[0]->calls.size(), 1U);
+    EXPECT_TRUE(fake->histograms_double[0]->calls[0].attributes.empty());
+    EXPECT_EQ(microtel::adapters::otelcpp::GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 3U);
+}
+
+void ObserveWithBlob(otel_metrics::ObserverResult result, void* /*state*/)
+{
+    if (auto* typed = opentelemetry::nostd::get_if<
+            opentelemetry::nostd::shared_ptr<otel_metrics::ObserverResultT<std::int64_t>>>(&result))
+    {
+        (*typed)->Observe(std::int64_t{9}, {{"cpu", "0"}, {"blob", ThreeByteSpan()}});
+    }
+}
+
+TEST(OtelCppMeterShim, ObservableLeavesAnOverLimitByteAttributeOut)
+{
+    auto fake = std::make_shared<microtel::testing::FakeMeter>();
+    MeterShim shim{fake, kFourCharLimit};
+    auto observable = shim.CreateInt64ObservableGauge("g");
+    observable->AddCallback(&ObserveWithBlob, nullptr);
+
+    microtel::testing::FakeObservableResult<std::int64_t> result;
+    ASSERT_EQ(fake->observable_callbacks_i64.size(), 1U);
+    fake->observable_callbacks_i64[0](result);
+
+    ASSERT_EQ(result.observations.size(), 1U);
+    EXPECT_EQ(result.observations[0].value, 9);
+    ASSERT_EQ(result.observations[0].attributes.size(), 1U);
+    EXPECT_EQ(result.observations[0].attributes[0].key, "cpu");
+}
+
+TEST(OtelCppMeterProviderShim, MetersInheritTheProviderOptions)
+{
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+    MeterProviderShim shim{provider, kFourCharLimit};
+
+    auto counter = shim.GetMeter("m")->CreateDoubleCounter("c");
+    counter->Add(1.0, {{"blob", ThreeByteSpan()}});
+
+    ASSERT_EQ(provider->meter->counters_double.size(), 1U);
+    ASSERT_EQ(provider->meter->counters_double[0]->calls.size(), 1U);
+    EXPECT_TRUE(provider->meter->counters_double[0]->calls[0].attributes.empty());
+}
 
 TEST(OtelCppMeterProviderShim, GetMeterPassesSchemaUrlThrough)
 {

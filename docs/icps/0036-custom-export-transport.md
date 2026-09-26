@@ -4,7 +4,9 @@
 **Affected interfaces / docs:**
 - `include/microtel/export_transport.hpp` (new public header)
 - `include/microtel/sdk_builder.hpp` (new `WithExportTransport`)
-- `include/microtel/leaf_receiver.hpp` (`LeafTimeMode` gains `Unix = 3`)
+- `include/microtel/leaf_receiver.hpp` (`LeafTimeMode` gains `Unix = 3`;
+  `LeafReceiverOptions` gains `max_node_resource_bytes`)
+- `leaf/include/microtel/leaf.h` (one documentation line on empty encodes)
 - `src/sdk/sdk_builder.cpp` (`BuildExporters`, `BuildWireCodec`, the
   `CreateTransport` call), a new internal codec under `src/wire/custom/`,
   `src/sdk/leaf_resource.cpp`, `src/sdk/leaf_receiver.cpp`,
@@ -12,9 +14,9 @@
 - `docs/interfaces.md` §4.3 (a third `IWireCodec` implementation)
 - `docs/threading-model.md` §2 and §10 (no I/O thread; user code on the
   exporter workers)
-- `docs/error-model.md` §7 (a new §7.3 matrix)
-- `docs/leaf-concentrator-design.md` §3.4, §4.2, §5 (undeclared payloads and
-  the `unix` mode)
+- `docs/error-model.md` §7 (a new §7.3 matrix) and §9.1 (`connection_state`)
+- `docs/leaf-concentrator-design.md` §3.4, §4.2, §4.5, §5 (undeclared and
+  empty payloads, the `unix` mode, the node Resource budget)
 - `docs/architecture.md` §3.5, §3.6; `docs/configuration.md`
 
 **Affected tracks:** SDK, exporter / wire, concentrator. No encoder change, no
@@ -67,11 +69,10 @@ struct ExportRequest
     ExportSignal signal = ExportSignal::Traces;
     /// Uncompressed protobuf bytes of the signal's Export*ServiceRequest.
     /// Borrowed for the duration of Send only; copy them to keep them.
+    /// Never empty. Identical, byte for byte, across retries of one request.
     std::span<const std::byte> bytes;
     /// Send must return by this time (Decision 2).
     std::chrono::steady_clock::time_point deadline;
-    /// 0 for the first attempt, n for the nth retry of the same request.
-    std::uint32_t attempt = 0;
 };
 
 enum class SendOutcome : std::uint8_t
@@ -105,10 +106,12 @@ public:
     /// Called on an exporter worker thread. May block, until request.deadline.
     [[nodiscard]] virtual SendResult Send(const ExportRequest& request) = 0;
 
-    /// Called once, from the thread running Provider::Shutdown, if the
-    /// shutdown timeout expires while a Send is in flight. Send must then
-    /// return promptly. The default does nothing.
-    virtual void Cancel() noexcept {}
+    /// Called at most once, from the thread running Provider::Shutdown, if
+    /// the shutdown timeout expires while a Send is in flight. Every Send in
+    /// flight or later must then return promptly. Pure virtual on purpose: a
+    /// Send that ignores both its deadline and Cancel makes the Provider's
+    /// destructor block forever (Decision 2).
+    virtual void Cancel() noexcept = 0;
 };
 
 struct ExportTransportOptions
@@ -162,6 +165,37 @@ nothing to hand over, and a transport that queues copies. Framing,
 fragmentation, link-level acknowledgement and flow control belong to the
 application, as they do for the leaf.
 
+**Bytes are identical across attempts of one request.** A retry re-encodes,
+so this is a property of the encode path. The path has it today:
+
+- The trace exporter cuts a drain into requests once, in
+  `OtlpExporter::FanOutAndProcess`. The retry closure captures that
+  request's `first` and `count`, and the drained `batches` by `const`
+  reference, so a retry re-encodes the same `BatchHandle`s in the same order.
+  Nothing regroups between attempts. The metric and log exporters re-encode
+  the same handle (`OtlpMetricExporter::ProcessBatches`,
+  `OtlpLogExporter::ProcessBatches`).
+- `OtlpEncoder::Encode` builds a fresh upb message from the `const` handle.
+  It reads no clock: its only time function, `ToNanos`, converts stored
+  timestamps. Resource, span, event and link attributes are `std::vector`s,
+  iterated in order, and no hash-ordered container is on the path.
+- The OTLP protos under `proto/` declare no `map` fields, and a freshly built
+  message has no unknown fields. Those are the only two sources of variation
+  in upb's serialisation order.
+- `wire::ConcatenateTraceRequests` copies the parts in order with `memcpy`.
+
+The header states the guarantee, so a transport may deduplicate on content,
+and the implementing packet adds a test that pins it (Decision 6). The one
+exception is an encode that fails to allocate its arena, which yields an
+empty payload. The codec reports that attempt as a retryable failure without
+calling `Send`, so a transport never sees empty bytes.
+
+An earlier revision of this draft had an `ExportRequest::attempt` counter. It
+is dropped. `IWireCodec::Send` carries no attempt number, the codec cannot
+tell a retry of one request from the next request in a drain, and adding one
+would change a locked interface. Because the bytes are identical, a transport
+that needs to spot a retry can compare content.
+
 **Other settings.** Endpoint, protocol, headers, TLS, auth and compression
 have no meaning with a custom transport:
 
@@ -181,7 +215,11 @@ have no meaning with a custom transport:
   until the first `Success`, `Connected` after one, `Reconnecting` after a
   failure that follows a success, `Closed` after `Shutdown`. That matches what
   the states tell an operator (`provider.hpp`): configuration before first
-  contact, the peer or link afterwards.
+  contact, the peer or link afterwards. With a custom transport the state
+  means "sends are succeeding", not "the peer is reachable". On a
+  fire-and-forget link such as UDP, `Connected` means datagrams are leaving
+  this host, and nothing more. The `WithExportTransport` Doxygen and
+  `docs/error-model.md` §9.1 say so.
 
 ### Decision 2: threading
 
@@ -201,12 +239,20 @@ have no meaning with a custom transport:
   header.
 - **Shutdown.** `RetryEngine::Abort` already ends backoff sleeps. If an
   exporter's shutdown wait expires while a `Send` is in flight, microtel calls
-  `Cancel()` once, from the thread running `Shutdown`, before joining the
-  worker. A `Send` that ignores both its deadline and `Cancel` blocks
-  `Shutdown`, and so the `Provider` destructor. That is the one place where
-  CLAUDE.md rule 15 depends on application code, and the header says so. The
-  alternative, detaching the worker, would leave a thread inside an
-  `ExportTransport` that is about to be destroyed.
+  `Cancel()`, at most once per Provider, from the thread running `Shutdown`,
+  before joining the worker. From then on every `Send`, in flight or new, must
+  return promptly. Returning `NonRetryable` at once is the expected answer.
+- **The hazard, stated plainly.** A `Send` that ignores both its deadline and
+  `Cancel` makes `Shutdown` wait for it, and makes the `Provider` destructor
+  block **forever**. The obvious first implementation does exactly that: a
+  blocking socket or UART write with no timeout, and a `Cancel` that does
+  nothing. It is the one place where CLAUDE.md rule 15 depends on application
+  code. So `Cancel` is **pure virtual**. Every implementor has to write one,
+  and so has to decide how a blocked `Send` is woken: close or `shutdown()`
+  the fd, set a flag the write loop checks, or use a send timeout. The header
+  gives the pattern, and the example implements it. The alternative,
+  detaching the worker, would leave a thread inside an `ExportTransport` that
+  is about to be destroyed.
 - **Lifetime.** The `Provider` owns the transport and destroys it after every
   exporter worker has been joined.
 
@@ -224,10 +270,48 @@ Metrics and logs can be switched on for applications that route them
 somewhere else: to their own collector connection, a file, or a concentrator
 that grows metric or log ingest later. `ExportRequest::signal` tells the
 application which is which, and it has to carry that across the link itself.
-It must not pass a metrics or logs payload to `LeafReceiver::Ingest`. Field 1
-of all three Export requests has the same wire type, so a metrics request can
-partly decode as a trace request. Validation should reject it as `Malformed`,
-but that would be luck rather than a guarantee.
+It must not pass a metrics or logs payload to `LeafReceiver::Ingest`.
+
+**Mis-routing is checked, not just documented.** The three Export requests
+share field numbers down the tree. `resource_metrics` and `resource_logs` are
+field 1, like `resource_spans`, and `ScopeMetrics.metrics` and
+`ScopeLogs.log_records` are field 2, like `ScopeSpans.spans`. So a metrics or
+logs request handed to `Ingest` decodes without error as a trace request, and
+each `Metric` or `LogRecord` becomes a "span" built from whichever fields
+happen to share a number and wire type. Two checks catch it:
+
+1. **Span ids (existing).** The decoder rejects a span whose `trace_id` is not
+   16 bytes or whose `span_id` is not 8 bytes (`ConvertHeader` in
+   `src/wire/encoder/otlp_trace_decoder.cpp`). A `LogRecord`'s field 1 is a
+   `fixed64`, so its "trace id" is empty. A `Metric`'s fields 1 and 2 are its
+   name and description, which pass only if they are exactly 16 and 8 bytes
+   and not all zero.
+2. **At least one record (new).** After decode, a payload must hold at least
+   one span or it is `Malformed`, counted `leaf_payload_malformed`. A metrics
+   or logs request with no data points or records otherwise decodes to empty
+   `ResourceSpans`, and would be "accepted" as nothing. The same rule catches
+   the residual case: a genuinely empty trace request is itself a sender bug
+   and worth rejecting.
+
+Together these **usually catch** a mis-routed payload. They are **not
+airtight**: a metric whose name is exactly 16 bytes and whose description is
+exactly 8 passes both. `ExportRequest::signal` is the real guard, and the
+application must carry it across the link.
+
+**The same rule for leaves.** Today `Admit` rejects a payload with no
+`ResourceSpans`, but accepts one whose `ResourceSpans` hold no spans. The C
+leaf can produce one: `microtel_leaf_encode` with nothing ended still encodes
+a header (golden vector `empty_batch`). Such a payload can legitimately carry
+`microtel.leaf.dropped_*` counters, for example when every span start was
+refused for lack of space, and those counters reset on encode. Rejecting it
+would lose the only report of those drops. The rule for both paths is
+therefore: **a payload must carry at least one span or, if it is a declared
+leaf payload, at least one non-zero `microtel.leaf.dropped_*` attribute**. An
+undeclared payload cannot carry a drop report, so for a full node the rule is
+just "at least one span". A header-only leaf payload with no spans and no
+drops becomes `Malformed`. The documentation of `microtel_leaf_encode` gains
+a line telling the application not to send such an encode; the C library is
+otherwise unchanged.
 
 ### Decision 4: concentrator compatibility
 
@@ -281,14 +365,49 @@ join the concentrator's batches and leave in shared requests, one
   further.
 - **Sizes.** A default node request (512 spans) can exceed the concentrator's
   `max_payload_bytes` (64 KiB) and a UDP datagram. Size the node's
-  `max_export_batch_size` to the link. A node Resource with process and host
-  detectors can exceed `max_leaf_resource_bytes` (2 KiB); the excess is
-  dropped and counted in `resource_attributes_dropped`.
+  `max_export_batch_size` to the link. The Resource budget is its own
+  decision, below.
 - **Mapping `IngestResult` back**, on a link that carries an answer:
   `Accepted` → `Success`; `PartiallyAccepted` → `Success` with `rejected =
   spans_dropped`; `Malformed`, `TooLarge`, `UnknownLeaf`, `Disabled` →
   `NonRetryable`; `ShutDown`, `OutOfMemory` → `Retryable`. A fire-and-forget
   link such as UDP returns `Success` once the datagram is sent.
+
+**A full node's Resource needs its own budget.** `max_leaf_resource_bytes`
+(2 KiB) is sized for an MCU leaf's handful of attributes. A full node with the
+default process and host detectors carries `process.command_line`,
+`process.command_args`, `process.executable.path`, `host.*`, `os.*` and
+`telemetry.sdk.*`, and can easily pass 2 KiB. Every full node would then lose
+Resource attributes on its first deployment, with only an aggregate counter
+to show it. The leaf-declared layer is the lowest one above the defaults, so
+the attributes lost are the node's own.
+
+**Decision.** A new concentrator setting, `max_node_resource_bytes`, default
+**16 KiB**, is the Resource budget for every leaf-table entry whose effective
+time mode is `Unix`. `max_leaf_resource_bytes` still applies to every other
+entry. When an entry's resolution drops attributes for budget, one `Warn` goes
+to the `LogSink` naming the leaf id, the number dropped and the setting to
+raise. That is once per table entry, so it recurs only after an eviction or a
+Resource change.
+
+- **A separate setting, not one larger limit.** The 2 KiB bound is what keeps
+  a 1024-leaf table near 2.8 MiB (design §4.5). Raising it for everyone to fit
+  a few nodes would multiply the fleet's worst case.
+- **Keyed on `Unix`.** That is the configuration that marks a sender as a full
+  node, and the operator has already named it. `default_time_mode = "unix"`
+  gives every entry the node budget, and the documented worst case becomes
+  `max_leaves` × 16 KiB, about 16 MiB at the defaults.
+- **16 KiB.** Enough for the default detectors with long command lines, and
+  well under `max_payload_bytes`. Operators with larger Resources raise it.
+- **A log as well as the counter.** `resource_attributes_dropped` is an
+  aggregate, and nobody reads it until attributes are already missing. The
+  log names the leaf.
+
+It needs `LeafReceiverOptions::max_node_resource_bytes` (`std::uint32_t`,
+default `16U * 1024U`) and the TOML key `[concentrator]
+max_node_resource_bytes`, validated like `max_leaf_resource_bytes`. There is
+no environment variable, matching `max_leaf_resource_bytes`. A configured
+Resource for a `unix` leaf is checked against the node budget at `Build()`.
 
 **Concentrator-side changes, all additive:**
 
@@ -299,7 +418,13 @@ join the concentrator's batches and leave in shared requests, one
 3. `CorrectionFor`: `Unix` is the identity correction.
 4. The config parser and the validator accept `"unix"` for `time_mode` and
    `default_time_mode`, and `MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE`.
-5. No new `IngestStatus`, `DropReason` or `LeafReceiverStats` field.
+5. `Admit`: after decode, a payload with no span is `Malformed`, unless it is
+   a declared leaf payload with a non-zero `microtel.leaf.dropped_*`
+   (Decision 3). This applies to leaves and full nodes alike.
+6. `LeafReceiverOptions::max_node_resource_bytes` and its TOML key. Resource
+   resolution uses it for `Unix` entries, and logs one `Warn` per entry that
+   drops attributes for budget.
+7. No new `IngestStatus`, `DropReason` or `LeafReceiverStats` field.
 
 ### Decision 5: rules 12 and 13
 
@@ -317,23 +442,39 @@ peers, so that reasoning would need revisiting there, not here.
 - **Example.** `examples/leaf/udp_full_node.cpp`: a C++ program using
   `SdkBuilder().WithServiceName(...).WithExportTransport(...)`, whose
   `UdpExportTransport` sends each trace request as one datagram to
-  `udp_concentrator`. `examples/leaf/microtel.toml` gains a
+  `udp_concentrator`. Its `Cancel` sets a flag and `shutdown()`s the socket,
+  and its `sendto` runs with an `SO_SNDTIMEO` taken from the request
+  deadline, so the example shows the cancellation pattern rather than stubbing
+  it. `examples/leaf/microtel.toml` gains a
   `[concentrator.leaves."127.0.0.1:<port>"]` entry with `time_mode = "unix"`,
   and the README a third terminal line. The same concentrator then shows C
   leaves and a C++ node side by side.
 - **Unit tests.** `tests/mocks/mock_export_transport.hpp` (returns what it is
-  told) and `tests/fakes/fake_export_transport.hpp` (a scripted result
-  sequence, with an optional blocking `Send` released by `Cancel`). Covered:
+  told; its `Cancel` only records the call, since `Cancel` is pure virtual)
+  and `tests/fakes/fake_export_transport.hpp` (a scripted result sequence,
+  with an optional blocking `Send` released by `Cancel`). Covered:
   the `SendResult` → `WireResult` mapping and counters; retry with and without
   `retry_after`; partial success; a `Send` that throws, `std` and non-`std`;
   the deadline clamp; `Cancel` on shutdown timeout; the `connection_state`
   transitions; the `Build()` conflicts and warnings; no I/O
-  thread constructed; traces-only default giving the no-op meter and logger.
-  A TSAN test runs all three signals through one transport.
+  thread constructed; traces-only default giving the no-op meter and logger;
+  no `Send` for an empty encoding. A TSAN test runs all three signals through
+  one transport. A shutdown test uses a fake whose `Send` blocks past its
+  deadline until `Cancel`, and asserts that `Shutdown` returns `TimedOut` in
+  bounded time.
+- **Encode determinism.** A test drives a retryable first attempt through the
+  trace exporter with a multi-handle request (several scopes and Resources),
+  and the same for metrics and logs. It asserts that attempt 0 and every retry
+  hand `Send` identical bytes.
 - **Concentrator tests.** An undeclared payload is accepted under `unix` and
   rejected under `auto` and every other mode; its timestamps are unchanged;
   the transport id still wins; a declared payload under `unix` follows the
-  §5.1 rules. The ingest fuzz target (design §7.3) gets undeclared seeds with
+  §5.1 rules. A payload with no span is `Malformed` on both paths. A
+  header-only leaf payload with a non-zero `dropped_spans` is accepted and
+  counted in `leaf_reported_drops`. A metrics request and a logs request
+  passed to `Ingest` are both rejected. `unix` entries get
+  `max_node_resource_bytes` and others `max_leaf_resource_bytes`, and an
+  over-budget entry logs one `Warn`. The ingest fuzz target (design §7.3) gets undeclared seeds with
   `default_time_mode = unix`.
 - **Integration.** An in-process loopback `ExportTransport` that calls another
   Provider's `LeafReceiver::Ingest` directly, asserting that one request from
@@ -347,8 +488,9 @@ peers, so that reasoning would need revisiting there, not here.
 ### Decision 7: versioning and follow-up docs
 
 Additive in the v1.2 minor: a new header, a new non-virtual `SdkBuilder`
-method (the builder is pimpl), and a trailing `LeafTimeMode` enumerator. No
-vtable, `HealthSnapshot` or `DropReason` change. The concentrator has not been
+method (the builder is pimpl), a trailing `LeafTimeMode` enumerator and a
+trailing `LeafReceiverOptions` field. No vtable, `HealthSnapshot` or
+`DropReason` change. The concentrator has not been
 released, so the enumerator breaks no user. An exhaustive `switch` over
 `LeafTimeMode` needs one more arm.
 
@@ -371,7 +513,9 @@ After acceptance, in the implementing packets:
 
 Nothing for existing users: without `WithExportTransport` the build and every
 behaviour are unchanged. Concentrator operators who add a full node configure
-it with `time_mode = "unix"`. Code that switches exhaustively over
+it with `time_mode = "unix"`. One behaviour changes for leaves: a header-only
+payload with no spans and no drop counters is now `Malformed`. An application
+that encodes on a timer should skip the send when nothing has ended. Code that switches exhaustively over
 `LeafTimeMode` adds an arm.
 
 ## Rationale & alternatives
@@ -383,6 +527,10 @@ it with `time_mode = "unix"`. Code that switches exhaustively over
 - **`Send` declared `noexcept`.** A throw in application I/O code would then
   terminate the process from a microtel worker. Containment at the boundary is
   what `AuthCallback` already does. Rejected.
+- **`Cancel` with a default no-op body.** Less to write for a transport that
+  never blocks, but then the easy implementation is the one that can hang the
+  destructor forever, and nothing prompts its author to think about it. A
+  transport that really cannot block writes an empty `Cancel` on purpose.
 - **`std::shared_ptr<ExportTransport>`.** Lets the application keep a handle,
   but rule 8 needs a reason and there is none: an application that shares its
   link keeps the link object itself and gives the transport a reference to it.

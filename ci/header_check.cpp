@@ -16,6 +16,7 @@
 #include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
 #include "microtel/error.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/propagator.hpp"
 #include "microtel/protocol.hpp"
@@ -37,6 +38,7 @@
 // --- Internal interfaces ---
 #include "microtel/internal/auth_provider.hpp"
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/batch_group_exporter.hpp"
 #include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/encoded_payload.hpp"
@@ -47,6 +49,7 @@
 #include "microtel/internal/metric_producer.hpp"
 #include "microtel/internal/metric_reader.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
+#include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/internal/reactor.hpp"
 #include "microtel/internal/resource_detector.hpp"

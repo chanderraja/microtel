@@ -52,6 +52,8 @@ Rationale recorded in ICP 0001 and `microtel-spec.md` §5.5:
 - Arena lifetime tied to retry state (shutdown mid-retry, partial-success, retry with different headers) is a footgun. Per-encode means each encode is a self-contained transaction; the arena lifetime question never arises.
 - Per-encode keeps the live-arena bound at "one arena per encode-in-progress" — `O(1)` in retry depth.
 
+**The trace decoder follows the same rule** (v1.2, `leaf-concentrator-design.md` §3.4). `IOtlpTraceDecoder::Decode()` — upb's other use in the runtime, in the same directory — creates one arena per call over a counting `upb_alloc` that refuses to grow past `DecodeLimits::max_arena_bytes`, decodes into it with a depth limit, copies what it needs into plain C++ values (strings are copied, never aliased), and destroys the arena before `Decode()` returns. The cap turns a payload that would blow up in memory into a `TooLarge` rejection. The leaf receiver sets it to 16 × `max_payload_bytes` + 16 KiB: measured against upb v29.4, legitimate payloads need 6–15 × their wire size plus about 2 KiB of fixed arena overhead, so at the default 64 KiB `max_payload_bytes` one `Ingest` holds at most about 1 MiB of transient arena.
+
 If a future change wants per-batch arenas (e.g., for a profile signal where re-encoding cost matters), it is an ICP. The burden of proof is on the proposer to show the cost analysis above no longer holds.
 
 ### 3.2 `EncodedPayload` shape (LOCKED)

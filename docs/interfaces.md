@@ -106,6 +106,8 @@ public:
 
 `SpanRecord` is the worker-thread shape of a completed span — owned attributes, events, links, status. Defined alongside `BatchHandle` in `include/microtel/internal/batch.hpp`.
 
+`SpanRecord` also carries `std::shared_ptr<const Resource> resource`: the Resource the span belongs to. It is null for every in-process span, which belongs to the Provider's Resource, and set only by the leaf receiver, to the leaf's resolved Resource ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.6). `BatchSpanProcessor` groups a drained batch by `(resource, scope)` — the processor's own Resource for a null pointer, pointer identity otherwise — into one `BatchHandle` per group, and `SimpleSpanProcessor` builds its single-record handle the same way. `ISpanProcessor` does not change. `shared_ptr` because one leaf Resource is shared by every queued record from that leaf and by the leaf table, and a record must keep it alive after the leaf is evicted.
+
 ### 3.4 `SamplingResult`
 
 ```
@@ -153,7 +155,7 @@ struct HealthSnapshot
 
 ## 4. The interfaces
 
-Twelve interfaces. Tagged by track per spec §13.1.
+Fourteen interfaces. Tagged by track per spec §13.1. The last two arrived in v1.2 with the concentrator and are additive: no interface above them changed.
 
 | # | Interface | Header | Track |
 |---|---|---|---|
@@ -169,6 +171,8 @@ Twelve interfaces. Tagged by track per spec §13.1.
 | 10 | `IResourceDetector` | `resource_detector.hpp` | A |
 | 11 | `IDiagnosticsSink` | `diagnostics_sink.hpp` | common |
 | 12 | `ILogSink` (public) | `include/microtel/log_sink.hpp` | common |
+| 13 | `IOtlpTraceDecoder` | `otlp_trace_decoder.hpp` | F |
+| 14 | `IBatchGroupExporter` | `batch_group_exporter.hpp` | A → B / C |
 
 ---
 
@@ -910,6 +914,79 @@ The internal logging layer (`src/common/logging/`) and any application that wish
 
 ---
 
+### 4.13 `IOtlpTraceDecoder`
+
+#### Purpose
+
+Decodes an OTLP `ExportTraceServiceRequest` into plain C++ values for the concentrator's leaf receiver ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.4). The production implementation, `wire::OtlpTraceDecoder`, is the second upb user in the runtime and lives with the encoder in `src/wire/encoder/` ([ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) Decision 5). Compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`.
+
+#### Contract
+
+```
+struct DecodeLimits { std::uint32_t max_spans; std::uint16_t max_depth; std::size_t max_arena_bytes; };
+enum class DecodeFailure : std::uint8_t { Malformed = 0, TooLarge = 1 };
+
+class IOtlpTraceDecoder {
+public:
+    virtual ~IOtlpTraceDecoder() noexcept = default;
+
+    [[nodiscard]] virtual Expected<std::vector<DecodedResourceSpans>, DecodeFailure>
+        Decode(std::span<const std::byte> payload, const DecodeLimits& limits) const = 0;
+};
+```
+
+`DecodedResourceSpans` holds the Resource attributes as the payload carried them, the ScopeSpans as `InstrumentationScope` plus `SpanRecord`s, and counts of attributes dropped because `AttributeValue` cannot hold them (`kvlist`, nested or mixed arrays; `bytes` become lowercase hex).
+
+**Postconditions.** Nothing upb-typed survives the call. A limit that is hit — spans, depth, or the arena cap enforced by a counting `upb_alloc` — is `TooLarge`; anything else that fails to parse, or that a `SpanRecord` cannot represent (an id of the wrong length, a kind or status code out of range, a timestamp past the clock's range), is `Malformed`. Semantic checks (non-zero ids, end after start, the reserved leaf attributes) belong to the caller.
+
+#### Lifetime, threading, allocation
+
+Owned by the leaf receiver. Stateless and `const`, so thread-safe. One arena per call, destroyed before the call returns (`memory-model.md` §3.1). May throw `std::bad_alloc` while building the C++ values; the receiver catches it at its boundary and reports `IngestStatus::OutOfMemory`.
+
+#### Mock and fake
+
+- **Mock** at `tests/mocks/mock_otlp_trace_decoder.hpp`. Returns the configured result; records the call count and the last limits.
+- **Fake** at `tests/fakes/fake_otlp_trace_decoder.hpp`. Serves a canned decode, applies `max_spans` to it, and throws `std::bad_alloc` on a chosen call.
+
+#### Consumers
+
+`sdk::SdkLeafReceiver` (only).
+
+---
+
+### 4.14 `IBatchGroupExporter`
+
+#### Purpose
+
+An optional companion to `IExporter` that accepts every `BatchHandle` of one processor drain in a single call, so a drain that spans several Resources — the concentrator's normal case — leaves as one export request ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.6.1). Handed over one `Export` at a time, the exporter's worker can wake between two handles and send the first alone, which would make fan-in depend on thread timing.
+
+#### Contract
+
+```
+class IBatchGroupExporter {
+public:
+    virtual ~IBatchGroupExporter() noexcept = default;
+
+    virtual void ExportGroup(std::vector<BatchHandle>&& batches) noexcept = 0;
+};
+```
+
+Each handle is accepted or refused exactly as `Export` would, and counted the same way; the worker is woken once. `IExporter` is unchanged: a `BatchSpanProcessor` given no group exporter falls back to one `Export` per handle. `OtlpExporter` implements both, and `SdkBuilder` hands the processor the same object through both.
+
+#### Threading
+
+Thread-safe, like `Export`.
+
+#### Mock and fake
+
+None shared: the one test that needs it defines a recording exporter implementing both interfaces locally (`tests/unit/sdk/batch_span_processor_test.cpp`). `OtlpExporter`'s implementation is covered in `tests/unit/exporter/otlp_exporter_test.cpp`.
+
+#### Consumers
+
+`BatchSpanProcessor` (only).
+
+---
+
 ## 5. Mock and fake conventions
 
 Restating the rule from `CLAUDE.md` rule §4 and spec §14.2:
@@ -924,7 +1001,7 @@ Every interface in this document has a mock or a fake (sometimes both). The sele
 - Public-API headers (`include/microtel/`) — see the headers themselves; the interfaces here are internal.
 - Implementation choices left to M3 (queue data structure, exact backoff formula) — see the relevant model document.
 - Auth providers beyond static + callback (OAuth2, SigV4) — v1.1+; will gain new sub-interfaces under `IAuthProvider` if needed.
-- The `IReceiver` interface for the leaf/concentrator (spec §18.4). Not realised yet; it arrives in v1.2 as experimental public API per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) and [ICP 0032](icps/0032-release-reorder-v1.1.1.md), with its contract defined in `docs/leaf-concentrator-design.md`.
+- The receiver of the leaf/concentrator role (spec §18.4) is realised as the public `microtel::LeafReceiver` in `include/microtel/leaf_receiver.hpp`, obtained from `Provider::GetLeafReceiver()` ([ICP 0034](icps/0034-leaf-receiver-api.md); contract in [`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.2–§3.3). It is public API, not an internal interface, so it is documented in its header; the spec's general `IReceiver` abstraction waits until a second receiver exists (design §3.1). Its decoder is §4.13 above.
 
 ## 7. Sign-off log
 

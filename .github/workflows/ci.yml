@@ -68,7 +68,8 @@ jobs:
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_LEAF_ENCODER=upb \
-            -DMICROTEL_BUILD_FUZZ=ON
+            -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_WITH_CONCENTRATOR=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
       - name: Run tidy-check
@@ -128,6 +129,7 @@ jobs:
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_LEAF_ENCODER=${{ matrix.compiler.name == 'gcc' && 'upb' || 'nanopb' }} \
+            -DMICROTEL_WITH_CONCENTRATOR=${{ matrix.std == 20 && 'ON' || 'OFF' }} \
             -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
@@ -168,6 +170,7 @@ jobs:
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_LEAF_ENCODER=upb \
+            -DMICROTEL_WITH_CONCENTRATOR=ON \
             -DMICROTEL_SANITIZER=${{ matrix.sanitizer }}
       - name: Build
         run: cmake --build build --verbose
@@ -349,7 +352,8 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DMICROTEL_BUILD_FUZZ=ON \
-            -DMICROTEL_BUILD_TESTS=OFF
+            -DMICROTEL_BUILD_TESTS=OFF \
+            -DMICROTEL_WITH_CONCENTRATOR=ON
       - name: Build
         run: cmake --build build-fuzz
       # Replays committed crashing inputs only. Fuzzing itself stays in the
@@ -484,10 +488,12 @@ jobs:
           LLVM_COV:      llvm-cov-21
           # The glog and log4cxx bridges are header-only under include/microtel/,
           # so their lines count toward the sdk-encoder group — build them here.
-          # The leaf (leaf/) is gated with the sdk-encoder group.
+          # The leaf (leaf/) is gated with the sdk-encoder group. The
+          # concentrator is OFF by default but its code is gated too (design §6.2).
           COVERAGE_EXTRA_CMAKE_ARGS: >-
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON
             -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb
+            -DMICROTEL_WITH_CONCENTRATOR=ON
         run: ci/scripts/coverage.sh build
       # The other half of §14.2: every line this PR adds or modifies must be
       # covered by a test in the same PR.

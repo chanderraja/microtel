@@ -15,7 +15,11 @@
 #include "common/internal_log.hpp"
 #include "sdk/batch_log_record_processor.hpp"
 #include "sdk/batch_span_processor.hpp"
+#ifdef MICROTEL_WITH_CONCENTRATOR
+#include "sdk/leaf_receiver.hpp"
+#endif
 #include "sdk/metric_producer.hpp"
+#include "sdk/noop_leaf_receiver.hpp"
 #include "sdk/noop_logger.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
 #include "sdk/provider_registry.hpp"
@@ -43,6 +47,29 @@ namespace
 {
 
 constexpr auto kProviderDestructorTimeout = std::chrono::milliseconds(5000);
+
+#ifdef MICROTEL_WITH_CONCENTRATOR
+/// The live receiver, when the args ask for one and it can be built.
+[[nodiscard]] std::shared_ptr<SdkLeafReceiver> MakeLeafReceiver(
+    SdkProviderArgs& args, const std::shared_ptr<TracePipeline>& trace, BatchSpanProcessor* bsp)
+{
+    if (!args.leaf_receiver.has_value() || !args.leaf_receiver->enabled ||
+        args.leaf_decoder == nullptr)
+    {
+        return nullptr;
+    }
+    return std::make_shared<SdkLeafReceiver>(std::move(*args.leaf_receiver),
+                                             LeafReceiverDeps{
+                                                 .owner = trace,
+                                                 .sampler = trace->sampler.Get(),
+                                                 .processor = trace->processor.get(),
+                                                 .batch_processor = bsp,
+                                                 .diagnostics = trace->diagnostics.get(),
+                                                 .decoder = std::move(args.leaf_decoder),
+                                                 .span_limits = args.span_limits,
+                                             });
+}
+#endif
 
 [[nodiscard]] internal::AggregationTemporality ToAggregationTemporality(
     microtel::TemporalityPreference pref) noexcept
@@ -88,6 +115,17 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_noop_logger(std::make_shared<NoopLogger>()),
       m_profile_name(std::move(args.profile_name))
 {
+#ifdef MICROTEL_WITH_CONCENTRATOR
+    if (auto live = MakeLeafReceiver(args, m_trace, m_batch_span_processor); live != nullptr)
+    {
+        m_sdk_leaf_receiver = live.get();
+        m_leaf_receiver = std::move(live);
+    }
+#endif
+    if (m_leaf_receiver == nullptr)
+    {
+        m_leaf_receiver = std::make_shared<NoopLeafReceiver>();
+    }
     // Registration is `SdkBuilder::Build`'s, not this constructor's: it can
     // fail on a duplicate name or a full registry, and this constructor is
     // `noexcept` with no way to say so (ICP 0027 §2).
@@ -116,6 +154,22 @@ SdkProvider::~SdkProvider() noexcept
 void SdkProvider::MarkForkedChild() noexcept
 {
     m_shut_down.store(true, std::memory_order_release);
+    StopLeafReceiver();
+}
+
+void SdkProvider::StopLeafReceiver() noexcept
+{
+#ifdef MICROTEL_WITH_CONCENTRATOR
+    if (m_sdk_leaf_receiver != nullptr)
+    {
+        m_sdk_leaf_receiver->MarkShutDown();
+    }
+#endif
+}
+
+std::shared_ptr<microtel::LeafReceiver> SdkProvider::GetLeafReceiver()
+{
+    return m_leaf_receiver;
 }
 
 std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::string_view version)
@@ -254,6 +308,9 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     // Set before tearing anything down so a concurrent GetMeter/GetLogger
     // stops building pipeline components (and spawning their threads).
     m_shut_down.store(true, std::memory_order_release);
+    // Before the processor: a payload that arrives now is refused whole as
+    // ShutDown, not half-enqueued into a processor that is draining.
+    StopLeafReceiver();
 
     Status status = m_trace->processor->Shutdown(timeout);
     // Every component below still runs even if an earlier one timed out: a

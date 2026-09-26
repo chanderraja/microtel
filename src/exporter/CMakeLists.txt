@@ -10,8 +10,12 @@ add_library(microtel_exporter STATIC
     retry_engine.cpp
     retry_policy.cpp)
 
+# microtel_encoder for ConcatenateTraceRequests, which joins the batches of one
+# multi-Resource request (docs/leaf-concentrator-design.md §3.6.1). It is a
+# byte-level helper: no upb type reaches this directory.
 target_link_libraries(microtel_exporter
-    PUBLIC microtel_headers)
+    PUBLIC  microtel_headers
+    PRIVATE microtel_encoder)
 
 target_include_directories(microtel_exporter
     PRIVATE ${CMAKE_SOURCE_DIR}/src)

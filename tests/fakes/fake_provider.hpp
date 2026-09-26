@@ -3,10 +3,12 @@
 
 #pragma once
 
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include "fakes/fake_leaf_receiver.hpp"
 #include "fakes/fake_logger.hpp"
 #include "fakes/fake_meter.hpp"
 #include "fakes/fake_tracer.hpp"
@@ -39,6 +41,8 @@ public:
     std::shared_ptr<FakeTracer> tracer = std::make_shared<FakeTracer>();
     std::shared_ptr<FakeMeter> meter = std::make_shared<FakeMeter>();
     std::shared_ptr<FakeLogger> logger = std::make_shared<FakeLogger>();
+    /// The no-op receiver `GetLeafReceiver` returns (ICP 0034).
+    std::shared_ptr<FakeLeafReceiver> leaf_receiver = std::make_shared<FakeLeafReceiver>();
     std::vector<ScopeRequest> tracer_requests;
     std::vector<ScopeRequest> meter_requests;
     std::vector<std::string> meter_schema_urls;
@@ -129,6 +133,11 @@ public:
     {
         log_level_calls.push_back(level);
         return set_log_level_result;
+    }
+
+    [[nodiscard]] std::shared_ptr<microtel::LeafReceiver> GetLeafReceiver() override
+    {
+        return leaf_receiver;
     }
 };
 

@@ -8,6 +8,8 @@
 
 #include "microtel/context.hpp"
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/batch_group_exporter.hpp"
+#include "microtel/internal/exporter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sdk_builder.hpp"
@@ -764,6 +766,169 @@ TEST(BatchSpanProcessorTest, Drain_SeparatesScopesDifferingOnlyInVersion)
     EXPECT_EQ(exp.received_batches[0].Scope().version, "1.0");
     EXPECT_EQ(exp.received_batches[1].Scope().version, "2.0");
 
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}
+
+// ---------------------------------------------------------------------------
+// Per-record Resource (docs/leaf-concentrator-design.md §3.6)
+// ---------------------------------------------------------------------------
+
+TEST(BatchSpanProcessorTest, Drain_GroupsByResourceAndScope_NullMeansTheProcessorsResource)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    mtfk::FakeExporter exp;
+    const auto own = std::make_shared<const mt::Resource>(
+        std::vector<mt::KeyValue>{{.key = "service.name", .value = std::string{"gateway"}}});
+    const auto leaf_a = std::make_shared<const mt::Resource>(
+        std::vector<mt::KeyValue>{{.key = "device.id", .value = std::string{"a"}}});
+    const auto leaf_b = std::make_shared<const mt::Resource>(
+        std::vector<mt::KeyValue>{{.key = "device.id", .value = std::string{"b"}}});
+    mt::sdk::BatchSpanProcessor bsp{&exp,
+                                    own,
+                                    opts,
+                                    mt::MemoryLimitOptions{}.max_record_bytes,
+                                    mt::MemoryLimitOptions{}.max_total_queue_bytes,
+                                    nullptr};
+    const mti::InstrumentationScope scope{.name = "s", .version = "1"};
+    const auto end_with =
+        [&bsp, &scope](const std::string& name, std::shared_ptr<const mt::Resource> resource)
+    {
+        auto record = MakeRecord(name);
+        record.resource = std::move(resource);
+        bsp.OnEnd(std::move(record), scope);
+    };
+
+    end_with("in-process-1", nullptr);
+    end_with("a1", leaf_a);
+    end_with("b1", leaf_b);
+    end_with("a2", leaf_a);
+    end_with("in-process-2", nullptr);
+
+    ASSERT_EQ(bsp.ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+
+    // One BatchHandle per (Resource, scope), in first-seen order; a null
+    // resource is grouped with, and exported as, the processor's own.
+    ASSERT_EQ(exp.received_batches.size(), std::size_t{3});
+    EXPECT_EQ(&exp.received_batches[0].ResourceRef(), own.get());
+    ASSERT_EQ(exp.received_batches[0].Spans().size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[0].Spans()[1].name, "in-process-2");
+    EXPECT_EQ(&exp.received_batches[1].ResourceRef(), leaf_a.get());
+    ASSERT_EQ(exp.received_batches[1].Spans().size(), std::size_t{2});
+    EXPECT_EQ(exp.received_batches[1].Spans()[1].name, "a2");
+    EXPECT_EQ(&exp.received_batches[2].ResourceRef(), leaf_b.get());
+
+    (void)bsp.Shutdown(std::chrono::milliseconds(500));
+}
+
+TEST(BatchSpanProcessorTest, Drain_SameResourceDifferentScopes_AreSeparateHandles)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+
+    mtfk::FakeExporter exp;
+    auto bsp = MakeBsp(exp, opts);
+    const auto leaf = std::make_shared<const mt::Resource>();
+    for (const char* scope_name : {"x", "y"})
+    {
+        auto record = MakeRecord(scope_name);
+        record.resource = leaf;
+        bsp->OnEnd(std::move(record), mti::InstrumentationScope{.name = scope_name, .version = ""});
+    }
+
+    ASSERT_EQ(bsp->ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    ASSERT_EQ(exp.received_batches.size(), std::size_t{2});
+    EXPECT_EQ(&exp.received_batches[0].ResourceRef(), leaf.get());
+    EXPECT_EQ(&exp.received_batches[1].ResourceRef(), leaf.get());
+
+    (void)bsp->Shutdown(std::chrono::milliseconds(500));
+}
+
+namespace
+{
+
+/// An exporter that is also a group exporter, recording which way each drain
+/// arrived.
+class GroupRecordingExporter : public mti::IExporter, public mti::IBatchGroupExporter
+{
+public:
+    std::vector<std::size_t> group_sizes;
+    int single_exports = 0;
+
+    [[nodiscard]] mti::ExportResult Export(mti::BatchHandle&& batch) noexcept override
+    {
+        const mti::BatchHandle consumed = std::move(batch);
+        ++single_exports;
+        return mti::ExportResult::Success;
+    }
+
+    void ExportGroup(std::vector<mti::BatchHandle>&& batches) noexcept override
+    {
+        const std::vector<mti::BatchHandle> consumed = std::move(batches);
+        group_sizes.push_back(consumed.size());
+    }
+
+    [[nodiscard]] mt::Status ForceFlush(std::chrono::milliseconds /*timeout*/) noexcept override
+    {
+        return mt::Status::Completed;
+    }
+
+    [[nodiscard]] mt::Status Shutdown(std::chrono::milliseconds /*timeout*/) noexcept override
+    {
+        return mt::Status::Completed;
+    }
+};
+
+}  // namespace
+
+TEST(BatchSpanProcessorTest, Drain_HandsEveryHandleToTheGroupExporterInOneCall)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    GroupRecordingExporter exp;
+    mt::sdk::BatchSpanProcessor bsp{&exp,
+                                    std::make_shared<const mt::Resource>(),
+                                    opts,
+                                    mt::MemoryLimitOptions{}.max_record_bytes,
+                                    mt::MemoryLimitOptions{}.max_total_queue_bytes,
+                                    nullptr,
+                                    &exp};
+    for (const char* scope_name : {"a", "b", "c"})
+    {
+        bsp.OnEnd(MakeRecord(scope_name),
+                  mti::InstrumentationScope{.name = scope_name, .version = ""});
+    }
+
+    ASSERT_EQ(bsp.ForceFlush(std::chrono::milliseconds(2000)), mt::Status::Completed);
+    (void)bsp.Shutdown(std::chrono::milliseconds(500));
+
+    ASSERT_EQ(exp.group_sizes.size(), 1U) << "one drain, one call";
+    EXPECT_EQ(exp.group_sizes[0], 3U) << "three scopes, three handles";
+    EXPECT_EQ(exp.single_exports, 0);
+}
+
+TEST(BatchSpanProcessorTest, Enqueue_ReportsWhetherTheRecordWasQueued)
+{
+    mt::BatchOptions opts;
+    opts.schedule_delay = std::chrono::hours(1);
+    opts.max_queue_size = 1;
+    opts.max_export_batch_size = 2;  // no early drain between the calls
+
+    mtfk::FakeExporter exp;
+    mtfk::FakeDiagnosticsSink sink;
+    // A record budget no record fits.
+    auto refusing = MakeBsp(exp, opts, &sink, 1);
+    EXPECT_FALSE(refusing->Enqueue(MakeRecord("big"), mti::InstrumentationScope{}));
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RecordTooLarge), 1U);
+    (void)refusing->Shutdown(std::chrono::milliseconds(500));
+    EXPECT_FALSE(refusing->Enqueue(MakeRecord("late"), mti::InstrumentationScope{}))
+        << "a record after Shutdown is refused";
+
+    auto bsp = MakeBsp(exp, opts, &sink);
+    EXPECT_TRUE(bsp->Enqueue(MakeRecord("first"), mti::InstrumentationScope{}));
+    EXPECT_FALSE(bsp->Enqueue(MakeRecord("second"), mti::InstrumentationScope{}))
+        << "DropNewest refuses the incoming record when the queue is full";
     (void)bsp->Shutdown(std::chrono::milliseconds(500));
 }
 

@@ -22,6 +22,7 @@ logs have none.
 | `mock_log_encoder.hpp`           | `internal::ILogEncoder`          | |
 | `mock_log_exporter.hpp`          | `internal::ILogExporter`         | |
 | `mock_log_record_processor.hpp`  | `internal::ILogRecordProcessor`  | |
+| `mock_otlp_trace_decoder.hpp`    | `internal::IOtlpTraceDecoder`    | |
 
 Some interfaces have a fake under [`tests/fakes/`](../fakes/) instead of
 a mock here, because the test needs logic: clocks, reactors, the

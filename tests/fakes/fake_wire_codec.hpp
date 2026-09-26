@@ -9,7 +9,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <deque>
+#include <mutex>
+#include <vector>
 
 namespace microtel::testing
 {
@@ -20,6 +23,9 @@ namespace microtel::testing
 /// `FakeWireCodec` serves scripted `WireResult`s in FIFO order, falling back
 /// to `default_result` when the queue is empty. Tests drive scenarios such as
 /// retry-then-succeed or retry-until-exhausted by pre-loading the queue.
+///
+/// It also keeps a copy of every payload it is sent, so a test can decode what
+/// would have gone on the wire (`SentPayloads`).
 class FakeWireCodec : public internal::IWireCodec
 {
 public:
@@ -34,9 +40,12 @@ public:
     /// @brief Returned when scripted_results is empty. Default: failure, non-retryable.
     internal::WireResult default_result{};
 
-    [[nodiscard]] internal::WireResult Send(internal::EncodedPayload&& /*payload*/,
+    [[nodiscard]] internal::WireResult Send(internal::EncodedPayload&& payload,
                                             std::chrono::milliseconds /*deadline*/) override
     {
+        const auto bytes = payload.Bytes();
+        const std::scoped_lock lock{m_mu};
+        m_sent.emplace_back(bytes.begin(), bytes.end());
         ++send_call_count;
         if (!scripted_results.empty())
         {
@@ -46,6 +55,17 @@ public:
         }
         return default_result;
     }
+
+    /// @brief A copy of every payload sent so far, in send order.
+    [[nodiscard]] std::vector<std::vector<std::byte>> SentPayloads() const
+    {
+        const std::scoped_lock lock{m_mu};
+        return m_sent;
+    }
+
+private:
+    mutable std::mutex m_mu;
+    std::vector<std::vector<std::byte>> m_sent;
 };
 
 }  // namespace microtel::testing

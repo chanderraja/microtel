@@ -96,13 +96,15 @@ BatchSpanProcessor::BatchSpanProcessor(internal::IExporter* exporter,
                                        BatchOptions opts,
                                        std::uint32_t max_record_bytes,
                                        std::uint64_t max_total_queue_bytes,
-                                       internal::IDiagnosticsSink* diag) noexcept
+                                       internal::IDiagnosticsSink* diag,
+                                       internal::IBatchGroupExporter* group_exporter) noexcept
     : m_exporter(exporter),
       m_resource(std::move(resource)),
       m_opts(opts),
       m_max_record_bytes(max_record_bytes),
       m_max_total_queue_bytes(max_total_queue_bytes),
       m_diag(diag),
+      m_group_exporter(group_exporter),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -132,6 +134,12 @@ void BatchSpanProcessor::OnStart(microtel::Span& /*span*/,
 void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
                                const internal::InstrumentationScope& scope) noexcept
 {
+    (void)Enqueue(std::move(record), scope);
+}
+
+bool BatchSpanProcessor::Enqueue(internal::SpanRecord&& record,
+                                 const internal::InstrumentationScope& scope) noexcept
+{
     // Measured before the lock: the scan is over the caller's own record and
     // owes nothing to the queue, and holding `m_mu` across it would serialise
     // every other tracer thread behind one span's attribute list.
@@ -141,7 +149,7 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
     if (m_shutdown)
     {
         RecordDropped(DropReason::PostShutdown);
-        return;
+        return false;
     }
     if (record_bytes > m_max_record_bytes)
     {
@@ -149,11 +157,11 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
         // the queue it would otherwise dominate (issue #181, spec §5.5). The
         // limit is a ceiling the record may reach: only `>` drops.
         RecordDropped(DropReason::RecordTooLarge);
-        return;
+        return false;
     }
     if (!MakeRoomFor(record_bytes))
     {
-        return;
+        return false;
     }
     m_queue_bytes += record_bytes;
     m_queue.push_back(
@@ -162,6 +170,7 @@ void BatchSpanProcessor::OnEnd(internal::SpanRecord&& record,
     {
         m_cv.notify_one();
     }
+    return true;
 }
 
 bool BatchSpanProcessor::MakeRoomFor(std::size_t record_bytes) noexcept
@@ -311,27 +320,53 @@ void BatchSpanProcessor::RecordDropped(DropReason reason) noexcept
 
 void BatchSpanProcessor::ExportBatch(std::vector<QueuedSpan> batch) noexcept
 {
-    // Group records by scope, preserving first-seen order, into one
-    // BatchHandle per (Resource, InstrumentationScope) — ICP 0023.
-    std::vector<std::pair<internal::InstrumentationScope, std::vector<internal::SpanRecord>>>
-        groups;
+    // Group records by (Resource, scope), preserving first-seen order, into
+    // one BatchHandle per group — ICP 0023, and design §3.6 for the Resource.
+    // A null record Resource is the processor's own; a leaf Resource is
+    // compared by pointer, since the leaf receiver shares one object per leaf.
+    struct Group
+    {
+        const Resource* resource;
+        std::shared_ptr<const Resource> owner;
+        internal::InstrumentationScope scope;
+        std::vector<internal::SpanRecord> records;
+    };
+    std::vector<Group> groups;
     for (auto& item : batch)
     {
-        const auto same_scope = [&item](const auto& group) {
-            return group.first.name == item.scope.name && group.first.version == item.scope.version;
+        const std::shared_ptr<const Resource>& owner =
+            item.record.resource != nullptr ? item.record.resource : m_resource;
+        const Resource* const key = owner.get();
+        const auto same_group = [&item, key](const Group& group)
+        {
+            return group.resource == key && group.scope.name == item.scope.name &&
+                   group.scope.version == item.scope.version;
         };
-        auto it = std::ranges::find_if(groups, same_scope);
+        auto it = std::ranges::find_if(groups, same_group);
         if (it == groups.end())
         {
-            groups.emplace_back(std::move(item.scope), std::vector<internal::SpanRecord>{});
+            // The one refcount taken per group, not per record.
+            groups.push_back(Group{
+                .resource = key, .owner = owner, .scope = std::move(item.scope), .records = {}});
             it = std::prev(groups.end());
         }
-        it->second.push_back(std::move(item.record));
+        it->records.push_back(std::move(item.record));
     }
 
+    std::vector<internal::BatchHandle> handles;
+    handles.reserve(groups.size());
     for (auto& group : groups)
     {
-        internal::BatchHandle handle{std::move(group.second), m_resource, std::move(group.first)};
+        handles.emplace_back(
+            std::move(group.records), std::move(group.owner), std::move(group.scope));
+    }
+    if (m_group_exporter != nullptr)
+    {
+        m_group_exporter->ExportGroup(std::move(handles));
+        return;
+    }
+    for (auto& handle : handles)
+    {
         (void)m_exporter->Export(std::move(handle));
     }
 }

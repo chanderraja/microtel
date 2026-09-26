@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -155,6 +156,68 @@ std::uint64_t LeafTable::Evicted() const noexcept
 {
     const std::scoped_lock lock{m_mu};
     return m_evicted;
+}
+
+UnknownLeafCache::UnknownLeafCache(std::uint32_t capacity, std::chrono::nanoseconds ttl) noexcept
+    : m_capacity(std::max(capacity, 1U)), m_ttl(ttl)
+{
+}
+
+void UnknownLeafCache::Erase(Age::iterator it) noexcept
+{
+    m_index.erase(it->id);
+    m_age.erase(it);
+}
+
+bool UnknownLeafCache::Contains(std::string_view id, TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    const auto it = m_index.find(id);
+    if (it == m_index.end())
+    {
+        return false;
+    }
+    if (now - it->second->at > m_ttl)
+    {
+        Erase(it->second);
+        return false;
+    }
+    return true;
+}
+
+void UnknownLeafCache::Insert(std::string_view id, TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    if (m_index.contains(id))
+    {
+        return;
+    }
+    // Every answer has the same TTL, so the list is in expiry order too.
+    while (!m_age.empty() && now - m_age.front().at > m_ttl)
+    {
+        Erase(m_age.begin());
+    }
+    if (m_index.size() >= m_capacity)
+    {
+        Erase(m_age.begin());
+    }
+    m_age.push_back(Answer{.id = std::string{id}, .at = now});
+    try
+    {
+        m_index.emplace(m_age.back().id, std::prev(m_age.end()));
+    }
+    catch (const std::bad_alloc&)
+    {
+        // Keep the list and the index in step, as LeafTable does.
+        m_age.pop_back();
+        throw;
+    }
+}
+
+std::uint64_t UnknownLeafCache::Size() const noexcept
+{
+    const std::scoped_lock lock{m_mu};
+    return m_index.size();
 }
 
 }  // namespace microtel::sdk

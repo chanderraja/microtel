@@ -127,6 +127,10 @@ struct LeafConfig
 /// it; the first answer is kept.
 ///
 /// `std::nullopt` means "not configured", which `unknown_leaf` then governs.
+/// Under `UnknownLeafPolicy::Reject` that answer is not kept in the leaf
+/// table, so refused leaves never evict accepted ones; it is remembered
+/// apart for up to 60 s (at most 256 ids), and the leaf is asked about again
+/// after that, so a leaf configured later is accepted.
 /// An answer sits above the leaf's static entry in `leaves`, per key. A
 /// `microtel.leaf.*` key or the `leaf_id_attribute` key in the answer's
 /// Resource is ignored, and keys that would take the configured Resource over

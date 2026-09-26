@@ -117,7 +117,8 @@ SdkLeafReceiver::SdkLeafReceiver(LeafReceiverOptions options, LeafReceiverDeps d
     : m_options(std::move(options)),
       m_deps(std::move(deps)),
       m_table(m_options.max_leaves,
-              std::chrono::nanoseconds{SaturatingNs(m_options.leaf_idle_timeout)})
+              std::chrono::nanoseconds{SaturatingNs(m_options.leaf_idle_timeout)}),
+      m_unknown(kUnknownLeafCacheSize, kUnknownLeafTtl)
 {
     for (const auto& [id, config] : m_options.leaves)
     {
@@ -184,10 +185,7 @@ bool SdkLeafReceiver::Admit(const IngestRequest& request, Payload& payload, Inge
         result = Reject(IngestStatus::Malformed, DropReason::LeafPayloadMalformed);
         return false;
     }
-    // A transport id is enough to refuse an unknown leaf before paying for
-    // the decode, unless a resolver may yet configure it.
-    if (!request.leaf_id.empty() && m_options.unknown_leaf == UnknownLeafPolicy::Reject &&
-        !m_options.resolver && !IsConfigured(request.leaf_id))
+    if (RefusedBeforeDecode(request, payload.now))
     {
         result = Reject(IngestStatus::UnknownLeaf, DropReason::LeafUnknown);
         return false;
@@ -238,7 +236,7 @@ bool SdkLeafReceiver::Identify(const IngestRequest& request, Payload& payload, I
     }
 
     payload.settings = SettingsFor(payload.leaf_id, payload.now);
-    if (!payload.settings->configured && m_options.unknown_leaf == UnknownLeafPolicy::Reject)
+    if (payload.settings == nullptr)
     {
         result = Reject(IngestStatus::UnknownLeaf, DropReason::LeafUnknown);
         return false;
@@ -315,10 +313,23 @@ std::shared_ptr<const LeafSettings> SdkLeafReceiver::SettingsFor(std::string_vie
     {
         return cached;
     }
+    const bool rejects = m_options.unknown_leaf == UnknownLeafPolicy::Reject;
+    if (rejects && m_unknown.Contains(leaf_id, now))
+    {
+        return nullptr;
+    }
     // Resolved with no lock held; two threads racing on a new leaf may both
     // get here, and the table keeps the first answer (§3.5).
-    auto fresh = std::make_shared<const LeafSettings>(ResolveSettings(leaf_id));
-    return m_table.AdoptSettings(leaf_id, std::move(fresh), now);
+    LeafSettings fresh = ResolveSettings(leaf_id);
+    if (rejects && !fresh.configured)
+    {
+        // A leaf that will be refused gets no leaf-table entry, so a burst of
+        // unknown ids cannot evict a leaf that is accepted (#343).
+        m_unknown.Insert(leaf_id, now);
+        return nullptr;
+    }
+    return m_table.AdoptSettings(
+        leaf_id, std::make_shared<const LeafSettings>(std::move(fresh)), now);
 }
 
 LeafSettings SdkLeafReceiver::ResolveSettings(std::string_view leaf_id)
@@ -544,9 +555,17 @@ LeafTable::TimePoint SdkLeafReceiver::SteadyNow() const noexcept
                                           : std::chrono::steady_clock::now();
 }
 
-bool SdkLeafReceiver::IsConfigured(std::string_view leaf_id) const
+bool SdkLeafReceiver::RefusedBeforeDecode(const IngestRequest& request, LeafTable::TimePoint now)
 {
-    return m_leaves.contains(leaf_id);
+    // A transport id is enough to refuse an unknown leaf before paying for
+    // the decode: when no resolver can configure it, or when the resolver's
+    // "not configured" for it is still cached.
+    if (request.leaf_id.empty() || m_options.unknown_leaf != UnknownLeafPolicy::Reject ||
+        m_leaves.contains(request.leaf_id))
+    {
+        return false;
+    }
+    return !m_options.resolver || m_unknown.Contains(request.leaf_id, now);
 }
 
 void SdkLeafReceiver::RecordDrop(DropReason reason, std::uint64_t n) const noexcept

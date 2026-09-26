@@ -1420,7 +1420,13 @@ enum class UnknownLeafPolicy : std::uint8_t
 The resolver is for fleets whose per-device table lives in a database or an
 inventory service. It is the answer to "a TOML table with ten thousand
 entries". A resolver that returns `std::nullopt` means "not configured", which
-`unknown_leaf` then governs.
+`unknown_leaf` then governs. *Implemented:* the answer is cached in the leaf's
+table entry, a negative one included, so the resolver runs once per entry; one
+that throws a `std::exception` (other than `std::bad_alloc`, which is
+`OutOfMemory`) counts as `std::nullopt`; reserved and `leaf_id_attribute` keys
+in its Resource are ignored, and keys over `max_leaf_resource_bytes` are
+dropped into `resource_attributes_dropped`, since an answer cannot be refused
+at `Build()`.
 
 **Precedence** is spec §12.1, per setting, and per key within every table
 (#257, `docs/configuration.md` §1):
@@ -1430,6 +1436,14 @@ entries". A resolver that returns `std::nullopt` means "not configured", which
 - `leaves`: merged per leaf id; within one leaf, `resource` per key, code over
   file
 - the resolver's answer sits above static `leaves` for the same leaf, per key
+
+*Implemented:* `WithLeafReceiver` takes a whole `LeafReceiverOptions`, which
+cannot say which scalars were set on purpose, so it supplies every scalar and
+the resolver, as `WithBatch` does for its struct; the environment's and the
+file's scalars apply when it is not called. The tables merge per key as listed.
+Durations in TOML are strings with an `s`, `m` or `h` suffix, byte sizes an
+integer or a string with a `B`, `KiB` or `MiB` suffix
+(`docs/configuration.md` §3.14).
 
 All table merges use `config::MergeResourceAttrs`
 (`src/common/config/table_merge.hpp`), which is `Resource::Merge`, so there is
@@ -1506,7 +1520,7 @@ when it changes), the boot-relative anchor (§5.4), and a last-seen time.
   over-budget *configured* Resource is a `ConfigError::Kind::InvalidValue` at
   `Build()` time instead, because it is the operator's own setting.
 - The worst-case table size is about `max_leaves × (max_leaf_resource_bytes +
-  boot-anchor samples (128 B, §5.4) + per-entry overhead)`, about 2.7 MiB at
+  boot-anchor samples (256 B, §5.4) + per-entry overhead)`, about 2.8 MiB at
   the defaults. Operators with larger
   fleets per concentrator raise `max_leaves` knowing the cost.
 - If the leaf-declared Resource changes between payloads (a firmware update),
@@ -1541,6 +1555,13 @@ cannot be forwarded to a collector unchanged.
 Provider's clock when unset). `E` is the leaf's clock reading at encode time,
 sent as `microtel.leaf.encode_time`. `t` is any leaf timestamp in the payload;
 `t'` is its corrected value.
+
+**Arithmetic.** Leaf values are untrusted, so every sum and difference
+saturates at the `int64` range instead of overflowing, and `t'` is clamped to
+`[0, INT64_MAX]` nanoseconds, the range a Unix time can hold. Correction
+applies to a span's start and end and to its event timestamps (§3.6 step 1),
+after validation, so `end_time >= start_time` is checked in the leaf's clock
+and a common offset keeps it true.
 
 ### 5.2 Concentrator-stamped
 
@@ -1627,7 +1648,9 @@ a consistent timeline across many payloads.
   single outlier and costs at most the latency difference between the best and
   second-best payload, which on a steady link is small. The window lets `B`
   follow the leaf clock's drift instead of pinning to old samples for the life
-  of the boot. 16 samples of 8 bytes is 128 bytes per leaf (§4.5).
+  of the boot. Each sample keeps `b` and the `R` it was taken at, which the
+  window needs: 16 samples of 16 bytes is 256 bytes per leaf (§4.5). A sample
+  exactly `boot_anchor_window` old still counts.
 - **Concentrator computes:** `t' = t + B`.
 - **A new `boot_id`** replaces the anchor. An evicted leaf (§4.5) re-anchors
   from its next payload.

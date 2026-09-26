@@ -26,11 +26,27 @@ namespace microtel::wire
 ///
 /// Only compiled with `MICROTEL_WITH_CONCENTRATOR=ON` (design §6.2).
 ///
-/// @threadsafety Thread-safe: stateless, `Decode` is `const`.
+/// @threadsafety Thread-safe: stateless, `Decode` is `const` — unless built
+///               with an `ArenaStats` observer, which every call writes.
 class OtlpTraceDecoder final : public internal::IOtlpTraceDecoder
 {
 public:
+    /// @brief What one `Decode` call's arena cost, for tests and the fuzzer
+    ///        (design §7.3: "the decode arena never exceeds its cap").
+    struct ArenaStats
+    {
+        std::size_t used = 0;  ///< bytes the counting allocator handed out
+        std::size_t cap = 0;   ///< the `max_arena_bytes` the call was given
+    };
+
     OtlpTraceDecoder() noexcept = default;
+
+    /// @brief A decoder that reports each call's arena use.
+    /// @param observe borrowed; overwritten at the end of every `Decode`.
+    ///                Must outlive the decoder. With it set the decoder is no
+    ///                longer safe to call from several threads at once.
+    explicit OtlpTraceDecoder(ArenaStats* observe) noexcept;
+
     ~OtlpTraceDecoder() noexcept override = default;
 
     OtlpTraceDecoder(const OtlpTraceDecoder&) = delete;
@@ -40,6 +56,9 @@ public:
 
     [[nodiscard]] Expected<std::vector<internal::DecodedResourceSpans>, internal::DecodeFailure>
     Decode(std::span<const std::byte> payload, const internal::DecodeLimits& limits) const override;
+
+private:
+    ArenaStats* m_observe = nullptr;
 };
 
 }  // namespace microtel::wire

@@ -29,3 +29,14 @@ microtel_add_test(
 
 target_include_directories(forbid_insecure_tls_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(forbid_insecure_tls_test PRIVATE MICROTEL_FORBID_INSECURE_TLS=1)
+
+# v1.2 — the concentrator's [concentrator] table, MICROTEL_CONCENTRATOR_*
+# variables and the WithLeafReceiver merge (docs/leaf-concentrator-design.md
+# §4.2-§4.3). Part of microtel_config in every build, so not gated on
+# MICROTEL_WITH_CONCENTRATOR.
+microtel_add_test(
+    NAME    concentrator_config_test
+    SOURCES concentrator_config_test.cpp
+    LIBS    microtel_config)
+
+target_include_directories(concentrator_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

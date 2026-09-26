@@ -32,6 +32,13 @@ Track E — Configuration.
   `MICROTEL_RESOURCE_DETECTORS_STRICT`) are applied in
   [`env_resolver.cpp`](env_resolver.cpp).
 - The resolved `Config` value type.
+- The `[concentrator]` table and the `MICROTEL_CONCENTRATOR_*` variables of
+  the leaf receiver, with the byte-size and duration syntax they share and the
+  merge of `SdkBuilder::WithLeafReceiver` over them
+  ([`concentrator_config.cpp`](concentrator_config.cpp); design
+  [`leaf-concentrator-design.md`](../../../docs/leaf-concentrator-design.md)
+  §4.2–§4.3). Parsed in every build; the receiver's own checks run in
+  `src/sdk/leaf_options.cpp` at `Build()`.
 - Per-key merging of the table-valued settings (`resource_attrs`, `headers`)
   across sources ([`table_merge.cpp`](table_merge.cpp), issue #257). The env
   overlay and `SdkBuilder`'s code overrides both go through it; header names
@@ -54,7 +61,8 @@ Track E — Configuration.
 
 - `tests/unit/common/config/`: `config_test.cpp` checks each setting's
   precedence (code vs env vs file vs default), validation (the happy path and
-  every documented failure) and edge cases; `forbid_insecure_tls_test.cpp`
+  every documented failure) and edge cases; `concentrator_config_test.cpp`
+  the `[concentrator]` sources; `forbid_insecure_tls_test.cpp`
   covers the ON half of the `MICROTEL_FORBID_INSECURE_TLS` gate (issue #200).
 - `tests/unit/common/auth/auth_providers_test.cpp`: the static-headers and
   callback paths, and TTL-cache behaviour.

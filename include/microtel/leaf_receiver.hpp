@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -115,7 +116,30 @@ struct LeafConfig
     std::vector<KeyValue> resource;
 };
 
-/// @brief Options for `SdkBuilder::WithLeafReceiver` (§4.3).
+/// @brief Looks up the configuration of a leaf the receiver has not seen yet
+///        (§4.3): for fleets whose per-device table lives in a database or an
+///        inventory service rather than in `LeafReceiverOptions::leaves`.
+///
+/// Called the first time a leaf id is seen, and again after the leaf's entry
+/// is evicted from the leaf table (§4.5). It runs on the `Ingest` caller's
+/// thread with no microtel lock held, so it may block, but every `Ingest` for
+/// a new leaf waits for it. Two threads that race on a new leaf may both call
+/// it; the first answer is kept.
+///
+/// `std::nullopt` means "not configured", which `unknown_leaf` then governs.
+/// An answer sits above the leaf's static entry in `leaves`, per key. A
+/// `microtel.leaf.*` key or the `leaf_id_attribute` key in the answer's
+/// Resource is ignored, and keys that would take the configured Resource over
+/// `max_leaf_resource_bytes` are dropped and counted in
+/// `LeafReceiverStats::resource_attributes_dropped`. A resolver that throws is
+/// treated as having answered `std::nullopt`.
+///
+/// @threadsafety Must be safe to call concurrently from several threads.
+using LeafConfigResolver = std::function<std::optional<LeafConfig>(std::string_view leaf_id)>;
+
+/// @brief Options for `SdkBuilder::WithLeafReceiver` (§4.3), and the
+///        `[concentrator]` TOML table and `MICROTEL_CONCENTRATOR_*` variables
+///        that set the same fields (§4.2, `docs/configuration.md` §3.14).
 ///
 /// Every limit is validated by `SdkBuilder::Build()`; a value it rejects fails
 /// the build with `ConfigError::Kind::InvalidValue`.
@@ -130,17 +154,32 @@ struct LeafReceiverOptions
     std::uint32_t max_leaves = 1024;
     /// Bound on one leaf's resolved Resource, keys plus values (§4.5).
     std::uint32_t max_leaf_resource_bytes = 2U * 1024U;
+    /// A leaf not seen for longer than this loses its table entry, checked
+    /// when an entry is inserted (§4.5). Must be positive.
+    std::chrono::seconds leaf_idle_timeout{3600};
     UnknownLeafPolicy unknown_leaf = UnknownLeafPolicy::Accept;
     /// The Resource key the leaf id is exported as, and the payload key the id
     /// is read from when `IngestRequest::leaf_id` is empty. `""` disables both
     /// (§4.1).
     std::string leaf_id_attribute = "device.id";
     std::optional<LeafTimeMode> default_time_mode;  ///< unset: auto
+    /// A sync-relative payload whose last clock sync is older than this is
+    /// corrected as concentrator-stamped instead (§5.3). Must be positive.
+    std::chrono::seconds max_sync_age{3600};
+    /// A sync-relative payload whose encode time is further than this from the
+    /// receive time is corrected as concentrator-stamped instead (§5.3). Must
+    /// be positive.
+    std::chrono::seconds max_clock_skew{300};
+    /// How long a boot-relative sample counts towards the leaf's anchor
+    /// (§5.4). Must be positive.
+    std::chrono::seconds boot_anchor_window{600};
     /// Fills gaps in every leaf's Resource; the lowest layer (§4.4).
     std::vector<KeyValue> leaf_defaults_resource;
     /// Per-leaf configuration, keyed by leaf id. A leaf listed here is
     /// "configured" for the purposes of `unknown_leaf`.
     std::vector<std::pair<std::string, LeafConfig>> leaves;
+    /// Optional; consulted for every leaf the table does not hold (§4.3).
+    LeafConfigResolver resolver;
 };
 
 /// @brief Receives OTLP trace payloads from leaves and feeds their spans into

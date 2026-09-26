@@ -246,13 +246,19 @@ public:
     ///        `docs/leaf-concentrator-design.md` §4.3). Experimental.
     ///
     /// `Provider::GetLeafReceiver()` then returns a live receiver instead of
-    /// the no-op one. `Build()` validates @p opts and fails with
-    /// `ConfigError::Kind::InvalidValue` on a bad limit, a reserved or
-    /// `leaf_id_attribute` key in a configured Resource, or a configured
+    /// the no-op one. The `[concentrator]` TOML table and the
+    /// `MICROTEL_CONCENTRATOR_*` variables set the same options; @p opts is
+    /// merged over them as the highest source (`docs/configuration.md` §3.14):
+    /// every scalar and the resolver come from @p opts, while
+    /// `leaf_defaults_resource` merges per key and `leaves` per leaf id.
+    ///
+    /// `Build()` validates the result and fails with
+    /// `ConfigError::Kind::InvalidValue` on a bad limit or duration, a reserved
+    /// or `leaf_id_attribute` key in a configured Resource, or a configured
     /// Resource over `max_leaf_resource_bytes`. In a library built without
     /// `MICROTEL_WITH_CONCENTRATOR` (the default), `Build()` fails with
-    /// `InvalidValue` on field `concentrator.enabled` unless `opts.enabled` is
-    /// false.
+    /// `InvalidValue` on field `concentrator.enabled` if any source enables the
+    /// receiver.
     SdkBuilder& WithLeafReceiver(LeafReceiverOptions opts);
 
     /// @brief Validate configuration and construct a `Provider`.

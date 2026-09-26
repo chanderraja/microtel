@@ -5,15 +5,20 @@
 
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include "common/config/concentrator_config.hpp"
 #include "common/config/table_merge.hpp"
 
 #include <charconv>
+#include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace microtel::config
@@ -269,6 +274,107 @@ namespace
     return {};
 }
 
+/// Apply one variable whose text @p parse turns into a value, or refuses with
+/// @p expected in the message.
+template <typename T, typename Parse>
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayParsed(const char* var_name,
+                                                                  Parse parse,
+                                                                  std::string_view expected,
+                                                                  T& out)
+{
+    const auto v = GetEnv(var_name);
+    if (v.empty())
+    {
+        return {};
+    }
+    auto parsed = parse(std::string_view{v});
+    if (!parsed.has_value())
+    {
+        return microtel::make_unexpected(
+            ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                        .field = var_name,
+                        .message = std::string{var_name} + ": expected " + std::string{expected}});
+    }
+    out = *parsed;
+    return {};
+}
+
+[[nodiscard]] std::optional<bool> ParseBool(std::string_view v) noexcept
+{
+    if (v == "true" || v == "1")
+    {
+        return true;
+    }
+    if (v == "false" || v == "0")
+    {
+        return false;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::uint32_t> ParseCount(std::string_view v) noexcept
+{
+    std::uint32_t n = 0;
+    const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), n);
+    if (ec != std::errc{} || ptr != v.data() + v.size())
+    {
+        return std::nullopt;
+    }
+    return n;
+}
+
+/// The `MICROTEL_CONCENTRATOR_*` variables (`docs/leaf-concentrator-design.md`
+/// §4.3): scalars only, plus the fleet-wide Resource defaults. Per-leaf
+/// settings have no environment form.
+[[nodiscard]] microtel::Expected<void, ConfigError> OverlayConcentratorEnv(Config& cfg)
+{
+    LeafReceiverOptions& o = cfg.concentrator;
+    auto r = OverlayParsed(
+        "MICROTEL_CONCENTRATOR_ENABLED", ParseBool, R"("true"/"1" or "false"/"0")", o.enabled);
+    if (r)
+    {
+        r = OverlayParsed("MICROTEL_CONCENTRATOR_MAX_PAYLOAD_BYTES",
+                          ParseByteSize,
+                          R"(a byte count, optionally with a B, KiB or MiB suffix)",
+                          o.max_payload_bytes);
+    }
+    if (r)
+    {
+        r = OverlayParsed(
+            "MICROTEL_CONCENTRATOR_MAX_LEAVES", ParseCount, "a decimal integer", o.max_leaves);
+    }
+    if (r)
+    {
+        r = OverlayParsed("MICROTEL_CONCENTRATOR_UNKNOWN_LEAF",
+                          ParseUnknownLeafPolicy,
+                          R"("accept" or "reject")",
+                          o.unknown_leaf);
+    }
+    if (r)
+    {
+        r = OverlayParsed("MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE",
+                          ParseDefaultTimeMode,
+                          R"("auto", "concentrator_stamped", "sync_relative" or "boot_relative")",
+                          o.default_time_mode);
+    }
+    if (!r)
+    {
+        return r;
+    }
+    const auto v = GetEnv("MICROTEL_CONCENTRATOR_RESOURCE_ATTRIBUTES");
+    if (v.empty())
+    {
+        return {};
+    }
+    auto attrs = ParseKeyValueList(v, "MICROTEL_CONCENTRATOR_RESOURCE_ATTRIBUTES");
+    if (!attrs)
+    {
+        return microtel::make_unexpected(attrs.error());
+    }
+    MergeResourceAttrs(o.leaf_defaults_resource, *attrs);
+    return {};
+}
+
 /// The exporter half of the overlay: endpoint, protocol, headers, timeout,
 /// compression and CA bundle.
 [[nodiscard]] microtel::Expected<void, ConfigError> OverlayExporterEnv(Config& cfg)
@@ -363,7 +469,11 @@ microtel::Expected<void, ConfigError> OverlayEnv(Config& cfg)
     {
         return microtel::make_unexpected(r.error());
     }
-    return OverlayResourceAndMetricEnv(cfg);
+    if (auto r = OverlayResourceAndMetricEnv(cfg); !r)
+    {
+        return microtel::make_unexpected(r.error());
+    }
+    return OverlayConcentratorEnv(cfg);
 }
 
 }  // namespace microtel::config

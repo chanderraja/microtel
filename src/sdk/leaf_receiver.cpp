@@ -15,12 +15,16 @@
 #include "common/internal_log.hpp"
 #include "sdk/batch_span_processor.hpp"
 #include "sdk/leaf_resource.hpp"
+#include "sdk/leaf_table.hpp"
+#include "sdk/leaf_time.hpp"
 #include "sdk/span_limits.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <new>
@@ -87,6 +91,15 @@ constexpr std::size_t kArenaFloor = std::size_t{16} * 1024U;
     return v.has_value() && *v > 0 ? static_cast<std::uint64_t>(*v) : 0;
 }
 
+/// @p d in nanoseconds, saturated rather than overflowing for durations
+/// beyond about 292 years.
+[[nodiscard]] std::int64_t SaturatingNs(std::chrono::seconds d) noexcept
+{
+    constexpr std::int64_t kNsPerSecond = 1'000'000'000;
+    constexpr std::int64_t kMaxSeconds = std::numeric_limits<std::int64_t>::max() / kNsPerSecond;
+    return std::clamp<std::int64_t>(d.count(), -kMaxSeconds, kMaxSeconds) * kNsPerSecond;
+}
+
 }  // namespace
 
 /// One payload on its way through `Ingest`.
@@ -95,11 +108,16 @@ struct SdkLeafReceiver::Payload
     std::vector<internal::DecodedResourceSpans> decoded;
     std::vector<LeafTimeMode> modes;  ///< index-aligned with `decoded`
     std::string leaf_id;
-    const LeafConfig* config = nullptr;  ///< null for an unconfigured leaf
+    std::shared_ptr<const LeafSettings> settings;  ///< set by `Identify`
+    std::int64_t received = 0;                     ///< `R`, Unix nanoseconds (§5.1)
+    LeafTable::TimePoint now;                      ///< for the leaf table
 };
 
 SdkLeafReceiver::SdkLeafReceiver(LeafReceiverOptions options, LeafReceiverDeps deps)
-    : m_options(std::move(options)), m_deps(std::move(deps)), m_table(m_options.max_leaves)
+    : m_options(std::move(options)),
+      m_deps(std::move(deps)),
+      m_table(m_options.max_leaves,
+              std::chrono::nanoseconds{SaturatingNs(m_options.leaf_idle_timeout)})
 {
     for (const auto& [id, config] : m_options.leaves)
     {
@@ -137,7 +155,13 @@ IngestResult SdkLeafReceiver::Ingest(const IngestRequest& request) noexcept
 
 void SdkLeafReceiver::IngestOrThrow(const IngestRequest& request, IngestResult& result)
 {
-    Payload payload;
+    // R is read once, at the start of the call (§5.1).
+    Payload payload{.decoded = {},
+                    .modes = {},
+                    .leaf_id = {},
+                    .settings = nullptr,
+                    .received = ReceivedNs(request),
+                    .now = SteadyNow()};
     if (!Admit(request, payload, result) || !Identify(request, payload, result))
     {
         return;
@@ -161,9 +185,9 @@ bool SdkLeafReceiver::Admit(const IngestRequest& request, Payload& payload, Inge
         return false;
     }
     // A transport id is enough to refuse an unknown leaf before paying for
-    // the decode.
+    // the decode, unless a resolver may yet configure it.
     if (!request.leaf_id.empty() && m_options.unknown_leaf == UnknownLeafPolicy::Reject &&
-        !IsConfigured(request.leaf_id))
+        !m_options.resolver && !IsConfigured(request.leaf_id))
     {
         result = Reject(IngestStatus::UnknownLeaf, DropReason::LeafUnknown);
         return false;
@@ -213,9 +237,8 @@ bool SdkLeafReceiver::Identify(const IngestRequest& request, Payload& payload, I
         return false;
     }
 
-    const auto it = m_leaves.find(std::string_view{payload.leaf_id});
-    payload.config = it == m_leaves.end() ? nullptr : &it->second;
-    if (payload.config == nullptr && m_options.unknown_leaf == UnknownLeafPolicy::Reject)
+    payload.settings = SettingsFor(payload.leaf_id, payload.now);
+    if (!payload.settings->configured && m_options.unknown_leaf == UnknownLeafPolicy::Reject)
     {
         result = Reject(IngestStatus::UnknownLeaf, DropReason::LeafUnknown);
         return false;
@@ -255,9 +278,9 @@ std::string SdkLeafReceiver::SettleLeafId(const IngestRequest& request,
 bool SdkLeafReceiver::ModesAllowed(const Payload& payload) const noexcept
 {
     // §5.1: the leaf declares, the config constrains.
-    const bool configured = payload.config != nullptr && payload.config->time_mode.has_value();
-    const std::optional<LeafTimeMode> allowed =
-        configured ? payload.config->time_mode : m_options.default_time_mode;
+    const std::optional<LeafTimeMode> allowed = payload.settings->time_mode.has_value()
+                                                    ? payload.settings->time_mode
+                                                    : m_options.default_time_mode;
     return std::ranges::all_of(
         payload.modes, [&allowed](LeafTimeMode mode) { return TimeModeAllowed(mode, allowed); });
 }
@@ -285,11 +308,83 @@ void SdkLeafReceiver::CountIdConflict(const IngestRequest& request, const Payloa
     }
 }
 
+std::shared_ptr<const LeafSettings> SdkLeafReceiver::SettingsFor(std::string_view leaf_id,
+                                                                 LeafTable::TimePoint now)
+{
+    if (auto cached = m_table.Settings(leaf_id, now); cached != nullptr)
+    {
+        return cached;
+    }
+    // Resolved with no lock held; two threads racing on a new leaf may both
+    // get here, and the table keeps the first answer (§3.5).
+    auto fresh = std::make_shared<const LeafSettings>(ResolveSettings(leaf_id));
+    return m_table.AdoptSettings(leaf_id, std::move(fresh), now);
+}
+
+LeafSettings SdkLeafReceiver::ResolveSettings(std::string_view leaf_id)
+{
+    LeafSettings settings;
+    if (const auto it = m_leaves.find(leaf_id); it != m_leaves.end())
+    {
+        settings = LeafSettings{
+            .configured = true, .time_mode = it->second.time_mode, .resource = it->second.resource};
+    }
+    const auto answer = AskResolver(leaf_id);
+    if (!answer.has_value())
+    {
+        return settings;
+    }
+    // The resolver's answer sits above the static entry, per key (§4.3).
+    settings.configured = true;
+    if (answer->time_mode.has_value())
+    {
+        settings.time_mode = answer->time_mode;
+    }
+    const std::uint64_t dropped =
+        MergeResolverResource(settings.resource,
+                              answer->resource,
+                              LeafResourceLayers{
+                                  .defaults = &m_options.leaf_defaults_resource,
+                                  .declared = nullptr,
+                                  .configured = nullptr,
+                                  .id_key = m_options.leaf_id_attribute,
+                                  .leaf_id = leaf_id,
+                                  .budget = m_options.max_leaf_resource_bytes,
+                              });
+    m_counters.resource_attributes_dropped.fetch_add(dropped, std::memory_order_relaxed);
+    return settings;
+}
+
+std::optional<LeafConfig> SdkLeafReceiver::AskResolver(std::string_view leaf_id) const
+{
+    if (!m_options.resolver)
+    {
+        return std::nullopt;
+    }
+    try
+    {
+        return m_options.resolver(leaf_id);
+    }
+    catch (const std::bad_alloc&)
+    {
+        // Out of memory is the concentrator's condition, reported as such by
+        // Ingest, not a resolver that failed to answer.
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        internal::LogImpl(LogLevel::Warn,
+                          std::string{"leaf receiver: the leaf config resolver threw ("} +
+                              e.what() + "); the leaf is treated as not configured");
+        return std::nullopt;
+    }
+}
+
 std::shared_ptr<const Resource> SdkLeafReceiver::ResourceFor(const Payload& payload,
                                                              const std::vector<KeyValue>& declared)
 {
     const std::uint64_t hash = HashDeclaredResource(declared);
-    if (auto cached = m_table.Find(payload.leaf_id, hash); cached != nullptr)
+    if (auto cached = m_table.Find(payload.leaf_id, hash, payload.now); cached != nullptr)
     {
         return cached;
     }
@@ -298,20 +393,55 @@ std::shared_ptr<const Resource> SdkLeafReceiver::ResourceFor(const Payload& payl
     auto resolved = ResolveLeafResource(LeafResourceLayers{
         .defaults = &m_options.leaf_defaults_resource,
         .declared = &declared,
-        .configured = payload.config != nullptr ? &payload.config->resource : nullptr,
+        .configured = &payload.settings->resource,
         .id_key = m_options.leaf_id_attribute,
         .leaf_id = payload.leaf_id,
         .budget = m_options.max_leaf_resource_bytes,
     });
     m_counters.resource_attributes_dropped.fetch_add(resolved.attributes_dropped,
                                                      std::memory_order_relaxed);
-    return m_table.Insert(payload.leaf_id, hash, std::move(resolved.resource));
+    return m_table.Insert(payload.leaf_id, hash, std::move(resolved.resource), payload.now);
+}
+
+TimeCorrection SdkLeafReceiver::CorrectionFor(const Payload& payload,
+                                              LeafTimeMode mode,
+                                              const LeafWireInfo& info,
+                                              bool& fell_back)
+{
+    // CheckWireInfo has made sure each mode's own attributes are present.
+    if (mode == LeafTimeMode::SyncRelative)
+    {
+        const SyncLimits limits{.max_sync_age = SaturatingNs(m_options.max_sync_age),
+                                .max_clock_skew = SaturatingNs(m_options.max_clock_skew)};
+        if (auto trusted = SyncRelative(
+                payload.received, info.encode_time.value_or(0), info.sync_age.value_or(0), limits))
+        {
+            return *trusted;
+        }
+        // A stale or wrong sync: corrected as concentrator-stamped (§5.3).
+        fell_back = true;
+    }
+    else if (mode == LeafTimeMode::BootRelative)
+    {
+        const BootSample sample{
+            .boot_id = info.boot_id.value_or(0),
+            .offset = SaturatingSub(payload.received, info.encode_time.value_or(0)),
+            .at = payload.received,
+        };
+        return TimeCorrection{
+            .offset = m_table.UpdateBootAnchor(
+                payload.leaf_id, sample, SaturatingNs(m_options.boot_anchor_window), payload.now),
+            .fixed = std::nullopt};
+    }
+    return ConcentratorStamped(payload.received, info.encode_time);
 }
 
 void SdkLeafReceiver::Enqueue(Payload& payload, IngestResult& result)
 {
-    for (auto& rs : payload.decoded)
+    bool fell_back = false;
+    for (std::size_t i = 0; i < payload.decoded.size(); ++i)
     {
+        auto& rs = payload.decoded[i];
         const LeafWireInfo info = ReadWireInfo(rs.resource);
         m_counters.leaf_reported_drops.fetch_add(NonNegative(info.dropped_spans) +
                                                      NonNegative(info.dropped_items),
@@ -320,11 +450,18 @@ void SdkLeafReceiver::Enqueue(Payload& payload, IngestResult& result)
                                                          std::memory_order_relaxed);
         RecordDrop(DropReason::SpanAttributeLimit, rs.dropped_span_attributes);
 
-        EnqueueResourceSpans(ResourceFor(payload, rs.resource), rs, result);
+        const TimeCorrection correction =
+            CorrectionFor(payload, payload.modes.at(i), info, fell_back);
+        EnqueueResourceSpans(ResourceFor(payload, rs.resource), correction, rs, result);
+    }
+    if (fell_back)
+    {
+        m_counters.time_fallbacks.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
 void SdkLeafReceiver::EnqueueResourceSpans(const std::shared_ptr<const Resource>& resource,
+                                           const TimeCorrection& correction,
                                            internal::DecodedResourceSpans& rs,
                                            IngestResult& result) const noexcept
 {
@@ -332,7 +469,7 @@ void SdkLeafReceiver::EnqueueResourceSpans(const std::shared_ptr<const Resource>
     {
         for (auto& span : scope.spans)
         {
-            EnqueueSpan(span, scope.scope, resource, result);
+            EnqueueSpan(span, scope.scope, resource, correction, result);
         }
     }
 }
@@ -340,10 +477,11 @@ void SdkLeafReceiver::EnqueueResourceSpans(const std::shared_ptr<const Resource>
 void SdkLeafReceiver::EnqueueSpan(internal::SpanRecord& span,
                                   const internal::InstrumentationScope& scope,
                                   const std::shared_ptr<const Resource>& resource,
+                                  const TimeCorrection& correction,
                                   IngestResult& result) const noexcept
 {
-    // Time correction (§5) is applied here once the time modes land; until
-    // then timestamps pass through as the leaf wrote them.
+    // §3.6 step 1: leaf timestamps become Unix times.
+    ApplyTimeCorrection(span, correction);
     ApplySpanLimits(span, m_deps.span_limits, m_deps.diagnostics);
 
     // Every span is sampled as a root (§3.6): a leaf does no sampling, so
@@ -386,6 +524,26 @@ IngestResult SdkLeafReceiver::Reject(IngestStatus status, DropReason reason) noe
     return IngestResult{.status = status};
 }
 
+std::int64_t SdkLeafReceiver::ReceivedNs(const IngestRequest& request) const noexcept
+{
+    std::chrono::system_clock::time_point r;
+    if (request.received_at.has_value())
+    {
+        r = *request.received_at;
+    }
+    else
+    {
+        r = m_deps.clock != nullptr ? m_deps.clock->Now() : std::chrono::system_clock::now();
+    }
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(r.time_since_epoch()).count();
+}
+
+LeafTable::TimePoint SdkLeafReceiver::SteadyNow() const noexcept
+{
+    return m_deps.steady_clock != nullptr ? m_deps.steady_clock->Now()
+                                          : std::chrono::steady_clock::now();
+}
+
 bool SdkLeafReceiver::IsConfigured(std::string_view leaf_id) const
 {
     return m_leaves.contains(leaf_id);
@@ -426,7 +584,7 @@ LeafReceiverStats SdkLeafReceiver::Stats() const noexcept
         .leaves_tracked = m_table.Size(),
         .leaves_evicted = m_table.Evicted(),
         .leaf_reported_drops = m_counters.leaf_reported_drops.load(std::memory_order_relaxed),
-        .time_fallbacks = 0,
+        .time_fallbacks = m_counters.time_fallbacks.load(std::memory_order_relaxed),
         .payloads_out_of_memory = m_counters.payloads_out_of_memory.load(std::memory_order_relaxed),
         .resource_attributes_dropped =
             m_counters.resource_attributes_dropped.load(std::memory_order_relaxed),

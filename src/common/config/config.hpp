@@ -4,9 +4,12 @@
 #pragma once
 
 #include "microtel/attribute.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/sdk_builder.hpp"
+
+#include "common/config/concentrator_config.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -150,6 +153,19 @@ struct Config
     ///
     /// @see docs/configuration.md §3.11, ICP 0026 §6, issue #190
     microtel::LogLevel log_level{microtel::LogLevel::Info};
+
+    // Concentrator
+    /// @brief The leaf receiver's settings (`docs/leaf-concentrator-design.md`
+    ///        §4.2–§4.3): the `[concentrator]` TOML table, the
+    ///        `MICROTEL_CONCENTRATOR_*` variables, then
+    ///        `SdkBuilder::WithLeafReceiver` merged over both.
+    ///
+    /// `enabled` is false unless a source turns it on. Checked at `Build()` by
+    /// the SDK (`src/sdk/leaf_options.hpp`), not by `Validate()`, because the
+    /// checks share the receiver's own limits and reserved-key rules.
+    ///
+    /// @see docs/configuration.md §3.14
+    LeafReceiverOptions concentrator = DefaultConcentratorOptions();
 };
 
 }  // namespace microtel::config

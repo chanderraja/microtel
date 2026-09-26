@@ -5,10 +5,14 @@
 
 #include "microtel/resource.hpp"
 
+#include "sdk/leaf_time.hpp"
+
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,43 +20,61 @@
 namespace microtel::sdk
 {
 
-LeafTable::LeafTable(std::uint32_t max_leaves) noexcept : m_max_leaves(std::max(max_leaves, 1U)) {}
-
-std::shared_ptr<const Resource> LeafTable::Find(std::string_view id, std::uint64_t declared_hash)
+LeafTable::LeafTable(std::uint32_t max_leaves, std::chrono::nanoseconds idle_timeout) noexcept
+    : m_max_leaves(std::max(max_leaves, 1U)), m_idle_timeout(idle_timeout)
 {
-    const std::scoped_lock lock{m_mu};
+}
+
+LeafTable::Entry* LeafTable::Touch(std::string_view id, TimePoint now)
+{
     const auto it = m_index.find(id);
-    if (it == m_index.end() || it->second->declared_hash != declared_hash)
+    if (it == m_index.end())
     {
         return nullptr;
     }
     m_recency.splice(m_recency.begin(), m_recency, it->second);
-    return it->second->resource;
+    it->second->last_seen = now;
+    return &*it->second;
 }
 
-std::shared_ptr<const Resource> LeafTable::Insert(std::string_view id,
-                                                  std::uint64_t declared_hash,
-                                                  std::shared_ptr<const Resource> resource)
+void LeafTable::EvictOldest()
 {
-    const std::scoped_lock lock{m_mu};
-    if (const auto it = m_index.find(id); it != m_index.end())
+    m_index.erase(m_recency.back().id);
+    m_recency.pop_back();
+    ++m_evicted;
+}
+
+void LeafTable::EvictIdle(TimePoint now)
+{
+    if (m_idle_timeout <= std::chrono::nanoseconds::zero())
     {
-        m_recency.splice(m_recency.begin(), m_recency, it->second);
-        if (it->second->declared_hash != declared_hash)
-        {
-            it->second->declared_hash = declared_hash;
-            it->second->resource = std::move(resource);
-        }
-        return it->second->resource;
+        return;
     }
+    // The list is ordered by last sighting, so the idle entries are at its
+    // back.
+    while (!m_recency.empty() && now - m_recency.back().last_seen > m_idle_timeout)
+    {
+        EvictOldest();
+    }
+}
+
+LeafTable::Entry& LeafTable::TouchOrInsert(std::string_view id, TimePoint now)
+{
+    if (auto* const entry = Touch(id, now); entry != nullptr)
+    {
+        return *entry;
+    }
+    EvictIdle(now);
     if (m_index.size() >= m_max_leaves)
     {
-        m_index.erase(m_recency.back().id);
-        m_recency.pop_back();
-        ++m_evicted;
+        EvictOldest();
     }
-    m_recency.push_front(Entry{
-        .id = std::string{id}, .declared_hash = declared_hash, .resource = std::move(resource)});
+    m_recency.push_front(Entry{.id = std::string{id},
+                               .settings = nullptr,
+                               .declared_hash = 0,
+                               .resource = nullptr,
+                               .anchor = {},
+                               .last_seen = now});
     try
     {
         m_index.emplace(m_recency.front().id, m_recency.begin());
@@ -64,7 +86,63 @@ std::shared_ptr<const Resource> LeafTable::Insert(std::string_view id,
         m_recency.pop_front();
         throw;
     }
-    return m_recency.front().resource;
+    return m_recency.front();
+}
+
+std::shared_ptr<const LeafSettings> LeafTable::Settings(std::string_view id, TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    const auto* const entry = Touch(id, now);
+    return entry == nullptr ? nullptr : entry->settings;
+}
+
+std::shared_ptr<const LeafSettings> LeafTable::AdoptSettings(
+    std::string_view id, std::shared_ptr<const LeafSettings> settings, TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    Entry& entry = TouchOrInsert(id, now);
+    if (entry.settings == nullptr)
+    {
+        entry.settings = std::move(settings);
+    }
+    return entry.settings;
+}
+
+std::shared_ptr<const Resource> LeafTable::Find(std::string_view id,
+                                                std::uint64_t declared_hash,
+                                                TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    const auto* const entry = Touch(id, now);
+    if (entry == nullptr || entry->declared_hash != declared_hash)
+    {
+        return nullptr;
+    }
+    return entry->resource;
+}
+
+std::shared_ptr<const Resource> LeafTable::Insert(std::string_view id,
+                                                  std::uint64_t declared_hash,
+                                                  std::shared_ptr<const Resource> resource,
+                                                  TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    Entry& entry = TouchOrInsert(id, now);
+    if (entry.resource == nullptr || entry.declared_hash != declared_hash)
+    {
+        entry.declared_hash = declared_hash;
+        entry.resource = std::move(resource);
+    }
+    return entry.resource;
+}
+
+std::int64_t LeafTable::UpdateBootAnchor(std::string_view id,
+                                         const BootSample& sample,
+                                         std::int64_t window,
+                                         TimePoint now)
+{
+    const std::scoped_lock lock{m_mu};
+    return TouchOrInsert(id, now).anchor.Update(sample, window);
 }
 
 std::uint64_t LeafTable::Size() const noexcept

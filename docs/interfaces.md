@@ -941,7 +941,7 @@ public:
 
 #### Lifetime, threading, allocation
 
-Owned by the leaf receiver. Stateless and `const`, so thread-safe. One arena per call, destroyed before the call returns (`memory-model.md` §3.1). May throw `std::bad_alloc` while building the C++ values; the receiver catches it at its boundary and reports `IngestStatus::OutOfMemory`.
+Owned by the leaf receiver. Stateless and `const`, so thread-safe (a test may build `wire::OtlpTraceDecoder` with an `ArenaStats` observer that each call writes; the leaf fuzzer uses it to check the arena cap, and that instance is single-threaded). One arena per call, destroyed before the call returns (`memory-model.md` §3.1). May throw `std::bad_alloc` while building the C++ values; the receiver catches it at its boundary and reports `IngestStatus::OutOfMemory`.
 
 #### Mock and fake
 

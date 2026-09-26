@@ -11,10 +11,12 @@
 
 #include "sdk/leaf_resource.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace microtel::sdk
@@ -77,6 +79,19 @@ namespace
     if (o.max_leaves == 0)
     {
         return Invalid("concentrator.max_leaves", "must be greater than zero");
+    }
+    const std::pair<const char*, std::chrono::seconds> durations[] = {
+        {"concentrator.leaf_idle_timeout", o.leaf_idle_timeout},
+        {"concentrator.max_sync_age", o.max_sync_age},
+        {"concentrator.max_clock_skew", o.max_clock_skew},
+        {"concentrator.boot_anchor_window", o.boot_anchor_window},
+    };
+    for (const auto& [field, value] : durations)
+    {
+        if (value <= std::chrono::seconds::zero())
+        {
+            return Invalid(field, "must be greater than zero");
+        }
     }
     return std::nullopt;
 }

@@ -61,7 +61,8 @@ Discovery is deferred, not rejected; if it lands it belongs in this section with
 the precedence between tiers spelled out.
 
 **Top-level tables recognised in the file:** `[config]`, `[exporter]`,
-`[service]`, `[resource]`, `[tls]`, `[sdk]`, `[timeouts]`. Any other top-level
+`[service]`, `[resource]`, `[tls]`, `[sdk]`, `[timeouts]`, `[logging]`,
+`[concentrator]`. Any other top-level
 table is an unknown key and, under the default policy, fails `Build()` — so the
 §3 tables below are the whole TOML surface, not a subset of it.
 
@@ -463,6 +464,97 @@ environment variables; there is no TOML table.
 | `WithMetricLimits({.max_cardinality = n})` | — | `MICROTEL_METRIC_CARDINALITY_LIMIT` (decimal integer) | 2000 |
 | `WithView(ViewConfig)` | — | — | no views |
 
+### 3.14 Concentrator (leaf receiver)
+
+Experimental in v1.2, and compiled in only with `-DMICROTEL_WITH_CONCENTRATOR=ON`
+(§4). The design is [`leaf-concentrator-design.md`](leaf-concentrator-design.md)
+§4–§5. Three sources set the same `LeafReceiverOptions`
+([`include/microtel/leaf_receiver.hpp`](../include/microtel/leaf_receiver.hpp)):
+the `[concentrator]` TOML table, the `MICROTEL_CONCENTRATOR_*` variables, and
+`SdkBuilder::WithLeafReceiver(opts)`. The receiver is off unless one of them
+turns it on. In a build without the option, a source that enables it fails
+`Build()` with `ConfigError::Kind::InvalidValue` on field `concentrator.enabled`.
+
+| TOML (`[concentrator]`) | Code (`LeafReceiverOptions`) | MICROTEL env | Default |
+|---|---|---|---|
+| `enabled` | `.enabled` (implied by `WithLeafReceiver`) | `MICROTEL_CONCENTRATOR_ENABLED` (`true`/`1`/`false`/`0`) | `false` |
+| `max_payload_bytes` | `.max_payload_bytes` | `MICROTEL_CONCENTRATOR_MAX_PAYLOAD_BYTES` | 64 KiB |
+| `max_spans_per_payload` | `.max_spans_per_payload` | — | 512 |
+| `max_leaves` | `.max_leaves` | `MICROTEL_CONCENTRATOR_MAX_LEAVES` | 1024 |
+| `max_leaf_resource_bytes` | `.max_leaf_resource_bytes` | — | 2 KiB |
+| `leaf_idle_timeout` | `.leaf_idle_timeout` | — | `"1h"` |
+| `unknown_leaf` | `.unknown_leaf` | `MICROTEL_CONCENTRATOR_UNKNOWN_LEAF` | `"accept"` |
+| `leaf_id_attribute` | `.leaf_id_attribute` | — | `"device.id"` |
+| `default_time_mode` | `.default_time_mode` (unset = `auto`) | `MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE` | `"auto"` |
+| `max_sync_age` | `.max_sync_age` | — | `"1h"` |
+| `max_clock_skew` | `.max_clock_skew` | — | `"5m"` |
+| `boot_anchor_window` | `.boot_anchor_window` | — | `"10m"` |
+| `[concentrator.leaf_defaults.resource]` | `.leaf_defaults_resource` | `MICROTEL_CONCENTRATOR_RESOURCE_ATTRIBUTES` (`OTEL_RESOURCE_ATTRIBUTES` syntax) | empty |
+| `[concentrator.leaves."<id>"]` `time_mode`, `.resource` | `.leaves` | — | none |
+| — | `.resolver` | — | none |
+
+```toml
+[concentrator]
+enabled           = true
+max_payload_bytes = "64KiB"
+leaf_idle_timeout = "1h"
+unknown_leaf      = "accept"                   # accept | reject
+default_time_mode = "auto"                     # auto | concentrator_stamped | sync_relative | boot_relative
+
+[concentrator.leaf_defaults.resource]
+"deployment.environment" = "prod"
+
+[concentrator.leaves."can0:0x1a4"]
+time_mode = "boot_relative"
+[concentrator.leaves."can0:0x1a4".resource]
+"service.name" = "burner-controller"
+```
+
+**Values.** A byte size is an integer number of bytes or a string with a `B`,
+`KiB` or `MiB` suffix (`"64KiB"`); the environment takes the same strings. A
+duration is a string with an `s`, `m` or `h` suffix (`"30s"`, `"5m"`, `"1h"`);
+a bare number is refused, so it can never be read in the wrong unit. A leaf's
+`time_mode` is one of the three modes (not `auto`). Resource values are
+strings, integers, floats or booleans; quote dotted keys (`"service.name"`),
+since an unquoted one is a nested TOML table and is refused. Unlike the older
+tables, a key present with the wrong type is an error, not skipped.
+
+**Precedence.** Code over environment over file over default, per setting, as
+§1 says, with these specifics (design §4.3):
+
+- `WithLeafReceiver` sets every scalar and the resolver. A
+  `LeafReceiverOptions` value cannot say which of its fields were set on
+  purpose, so, as with `WithBatch`, the environment's and the file's scalars
+  apply only when `WithLeafReceiver` is not called.
+- `leaf_defaults.resource` merges per key: code over environment over file.
+- `leaves` merges per leaf id; within one leaf, `resource` merges per key and a
+  code `time_mode` replaces the file's only when the code sets one.
+- The resolver's answer for a leaf sits above that leaf's static entry, per
+  key, and its `time_mode` replaces the static one when it sets one.
+
+Per-leaf settings have no environment form: leaf ids hold characters that are
+not valid in variable names.
+
+**Validation.** Parse errors name the key: `ConfigError::Kind::InvalidValue`
+for a wrong type or value (field `concentrator.<key>`, or
+`concentrator.leaves.<id>.<key>`), `EnvParseFailure` for a variable (field =
+the variable), and `UnknownKey` anywhere in the table under the default
+`[config] unknown_keys = "error"`. `Build()` then refuses, with
+`InvalidValue`:
+
+| Rejected | `field` |
+|---|---|
+| `max_payload_bytes`, `max_spans_per_payload` or `max_leaves` = 0 | `concentrator.<key>` |
+| `leaf_idle_timeout`, `max_sync_age`, `max_clock_skew` or `boot_anchor_window` ≤ 0 | `concentrator.<key>` |
+| a leaf id that is empty or over 128 bytes | `concentrator.leaves` |
+| a `microtel.leaf.*` key, or the `leaf_id_attribute` key, in a configured Resource | `concentrator.leaf_defaults.resource` or `concentrator.leaves.<id>.resource` |
+| a configured Resource over `max_leaf_resource_bytes` | the same |
+
+A resolver's answer cannot be refused at `Build()`: in it, reserved keys and
+the `leaf_id_attribute` key are ignored, and keys over the Resource budget are
+dropped and counted in `LeafReceiverStats::resource_attributes_dropped`. A
+resolver that throws is treated as answering "not configured".
+
 ---
 
 ## 4. Build-time options
@@ -476,6 +568,7 @@ Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp adapter (ICP 0014). |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests. Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |
 | `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Builds the header-only log4cxx log bridge and its tests. Needs log4cxx 1.1 or later installed (`find_package(log4cxx)`). |
+| `MICROTEL_WITH_CONCENTRATOR` | `OFF` | Compiles the concentrator's leaf receiver (experimental; §3.14). When `OFF`, `Provider::GetLeafReceiver()` returns a receiver that answers `Disabled`, and a configuration that enables it fails `Build()`. |
 | `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree. Set `OFF` for cross-compilation. |
 | `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Builds the header compile check that includes every public and internal header. |
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the standalone API examples under `examples/`. |

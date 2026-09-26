@@ -508,4 +508,11 @@ if(MICROTEL_WITH_CONCENTRATOR)
         LIBS    microtel_sdk)
     target_include_directories(leaf_table_test
         PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    microtel_add_test(
+        NAME    leaf_time_test
+        SOURCES leaf_time_test.cpp
+        LIBS    microtel_sdk)
+    target_include_directories(leaf_time_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
 endif()

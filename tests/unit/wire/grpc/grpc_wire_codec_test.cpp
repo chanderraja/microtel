@@ -25,14 +25,17 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace mt = microtel;
@@ -1719,4 +1722,117 @@ TEST_F(GrpcCodecLogTest, OrdinaryGrpcFailure_DoesNotWarn)
 
     (void)codec.Send(MakePayload(), std::chrono::milliseconds(500));
     EXPECT_EQ(WarnCount(), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #223: a well-framed message that does not parse as the Export
+// response is a malformed response (error-model.md §7.2, "Multi-frame parse
+// failure / truncated message"), not a clean OK. Each signal has its own codec,
+// so every case runs against the traces, metrics and logs service paths.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+constexpr std::array<const char*, 3> kServicePaths{
+    "",
+    "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
+    "/opentelemetry.proto.collector.logs.v1.LogsService/Export",
+};
+
+struct PartialSuccessRun
+{
+    mti::WireResult result;
+    std::uint64_t malformed = 0;
+    std::uint64_t rejected_counted_by_codec = 0;
+};
+
+PartialSuccessRun SendWithMessage(const char* service_path,
+                                  std::initializer_list<std::uint8_t> proto)
+{
+    const std::vector<std::uint8_t> bytes{proto};
+    mtfk::FakeTransport transport;
+    mtfk::FakeDiagnosticsSink sink;
+    auto resp = GrpcSuccessResponse();
+    resp.response_body = GrpcFrame(bytes);
+    transport.default_response = resp;
+    auto cfg = MakeConfig();
+    cfg.service_path = service_path;
+    mtw::GrpcWireCodec codec{&transport, cfg, nullptr, &sink};
+    auto result = codec.Send(MakePayload(), std::chrono::milliseconds(500));
+    return {
+        .result = std::move(result),
+        .malformed = DropCount(sink, mt::DropReason::MalformedResponse),
+        .rejected_counted_by_codec = DropCount(sink, mt::DropReason::PartialSuccessRejection),
+    };
+}
+
+}  // namespace
+
+TEST(GrpcWireCodecTest, PartialSuccess_AbsentFromNonEmptyMessage_CleanSuccess)
+{
+    for (const char* path : kServicePaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithMessage(path, {0x10, 0x05});  // unknown field only
+        EXPECT_TRUE(run.result.success);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 0U);
+    }
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_ValidZero_CleanSuccess)
+{
+    for (const char* path : kServicePaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithMessage(path, {0x0A, 0x02, 0x08, 0x00});
+        EXPECT_TRUE(run.result.success);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 0U);
+    }
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_ValidN_SuccessCarryingCount)
+{
+    for (const char* path : kServicePaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithMessage(path, {0x0A, 0x02, 0x08, 0x09});
+        EXPECT_TRUE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.result.partial_success_rejected, 9U);
+        EXPECT_EQ(run.malformed, 0U);
+        // The exporter's final-outcome funnel counts it, not the codec (§3).
+        EXPECT_EQ(run.rejected_counted_by_codec, 0U);
+    }
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_TruncatedMessage_IsMalformed)
+{
+    for (const char* path : kServicePaths)
+    {
+        SCOPED_TRACE(path);
+        // partial_success claims 5 bytes, 2 follow; the frame itself is well-formed.
+        const auto run = SendWithMessage(path, {0x0A, 0x05, 0x08, 0x2A});
+        EXPECT_FALSE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.result.partial_success_rejected, 0U);
+        EXPECT_EQ(run.malformed, 1U);
+        ASSERT_TRUE(run.result.error.has_value());
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — guarded by ASSERT_TRUE above
+        EXPECT_EQ(run.result.error->kind, mt::Error::Kind::Malformed);
+    }
+}
+
+TEST(GrpcWireCodecTest, PartialSuccess_GarbageMessage_IsMalformed)
+{
+    for (const char* path : kServicePaths)
+    {
+        SCOPED_TRACE(path);
+        const auto run = SendWithMessage(path, {0x0A, 0x02, 0x08, 0x2A, 0xFF});
+        EXPECT_FALSE(run.result.success);
+        EXPECT_FALSE(run.result.retryable);
+        EXPECT_EQ(run.malformed, 1U);
+    }
 }

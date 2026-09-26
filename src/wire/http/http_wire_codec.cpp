@@ -148,9 +148,9 @@ enum class BodyError : std::uint8_t
 /// @brief Undo `content-encoding` on the response body.
 ///
 /// Runs before anything reads the body, so neither `ParseRejectedSpans` nor
-/// the diagnostics excerpt ever sees compressed bytes — the former reports 0
-/// for them exactly as for an absent body, and the latter would put binary
-/// noise in front of an operator.
+/// the diagnostics excerpt ever sees compressed bytes — the former would call
+/// them unparseable and fail a delivered batch, and the latter would put
+/// binary noise in front of an operator.
 ///
 /// @param result the completed transport response.
 /// @param max_decompressed ceiling on the inflated size.
@@ -206,6 +206,29 @@ enum class BodyError : std::uint8_t
         .retryable = false,
         .retry_after = {},
         .error = Error{.kind = Error::Kind::Malformed, .message = std::string{message}},
+        .response_excerpt = {},
+    };
+}
+
+/// @brief A 2xx whose body is not a well-formed Export response.
+///
+/// `docs/error-model.md` §7.1, last row: terminal and counted as
+/// `malformed_response`. Before issue #223 the parser reported 0 for such a
+/// body exactly as for an absent `partial_success`, so a rejection the peer
+/// tried to report was accounted as a clean success.
+[[nodiscard]] internal::WireResult UnparseableBody(internal::IDiagnosticsSink* diag)
+{
+    if (diag != nullptr)
+    {
+        diag->RecordDrop(DropReason::MalformedResponse);
+    }
+    return {
+        .success = false,
+        // The peer answers the retry with the same bytes.
+        .retryable = false,
+        .retry_after = {},
+        .error =
+            Error{.kind = Error::Kind::Malformed, .message = "unparseable export response body"},
         .response_excerpt = {},
     };
 }
@@ -475,7 +498,12 @@ internal::WireResult HttpWireCodec::ClassifyResponse(const internal::TransportRe
     auto wire = ClassifyStatus(code, result.response_headers);
     if (wire.success && !body->empty())
     {
-        wire.partial_success_rejected = ParseRejectedSpans(*body);
+        const auto parsed = ParseRejectedSpans(*body);
+        if (parsed.outcome == PartialSuccessOutcome::Unparseable)
+        {
+            wire = UnparseableBody(m_diag);
+        }
+        wire.partial_success_rejected = parsed.rejected;
     }
     wire.response_excerpt = BuildExcerpt(*body);
     return wire;

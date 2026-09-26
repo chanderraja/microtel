@@ -26,8 +26,8 @@ One test per row of the OTLP/HTTP classification matrix, all in
 | §7.1 row | Test |
 |---|---|
 | 2xx, no body | `Send_200_Succeeds`, `Send_206_Succeeds` |
-| 2xx, partial-success body, rejected = 0 | `PartialSuccess_EmptyBody_ZeroRejected` |
-| 2xx, partial-success body, rejected > 0 | `PartialSuccess_PopulatesRejectedSpans` |
+| 2xx, partial-success body, rejected = 0 | `PartialSuccess_EmptyBody_ZeroRejected`, `PartialSuccess_AbsentFromNonEmptyBody_CleanSuccess`, `PartialSuccess_ValidZero_CleanSuccess` |
+| 2xx, partial-success body, rejected > 0 | `PartialSuccess_PopulatesRejectedSpans`, `PartialSuccess_ValidN_SuccessCarryingCount` |
 | 429 | `Send_429_IsRetryable`, `Send_429_WithRetryAfterHeader_PropagatesDelay` |
 | 502, 503, 504 | `Send_502_IsRetryable`, `Send_503_IsRetryable`, `Send_503_WithRetryAfterHeader_PropagatesDelay`, `Send_504_IsRetryable` |
 | 404 | `Send_404_IsNonRetryable` |
@@ -37,7 +37,7 @@ One test per row of the OTLP/HTTP classification matrix, all in
 | Connection failure / TLS failure / read timeout | `Send_TransportFailure_ReturnsError`, `Send_WhenDisconnectedAndConnectFails_ReturnsRetryableWithoutSending`, `Diagnostics_ConnectFails_CountsConnectFailure` |
 | Response > `max_response_bytes` | `Send_ResponseTooLarge_IsNonRetryableAndCounted`, `Send_TrailersTooLarge_CountsResponseTooLarge` (both codecs) for the classification; the cap itself lives in the transport and is tested end to end in `tests/integration/transport/http2_send_test.cpp` (`Send_ResponseOverMaxResponseBytes_FailsAndDropsTheBody`, `Send_TrailersOverMaxTrailerBytes_Fails`, `GrpcExport_OversizedResponse_IsTerminalAndCounted`) |
 | Decompressed body > `max_decompressed_bytes` | `Response_DecompressionBomb_RecordsDecompressionTooLarge` |
-| Body unparseable / malformed encoding | `Response_UnknownContentEncoding_IsMalformed`, `Response_CorruptGzipBody_IsMalformed` |
+| Body unparseable / malformed encoding | `Response_UnknownContentEncoding_IsMalformed`, `Response_CorruptGzipBody_IsMalformed`, `PartialSuccess_TruncatedBody_IsMalformed`, `PartialSuccess_GarbageBody_IsMalformedWithExcerpt` (the gRPC codec's `PartialSuccess_TruncatedMessage_IsMalformed` and `PartialSuccess_GarbageMessage_IsMalformed` cover §7.2's truncated-message row; each runs against the traces, metrics and logs paths) |
 
 ## Rules
 

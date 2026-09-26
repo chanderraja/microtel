@@ -9,6 +9,8 @@
 # test selects a transport-security posture by picking an endpoint instead of
 # by restarting the collector with a different config. They all feed the same
 # traces pipeline, so a test asserts on one output file whichever port it used.
+# Logs get a second pipeline from the same four receivers, written to its own
+# file so a trace assertion can never be satisfied by a log line or vice versa.
 #
 # Port convention: <base><variant>, base 431x/432x for grpc/http,
 #   plain 4317/4318 | tls 4327/4328 | mtls 4337/4338 | auth 4347/4348
@@ -93,6 +95,9 @@ exporters:
   file:
     path: /out/traces.jsonl
     flush_interval: 100ms
+  file/logs:
+    path: /out/logs.jsonl
+    flush_interval: 100ms
   debug:
     verbosity: basic
 
@@ -103,6 +108,10 @@ service:
       receivers: [otlp/plain, otlp/tls, otlp/mtls, otlp/auth]
       processors: [batch]
       exporters: [file, debug]
+    logs:
+      receivers: [otlp/plain, otlp/tls, otlp/mtls, otlp/auth]
+      processors: [batch]
+      exporters: [file/logs, debug]
   telemetry:
     metrics:
       readers:

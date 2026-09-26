@@ -1,7 +1,7 @@
 # `tests/conformance/`
 
-End-to-end tests against a real OpenTelemetry Collector: nine test
-binaries holding 29 tests, none of them disabled. Every test skips
+End-to-end tests against a real OpenTelemetry Collector: eleven test
+binaries holding 41 tests, none of them disabled. Every test skips
 unless [`ci/scripts/conformance.sh`](../../ci/scripts/conformance.sh)
 has started a collector and exported the environment contract below.
 
@@ -10,7 +10,8 @@ has started a collector and exported the environment contract below.
 Tier 1 of the four-tier compatibility model in `microtel-spec.md` §2.2:
 payloads emitted by microtel are accepted by receivers implementing the
 pinned OTLP specification version, over both OTLP/HTTP-protobuf and
-OTLP/gRPC.
+OTLP/gRPC. Traces and logs are covered; metrics are not yet (see
+"Deliberately excluded").
 
 This is a release gate per spec §13.5:
 
@@ -43,7 +44,7 @@ integration tier.
 
 ## Layout
 
-### `http/` — OTLP/HTTP-protobuf, 5 binaries
+### `http/` — OTLP/HTTP-protobuf, 6 binaries
 
 | Binary | Source | Tests |
 |---|---|---|
@@ -52,8 +53,9 @@ integration tier.
 | `conformance_http_tls_test` | `tls_test.cpp` | custom CA, mTLS, SNI override, and two negative cases |
 | `conformance_http_auth_test` | `auth_test.cpp` | static bearer header, auth callback, wrong-token 401 |
 | `conformance_http_plaintext_gap_test` | `plaintext_gap_test.cpp` | pins the plaintext gap as a failure — issue #166 |
+| `conformance_http_logs_test` | `logs_test.cpp` | logs to `/v1/logs`: see [Logs](#logs) |
 
-### `grpc/` — OTLP/gRPC, 4 binaries
+### `grpc/` — OTLP/gRPC, 5 binaries
 
 | Binary | Source | Tests |
 |---|---|---|
@@ -61,6 +63,7 @@ integration tier.
 | `conformance_grpc_batching_test` | `batching_test.cpp` | multi-RPC exactly-once, `grpc-encoding: gzip`, message spanning DATA frames |
 | `conformance_grpc_tls_test` | `tls_test.cpp` | custom CA, mTLS, SNI override, and two negative cases |
 | `conformance_grpc_auth_test` | `auth_test.cpp` | static bearer header, auth callback, wrong-token `grpc-status: 16` |
+| `conformance_grpc_logs_test` | `logs_test.cpp` | logs to `LogsService/Export`: see [Logs](#logs) |
 
 There is no gRPC mirror of `plaintext_gap_test.cpp`: the gRPC suite
 runs over `http://` except for `tls_test.cpp`, and that is the answer
@@ -71,21 +74,44 @@ binary is bounded by a ctest `TIMEOUT` covering a flush plus a poll of
 the collector's output file; a single binary would make that budget the
 sum of every theme's worst case.
 
-### `support/` — 3 headers, included as `conformance/support/<name>.hpp`
+### Logs
+
+Both `logs_test.cpp` files run the same six scenarios, defined once in
+[`support/log_conformance.hpp`](support/log_conformance.hpp); each file only
+decides how its `Provider` reaches the collector (HTTP over the TLS receiver,
+gRPC over plaintext, exactly as the trace suites do).
+
+| Test | What the collector must have decoded |
+|---|---|
+| `RecordRoundTrip` | one record, exactly once: `time` and `observed_time`, severity number and text, a string body, one attribute of each scalar type, `droppedAttributesCount`, `eventName`; `service.name` on its `ResourceLogs`, the `GetLogger(name, version)` scope on its `ScopeLogs`; no trace ids |
+| `EverySeverity` | all 25 `SeverityNumber` values, 0 (the proto default, so absent) to 24 |
+| `BodyTypes` | a body of each `AttributeValue` alternative: four scalars and four homogeneous arrays |
+| `ObservedTimeBackfilled` | a record with neither timestamp: no `timeUnixNano`, and an `observedTimeUnixNano` inside the `Emit()` window |
+| `TraceCorrelation` | a record emitted inside `StartAsCurrentSpan` carries that span's `traceId`, `spanId` and `flags: 1`; its sibling emitted after the scope closed carries none of the three |
+| `GzipAccepted` | 50 records through a gzip-compressed provider, each exactly once |
+
+A key/value-list (structured map) body is not tested because the public
+`LogRecord::body` cannot hold one: `AttributeValue` has no map alternative.
+
+### `support/` — 4 headers, included as `conformance/support/<name>.hpp`
 
 | Header | What |
 |---|---|
 | [`conformance_env.hpp`](support/conformance_env.hpp) | `GetEnv`, `UniqueMarker` (a per-run needle), and `ConformanceEnabled`, which implements the skip-or-fail contract below. |
-| [`collector_output.hpp`](support/collector_output.hpp) | Reads back what the collector wrote: `PollForLineContaining` and `CountOccurrences`. |
+| [`collector_output.hpp`](support/collector_output.hpp) | Reads back what the collector wrote: `PollForLineContaining`, `CountOccurrences`, and `EnclosingObject`, which narrows a line to one record (or its scope, or its resource). |
 | [`provider_builder.hpp`](support/provider_builder.hpp) | `ConfigureConformanceBuilder`: endpoint, protocol, and timeouts short enough to fail fast instead of turning into a ctest timeout. |
+| [`log_conformance.hpp`](support/log_conformance.hpp) | The logs scenarios and their expected protojson fragments, shared by both protocols. |
 
 ### `collector/config.yaml`
 
 Four named `otlp` receivers, each on its own port pair, so a test picks
 a transport-security posture by picking an endpoint rather than by
 restarting the collector. All four feed one traces pipeline (the
-`batch` processor, then the `file` exporter), so every test asserts
-against one output file whichever port it used.
+`batch` processor, then the `file` exporter) and one logs pipeline (the
+same `batch` processor, then a second `file/logs` exporter), so every
+test asserts against one output file per signal whichever port it used.
+Keeping the files apart means a trace assertion can never be satisfied
+by a log line, or the reverse.
 
 | Receiver | gRPC | HTTP | Posture |
 |---|---|---|---|
@@ -172,6 +198,7 @@ consumed through [`support/conformance_env.hpp`](support/conformance_env.hpp).
 | `MICROTEL_CONFORMANCE_CLIENT_KEY` | matching client key |
 | `MICROTEL_CONFORMANCE_AUTH_TOKEN` | the bearer token `bearertokenauth` accepts |
 | `MICROTEL_CONFORMANCE_OUTPUT_FILE` | `<build-dir>/conformance/out/traces.jsonl` |
+| `MICROTEL_CONFORMANCE_LOGS_OUTPUT_FILE` | `<build-dir>/conformance/out/logs.jsonl` |
 
 ### Why an all-skip run cannot masquerade as green
 
@@ -198,9 +225,10 @@ either.
 ## Readback strategy
 
 The collector runs the `file` exporter, which appends one compact
-protojson object per `ResourceSpans` batch to `/out/traces.jsonl`. That
-file is the only place a test can observe what the collector
-*understood*, as opposed to what microtel claims it sent.
+protojson object per batch: `ResourceSpans` to `/out/traces.jsonl`,
+`ResourceLogs` to `/out/logs.jsonl`. Those files are the only place a
+test can observe what the collector *understood*, as opposed to what
+microtel claims it sent.
 
 - Positive assertions poll that file for a line containing the run's
   `UniqueMarker()`, and then assert substrings of that line. Polling is
@@ -216,6 +244,14 @@ file is the only place a test can observe what the collector
 - Exactly-once assertions use `CountOccurrences` instead of a presence
   check, so a retry the collector accepted twice fails instead of
   passing quietly.
+- Log assertions are narrowed to one record. The collector's `batch`
+  processor may merge several exports into one line, so "the line
+  contains a `traceId`" would not prove *this* record has one — and the
+  correlation test has to prove one record lacks what its neighbour in
+  the same line has. Every log record carries a per-run unique
+  `eventName`, and `EnclosingObject` cuts the line down to that record's
+  JSON object (or its `ScopeLogs`, or its `ResourceLogs`) before any
+  fragment is checked.
 - Negative assertions read `Provider::GetExporterHealth()`
   (`connection_state`, `batches_failed`, `last_error_message`) and then
   assert the marker never appears in the output file at all.

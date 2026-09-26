@@ -74,6 +74,9 @@ accept what microtel emits, and is what it decodes what microtel meant?
 | TLS, mTLS, CA pinning, SNI override | ✅ | ✅ |
 | Bearer-token auth (static header, callback, wrong-credential rejection) | ✅ (401) | ✅ (`grpc-status: 16`) |
 | Plaintext transport | ✗ — pinned as a negative test, issue #166 | ✅ — h2c, the counterpoint |
+| Logs round-trip (every severity, scalar and array bodies, attributes, resource, scope, both timestamps) | ✅ (`/v1/logs`, TLS) | ✅ (`LogsService/Export`) |
+| Logs trace correlation (in-span record carries the span's ids; out-of-span record carries none) | ✅ | ✅ |
+| Logs with gzip request compression | ✅ | ✅ |
 
 The two suites are deliberate per-file duplicates rather than one parameterised
 harness: they diverge on which endpoint is reachable, on what a rejection looks
@@ -108,6 +111,13 @@ OTLP/gRPC twin are byte-identical after normalising trace/span ids, timestamps
 and the per-run marker — same key order, same typed value envelopes. The gRPC
 suite therefore reuses the HTTP suite's protojson fragment constants verbatim
 rather than maintaining a second set.
+
+The logs rows are one set of scenarios run over both protocols
+([`tests/conformance/support/log_conformance.hpp`](../tests/conformance/support/log_conformance.hpp)),
+read back from a separate `logs.jsonl` the collector's second `file`
+exporter writes, and they share one set of fragments on the same
+protocol-independence argument. Logs over OTLP/HTTP inherit the traces'
+plaintext gap (issue #166): the HTTP logs tests use the TLS receiver.
 
 **Weekly interop** — [`interop.yml`](../.github/workflows/interop.yml).
 Behaviour at volume against collector and Jaeger: delivery rate and

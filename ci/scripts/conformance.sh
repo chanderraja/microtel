@@ -12,7 +12,8 @@
 # receiver accepting real bytes — so the collector is the system under test as
 # much as microtel is.
 #
-# The collector exposes four receiver pairs (plain / TLS / mTLS / bearer auth)
+# The collector exposes five receiver pairs (plain / TLS / mTLS / bearer auth /
+# leaf)
 # on distinct ports; see tests/conformance/collector/config.yaml. Endpoints,
 # cert paths and the output file reach the tests through the environment
 # contract exported below. Tests skip when a variable is absent, so
@@ -191,6 +192,8 @@ echo "conformance: starting collector as $CONTAINER_NAME"
     -p 127.0.0.1:4338:4338 \
     -p 127.0.0.1:4347:4347 \
     -p 127.0.0.1:4348:4348 \
+    -p 127.0.0.1:4357:4357 \
+    -p 127.0.0.1:4358:4358 \
     -p 127.0.0.1:13133:13133 \
     -p 127.0.0.1:8888:8888 \
     -v "${CONFIG_FILE}:/etc/otelcol-contrib/config.yaml:ro,Z" \
@@ -260,6 +263,11 @@ export MICROTEL_CONFORMANCE_CLIENT_KEY="${CERT_DIR_ABS}/client.key"
 export MICROTEL_CONFORMANCE_AUTH_TOKEN="microtel-conformance-token"
 export MICROTEL_CONFORMANCE_OUTPUT_FILE="${OUT_DIR_ABS}/traces.jsonl"
 export MICROTEL_CONFORMANCE_LOGS_OUTPUT_FILE="${OUT_DIR_ABS}/logs.jsonl"
+# The leaf / concentrator gate's receiver: no batch processor, its own file, so
+# one line is one request (tests/conformance/leaf/). HTTP is TLS, as above.
+export MICROTEL_CONFORMANCE_LEAF_HTTP_ENDPOINT="https://localhost:4358"
+export MICROTEL_CONFORMANCE_LEAF_GRPC_ENDPOINT="http://127.0.0.1:4357"
+export MICROTEL_CONFORMANCE_LEAF_OUTPUT_FILE="${OUT_DIR_ABS}/leaf-traces.jsonl"
 
 # ---------------------------------------------------------------------------
 # Run

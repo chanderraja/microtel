@@ -8,11 +8,21 @@
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#if defined(BENCH_LEAF_FANIN)
+#include "microtel/leaf.h"
+#include "microtel/leaf_receiver.hpp"
+#endif
+
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <numeric>
+#include <optional>
+#include <random>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -26,6 +36,93 @@ namespace
 
 constexpr std::string_view kLogBody = "bench log record";
 constexpr std::string_view kSeverityText = "INFO";
+
+#if defined(BENCH_LEAF_FANIN)
+// Record buffer for one simulated leaf's payload: generous, since the leaf is
+// only a payload generator here and runs once per leaf at start-up.
+constexpr std::size_t kLeafRecordBytes = 256U * 1024U;
+constexpr std::uint64_t kLeafTickNs = 1000;
+constexpr std::uint32_t kMinLeafTable = 1024;
+
+std::uint64_t LeafTick(void* ctx)
+{
+    auto* const now = static_cast<std::uint64_t*>(ctx);
+    *now += kLeafTickNs;
+    return *now;
+}
+
+void LeafRandom(void* ctx, std::uint8_t* out, std::size_t len)
+{
+    auto* const engine = static_cast<std::mt19937_64*>(ctx);
+    for (std::size_t i = 0; i < len; ++i)
+    {
+        out[i] = static_cast<std::uint8_t>((*engine)());
+    }
+}
+
+microtel_leaf_kv_t LeafKv(std::string_view key, std::int64_t value)
+{
+    microtel_leaf_kv_t kv{};
+    kv.key = key.data();
+    kv.key_len = key.size();
+    kv.type = MICROTEL_LEAF_VALUE_INT64;
+    kv.value.i = value;
+    return kv;
+}
+
+/// One payload as simulated leaf @p index would send it: @p spans spans with
+/// one attribute each, encoded by the real C leaf library (concentrator-
+/// stamped time). Throws on a leaf error, which is a harness bug.
+std::vector<std::byte> EncodeLeafPayload(int index, int spans)
+{
+    constexpr std::string_view kService = "bench-leaf";
+    constexpr std::string_view kSpan = "bench.leaf.span";
+    constexpr std::string_view kServiceKey = "service.name";
+    const microtel_leaf_kv_t service{.key = kServiceKey.data(),
+                                     .key_len = kServiceKey.size(),
+                                     .type = MICROTEL_LEAF_VALUE_STRING,
+                                     .value = {.s = {.ptr = kService.data(), .len = kService.size()}}};
+    const std::array<microtel_leaf_kv_t, 2> resource{service, LeafKv("leaf.index", index)};
+    std::uint64_t clock = 0;
+    std::mt19937_64 engine(static_cast<std::uint64_t>(index) + 1U);
+    microtel_leaf_config_t config{};
+    config.struct_size = sizeof(config);
+    config.now_ns = &LeafTick;
+    config.clock_ctx = &clock;
+    config.random_bytes = &LeafRandom;
+    config.random_ctx = &engine;
+    config.resource = resource.data();
+    config.resource_count = resource.size();
+    config.max_attributes_per_span = 1;
+
+    microtel_leaf_t leaf{};
+    std::vector<std::uint8_t> records(kLeafRecordBytes);
+    if (microtel_leaf_init(&leaf, sizeof(leaf), &config, records.data(), records.size()) !=
+        MICROTEL_LEAF_OK)
+    {
+        throw std::runtime_error("microtel_leaf_init failed");
+    }
+    const microtel_leaf_kv_t attr = LeafKv("bench.seq", 0);
+    for (int i = 0; i < spans; ++i)
+    {
+        microtel_leaf_span_t span = 0;
+        microtel_leaf_span_start(&leaf, &span, kSpan.data(), kSpan.size(),
+                                 MICROTEL_LEAF_SPAN_KIND_INTERNAL, nullptr);
+        microtel_leaf_span_set_attribute(&leaf, span, &attr);
+        microtel_leaf_span_end(&leaf, span);
+    }
+    std::vector<std::uint8_t> out(microtel_leaf_encoded_size(&leaf));
+    std::size_t written = 0;
+    const microtel_leaf_status_t st = microtel_leaf_encode(&leaf, out.data(), out.size(), &written);
+    microtel_leaf_free(&leaf);
+    if (st != MICROTEL_LEAF_OK)
+    {
+        throw std::runtime_error("microtel_leaf_encode failed: " + std::to_string(st));
+    }
+    const auto* const first = reinterpret_cast<const std::byte*>(out.data());
+    return {first, first + written};
+}
+#endif
 
 class MicrotelBackend final : public IBackend
 {
@@ -46,18 +143,27 @@ public:
                 ? std::chrono::milliseconds(opts.metric_interval_ms)
                 : std::chrono::milliseconds(60'000);
 
-        auto result = microtel::SdkBuilder{}
-                          .WithEndpoint(opts.endpoint)
+        microtel::SdkBuilder builder;
+        builder.WithEndpoint(opts.endpoint)
 #if defined(BENCH_MICROTEL_GRPC)
-                          .WithProtocol(microtel::Protocol::Grpc)
+            .WithProtocol(microtel::Protocol::Grpc)
 #else
-                          .WithProtocol(microtel::Protocol::Http)
+            .WithProtocol(microtel::Protocol::Http)
 #endif
-                          .WithServiceName(opts.service_name)
-                          .WithServiceVersion(opts.service_version)
-                          .WithCompressionGzip(opts.compression_gzip)
-                          .WithMetricInterval(metric_interval)
-                          .Build();
+            .WithServiceName(opts.service_name)
+            .WithServiceVersion(opts.service_version)
+            .WithCompressionGzip(opts.compression_gzip)
+            .WithMetricInterval(metric_interval);
+#if defined(BENCH_LEAF_FANIN)
+        if (opts.leaf_count > 0)
+        {
+            microtel::LeafReceiverOptions leaf_opts;
+            leaf_opts.max_leaves =
+                std::max(kMinLeafTable, static_cast<std::uint32_t>(opts.leaf_count));
+            builder.WithLeafReceiver(std::move(leaf_opts));
+        }
+#endif
+        auto result = builder.Build();
 
         if (!result)
         {
@@ -90,7 +196,35 @@ public:
         }
         m_attr_value = std::string(
             static_cast<std::size_t>(opts.attribute_value_bytes), 'x');
+
+#if defined(BENCH_LEAF_FANIN)
+        if (opts.leaf_count > 0)
+        {
+            m_receiver = m_provider->GetLeafReceiver();
+            m_leaf_spans = static_cast<std::uint64_t>(opts.leaf_spans_per_payload);
+            for (int i = 0; i < opts.leaf_count; ++i)
+            {
+                m_leaf_ids.push_back("bench-leaf-" + std::to_string(i));
+                m_leaf_payloads.push_back(EncodeLeafPayload(i, opts.leaf_spans_per_payload));
+            }
+        }
+#endif
     }
+
+#if defined(BENCH_LEAF_FANIN)
+    void EmitLeafPayload() override
+    {
+        const std::size_t i =
+            m_next_leaf.fetch_add(1, std::memory_order_relaxed) % m_leaf_payloads.size();
+        const microtel::IngestResult r = m_receiver->Ingest(microtel::IngestRequest{
+            .leaf_id = m_leaf_ids[i],
+            .payload = std::span<const std::byte>(m_leaf_payloads[i]),
+            .received_at = std::nullopt,
+        });
+        static_cast<void>(r);
+        m_emit_count.fetch_add(m_leaf_spans, std::memory_order_relaxed);
+    }
+#endif
 
     void EmitRecord() override
     {
@@ -191,6 +325,13 @@ private:
     int                                          m_attrs_per_span{0};
     std::vector<std::string>                     m_attr_keys;
     std::string                                  m_attr_value;
+#if defined(BENCH_LEAF_FANIN)
+    std::shared_ptr<microtel::LeafReceiver>      m_receiver;
+    std::vector<std::string>                     m_leaf_ids;
+    std::vector<std::vector<std::byte>>          m_leaf_payloads;
+    std::atomic<std::size_t>                     m_next_leaf{0};
+    std::uint64_t                                m_leaf_spans{0};
+#endif
 };
 
 }  // namespace

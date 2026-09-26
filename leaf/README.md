@@ -85,6 +85,17 @@ Regenerate the vectors after an intended wire change with
 every global starts with `microtel_leaf_`, and a nanopb leaf references no
 heap allocator.
 
+## Footprint and example
+
+`ci/scripts/leaf-footprint.sh <cortex-m0plus|cortex-m4|aarch64>` cross-builds
+this directory with the toolchain files in `cmake/toolchains/`, links
+`examples/leaf/size_probe.c`, and reports the leaf's `.text`, `.rodata`,
+`.data` and `.bss`; the `leaf-footprint` CI job runs it on every PR, and
+[`docs/bench-results/leaf-footprint.md`](../docs/bench-results/leaf-footprint.md)
+has the release figures. [`examples/leaf/`](../examples/leaf/) is a leaf and a
+concentrator talking over UDP; `tests/conformance/leaf/` runs the same path
+against a real collector with each backend.
+
 ## Style
 
 C11, `-pedantic-errors`, no VLAs, no compiler extensions. Every external

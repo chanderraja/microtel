@@ -1,9 +1,9 @@
 # microtel Leaf / Concentrator Design
 
-**Status:** Accepted — signed off 2026-09-26. Two checklist items stay open
-until the upb / nanopb assumptions listed under "Items to verify" are checked
-against the pinned sources: §2 (backends and byte identity) and §3.7 (the
-decode-arena cap).
+**Status:** Accepted — signed off 2026-09-26. Implemented in v1.2
+(experimental). The two checklist items left open at sign-off, §2 and §3.7,
+were closed during implementation (see "Items to verify"), and every ICP 0031
+ship gate is met (§7, "Ship gates").
 **Issue:** #319.
 **Implements:** [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) (scope,
 backends, nanopb, decode-into-the-pipeline), with the release renumbered to
@@ -55,26 +55,29 @@ Out of scope, unchanged from spec §18.4 and ICP 0031 Decision 1:
 
 ## Sign-off checklist
 
-Each item has a **Decision** below. Items are ticked as settled at review;
-the two unticked items depend on upb / nanopb behaviour not yet verified
-against the pinned sources (see "Items to verify during implementation").
+Each item has a **Decision** below. Items were ticked as settled at review,
+except §2 and §3.7, which depended on upb / nanopb behaviour not yet verified
+against the pinned sources; both were ticked when implementation verified it
+(see "Items to verify during implementation").
 
 - [x] §1 Leaf C API: lifecycle, size guards on caller-allocated state, span
       building, id derivation on weak entropy, encode (buffer and streaming),
       errors, no-heap rule, header layout, symbol prefixes, versioning.
       **Traces only** in v1.2. **C11.**
-- [ ] §2 Encoder backends: `MICROTEL_LEAF_ENCODER`, byte-identity rules and
+- [x] §2 Encoder backends: `MICROTEL_LEAF_ENCODER`, byte-identity rules and
       how they are tested, `gen/` layout, regen script, nanopb renaming
-      (generated descriptors included). *Open until:* upb field order and
+      (generated descriptors included). *Was open until* upb field order and
       fixed-buffer arena, nanopb field order, `oneof` callbacks and
-      double-called submessage callbacks are verified.
+      double-called submessage callbacks were verified: all checked, the
+      fixed-buffer arena with a changed mechanism (§2.2).
 - [x] §3 Concentrator ingest (except §3.7): public `LeafReceiver` API and
       `Provider::GetLeafReceiver` (**ICP**), error model with `OutOfMemory`
       kept apart from too-large, three new `DropReason`s (**ICP**), threading,
       upb decode, shared span queue, `SpanRecord::resource` (no ICP),
       multi-Resource requests in v1.2 (no ICP).
-- [ ] §3.7 Size limits. *Open until:* the decode-arena factor of 4 is measured
-      against the golden vectors and fuzz corpus.
+- [x] §3.7 Size limits. *Was open until* the decode-arena factor of 4 was
+      measured against the golden vectors and fuzz corpus: it was too small,
+      and the cap is 16 × `max_payload_bytes` + 16 KiB.
 - [x] §4 Per-leaf identity and configuration: transport id above the leaf's
       own Resource and exported as `device.id` by default, TOML / env / code
       schema, merge order, fleet-size limits, Resource-budget drops in
@@ -1742,6 +1745,17 @@ affect v1.2, which has no leaf metrics (§1.3).
 Mapped to ICP 0031's ship gates. Every leaf test runs once per backend, as
 the ICP requires.
 
+**Ship gates (v1.2).** All six of ICP 0031's gates are met:
+
+| Gate | Where |
+|---|---|
+| 1. design signed off | this document; the last two checklist items closed during implementation |
+| 2. ingest fuzz target in the standing fuzz job | `leaf_ingest_fuzz` and `otlp_trace_decoder_fuzz` in `fuzz.yml` and `corpus-check` (§7.3) |
+| 3. end to end, leaf → in-memory transport → concentrator → real collector, both protocols | `tests/conformance/leaf/`, in the `conformance` job (§7.5) |
+| 4. footprints measured and published, Cortex-M CI job on every PR | the `leaf-footprint` job and [`bench-results/leaf-footprint.md`](bench-results/leaf-footprint.md) (§7.6) |
+| 5. gate 3 once per backend | `conformance_leaf_nanopb_test` and `conformance_leaf_upb_test` (§7.5) |
+| 6. example over UDP or a pipe | `examples/leaf/` (§7.7) |
+
 ### 7.1 Leaf unit tests (both backends)
 
 GoogleTest on the host, calling the C API through `leaf.h`. One test binary per
@@ -1864,6 +1878,24 @@ test. It runs in the
 collector job in `.github/workflows/interop.yml`, which already starts an
 otel-collector container.
 
+*Implemented* as `tests/conformance/leaf/leaf_e2e_test.cpp` in the conformance
+tier rather than `tests/integration/`, since that tier is the one that talks to
+a real collector (public headers only, `ci/scripts/conformance.sh`), and so in
+the per-PR `conformance` job rather than the weekly `interop.yml`. One source
+builds `conformance_leaf_nanopb_test` and `conformance_leaf_upb_test`; each runs
+every test over OTLP/HTTP (TLS, because of #166) and OTLP/gRPC. The collector
+gets a fifth receiver, `otlp/leaf`, whose pipeline has no batch processor and
+its own file exporter, so one output line is one request the collector
+received: the fan-in check asserts that eight leaves' spans arrive on one line
+with eight `ResourceSpans`, each carrying its transport id as `device.id`. The
+tests pass a fixed `received_at`, so timestamps are checked to the nanosecond
+rather than within a tolerance: concentrator-stamped, sync-relative, and
+boot-relative including a low outlier that must not move the anchor. A
+truncated payload is checked as `Malformed`, counted in `LeafReceiverStats`
+and `leaf_payload_malformed`, and absent from the collector's output. Each
+binary also checks it runs the backend it names: nanopb streams a payload in
+many `write` calls, upb in one.
+
 ### 7.6 Footprint and closure (gate 4)
 
 - **`leaf-cortex-m` CI job, on every PR.** Configures `cmake -S leaf` with an
@@ -1892,6 +1924,19 @@ otel-collector container.
   leaf needs no heap". The existing passes gain a check that no non-leaf
   archive references `pb_*` or `microtel_pb_*` (ICP 0031 Decision 4).
 
+*Implemented* as one `leaf-footprint` job with three cells, `cortex-m0plus`
+and `cortex-m4` (nanopb, `arm-none-eabi-gcc` with newlib-nano) and `aarch64`
+(upb, `aarch64-linux-gnu-gcc`), all driven by `ci/scripts/leaf-footprint.sh`
+with the toolchain files in `cmake/toolchains/`. It builds the leaf standalone
+(`MinSizeRel`), links the probe, and sums the leaf archives' kept input
+sections from the linker map (`ci/scripts/leaf-footprint.py`), split into leaf
+core, backend and encoder, with an OVER / UNDER line against the target. The
+closure scan is `symbol-scan.sh` with the target's `nm` over the installed
+archives. First figures: nanopb 9,472 bytes of flash on Cortex-M0+ and 9,298 on
+Cortex-M4, upb 23,966 on aarch64, all under target; the leaf's own static RAM
+is zero on nanopb. The probe's record buffer is 256 bytes and upb's scratch
+2 KiB.
+
 ### 7.7 Example (gate 6)
 
 `examples/leaf/`:
@@ -1910,6 +1955,12 @@ otel-collector container.
   microcontroller.
 
 Built by `MICROTEL_BUILD_EXAMPLES=ON` together with `MICROTEL_BUILD_LEAF=ON`.
+
+*Implemented* as above, with binaries `microtel_example_leaf_udp_leaf` and
+`microtel_example_leaf_concentrator` (the latter also needs
+`MICROTEL_WITH_CONCENTRATOR=ON`). The C programs are built as C11 and linked
+against the leaf library alone. The concentrator loads `microtel.toml` with
+`SdkBuilder::FromFile`; the configured leaf shows the §4.4 merge order.
 
 ### 7.8 Static analysis for C
 
@@ -1930,6 +1981,13 @@ records spans per second, CPU, and **export requests per batch**. It confirms
 the fan-in that §3.6.1 builds: requests per batch stays at one (or at
 `ceil(spans / max_export_batch_size)`) as the leaf count grows. It does not
 decide whether aggregation ships; that is decided here.
+
+*Implemented* as the `leaf-fanin` profile (`bench/profiles/`), the
+`microtel-concentrator` SUT, and the driver's `--sweep-leaves`. The emit-app
+encodes one payload per simulated leaf at start-up with the C leaf and then
+ingests them round-robin, so a sample measures the concentrator, not the leaf.
+Each sample records the export requests the sink received. CPU is not recorded
+separately: the harness has no CPU metric for any profile.
 
 ## §8 Follow-up ICPs and document edits
 

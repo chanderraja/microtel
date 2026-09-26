@@ -1,7 +1,8 @@
 # `tests/conformance/`
 
 End-to-end tests against a real OpenTelemetry Collector: eleven test
-binaries holding 41 tests, none of them disabled. Every test skips
+binaries holding 41 tests, plus the two leaf binaries (six tests each) when
+the leaf and the concentrator are built, none of them disabled. Every test skips
 unless [`ci/scripts/conformance.sh`](../../ci/scripts/conformance.sh)
 has started a collector and exported the environment contract below.
 
@@ -93,6 +94,26 @@ gRPC over plaintext, exactly as the trace suites do).
 A key/value-list (structured map) body is not tested because the public
 `LogRecord::body` cannot hold one: `AttributeValue` has no map alternative.
 
+### `leaf/` — the leaf / concentrator gate, 2 binaries
+
+ICP 0031 gates 3 and 5 ([`leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md)
+§7.5): C leaves → an in-memory link → `LeafReceiver::Ingest` in a concentrator
+`Provider` → the collector. One source, `leaf_e2e_test.cpp`, builds
+`conformance_leaf_nanopb_test` and `conformance_leaf_upb_test`, one per leaf
+encoder backend; each runs every test over OTLP/HTTP (TLS) and OTLP/gRPC.
+Built only with `-DMICROTEL_BUILD_LEAF=ON -DMICROTEL_WITH_CONCENTRATOR=ON`.
+
+| Test | What the collector must have decoded |
+|---|---|
+| `ManyLeavesShareOneRequest` | eight leaves' spans on **one** line, i.e. one request, with eight `ResourceSpans`; each with its transport id as `device.id`, its own Resource, no `microtel.leaf.*` key, every attribute type, the event and the status, and timestamps corrected exactly (`t + R − E`) |
+| `TimeModesCorrectTimestamps` | concentrator-stamped, sync-relative and boot-relative timestamps to the nanosecond, including a low boot-relative outlier that must not move the anchor |
+| `MalformedPayloadRejectedAndCounted` | a truncated payload returns `Malformed`, counts in `LeafReceiverStats` and `leaf_payload_malformed`, and never reaches the collector; the same leaf's intact payload does |
+
+These tests read their own receiver, `otlp/leaf` (below), whose pipeline has no
+batch processor, so the collector's output line for a request is exactly that
+request. Each binary also checks that it runs the backend it is named for:
+nanopb streams a payload in many `write` calls, upb in one.
+
 ### `support/` — 4 headers, included as `conformance/support/<name>.hpp`
 
 | Header | What |
@@ -113,12 +134,19 @@ test asserts against one output file per signal whichever port it used.
 Keeping the files apart means a trace assertion can never be satisfied
 by a log line, or the reverse.
 
+A fifth receiver, `otlp/leaf`, belongs to the leaf gate alone. Its traces
+pipeline has no processor and its own `file/leaf` exporter, so the collector
+writes exactly one line per request it receives: the only way a test can
+see how many requests microtel sent, which the `batch` processor would
+otherwise hide by merging them.
+
 | Receiver | gRPC | HTTP | Posture |
 |---|---|---|---|
 | `otlp/plain` | 4317 | 4318 | no TLS |
 | `otlp/tls` | 4327 | 4328 | server cert |
 | `otlp/mtls` | 4337 | 4338 | server cert + client CA |
 | `otlp/auth` | 4347 | 4348 | `bearertokenauth` extension |
+| `otlp/leaf` | 4357 | 4358 | HTTP with the `otlp/tls` server cert; its own traces pipeline with **no processor**, into `/out/leaf-traces.jsonl` |
 
 Also exposed: the `health_check` extension on 13133 (the runner's
 readiness signal) and Prometheus telemetry on 8888 (dumped as a
@@ -199,6 +227,9 @@ consumed through [`support/conformance_env.hpp`](support/conformance_env.hpp).
 | `MICROTEL_CONFORMANCE_AUTH_TOKEN` | the bearer token `bearertokenauth` accepts |
 | `MICROTEL_CONFORMANCE_OUTPUT_FILE` | `<build-dir>/conformance/out/traces.jsonl` |
 | `MICROTEL_CONFORMANCE_LOGS_OUTPUT_FILE` | `<build-dir>/conformance/out/logs.jsonl` |
+| `MICROTEL_CONFORMANCE_LEAF_HTTP_ENDPOINT` | `https://localhost:4358` |
+| `MICROTEL_CONFORMANCE_LEAF_GRPC_ENDPOINT` | `http://127.0.0.1:4357` |
+| `MICROTEL_CONFORMANCE_LEAF_OUTPUT_FILE` | `<build-dir>/conformance/out/leaf-traces.jsonl` |
 
 ### Why an all-skip run cannot masquerade as green
 

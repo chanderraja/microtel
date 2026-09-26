@@ -21,7 +21,7 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 | v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (v1.4, #297) |
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
 | v1.2 Logs | Mostly done, experimental | collector conformance tests; logs bench profile; logs cookbook |
-| v1.2 Leaf / concentrator | In progress; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md). Design signed off; C leaf, concentrator ingest, per-leaf config and the three time modes landed | Design doc; C leaf with upb and nanopb backends; concentrator ingest path; the ship gates in the ICP |
+| v1.2 Leaf / concentrator | Done, experimental; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md). C leaf with both backends, concentrator ingest, per-leaf config, the three time modes, and all six ICP ship gates | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
@@ -156,7 +156,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Compatibility tier:** Tier 1 and Tier 2 add logs; metrics follow in v1.3. The Tier 3 shim is already experimental for all three signals.
 
-**Leaf / concentrator (experimental).** Moved from v2.0. Covered in detail in `microtel-spec.md` §18.4. *(In progress: [`docs/leaf-concentrator-design.md`](docs/leaf-concentrator-design.md) is signed off; the C leaf, the ingest path, the `[concentrator]` configuration and the three time modes have landed.)*
+**Leaf / concentrator (experimental).** Moved from v2.0. Covered in detail in `microtel-spec.md` §18.4. *(Done, experimental: [`docs/leaf-concentrator-design.md`](docs/leaf-concentrator-design.md) describes what shipped. The C leaf with both backends, the ingest path, the `[concentrator]` configuration and the three time modes are in, and the ICP's ship gates are met: fuzzed ingest, a collector end-to-end test per backend and protocol, published footprints with a Cortex-M CI job ([`docs/bench-results/leaf-footprint.md`](docs/bench-results/leaf-footprint.md)), and [`examples/leaf/`](examples/leaf/).)*
 
 - **microtel-leaf**, a pure-C library for constrained embedded systems. No threading, no batching, no retries, no TLS, no HTTP. Encodes OTLP messages and hands the bytes to an application-supplied transport.
 - **Two encoder backends from the first release**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. upb covers Linux-on-ARM, OpenWrt-class and Cortex-A/R targets (`< 30 KB` flash target); nanopb covers Cortex-M (`< 15 KB` flash target). Same leaf API and identical OTLP bytes from both. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf only.
@@ -414,7 +414,7 @@ A few themes don't fit a single milestone but progress across releases:
 The `bench/` directory evolves alongside the project:
 - **v1.0:** establishes baseline against `opentelemetry-cpp` for traces.
 - **v1.2:** adds logs workload profiles. *(Done: `hot-loop-logs`.)*
-- **v1.2:** adds leaf footprint measurement (both backends) and concentrator throughput. *(Moved from v2.0.)*
+- **v1.2:** adds leaf footprint measurement (both backends) and concentrator throughput. *(Moved from v2.0. Done: the `leaf-footprint` CI job and the `leaf-fanin` profile.)*
 - **v1.3:** adds metrics workload profiles. *(Done early: `hot-loop-metrics`.)*
 - **v1.6:** adds high-cardinality, bursty, and outage-recovery scenarios.
 
@@ -422,7 +422,7 @@ The `bench/` directory evolves alongside the project:
 - **v1.0:** spec, migration guide, README, compatibility matrix, interop matrix.
 - **v1.1:** hot-reload setter guide — what is reloadable, what is not, and why. *(Partial: covered by `examples/hot_reload/README.md` and `docs/control-plane-design.md` §2; no standalone guide.)*
 - **v1.2:** logs cookbook with bridge examples. *(Partial: `docs/logs-design.md` and the spdlog, glog and log4cxx adapter READMEs only.)*
-- **v1.2:** leaf programming guide, concentrator deployment guide, embedded examples. *(Moved from v2.0.)*
+- **v1.2:** leaf programming guide, concentrator deployment guide, embedded examples. *(Moved from v2.0. Partial: `examples/leaf/README.md`, `leaf/README.md` and the design doc; no standalone guides.)*
 - **v1.3:** metrics design doc (M11 from v1 spec). *(Done.)*
 - **v1.4:** control plane operator guide, threat model. *(Not started.)*
 - **v1.5:** conformance matrix, extension-author guide, auto-instrumentation cookbook.

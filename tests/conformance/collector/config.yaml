@@ -14,6 +14,14 @@
 #
 # Port convention: <base><variant>, base 431x/432x for grpc/http,
 #   plain 4317/4318 | tls 4327/4328 | mtls 4337/4338 | auth 4347/4348
+#   leaf 4357/4358
+#
+# otlp/leaf is the leaf / concentrator end-to-end gate's own receiver
+# (tests/conformance/leaf/). It feeds a traces pipeline with no processor into
+# its own file, so the file exporter writes exactly one line per request it
+# receives: the test proves that many leaves left the concentrator as one
+# export request (docs/leaf-concentrator-design.md §7.5), which the batch
+# processor of the main pipeline could otherwise fake by merging requests.
 
 extensions:
   health_check:
@@ -84,6 +92,18 @@ receivers:
           cert_file: /certs/server.crt
           key_file: /certs/server.key
 
+  # gRPC plaintext, HTTP with the otlp/tls material, for the same reason as
+  # otlp/auth: microtel cannot reach a plaintext HTTP/1.1-only receiver (#166).
+  otlp/leaf:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4357"
+      http:
+        endpoint: "0.0.0.0:4358"
+        tls:
+          cert_file: /certs/server.crt
+          key_file: /certs/server.key
+
 processors:
   batch:
     send_batch_size: 512
@@ -98,6 +118,9 @@ exporters:
   file/logs:
     path: /out/logs.jsonl
     flush_interval: 100ms
+  file/leaf:
+    path: /out/leaf-traces.jsonl
+    flush_interval: 100ms
   debug:
     verbosity: basic
 
@@ -108,6 +131,10 @@ service:
       receivers: [otlp/plain, otlp/tls, otlp/mtls, otlp/auth]
       processors: [batch]
       exporters: [file, debug]
+    # No processor: one request in, one line out.
+    traces/leaf:
+      receivers: [otlp/leaf]
+      exporters: [file/leaf]
     logs:
       receivers: [otlp/plain, otlp/tls, otlp/mtls, otlp/auth]
       processors: [batch]

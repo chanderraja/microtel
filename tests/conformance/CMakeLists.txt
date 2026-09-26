@@ -43,3 +43,7 @@ endfunction()
 
 add_subdirectory(http)
 add_subdirectory(grpc)
+# The leaf / concentrator end-to-end gate needs both halves compiled in.
+if(TARGET microtel_leaf AND MICROTEL_WITH_CONCENTRATOR)
+    add_subdirectory(leaf)
+endif()

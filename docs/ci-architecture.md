@@ -25,6 +25,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
 | `ci.yml` | `leaf-standalone` | `leaf-standalone / nanopb`, `leaf-standalone / upb` | ❌ |
+| `ci.yml` | `leaf-footprint` | `leaf-footprint / cortex-m0plus`, `leaf-footprint / cortex-m4`, `leaf-footprint / aarch64` | ❌ |
 | `ci.yml` | `version-drift-check` | `version-drift-check` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
@@ -255,6 +256,9 @@ firmware toolchain does — `cmake -S leaf` with only a C compiler, asserting
 that no C++ compiler was configured — installs it, and runs this script over
 that install tree.
 
+The `leaf-footprint` job runs the same script on cross-compiled leaves, with
+the target's `nm`; see its own section below.
+
 **Steps:**
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
    configuration only, never gtest/gmock or other test-only inputs — and
@@ -275,6 +279,34 @@ form (`symbol-scan.sh [build-dir]`) for the quicker local loop.
 across every installed `libmicrotel_*.a` and the installed `microtel-preflight`
 binary, no nanopb symbol in any of them, and no unprefixed nanopb symbol in the
 leaf archives.
+
+### `leaf-footprint` (job in `.github/workflows/ci.yml`)
+
+ICP 0031 gate 4 ([`leaf-concentrator-design.md`](leaf-concentrator-design.md)
+§7.6): the leaf's flash and RAM, measured on every PR for the targets it exists
+for. A matrix of three cells, each running
+[`ci/scripts/leaf-footprint.sh <target>`](../ci/scripts/leaf-footprint.sh):
+
+| Cell | Backend | Toolchain (apt) |
+|---|---|---|
+| `cortex-m0plus`, `cortex-m4` | nanopb | `gcc-arm-none-eabi`, `libnewlib-arm-none-eabi` |
+| `aarch64` | upb | `gcc-aarch64-linux-gnu` |
+
+**Steps (in the script):** configure `cmake -S leaf` with the toolchain file in
+[`cmake/toolchains/`](../cmake/toolchains/) and `MinSizeRel`; build and install;
+link [`examples/leaf/size_probe.c`](../examples/leaf/size_probe.c) with
+`--gc-sections` and a linker map; sum the leaf archives' kept input sections
+with [`leaf-footprint.py`](../ci/scripts/leaf-footprint.py) and write the table,
+the caller-owned RAM and the whole-image `size` to the job summary; then run
+`symbol-scan.sh --prefix` over the install with `NM=<target>-nm`, so the
+closure checks (no C++ runtime, prefixed globals, and for nanopb no heap) run on
+the target's objects.
+
+**Pass condition:** the build, the link and the closure scan succeed. The
+flash figures are compared with ICP 0031's targets (< 15 KB nanopb, < 30 KB upb)
+and printed as OVER or UNDER, but do not fail the job: they are targets in
+v1.2, and v2.1 makes the nanopb one a gate. Release figures are recorded in
+[`bench-results/leaf-footprint.md`](bench-results/leaf-footprint.md).
 
 ### `version-drift-check` (job in `.github/workflows/ci.yml`)
 
@@ -345,7 +377,9 @@ tier itself is documented in
 **Steps:**
 1. Install clang-18 plus `libssl-dev`, `libnghttp2-dev`, `zlib1g-dev`.
 2. Configure with `-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_STANDARD=20
-   -DMICROTEL_BUILD_TESTS=ON`.
+   -DMICROTEL_BUILD_TESTS=ON -DMICROTEL_BUILD_LEAF=ON
+   -DMICROTEL_WITH_CONCENTRATOR=ON`. The last two build the leaf end-to-end
+   gate (`tests/conformance/leaf/`, ICP 0031 gates 3 and 5).
 3. Build.
 4. Run [`ci/scripts/conformance.sh build`](../ci/scripts/conformance.sh). That
    script generates a throwaway certificate set, starts the collector image

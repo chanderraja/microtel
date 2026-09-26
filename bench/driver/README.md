@@ -35,6 +35,7 @@ python3 -m driver [options]
 --flamegraph-dir DIR      FlameGraph scripts directory (overrides FLAMEGRAPH_DIR)
 --sweep-attr-bytes SIZES  Sweep attribute value sizes, e.g. 0,64,256; one result per size
 --sweep-threads N,N,...   Sweep emitter thread counts; one result per count
+--sweep-leaves N,N,...    Sweep simulated leaf counts (leaf-fanin); one result per count
 --sink-delay-ms MS        Per-request response delay injected into the blackhole sink
 ```
 

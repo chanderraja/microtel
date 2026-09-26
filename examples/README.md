@@ -60,12 +60,38 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`health_and_backpressure/`](health_and_backpressure/) | Reading `HealthSnapshot`: drop counters and queue depth under load, then a collector that is not there. | Available |
 | [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | Available |
 | [`tls/`](tls/) | TLS, a custom CA and mTLS, and the one configuration in which OTLP/HTTP works. Opt-in overlay. | Available |
+| [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. Needs extra build options; see below. | Available |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 
 The planned set mirrors the v1.1 public surface; issue
 [#279](https://github.com/chanderraja/microtel/issues/279) is the epic.
 Metrics and logs examples will follow when those signals get conformance
 coverage in v1.3 and v1.2 respectively (see [`microtel-roadmap.md`](../microtel-roadmap.md)).
+
+### The leaf example
+
+[`leaf/`](leaf/) is the one example the default example build leaves out,
+because its two halves are experimental v1.2 features that are off by
+default. Turn them on, then run the concentrator and one or more leaves
+against the same stack as everything else:
+
+```bash
+examples/stack/up.sh
+
+cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON \
+      -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_WITH_CONCENTRATOR=ON
+cmake --build build
+
+./build/examples/microtel_example_leaf_concentrator &     # UDP 127.0.0.1:9310 -> :4317
+./build/examples/microtel_example_leaf_udp_leaf           # five payloads, then exits
+```
+
+The leaf binary is C, linked against the leaf library alone, so its name
+doesn't follow the `microtel_add_example()` pattern exactly:
+`microtel_example_leaf_udp_leaf` and `microtel_example_leaf_concentrator`.
+The spans show up in Grafana under `greenhouse-north`, the name
+`microtel.toml` gives the leaf on port 9311. [`leaf/README.md`](leaf/README.md)
+walks through a run with two leaves and what the collector receives.
 
 ### Opt-in overlays
 

@@ -20,6 +20,7 @@ enum class WorkloadMode : std::uint8_t
     RealisticRequest, ///< EmitRequest() — one parent span + two child spans per iteration
     HotLoopMetrics,   ///< EmitRecord() — one Counter::Add() + one Histogram::Record() per iteration
     HotLoopLogs,      ///< EmitLog() — one Logger::Emit() per iteration
+    LeafFanin,        ///< EmitLeafPayload() — one LeafReceiver::Ingest() per iteration
 };
 
 /// Map an EMIT_WORKLOAD value to its mode. Unknown values fall back to HotLoop.

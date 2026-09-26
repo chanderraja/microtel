@@ -20,6 +20,8 @@
 #include "upb/mem/arena.h"
 #pragma GCC diagnostic pop
 
+#include <gtest/gtest.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -85,6 +87,17 @@ struct DecodedPayload
             }
         }
         return std::nullopt;
+    }
+
+    /// The integer value of the resource attribute named `key`, if present.
+    [[nodiscard]] std::optional<std::int64_t> ResourceInt(const std::string& key) const
+    {
+        const auto kv = ResourceAttr(key);
+        if (!kv.has_value())
+        {
+            return std::nullopt;
+        }
+        return kv->i;
     }
 };
 
@@ -221,6 +234,19 @@ inline std::optional<DecodedPayload> Decode(const std::uint8_t* bytes, std::size
     }
     upb_Arena_Free(arena);
     return out;
+}
+
+/// Decodes `bytes`, recording a test failure (and returning an empty payload)
+/// if upb rejects them.
+inline DecodedPayload DecodeOrFail(const std::uint8_t* bytes, std::size_t len)
+{
+    auto decoded = Decode(bytes, len);
+    if (!decoded.has_value())
+    {
+        ADD_FAILURE() << "upb rejected the payload";
+        return {};
+    }
+    return *decoded;
 }
 
 }  // namespace microtel::leaf_test

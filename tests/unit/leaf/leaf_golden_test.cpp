@@ -330,9 +330,8 @@ TEST(LeafGoldenTest, GoldenFilesDecodeToTheirScenario)
         SCOPED_TRACE(name);
         const auto golden = ReadFile(GoldenPath(name));
         ASSERT_FALSE(golden.empty());
-        const auto p = lt::Decode(golden.data(), golden.size());
-        ASSERT_TRUE(p.has_value());
-        Checks().at(name)(*p);
+        const auto p = lt::DecodeOrFail(golden.data(), golden.size());
+        Checks().at(name)(p);
     }
 }
 

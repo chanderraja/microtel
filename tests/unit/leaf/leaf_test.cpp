@@ -172,9 +172,7 @@ protected:
         std::size_t written = 0;
         EXPECT_EQ(microtel_leaf_encode(&m_leaf, out.data(), out.size(), &written),
                   MICROTEL_LEAF_OK);
-        auto decoded = lt::Decode(out.data(), written);
-        EXPECT_TRUE(decoded.has_value());
-        return decoded.value_or(lt::DecodedPayload{});
+        return lt::DecodeOrFail(out.data(), written);
     }
 
     std::vector<std::uint8_t> EncodeBytes()
@@ -1080,7 +1078,7 @@ TEST_F(LeafTest, RecordBufferExhaustion_DropsAndCountsThenRecovers)
     const auto p = EncodeAndDecode();
     EXPECT_EQ(p.spans.size(), static_cast<std::size_t>(started));
     ASSERT_TRUE(p.ResourceAttr("microtel.leaf.dropped_spans").has_value());
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.dropped_spans")->i, 1);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.dropped_spans"), 1);
     EXPECT_EQ(Counters().dropped_spans, 0U);
 
     // Usable again.
@@ -1130,8 +1128,8 @@ TEST_F(LeafTest, RecordBufferExhaustion_AttributesAndEventsAreCounted)
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
     const auto p = EncodeAndDecode();
     ASSERT_TRUE(p.ResourceAttr("microtel.leaf.dropped_items").has_value());
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.dropped_items")->i, 2);
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.dropped_spans")->i, 2);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.dropped_items"), 2);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.dropped_spans"), 2);
 }
 
 TEST_F(LeafTest, RepeatedOverwrites_ReclaimDeadSpace)
@@ -1323,9 +1321,8 @@ TEST_F(LeafTest, Encode_BufferTooSmall_ReportsExactSizeAndConsumesNothing)
     std::size_t written = 0;
     ASSERT_EQ(microtel_leaf_encode(&m_leaf, exact.data(), exact.size(), &written),
               MICROTEL_LEAF_OK);
-    const auto p = lt::Decode(exact.data(), written);
-    ASSERT_TRUE(p.has_value());
-    EXPECT_EQ(p->spans.size(), 1U);
+    const auto p = lt::DecodeOrFail(exact.data(), written);
+    EXPECT_EQ(p.spans.size(), 1U);
 }
 
 TEST_F(LeafTest, Encode_InvalidArguments)
@@ -1379,10 +1376,9 @@ TEST_F(LeafTest, EncodeTo_ProducesTheSameBytesAsBufferEncode)
     ASSERT_EQ(microtel_leaf_encode_to(&m_leaf, &CollectWrite, &c, &written), MICROTEL_LEAF_OK);
     EXPECT_EQ(written, c.bytes.size());
     EXPECT_EQ(written, needed);
-    const auto p = lt::Decode(c.bytes.data(), c.bytes.size());
-    ASSERT_TRUE(p.has_value());
-    ASSERT_EQ(p->spans.size(), 1U);
-    EXPECT_EQ(p->spans[0].attrs.size(), 1U);
+    const auto p = lt::DecodeOrFail(c.bytes.data(), c.bytes.size());
+    ASSERT_EQ(p.spans.size(), 1U);
+    EXPECT_EQ(p.spans[0].attrs.size(), 1U);
     (void)saved;
 }
 
@@ -1399,9 +1395,8 @@ TEST_F(LeafTest, EncodeTo_FailingWrite_ConsumesNothing)
     EXPECT_EQ(c.calls, 1);
     c.fail = 0;
     ASSERT_EQ(microtel_leaf_encode_to(&m_leaf, &CollectWrite, &c, &written), MICROTEL_LEAF_OK);
-    const auto p = lt::Decode(c.bytes.data(), c.bytes.size());
-    ASSERT_TRUE(p.has_value());
-    EXPECT_EQ(p->spans.size(), 1U);
+    const auto p = lt::DecodeOrFail(c.bytes.data(), c.bytes.size());
+    EXPECT_EQ(p.spans.size(), 1U);
 }
 
 TEST_F(LeafTest, EncodedSize_IsAnUpperBound)
@@ -1442,9 +1437,9 @@ TEST_F(LeafTest, ConcentratorStamped_WithClock_SendsEncodeTime)
     const microtel_leaf_span_t s = Start("a");
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
     const auto p = EncodeAndDecode();
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.time_mode")->i, 0);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.time_mode"), 0);
     ASSERT_TRUE(p.ResourceAttr("microtel.leaf.encode_time").has_value());
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.encode_time")->i,
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.encode_time"),
               static_cast<std::int64_t>(kClockStart + 2 * kClockStep));
     EXPECT_FALSE(p.ResourceAttr("microtel.leaf.sync_age").has_value());
     EXPECT_FALSE(p.ResourceAttr("microtel.leaf.boot_id").has_value());
@@ -1475,7 +1470,7 @@ TEST_F(LeafTest, SyncRelative_BeforeFirstSync_FallsBackToStamped)
     const microtel_leaf_span_t s = Start("a");
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
     const auto p = EncodeAndDecode();
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.time_mode")->i, 0);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.time_mode"), 0);
     EXPECT_FALSE(p.ResourceAttr("microtel.leaf.sync_age").has_value());
     EXPECT_EQ(p.spans[0].start, kClockStart);
 }
@@ -1491,14 +1486,14 @@ TEST_F(LeafTest, SyncRelative_AfterSync_ConvertsAtEncodeTime)
     ASSERT_EQ(microtel_leaf_clock_sync(&m_leaf, kUnix, sync_leaf), MICROTEL_LEAF_OK);
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
     const auto p = EncodeAndDecode();
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.time_mode")->i, 1);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.time_mode"), 1);
     ASSERT_EQ(p.spans.size(), 1U);
     EXPECT_EQ(p.spans[0].start, kUnix - kClockStep);
     const std::uint64_t raw_end = p.spans[0].end - kUnix + sync_leaf;
     const std::uint64_t encode_leaf = raw_end + kClockStep;
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.encode_time")->i,
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.encode_time"),
               static_cast<std::int64_t>(kUnix + (encode_leaf - sync_leaf)));
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.sync_age")->i,
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.sync_age"),
               static_cast<std::int64_t>(encode_leaf - sync_leaf));
 }
 
@@ -1519,8 +1514,8 @@ TEST_F(LeafTest, BootRelative_SendsBootId)
     const microtel_leaf_span_t s = Start("a");
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
     const auto p = EncodeAndDecode();
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.time_mode")->i, 2);
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.boot_id")->i, 42);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.time_mode"), 2);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.boot_id"), 42);
     EXPECT_TRUE(p.ResourceAttr("microtel.leaf.encode_time").has_value());
     EXPECT_EQ(p.spans[0].start, kClockStart);
 }
@@ -1537,7 +1532,7 @@ TEST_F(LeafTest, Counters_ResetOnlyAfterASuccessfulEncode)
     ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &needed), MICROTEL_LEAF_ERR_BUFFER_SMALL);
     EXPECT_EQ(Counters().dropped_events, 1U);
     const auto p = EncodeAndDecode();
-    EXPECT_EQ(p.ResourceAttr("microtel.leaf.dropped_items")->i, 1);
+    EXPECT_EQ(p.ResourceInt("microtel.leaf.dropped_items"), 1);
     EXPECT_EQ(Counters().dropped_events, 0U);
     const auto p2 = EncodeAndDecode();
     EXPECT_FALSE(p2.ResourceAttr("microtel.leaf.dropped_items").has_value());
@@ -1598,9 +1593,8 @@ TEST_F(LeafUpbScratchTest, FixedScratch_NeverCallsTheHeap)
     BuildSpans();
     const auto bytes = EncodeBytes();
     EXPECT_EQ(HeapCounter::s_calls, 0);
-    const auto p = lt::Decode(bytes.data(), bytes.size());
-    ASSERT_TRUE(p.has_value());
-    EXPECT_EQ(p->spans.size(), 4U);
+    const auto p = lt::DecodeOrFail(bytes.data(), bytes.size());
+    EXPECT_EQ(p.spans.size(), 4U);
 }
 
 TEST_F(LeafUpbScratchTest, ExhaustedScratch_FailsWithoutTheHeapAndKeepsSpans)

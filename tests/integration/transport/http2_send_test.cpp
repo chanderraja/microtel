@@ -61,7 +61,7 @@ enum class ServerScript : std::uint8_t
     RespondToRequest,
     /// Stop reading and reset the connection as soon as the client's first
     /// request bytes arrive — a collector restarting under an export, which is
-    /// the shape issue #177 was reported against.
+    /// the shape issue #177 was reported against. Nothing is ever answered.
     ResetOnFirstRequest,
     /// Answer the first completed request with `GOAWAY(last_stream_id = 0,
     /// NO_ERROR)` and then hold the socket open. Nothing the client sent was
@@ -443,8 +443,12 @@ void SrvHandleCompletedRequest(nghttp2_session* s, RequestServerCtx& ctx, int32_
             SrvSubmitOversizedTrailerResponse(s, ctx, stream_id);
             break;
         case ServerScript::RespondToRequest:
-        case ServerScript::ResetOnFirstRequest:
             SrvSubmit200(s, ctx, stream_id);
+            break;
+        case ServerScript::ResetOnFirstRequest:
+            // A request can complete in the same read as the SETTINGS ACK.
+            // Answering it would let one request succeed before the reset
+            // lands (issue #282); this peer answers nothing.
             break;
     }
 }
@@ -722,6 +726,14 @@ private:
                 return true;
             }
             ::nghttp2_session_recv(session);
+            // The burst can arrive in the same read as the SETTINGS ACK. Once
+            // it has been read there is nothing left to wake the next poll,
+            // so waiting for "the first request byte" would stall until the
+            // client gave up (issue #282). Reset now instead.
+            if (ctx.request_stream_id > 0)
+            {
+                return true;
+            }
             ::nghttp2_session_send(session);
         }
         return true;
@@ -962,6 +974,30 @@ constexpr std::size_t kBurstPayloadBytes = 256;
     return transport.GetState() == want;
 }
 
+/// A request the peer reset took down: lost with the connection or failed by
+/// `Close` (`Cancelled`), refused because the transport was no longer
+/// connected (`Network`), or refused at submission because the burst
+/// outran `max_pending_requests` (`ResourceExhausted`, flagged busy). Any
+/// other kind — `Protocol`, `Malformed`, `InternalFailure` — would mean the
+/// transport misread the reset as something the peer said.
+[[nodiscard]] bool IsPeerResetFailure(const mti::TransportResult& result)
+{
+    if (!result.error.has_value())
+    {
+        return false;
+    }
+    switch (result.error->kind)
+    {
+        case microtel::Error::Kind::Network:
+        case microtel::Error::Kind::Cancelled:
+            return true;
+        case microtel::Error::Kind::ResourceExhausted:
+            return result.transport_busy;
+        default:
+            return false;
+    }
+}
+
 }  // namespace
 
 TEST(Http2TransportSendIntegrationTest, Send_PeerResetsMidBurst_ProcessSurvives)
@@ -1017,8 +1053,12 @@ TEST(Http2TransportSendIntegrationTest, Send_PeerResetsMidBurst_ProcessSurvives)
             continue;
         }
         ASSERT_EQ(handle.Future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
-        EXPECT_FALSE(handle.Future().get().success)
-            << "the peer went away; no request can have succeeded";
+        const mti::TransportResult result = handle.Future().get();
+        EXPECT_FALSE(result.success) << "the peer answered nothing; no request can have succeeded";
+        EXPECT_TRUE(IsPeerResetFailure(result))
+            << "a request the reset took down must fail as a network, cancelled or busy "
+               "error — kind was "
+            << (result.error ? static_cast<int>(result.error->kind) : -1);
     }
 
     server.Stop();

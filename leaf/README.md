@@ -85,14 +85,42 @@ Regenerate the vectors after an intended wire change with
 every global starts with `microtel_leaf_`, and a nanopb leaf references no
 heap allocator.
 
+`tests/leaf/target/` runs the leaf away from the x86-64 host
+(`ci/scripts/leaf-target.sh`, the `leaf-target` CI job): a C runner with no
+test framework and no heap checks the golden vectors and a subset of the API
+tests, with every buffer also at odd byte offsets, on bare-metal Cortex-M0+
+and Cortex-M4 under `qemu-system-arm`; the gtest suite and the runner also run
+under `qemu-aarch64` and as a 32-bit i686 process. The runner also measures
+each entry point's stack.
+
 ## Footprint and example
 
-`ci/scripts/leaf-footprint.sh <cortex-m0plus|cortex-m4|aarch64>` cross-builds
-this directory with the toolchain files in `cmake/toolchains/`, links
-`examples/leaf/size_probe.c`, and reports the leaf's `.text`, `.rodata`,
-`.data` and `.bss`; the `leaf-footprint` CI job runs it on every PR, and
-[`docs/bench-results/leaf-footprint.md`](../docs/bench-results/leaf-footprint.md)
-has the release figures. [`examples/leaf/`](../examples/leaf/) is a leaf and a
+`ci/scripts/leaf-footprint.sh <cortex-m0plus|cortex-m4|aarch64> [nanopb|upb]`
+cross-builds this directory with the toolchain files in `cmake/toolchains/`,
+links `examples/leaf/size_probe.c`, and reports the leaf's `.text`, `.rodata`,
+`.data` and `.bss` and the worst-case stack of every public entry point
+(`ci/scripts/leaf-stack.py`, from GCC's `-fcallgraph-info=su` call graph); the
+`leaf-footprint` CI job runs it for both backends on every target on every PR,
+and [`docs/bench-results/leaf-footprint.md`](../docs/bench-results/leaf-footprint.md)
+has the release figures.
+
+### Choosing a backend
+
+Both backends produce the same bytes. The probe (one span, one attribute,
+streamed), v1.2, bytes:
+
+| | nanopb (default) | upb |
+|---|---|---|
+| Flash, Cortex-M0+ / Cortex-M4 / aarch64 | 9,472 / 9,298 / 16,366 | 14,632 ¹ / 14,392 / 23,966 |
+| Leaf static RAM (`.data` + `.bss`), Cortex-M / aarch64 | 0 / 808 | 65 / 769 |
+| Caller RAM | 512: `microtel_leaf_t` 256 + record buffer 256 | 2,560: the same + 2 KiB encode scratch (or the heap) |
+| Worst-case stack, encode (static), Cortex-M4 / aarch64 | 3,392 / 6,864 | 2,944 / 5,296 |
+| Heap | never | only with no `config.scratch` |
+| `encode_to` | streams each field as it is encoded; no payload buffer | builds the payload in the arena, one `write` |
+| Choose it for | microcontrollers: the smallest flash and no heap | Linux-class devices, or a firmware that already links upb |
+
+¹ ARMv6-M (Cortex-M0 / M0+) needs an `__atomic_compare_exchange_4`, which
+newlib lacks, for upb's arena; see the footprint results. [`examples/leaf/`](../examples/leaf/) is a leaf and a
 concentrator talking over UDP; `tests/conformance/leaf/` runs the same path
 against a real collector with each backend.
 

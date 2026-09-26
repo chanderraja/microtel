@@ -6,9 +6,16 @@
 
 #include <string.h>
 
+/* The record buffer every vector builds in. The Cortex-M0 target runner
+ * (tests/leaf/target/), which has 16 KiB of RAM, builds this file with a
+ * smaller one; the largest vector, max_strings, needs a little over 3 KiB. */
+#ifndef MICROTEL_LEAF_VECTORS_RECORD_BYTES
+#define MICROTEL_LEAF_VECTORS_RECORD_BYTES 16384
+#endif
+
 enum
 {
-    RECORD_BUFFER_SIZE = 16384,
+    RECORD_BUFFER_SIZE = MICROTEL_LEAF_VECTORS_RECORD_BYTES,
     LONG_STRING_SIZE = 1000,
     TRACE_ID_SIZE = 16,
     SPAN_ID_SIZE = 8,

@@ -131,7 +131,9 @@ IngestResult SdkLeafReceiver::Ingest(const IngestRequest& request) noexcept
     {
         // Not decoded, so its spans are not known: counted as a payload in
         // LeafReceiverStats, never as a post_shutdown record (ICP 0035).
-        m_counters.payloads_post_shutdown.fetch_add(1, std::memory_order_relaxed);
+        // A statistics counter: nothing is ordered by it.
+        auto& late = m_counters.payloads_post_shutdown;
+        late.fetch_add(1, std::memory_order_relaxed);  // NOSONAR(cpp:S8417)
         return IngestResult{.status = IngestStatus::ShutDown};
     }
     IngestResult result{.status = IngestStatus::Accepted};
@@ -580,6 +582,7 @@ void SdkLeafReceiver::MarkShutDown() noexcept
 
 LeafReceiverStats SdkLeafReceiver::Stats() const noexcept
 {
+    const auto& late = m_counters.payloads_post_shutdown;
     return LeafReceiverStats{
         .payloads_accepted = m_counters.payloads_accepted.load(std::memory_order_relaxed),
         .payloads_rejected = m_counters.payloads_rejected.load(std::memory_order_relaxed),
@@ -591,7 +594,7 @@ LeafReceiverStats SdkLeafReceiver::Stats() const noexcept
         .resource_attributes_dropped =
             m_counters.resource_attributes_dropped.load(std::memory_order_relaxed),
         .leaf_id_conflicts = m_counters.leaf_id_conflicts.load(std::memory_order_relaxed),
-        .payloads_post_shutdown = m_counters.payloads_post_shutdown.load(std::memory_order_relaxed),
+        .payloads_post_shutdown = late.load(std::memory_order_relaxed),  // NOSONAR(cpp:S8417)
     };
 }
 

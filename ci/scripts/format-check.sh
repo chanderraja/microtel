@@ -24,10 +24,12 @@ fi
 
 echo "format-check: using $($CLANG_FORMAT --version)"
 
-# Globbing — keep paths in step with the directories that hold real C++.
+# Globbing — keep paths in step with the directories that hold real C++, plus
+# the C leaf (leaf/) and its C test vectors, which share the same style
+# (docs/leaf-concentrator-design.md §7.8).
 mapfile -t FILES < <(
-    find include src tests ci examples \
-        -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+    find include src tests ci examples leaf \
+        -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" -o -name "*.c" \) \
         2>/dev/null | sort
 )
 

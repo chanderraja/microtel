@@ -66,6 +66,8 @@ jobs:
             -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
+            -DMICROTEL_LEAF_ENCODER=upb \
             -DMICROTEL_BUILD_FUZZ=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
@@ -121,6 +123,8 @@ jobs:
             -DMICROTEL_BUILD_TESTS=ON \
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
+            -DMICROTEL_LEAF_ENCODER=upb \
             -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
@@ -159,6 +163,8 @@ jobs:
             -DMICROTEL_BUILD_TESTS=ON \
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
+            -DMICROTEL_LEAF_ENCODER=upb \
             -DMICROTEL_SANITIZER=${{ matrix.sanitizer }}
       - name: Build
         run: cmake --build build --verbose
@@ -227,7 +233,11 @@ jobs:
         env:
           CC:  clang-18
           CXX: clang++-18
-        run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
+        # The leaf is built and installed too, so the leaf pass has its archive
+        # to scan (docs/leaf-concentrator-design.md §7.6).
+        run: >-
+          cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
+          -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb
       - name: Build
         run: cmake --build build
       # ICP 0020 Decision 5: "shipped" means the install tree, so the gate
@@ -238,6 +248,37 @@ jobs:
         run: cmake --install build --prefix install-tree
       - name: Assert dependency closure and the vendored-upb prefix
         run: ci/scripts/symbol-scan.sh --prefix install-tree
+
+  # The leaf's standalone build (docs/leaf-concentrator-design.md §2.1): only a
+  # C compiler, no CXX language, no nghttp2 / OpenSSL / zlib. This is the form
+  # a firmware toolchain uses, so it must keep configuring on its own. The
+  # installed archives then go through the same symbol-scan gate, leaf pass
+  # included.
+  leaf-standalone:
+    runs-on: ubuntu-latest
+    name: leaf-standalone
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc cmake ninja-build binutils
+      - name: Configure (C only)
+        env:
+          CC: gcc
+        run: cmake -S leaf -B build-leaf -G Ninja -DMICROTEL_LEAF_ENCODER=upb
+      - name: Assert no C++ toolchain was configured
+        run: |
+          if grep -q '^CMAKE_CXX_COMPILER:' build-leaf/CMakeCache.txt; then
+            echo "leaf-standalone: the standalone leaf build enabled CXX" >&2
+            exit 1
+          fi
+      - name: Build
+        run: cmake --build build-leaf
+      - name: Install to a staging prefix
+        run: cmake --install build-leaf --prefix leaf-install
+      - name: Assert the leaf's dependency closure
+        run: ci/scripts/symbol-scan.sh --prefix leaf-install
 
   consumer-smoke:
     runs-on: ubuntu-latest
@@ -426,8 +467,10 @@ jobs:
           LLVM_COV:      llvm-cov-21
           # The glog and log4cxx bridges are header-only under include/microtel/,
           # so their lines count toward the sdk-encoder group — build them here.
+          # The leaf (leaf/) is gated with the sdk-encoder group.
           COVERAGE_EXTRA_CMAKE_ARGS: >-
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON
+            -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb
         run: ci/scripts/coverage.sh build
       # The other half of §14.2: every line this PR adds or modifies must be
       # covered by a test in the same PR.

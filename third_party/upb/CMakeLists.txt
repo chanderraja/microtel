@@ -60,7 +60,7 @@ add_library(microtel_upb_runtime STATIC
 # The archive installs; the headers do not.
 target_include_directories(microtel_upb_runtime
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/utf8_range>)
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../utf8_range>)
 
 target_link_libraries(microtel_upb_runtime PUBLIC microtel_utf8_range)
 

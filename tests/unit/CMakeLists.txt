@@ -62,3 +62,9 @@ add_subdirectory(sugar)
 if(MICROTEL_USE_SPDLOG OR MICROTEL_BUILD_GLOG_BRIDGE OR MICROTEL_BUILD_LOG4CXX_BRIDGE)
     add_subdirectory(adapters)
 endif()
+
+# v1.2 — the leaf C library (docs/leaf-concentrator-design.md §7.1), only when
+# the top-level build enables it. Mirrors leaf/.
+if(TARGET microtel_leaf)
+    add_subdirectory(leaf)
+endif()

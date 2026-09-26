@@ -66,6 +66,7 @@ Makefile          text eol=lf
 *.whl      binary
 *.deb      binary
 *.rpm      binary
+*.bin      binary
 
 # ---- Generated files ----
 # Mark generated upb code as generated for git diff/blame UX.

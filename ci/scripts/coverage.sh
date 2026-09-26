@@ -85,6 +85,9 @@
 #                            with no socket, so it is held to the SDK floor
 #                            rather than the transport one.
 #     src/wire/encoder/**    the upb OTLP encoder — the "encoder" of §14.2
+#     leaf/**                the C leaf: span building and its OTLP encoder
+#                            backends (docs/leaf-concentrator-design.md);
+#                            measured when MICROTEL_BUILD_LEAF is on
 #
 #   transport-exporter   ≥ 80% line
 #     src/transport/**       epoll reactor, HTTP/2 + TLS transport
@@ -383,6 +386,7 @@ awk -v root="$REPO_ROOT/" '
     function group_of(p)
     {
         if (p ~ /(^|\/)src\/wire\/encoder\//) { return "sdk-encoder" }
+        if (p ~ /(^|\/)leaf\//) { return "sdk-encoder" }
         if (p ~ /(^|\/)src\/(api|sdk|common)\//) { return "sdk-encoder" }
         if (p ~ /(^|\/)include\/microtel\//) { return "sdk-encoder" }
         if (p ~ /(^|\/)src\/(transport|exporter|adapters|wire)\//)
@@ -519,7 +523,7 @@ awk \
         print "=== Aggregate coverage vs spec §14.2 ==="
 
         print ""
-        print "  sdk-encoder  (include/microtel, src/api, src/sdk, src/common, src/wire/encoder)"
+        print "  sdk-encoder  (include/microtel, src/api, src/sdk, src/common, src/wire/encoder, leaf)"
         report_line("sdk-encoder", sdk_line_min)
         report_branch("sdk-encoder", sdk_branch_min)
 

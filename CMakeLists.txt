@@ -296,6 +296,15 @@ if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
 endif()
 add_subdirectory(tools)
 
+# microtel-leaf, the C span encoder for constrained devices (ICP 0031 Decision 3,
+# docs/leaf-concentrator-design.md §2.1). Default OFF. Exported as
+# `microtel::leaf`; never a dependency of `microtel::microtel`. The backend is
+# chosen with MICROTEL_LEAF_ENCODER (leaf/CMakeLists.txt).
+option(MICROTEL_BUILD_LEAF "Build the microtel-leaf C library" OFF)
+if(MICROTEL_BUILD_LEAF)
+    add_subdirectory(leaf)
+endif()
+
 # ---------------------------------------------------------------------------
 # Install rules and the exported target set — issue #19, ICP 0020.
 #
@@ -338,6 +347,10 @@ set(MICROTEL_EXPORTED_TARGETS
     microtel_upb_runtime
     microtel_utf8_range)
 
+if(MICROTEL_BUILD_LEAF)
+    list(APPEND MICROTEL_EXPORTED_TARGETS microtel_leaf)
+endif()
+
 # `microtel_sdk` exports as `microtel::sdk`, not `microtel::microtel_sdk`.
 # The aggregate is already bare `microtel`, so the regex leaves it alone.
 foreach(microtel_target IN LISTS MICROTEL_EXPORTED_TARGETS)
@@ -366,6 +379,12 @@ install(TARGETS microtel-preflight
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/microtel
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.hpp")
+
+# The leaf's one public header, a C header beside the C++ ones.
+if(MICROTEL_BUILD_LEAF)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/leaf/include/microtel/leaf.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel)
+endif()
 
 # The vendored tl::expected, under a `vendor/` level of its own so that
 # `#include "tl/expected.hpp"` from expected.hpp keeps resolving without the

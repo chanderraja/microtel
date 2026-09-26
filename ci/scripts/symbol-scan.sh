@@ -163,9 +163,31 @@ symbols_of() {
         | sed 's/^[A-Za-z] //'
 }
 
+# The leaf pass (docs/leaf-concentrator-design.md §7.6), run only when a leaf
+# archive is among the artifacts. The leaf is C and links into firmware that
+# may have no C++ runtime at all, and its symbols share a global namespace with
+# the firmware's own, so:
+#
+#   - libmicrotel_leaf.a and the C archives it links (the vendored upb runtime,
+#     the generated upb accessors, utf8_range) must not define or reference
+#     any C++ runtime symbol. Matched on the *mangled* name, since a C++
+#     function's mangling is what makes it one.
+#   - every global libmicrotel_leaf.a defines starts with `microtel_leaf_`
+#     (§1.9). Only defined symbols count: its undefined references are to libc
+#     and to the renamed upb archives, which the passes above already cover.
+#
+# The generated upb archive keeps its unprefixed `opentelemetry_*` names, as
+# CLAUDE.md rule 13 allows, so the prefix check applies to the leaf's own
+# archive only.
+LEAF_ARCHIVE_NAME='libmicrotel_leaf.a'
+LEAF_C_ARCHIVES_PATTERN='/libmicrotel_(leaf|upb_runtime|upb_gen|utf8_range)\.a$'
+CXX_RUNTIME_PATTERN='^(_Z|__cxa_|__gxx_personality)'
+LEAF_PREFIX_PATTERN='^microtel_leaf_'
+
 forbidden_violations=0
 unprefixed_violations=0
 bridge_violations=0
+leaf_violations=0
 
 for artifact in "${ARTIFACTS[@]}"; do
     hits=$(symbols_of "$artifact" -A -C | grep -E "$FORBIDDEN_PATTERN" | sort -u || true)
@@ -194,6 +216,40 @@ for artifact in "${ARTIFACTS[@]}"; do
     fi
 done
 
+leaf_present=0
+for artifact in "${ARTIFACTS[@]}"; do
+    if [[ "$(basename "$artifact")" == "$LEAF_ARCHIVE_NAME" ]]; then
+        leaf_present=1
+    fi
+done
+
+if [[ $leaf_present -eq 1 ]]; then
+    for artifact in "${ARTIFACTS[@]}"; do
+        if [[ ! "$artifact" =~ $LEAF_C_ARCHIVES_PATTERN ]]; then
+            continue
+        fi
+        hits=$(symbols_of "$artifact" -A | grep -E "$CXX_RUNTIME_PATTERN" | sort -u || true)
+        if [[ -n "$hits" ]]; then
+            echo "symbol-scan: C++ runtime symbols in leaf closure archive $artifact" >&2
+            echo "$hits" | sed 's/^/    /' >&2
+            leaf_violations=$((leaf_violations + 1))
+        fi
+        if [[ "$(basename "$artifact")" != "$LEAF_ARCHIVE_NAME" ]]; then
+            continue
+        fi
+        hits=$(
+            symbols_of "$artifact" -A -g --defined-only \
+                | grep -Ev "$LEAF_PREFIX_PATTERN" \
+                | sort -u || true
+        )
+        if [[ -n "$hits" ]]; then
+            echo "symbol-scan: leaf globals without the microtel_leaf_ prefix in $artifact" >&2
+            echo "$hits" | sed 's/^/    /' >&2
+            leaf_violations=$((leaf_violations + 1))
+        fi
+    done
+fi
+
 if [[ $forbidden_violations -ne 0 ]]; then
     echo >&2
     echo "symbol-scan: $forbidden_violations artifact(s) violate the dependency closure." >&2
@@ -215,10 +271,20 @@ if [[ $bridge_violations -ne 0 ]]; then
     echo "symbol-scan: archive — see src/adapters/glog/README.md and ICP 0014." >&2
 fi
 
-if [[ $((forbidden_violations + unprefixed_violations + bridge_violations)) -ne 0 ]]; then
+if [[ $leaf_violations -ne 0 ]]; then
+    echo >&2
+    echo "symbol-scan: $leaf_violations leaf check(s) failed. The leaf and its C archives" >&2
+    echo "symbol-scan: carry no C++ runtime, and every leaf global starts with" >&2
+    echo "symbol-scan: microtel_leaf_ — see docs/leaf-concentrator-design.md §1.9, §7.6." >&2
+fi
+
+if [[ $((forbidden_violations + unprefixed_violations + bridge_violations + leaf_violations)) -ne 0 ]]; then
     exit 1
 fi
 
 echo "symbol-scan: clean — no gRPC, abseil, or protobuf-cpp symbols"
 echo "symbol-scan: clean — no unprefixed vendored upb/utf8_range symbols"
 echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"
+if [[ $leaf_present -eq 1 ]]; then
+    echo "symbol-scan: clean — leaf closure has no C++ runtime; leaf globals are prefixed"
+fi

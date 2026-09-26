@@ -1,0 +1,37 @@
+# microtel-leaf C static analysis profile (docs/leaf-concentrator-design.md §7.8).
+#
+# The leaf is C11, so the root profile's C++-only checks (cppcoreguidelines,
+# modernize, the C++ naming rules) do not apply. This keeps the parts of the
+# SonarQube-aligned ruleset that mean something in C: the bugprone and CERT C
+# checks, the complexity and nesting limits, and signed-bitwise.
+#
+# ci/scripts/tidy-check.sh lints every C translation unit it finds (leaf/ and
+# the C test vectors under tests/) with this file via --config-file, so the
+# vectors get the same profile as the library.
+---
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  hicpp-signed-bitwise,
+  readability-function-cognitive-complexity,
+  readability-function-size,
+  -bugprone-easily-swappable-parameters,
+
+WarningsAsErrors: '*'
+
+# Only the leaf's own headers; vendored upb and gen/ never match.
+HeaderFilterRegex: '.*/leaf/(include|src)/.*\.h$'
+
+CheckOptions:
+  readability-function-cognitive-complexity.Threshold: 15
+  readability-function-cognitive-complexity.IgnoreMacros: true
+  readability-function-size.LineThreshold: 75
+  readability-function-size.StatementThreshold: 100
+  readability-function-size.BranchThreshold: 10
+  readability-function-size.ParameterThreshold: 7
+  readability-function-size.NestingThreshold: 3
+  readability-function-size.VariableThreshold: 12
+  bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression: true
+  bugprone-suspicious-string-compare.WarnOnImplicitComparison: true
+  bugprone-suspicious-string-compare.WarnOnLogicalNotComparison: true

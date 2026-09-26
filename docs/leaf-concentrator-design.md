@@ -222,11 +222,13 @@ costly on an MCU); the concentrator rejects a payload with invalid UTF-8,
 because upb validates proto3 `string` fields on decode.
 
 **Record buffer layout.** A span table grows from the front of the buffer and
-string and attribute data from the back. Encoding serialises the ended spans
-and then compacts the spans that are still open to the front, so a
-long-running span survives an encode. A handle carries a generation count, so
-a handle to a span that has since been encoded is detected and rejected
-instead of silently writing into a different span.
+string and attribute data from the back. Encoding serialises the ended spans,
+frees their slots, trims free slots off the end of the table, and compacts the
+data region, so a long-running span survives an encode. A span keeps its slot
+for its whole life (its handle names the slot), so compaction moves data, not
+slots. A handle carries a generation count, so a handle to a span that has
+since been encoded is detected and rejected instead of silently writing into a
+different span that reuses the slot.
 
 ### 1.5 Configuration and lifecycle
 
@@ -612,30 +614,42 @@ The core hands a backend a read-only, backend-neutral view of the batch. A
 backend owns no state between calls.
 
 ```c
-/* leaf/src/leaf_internal.h — not installed */
+/* leaf/src/leaf_internal.h — not installed; abridged */
 typedef struct microtel_leaf_internal_batch
 {
-    const microtel_leaf_internal_resource *resource; /* leaf Resource + reserved attrs */
-    const microtel_leaf_internal_scope *scope;
-    const microtel_leaf_internal_span *const *spans; /* ended spans, in end order */
-    size_t span_count;
+    size_t resource_count;          /* leaf Resource + reserved attrs */
+    const char *scope_name;         /* and scope_version, with lengths */
+    size_t span_count;              /* ended spans */
+    /* ... private to the core ... */
 } microtel_leaf_internal_batch;
+
+/* Cursor iteration over the record buffer: no array of span pointers has to
+ * be materialised, and a cursor can be restarted as often as a backend likes
+ * (nanopb runs its callbacks twice). */
+int microtel_leaf_internal_next_resource_attr(const microtel_leaf_internal_batch *,
+                                              microtel_leaf_internal_cursor *,
+                                              microtel_leaf_kv_t *);
+int microtel_leaf_internal_next_span(...);       /* in end order */
+int microtel_leaf_internal_next_attr(...);       /* in first-set order */
+int microtel_leaf_internal_next_event(...);      /* in add order */
+int microtel_leaf_internal_next_event_attr(...);
 
 typedef struct microtel_leaf_internal_sink
 {
-    uint8_t *buf;                   /* non-NULL: buffer mode */
+    uint8_t *buf;                   /* buffer mode */
     size_t cap;
     int (*write)(void *, const uint8_t *, size_t); /* non-NULL: streaming mode */
     void *write_ctx;
 } microtel_leaf_internal_sink;
 
+/* One signature for both entry points; the nanopb backend ignores scratch. */
 microtel_leaf_status_t microtel_leaf_internal_encode_upb(
     const microtel_leaf_internal_batch *batch, const microtel_leaf_internal_sink *sink,
     void *scratch, size_t scratch_size, size_t *written);
 
 microtel_leaf_status_t microtel_leaf_internal_encode_nanopb(
     const microtel_leaf_internal_batch *batch, const microtel_leaf_internal_sink *sink,
-    size_t *written);
+    void *scratch, size_t scratch_size, size_t *written);
 ```
 
 The core decides **what** is emitted: which spans, which fields are present,
@@ -645,12 +659,19 @@ presence decision is made once, in shared code.
 
 **upb backend.** Builds the message tree with the generated accessors in
 `gen/` inside an arena, calls `upb_Encode`, and copies out. With `scratch`
-set, the arena is `upb_Arena_Init(scratch, scratch_size, NULL)`, which cannot
-grow, so the encode fails with `MICROTEL_LEAF_ERR_ENCODE` rather than touching
-the heap. With `scratch` NULL it uses `upb_Arena_New()`. *Verify during
-implementation:* that a NULL `upb_alloc` in the vendored v29.4 means "never
-grow" rather than "use the global allocator"; the arena header declares the
-signature, not that behaviour.
+set, the arena is `upb_Arena_Init(scratch, scratch_size, &refuse)`, where
+`refuse` is a `upb_alloc` whose function returns NULL for every request, so
+the arena cannot grow and the encode fails with `MICROTEL_LEAF_ERR_ENCODE`
+rather than touching the heap. With `scratch` NULL it uses `upb_Arena_New()`.
+*Verified against the vendored v29.4:* a NULL `upb_alloc` does **not** work.
+The header says a NULL allocator makes the arena fixed-size
+(`third_party/upb/upb/mem/arena.h:38-40`), but `upb_Arena_Init` with an
+initial block stores the allocator tagged with a "has initial block" bit
+(`arena.c:346`, `_upb_Arena_MakeBlockAlloc` at `arena.c:118-122`), so the
+`if (!ai->block_alloc) return false;` guard in `_upb_Arena_AllocBlock`
+(`arena.c:262`) never fires and the next block is requested through
+`upb_malloc(NULL, …)` (`arena.c:273-274`), a NULL dereference once the scratch
+is exhausted. A refusing allocator gives the behaviour this section intends.
 
 **nanopb backend.** Encodes with `pb_encode` over the generated descriptors,
 using `FT_CALLBACK` for every string and repeated field so that no generated
@@ -669,11 +690,18 @@ the tests in §7.2:
 1. **Field order.** Fields are written in ascending field-number order. upb
    serialises in field-number order for messages without unknown fields or
    extensions (it encodes backwards, from the last field), and nanopb writes
-   fields in descriptor order, which the generator sorts by tag. *Verify:*
-   both claims against the pinned versions with the golden vectors before the
-   rest of the backend is written.
+   fields in descriptor order, which the generator sorts by tag. *Verified for
+   upb v29.4:* `encode_message` walks the MiniTable's field array from last to
+   first into a back-to-front buffer (`third_party/upb/upb/wire/encode.c:600-610`),
+   and the generated arrays are sorted by field number (for example
+   `gen/opentelemetry/proto/trace/v1/trace.upb_minitable.c:102-119`); unknown
+   fields and extensions come first (`encode.c:567-598`) but the leaf sets
+   neither. `protoc --decode_raw` on the golden vectors shows ascending order.
+   The nanopb claim is still to be verified.
 2. **Presence.** proto3 scalars and strings equal to their default (0, false,
-   empty) are omitted. Submessages are present exactly when the core says so:
+   empty) are omitted, except an `AnyValue` member: it is a `oneof`, so it is
+   written even when it is 0, false or empty (upb tests the oneof case, not the
+   value: `encode.c:500-504`). Submessages are present exactly when the core says so:
    `ResourceSpans.resource` and `ScopeSpans.scope` always; `Span.status` only
    when its code is not UNSET or its message is non-empty. On nanopb this is the
    generated `has_` flag; on upb it is whether the submessage was created.
@@ -1947,9 +1975,11 @@ review. Each is reflected in the section it names.
 Assumptions this design rests on that were not checked against the pinned
 sources:
 
-- upb v29.4: `upb_Arena_Init` with a NULL `upb_alloc` never grows (§2.2);
-  field-number output order (§2.3); the decoded-to-wire memory ratio behind the
-  arena factor of 4 (§3.7).
+- upb v29.4: ~~`upb_Arena_Init` with a NULL `upb_alloc` never grows (§2.2)~~
+  **refuted**: it dereferences the NULL allocator when the initial block runs
+  out; the leaf passes a refusing allocator instead (§2.2). Field-number
+  output order (§2.3): **confirmed**. Still open: the decoded-to-wire memory
+  ratio behind the arena factor of 4 (§3.7), which belongs to the decoder.
 - nanopb 0.4.x: descriptor field order matches tag order (§2.3);
   `FT_CALLBACK` members inside a `oneof` (§2.3 rule 6); `pb_encode_submessage`
   calling callbacks twice (§2.2); the exact global symbol list for the rename

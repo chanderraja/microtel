@@ -24,6 +24,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `test-presence` | `test-presence` | ❌ (see below) |
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
+| `ci.yml` | `leaf-standalone` | `leaf-standalone` | ❌ |
 | `ci.yml` | `version-drift-check` | `version-drift-check` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
@@ -219,9 +220,23 @@ unprefixed; the fix is to regenerate the list using the recipe in
 [`third_party/upb/microtel_upb_rename.h`](../third_party/upb/microtel_upb_rename.h),
 never to widen the pattern.
 
+**Pass 3 — the leaf** (run when `libmicrotel_leaf.a` is among the artifacts;
+[`docs/leaf-concentrator-design.md`](leaf-concentrator-design.md) §1.9, §7.6).
+The leaf is C and links into firmware that may have no C++ runtime, so neither
+its archive nor the C archives it links (upb runtime, generated upb accessors,
+utf8_range) may define or reference a C++ runtime symbol (`_Z*`, `__cxa_*`,
+`__gxx_personality*`); and every global the leaf archive defines must start
+with `microtel_leaf_`.
+
+The `leaf-standalone` job builds the leaf the way a firmware toolchain does —
+`cmake -S leaf` with only a C compiler, asserting that no C++ compiler was
+configured — installs it, and runs this script over that install tree.
+
 **Steps:**
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
-   configuration only, never gtest/gmock or other test-only inputs.
+   configuration only, never gtest/gmock or other test-only inputs — and with
+   `-DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb`, so the leaf archive is
+   installed and scanned.
 2. Build.
 3. `cmake --install build --prefix install-tree`.
 4. Run [`ci/scripts/symbol-scan.sh --prefix install-tree`](../ci/scripts/symbol-scan.sh).

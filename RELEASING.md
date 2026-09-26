@@ -13,7 +13,7 @@ this project has actually made.
 ## 1. Bump the version
 
 `project(microtel VERSION …)` in the top-level `CMakeLists.txt` is the
-authority. Four other literals are hand-written and must be edited in the same
+authority. Five other literals are hand-written and must be edited in the same
 commit:
 
 | Location | Literal | Reaches |
@@ -23,8 +23,9 @@ commit:
 | [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionMajor` / `kVersionMinor` / `kVersionPatch` | public API |
 | [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export (spec §7.2) |
 | [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version (spec §6.4) |
+| [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `microtel_leaf_upb_test` (`LeafVersionTest`) fails when they disagree with `version.hpp` |
 
-Two of those five have a history worth knowing:
+Two of those six have a history worth knowing:
 
 - The gRPC user-agent read `microtel-cpp/0.1.0` for several milestones while
   `version.hpp` said something else. It now carries a `static_assert` against

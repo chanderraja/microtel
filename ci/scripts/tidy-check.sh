@@ -32,10 +32,19 @@ fi
 
 echo "tidy-check: using $($CLANG_TIDY --version | head -1)"
 
-# Translation units to lint: ci/header_check.cpp, src/**/*.cpp, tests/**/*.cpp.
+# Translation units to lint: ci/header_check.cpp, src/**/*.cpp, tests/**/*.cpp,
+# plus the C of the leaf (leaf/**/*.c) and its C test vectors (tests/**/*.c).
 mapfile -t TUS < <(
-    find ci src tests -type f -name "*.cpp" 2>/dev/null | sort
+    {
+        find ci src tests -type f -name "*.cpp"
+        find leaf tests -type f -name "*.c"
+    } 2>/dev/null | sort
 )
+
+# C translation units get the leaf's C profile (docs/leaf-concentrator-design.md
+# §7.8) instead of the root C++ one, whose cppcoreguidelines / modernize /
+# naming checks have no meaning in C.
+C_TIDY_CONFIG="leaf/.clang-tidy"
 
 if [[ ${#TUS[@]} -eq 0 ]]; then
     echo "tidy-check: no TUs to lint"
@@ -88,7 +97,11 @@ echo "tidy-check: linting ${#LINT[@]} TUs..."
 failures=0
 for tu in "${LINT[@]}"; do
     echo "  -> $tu"
-    if ! "$CLANG_TIDY" --quiet --warnings-as-errors='*' -p "$BUILD_DIR" "$tu"; then
+    config=()
+    if [[ "$tu" == *.c ]]; then
+        config=(--config-file="$C_TIDY_CONFIG")
+    fi
+    if ! "$CLANG_TIDY" --quiet --warnings-as-errors='*' "${config[@]}" -p "$BUILD_DIR" "$tu"; then
         failures=$((failures + 1))
     fi
 done

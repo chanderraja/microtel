@@ -513,14 +513,21 @@ public:
     void Stop()
     {
         m_stop.store(true, std::memory_order_release);
+        // Wake a blocked accept() without closing the fd under it: a close here
+        // races the accept thread's read of m_listen_fd and lets another socket
+        // reuse the number first. Close only once the thread has joined.
         if (m_listen_fd >= 0)
         {
-            ::close(m_listen_fd);
-            m_listen_fd = -1;
+            ::shutdown(m_listen_fd, SHUT_RDWR);
         }
         if (m_thread.joinable())
         {
             m_thread.join();
+        }
+        if (m_listen_fd >= 0)
+        {
+            ::close(m_listen_fd);
+            m_listen_fd = -1;
         }
     }
 

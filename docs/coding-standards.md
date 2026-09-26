@@ -7,7 +7,7 @@
 
 ## 1. Scope and enforcement
 
-These standards apply to all C++ source under `src/`, `include/`, and `tests/`. C code (the v2.0 leaf library, when it lands) follows a parallel C-specific document not yet written.
+These standards apply to all C++ source under `src/`, `include/`, and `tests/`. C code (the leaf library under `leaf/`, experimental in v1.2 per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) and [ICP 0032](icps/0032-release-reorder-v1.1.1.md)) follows §15, which says which of the C++ rules carry over and what replaces the rest.
 
 **Enforcement is mechanical wherever possible:**
 
@@ -439,6 +439,72 @@ This checklist is a paste-able comment template (lives in `.github/PULL_REQUEST_
 
 ---
 
-## 15. Updating this document
+## 15. C code (the leaf library)
+
+This section covers the C source under `leaf/`, the microtel-leaf library of [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) Decision 3. Its design is [`docs/leaf-concentrator-design.md`](leaf-concentrator-design.md) §1 and §2, and the section numbers below refer to that document. The C API is experimental in v1.2.
+
+**What carries over from the C++ rules:** layout (§2, enforced by `clang-format` with the repository config), the complexity limits (§6), the anti-patterns in §7 that make sense in C (magic numbers, nested ternaries, empty blocks, commented-out code), public-API documentation (§8.1), `goto` and the unsafe C functions of §4.2, and the review checklist (§14). **What does not:** the rest of §4 (the C++20 language rules), §5 (RAII), and the C++ naming table in §3. §15.1, §15.2 and §15.5 replace them.
+
+### 15.1 Language level
+
+- **C11**, built with `-std=c11 -pedantic-errors` (design §1.2 and §9 decision 11). C11 rather than C99 because `_Static_assert` and `<stdalign.h>` are what make the size guards in §15.3 checkable.
+- **No compiler extensions.** No VLAs, no `alloca`, no GNU statement expressions, and no `__attribute__` in the public header.
+- **Freestanding-safe libc only:** `memcpy`, `memmove`, `memset` and `memcmp`. No `stdio`, no `malloc`, and no `strlen` on caller input.
+- `leaf/include/microtel/leaf.h` is valid C11 **and** valid C++. It carries `extern "C"` guards so the concentrator's tests can include it.
+
+### 15.2 Ownership: caller buffers and init / free pairs
+
+This replaces RAII (§5), which C cannot express.
+
+- **The library never allocates.** Every byte it uses belongs to a buffer or arena the caller owns and passes in with its size: the `microtel_leaf_t` state, the record buffer, the output buffer, and the upb backend's optional scratch arena (design §1.4). The one exception is written down in design §2.2: the upb backend with no scratch buffer uses a heap arena, created and destroyed within one encode call. The nanopb build never touches a heap.
+- **Every init has a free.** Each type that is initialised has a paired `_free` function, even when it has nothing to release (`microtel_leaf_free`, design §1.5). `_free` clears the state, so a later call is detected and returns `MICROTEL_LEAF_ERR_STATE` rather than being undefined behaviour. A failed `_init` has no side effects.
+- **Pointers are borrowed.** A pointer parameter is valid only for the duration of the call, as in CLAUDE.md rule 7. Data that must outlive the call, such as names, attribute keys and values, is **copied** into the record buffer.
+- **Every string comes with its length** (`const char *s, size_t len`). No function scans caller memory for a terminator.
+- A backend keeps no state between calls (design §2.2).
+
+### 15.3 Caller-allocated state and `_Static_assert`
+
+Firmware often links a prebuilt `libmicrotel_leaf.a` against a header from a different release. If the library writes more bytes than the caller's header allocated, it silently corrupts a neighbouring object on an MCU with no MMU. So (design §1.4):
+
+- **Opaque storage.** A public state type is a struct with one private array member whose size is a public macro (`MICROTEL_LEAF_STATE_WORDS`). The implementation casts the storage to its real struct and proves at compile time that the struct fits and is aligned:
+
+  ```c
+  _Static_assert(sizeof(struct microtel_leaf_internal_state) <= sizeof(microtel_leaf_t),
+                 "leaf state outgrew MICROTEL_LEAF_STATE_WORDS");
+  _Static_assert(alignof(struct microtel_leaf_internal_state) <= alignof(microtel_leaf_t),
+                 "leaf state needs stronger alignment than microtel_leaf_t");
+  ```
+
+  Backend-specific state never goes in this storage, so its size is the same for both backends.
+- **The `sizeof` guard.** Any caller-allocated struct whose size can change between releases reaches the library together with its size. Either the call takes an explicit size argument (`microtel_leaf_init(leaf, sizeof(microtel_leaf_t), ...)`, `microtel_leaf_get_counters(leaf, &out, sizeof(out))`), or the struct's first field is `struct_size`, set by the caller to `sizeof` the struct (`microtel_leaf_config_t`). The library checks the size **before writing anything**. If it is too small, the call returns `MICROTEL_LEAF_ERR_ARG` and changes nothing. An output struct is written only up to the size given. For a `struct_size` input, fields past `struct_size` read as zero.
+- **Handles are fixed-width scalars** (`microtel_leaf_span_t` is a `uint32_t`), not structs. A handle is passed by value, and a change in its size would change the calling convention of every function that takes one, which no runtime check can catch.
+- **Frozen layouts are asserted.** When a layout is frozen for 1.x (for example `microtel_leaf_kv_t`), a `_Static_assert` checks that any value type added later still fits it.
+- In general, `_Static_assert` checks every compile-time layout assumption the code makes. Use it rather than a runtime check wherever the compiler can decide.
+
+### 15.4 Errors
+
+- Functions return `microtel_leaf_status_t`. No `abort`, no `exit`, and no failure path that leaves the leaf unusable.
+- The hot-path rule (CLAUDE.md rule 14) in C form: a failed span, attribute or event call **drops the item, counts it, and returns an error code the caller may ignore** (design §1.7).
+
+### 15.5 Naming and symbols
+
+| Element | Convention | Example |
+|---|---|---|
+| External function | `microtel_leaf_` + snake_case | `microtel_leaf_encode` |
+| Cross-file internal function or type | `microtel_leaf_internal_` + snake_case | `microtel_leaf_internal_encode_upb` |
+| File-local function | `static`, snake_case, no prefix required | |
+| Public type | `microtel_leaf_` + snake_case + `_t` typedef | `microtel_leaf_config_t` |
+| Macro, enumerator | `MICROTEL_LEAF_` + SCREAMING_SNAKE_CASE | `MICROTEL_LEAF_ERR_NO_SPACE` |
+
+- **Every external symbol starts with `microtel_leaf_`** (design §1.9). The leaf's `symbol-scan` pass fails on any other global, apart from vendored code, which ships renamed (`microtel_upb_*` per ICP 0020, `microtel_pb_*` per ICP 0031 Decision 4). The pass also fails on any C++ runtime symbol.
+- **Encoder headers are confined.** No `upb_*` or `pb_*` type or symbol appears in the public header. `src/backend_upb.c` is the only file that includes upb headers, and `src/backend_nanopb.c` the only one that includes nanopb headers.
+
+### 15.6 Static analysis
+
+`clang-format` covers `leaf/` with the repository config. `tidy-check.sh` lints `leaf/` with a C profile (design §7.8): the `bugprone-*` checks, the C checks of `cert-*`, `readability-function-cognitive-complexity` (threshold 15), `readability-function-size` (nesting 3) and `hicpp-signed-bitwise`, and none of the C++-only groups. The SonarQube limits of §6 apply unchanged: cognitive complexity 15, cyclomatic complexity 10, nesting 3, and at most 7 parameters. Named constants use `#define` or an `enum` constant, because C11 has no `constexpr`.
+
+---
+
+## 16. Updating this document
 
 This document is versioned with the rest of the project. Changes follow the ICP process when they introduce new banned constructs or change limits — anything that would make existing code non-compliant. Adding new optional guidance or examples is normal-PR territory.

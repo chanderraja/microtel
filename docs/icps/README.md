@@ -49,6 +49,7 @@ from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp` and the headers.
 | [0031](0031-leaf-concentrator-in-v1.3.md) | Move leaf / concentrator, with upb and nanopb leaf backends, into v1.3 (experimental) | Accepted | — (docs follow-up) |
 | [0032](0032-release-reorder-v1.1.1.md) | v1.1.1 patch release; v1.2 Logs + Leaf, v1.3 Metrics, v1.4 Control Plane, later themes +1 | Accepted | — (docs follow-up) |
 | [0033](0033-shim-attribute-value-length-limit.md) | otel-cpp shim `ShimOptions::attribute_value_length_limit`; omit oversized byte-span attributes | Accepted | #336 |
+| [0034](0034-leaf-receiver-api.md) | `Provider::GetLeafReceiver`, the `LeafReceiver` API, and three leaf `DropReason`s | Accepted | — (v1.2 leaf receiver packet) |
 
 [ICP 0024](0024-v1.1-rescope.md) reserved number 0027 for an amendment to
 `docs/control-plane-design.md` §9 (the fourth thread role). That amendment is

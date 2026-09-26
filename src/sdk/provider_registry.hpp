@@ -57,9 +57,10 @@ enum class RegistrationResult : std::uint8_t
 /// @brief Claim a slot for @p provider under its own profile name.
 ///
 /// Called by `SdkBuilder::Build` after construction — not by `SdkProvider`'s
-/// constructor, which is `noexcept` and could not report this failure. Also
-/// installs the `pthread_atfork` child handler on first use, since the handler
-/// exists to walk this registry.
+/// constructor, which is `noexcept` and could not report this failure. It does
+/// not install the `pthread_atfork` child handler that walks this registry:
+/// that is done once while the library loads, so no registration has a window
+/// a `fork()` could strand (issue #271).
 ///
 /// Lock-free: a duplicate-name scan, then `compare_exchange_strong(nullptr,
 /// provider)` on the first empty slot, then a re-scan in which the **lowest
@@ -104,6 +105,21 @@ void DeregisterProvider(SdkProvider* provider) noexcept;
 ///
 /// @threadsafety Safe to call from a fork child handler; see ICP 0027 §3.
 void MarkForkedChildProviders() noexcept;
+
+/// @brief How many times `MarkForkedChildProviders` has run in this process
+///        image.
+///
+/// A test seam, and the only way to count handler registrations from outside:
+/// every registration of the `pthread_atfork` child handler runs the sweep once
+/// per `fork()`, and nothing else in a child runs it, so a child that reads this
+/// and subtracts the value its parent saw learns how many copies are installed
+/// — none, one, or a double registration. Production code has no reason to
+/// call it.
+///
+/// @return the count, inherited across `fork()` like any other memory.
+///
+/// @threadsafety Thread-safe, lock-free.
+[[nodiscard]] std::size_t ForkSweepRuns() noexcept;
 
 /// @brief Find the live provider registered under @p name.
 ///

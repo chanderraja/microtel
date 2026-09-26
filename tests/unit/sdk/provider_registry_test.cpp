@@ -363,8 +363,13 @@ TEST(ProviderRegistryTest, TheForkSweepMarksEveryProviderAndEmptiesEverySlot)
     ASSERT_EQ(mts::RegisterProvider(second.get()), mts::RegistrationResult::Registered);
     ASSERT_NE(first->GetLogger("a", "1.0"), first->GetLogger("b", "1.0"));
     ASSERT_NE(second->GetLogger("a", "1.0"), second->GetLogger("b", "1.0"));
+    const std::size_t sweeps_before = mts::ForkSweepRuns();
 
     mts::MarkForkedChildProviders();
+
+    // Counted once per sweep: the seam fork_safety_test.cpp reads in a child
+    // to count installed handlers.
+    EXPECT_EQ(mts::ForkSweepRuns(), sweeps_before + 1);
 
     // Emptied, so a child re-Build can take these names back.
     EXPECT_EQ(mt::GetProvider("swept-a"), nullptr);

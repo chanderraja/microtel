@@ -9,8 +9,6 @@
 
 #include <atomic>
 #include <cstddef>
-#include <exception>
-#include <mutex>
 #include <string_view>
 
 #include <pthread.h>
@@ -21,14 +19,14 @@ namespace microtel::sdk
 namespace
 {
 
-/// The slots, and the once-flag guarding the atfork registration.
+/// The slots, and a count of fork sweeps run (`ForkSweepRuns`).
 ///
 /// A `pthread_atfork` handler takes no arguments, so the providers it must
 /// reach have to be reachable from a global. Both are only ever touched
-/// atomically or through `call_once`.
+/// atomically.
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 Registry g_slots{};
-std::once_flag g_atfork_once;
+std::atomic<std::size_t> g_fork_sweep_runs{0};  // NOSONAR(cpp:S5421) mutable by design, see above
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /// Runs in the child after `fork()`. Nothing but the sweep, so that what the
@@ -38,28 +36,39 @@ extern "C" void ForkChildHandler() noexcept
     MarkForkedChildProviders();
 }
 
-/// Registered once, at the first registration.
+/// Registers the child handler. Called exactly once per load of this object,
+/// by the static initialiser below — never from `RegisterProvider`.
+///
+/// Why at load, and not lazily at the first registration (issue #271). A lazy
+/// install needs a once-guard, and every blocking once-guard — `std::call_once`,
+/// `pthread_once`, a function-local `static` — has the same hole: a `fork()`
+/// while another thread is inside the guarded call leaves the child's guard
+/// "in progress" with no thread left to finish it, so the child's first
+/// `Build()` — the recovery §7 supports — blocks forever. A non-blocking
+/// compare-exchange avoids the hang but not the loser's problem: it either
+/// registers without the handler in place yet, or waits, which is the hang
+/// again. Installing during static initialisation leaves no guard at all:
+/// nothing waits, and the initialiser runs once, so the handler cannot be
+/// registered twice (a double registration would run the sweep twice per
+/// fork). Static initialisation normally runs before `main`, with no other
+/// thread to race it; loaded by `dlopen`, it runs inside `dlopen`, which a
+/// `Build()` from this library cannot precede. A process that never builds a
+/// provider pays one sweep of an empty array per `fork()`.
 ///
 /// No prepare or parent handler. `docs/threading-model.md` §7 asks the parent
 /// handler to "record a diagnostic that fork was observed", but there is nothing
 /// to record it to: `LogImpl` is not async-signal-safe (it takes a mutex and may
 /// call an application sink), and no `DropReason` covers it. Registering an
 /// empty handler would only obscure that.
-void InstallForkHandlersOnce() noexcept
+[[nodiscard]] bool InstallForkHandlers() noexcept
 {
-    try
-    {
-        std::call_once(g_atfork_once,
-                       [] { (void)::pthread_atfork(nullptr, nullptr, &ForkChildHandler); });
-    }
-    // Losing fork-safety must not fail registration, and there is nothing to
-    // handle: pthread_atfork does not throw, so this is unreachable in practice
-    // and exists to keep the noexcept promise.
-    // NOLINTNEXTLINE(bugprone-empty-catch)
-    catch (const std::exception&)
-    {
-    }
+    return ::pthread_atfork(nullptr, nullptr, &ForkChildHandler) == 0;
 }
+
+/// The one call to `InstallForkHandlers`. Its value is unused: an `ENOMEM`
+/// from `pthread_atfork` at load leaves the process without fork-safety, and
+/// there is nowhere to report that before `main`.
+[[maybe_unused]] const bool kForkHandlersInstalled = InstallForkHandlers();
 
 /// True when a slot below @p limit holds a live provider named @p name.
 ///
@@ -99,6 +108,8 @@ void InstallForkHandlersOnce() noexcept
 
 void MarkForkedChildProviders() noexcept
 {
+    g_fork_sweep_runs.fetch_add(1);
+
     // Clearing is deliberate, and it is a trade. The child's supported move is
     // to re-`Build()` (`docs/sequences/fork-survival.md`, option A), naturally
     // under the same profile names, which would collide with the stale
@@ -118,8 +129,6 @@ void MarkForkedChildProviders() noexcept
 
 RegistrationResult RegisterProvider(SdkProvider* provider) noexcept
 {
-    InstallForkHandlersOnce();
-
     const std::string_view name = provider->ProfileName();
     if (NameIsTaken(name, kMaxProfiles))
     {
@@ -158,6 +167,11 @@ void DeregisterProvider(SdkProvider* provider) noexcept
             return;
         }
     }
+}
+
+std::size_t ForkSweepRuns() noexcept
+{
+    return g_fork_sweep_runs.load();
 }
 
 SdkProvider* FindProvider(std::string_view name) noexcept

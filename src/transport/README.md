@@ -13,6 +13,7 @@ changing `IWireCodec`.
 | [`http2_transport.hpp`](http2_transport.hpp) | `Http2Transport`, the `ITransport` implementation |
 | [`epoll_reactor.hpp`](epoll_reactor.hpp) | `EpollReactor`, the `IReactor` implementation |
 | [`nosignal_io.hpp`](nosignal_io.hpp) | `SendNoSignal` and the SIGPIPE-safe TLS `BIO` |
+| [`connect_error.hpp`](connect_error.hpp) | The `Error` a failed TCP connect reports, from its errno |
 
 ## Owner
 
@@ -45,11 +46,11 @@ tracks A, B, C and E could unblock).
 ## Tests
 
 - `tests/unit/transport/`: `http2_transport_test.cpp` against `FakeReactor`,
-  `epoll_reactor_test.cpp` against a real epoll instance, and
-  `nosignal_io_test.cpp`.
+  `epoll_reactor_test.cpp` against a real epoll instance,
+  `nosignal_io_test.cpp` and `connect_error_test.cpp`.
 - [`tests/integration/transport/`](../../tests/integration/transport/) runs
   against a small in-process nghttp2 server over loopback:
-  - `http2_connect_test.cpp`: connect, drop, reconnect, HTTP/1.1 peer.
+  - `http2_connect_test.cpp`: connect, refused, drop, reconnect, HTTP/1.1 peer.
   - `http2_send_test.cpp`: request/response, concurrent `Send`, peer
     TCP reset, the frame-level peer behaviour from
     `docs/sequences/goaway-handling.md` and

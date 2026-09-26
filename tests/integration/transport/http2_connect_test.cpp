@@ -16,6 +16,7 @@
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -781,7 +782,9 @@ TEST(Http2TransportIntegrationTest, Connect_PeerClosesBeforeSettings_ProcessSurv
     // before the preface write or just after it, and that is a scheduling
     // question. Both name the fault honestly; what must never appear is the
     // HTTP/1.1 diagnosis, which would send an operator looking for a receiver
-    // that is not there (issue #166).
+    // that is not there (issue #166). Nor may "connection refused": a reset
+    // that lands before the connect loop reads `SO_ERROR` is still a peer that
+    // accepted and closed, and reports as one (issue #333).
     const std::string& message = result.error().message;
     EXPECT_TRUE(message.find("peer closed the connection") != std::string::npos ||
                 message.find("nghttp2 recv failed") != std::string::npos)
@@ -790,4 +793,50 @@ TEST(Http2TransportIntegrationTest, Connect_PeerClosesBeforeSettings_ProcessSurv
     EXPECT_EQ(t->GetState(), microtel::ConnectionState::Disconnected);
     EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
     server.Stop();
+}
+
+// ---------------------------------------------------------------------------
+// A genuine refusal keeps its diagnosis — issue #333.
+//
+// The connect loop used to report "connection refused" for every failure it
+// saw, including a peer that accepted and then reset. Now that the message
+// follows the errno, the real refusal must still read exactly as it always
+// has: docs and the health example quote it. A socket that is bound but never
+// listens holds the port, so nothing else can take it, and answers a SYN with
+// an RST — `ECONNREFUSED` on every run.
+// ---------------------------------------------------------------------------
+
+TEST(Http2TransportIntegrationTest, Connect_NothingListening_ReportsConnectionRefused)
+{
+    const int holder = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    ASSERT_GE(holder, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    ASSERT_EQ(::bind(holder, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    socklen_t len = sizeof(addr);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    ASSERT_EQ(::getsockname(holder, reinterpret_cast<sockaddr*>(&addr), &len), 0);
+
+    auto reactor_result = mtt::EpollReactor::Create();
+    ASSERT_TRUE(reactor_result.has_value());
+    auto transport_result = mtt::Http2Transport::Create(std::move(*reactor_result));
+    ASSERT_TRUE(transport_result.has_value());
+    auto& t = *transport_result;
+
+    mti::ConnectOptions opts;
+    opts.endpoint = "http://127.0.0.1:" + std::to_string(ntohs(addr.sin_port));
+    opts.insecure = true;
+    opts.connect_timeout = std::chrono::milliseconds(5000);
+
+    const auto result = t->Connect(opts);
+    ::close(holder);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, microtel::Error::Kind::Network);
+    EXPECT_EQ(result.error().message, "connection refused");
+    EXPECT_EQ(result.error().os_errno, ECONNREFUSED);
+    EXPECT_EQ(t->GetState(), microtel::ConnectionState::Disconnected);
+    EXPECT_EQ(t->Close(std::chrono::milliseconds(2000)), microtel::Status::Completed);
 }

@@ -8,6 +8,8 @@
 
 #include "preflight/preflight.hpp"
 
+#include "microtel/version.hpp"
+
 #include <gtest/gtest.h>
 
 #include <sstream>
@@ -205,4 +207,13 @@ TEST(PreflightSpanIdentityTest, ProtocolReflectsHttpProtobufFromEnv)
     const auto identity = tools::ResolveSpanIdentity("");
     ClearIdentityEnv();
     EXPECT_EQ(identity.protocol, "http");
+}
+
+TEST(PreflightSpanIdentityTest, VersionMatchesTheLibraryVersion)
+{
+    // The preflight literal is bumped by hand and has no static_assert, unlike
+    // the gRPC user-agent (RELEASING.md §1). This is the check that catches a
+    // release that forgets it.
+    ClearIdentityEnv();
+    EXPECT_EQ(tools::ResolveSpanIdentity("").version, microtel::kVersionString);
 }

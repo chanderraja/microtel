@@ -40,7 +40,7 @@ requires an [ICP](docs/icps/).
 
 ## Status
 
-The current release is **v1.1.0**, and the project follows SemVer.
+The current release is **v1.1.1**, and the project follows SemVer.
 [SECURITY.md](SECURITY.md) lists which versions get fixes.
 
 | Area | Status |
@@ -265,19 +265,19 @@ and `MICROTEL_COVERAGE` are for development and CI; see
 ## Performance
 
 Hot-loop traces, 10 000 spans per sample × 10 samples, blackhole sink (no
-network), Podman containers on one host (AMD Ryzen 5 5600G, `powersave`
+network), Podman containers on one host (AMD Ryzen 5 5600G, `performance`
 governor, SMT on). The numbers come from the committed snapshot in
 [docs/bench-results/](docs/bench-results/README.md).
 
 | Metric | microtel (HTTP) | microtel (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
 |---|---|---|---|---|
-| StartSpan p50 | **229 ns** | **216 ns** | 808 ns | 812 ns |
-| StartSpan p95 | **486 ns** | **474 ns** | 3 103 ns | 2 039 ns |
-| Spans / sec | **1 466 287** | 1 288 159 | 786 904 | 863 814 |
-| Flush p50 | 2.8 ms | 4.0 ms | 1.7 ms | 1.6 ms |
-| Delivery rate | **100%** | **100%** | 94.8% | 97.3% |
+| StartSpan p50 | **236 ns** | **211 ns** | 812 ns | 795 ns |
+| StartSpan p95 | **488 ns** | **462 ns** | 3 272 ns | 2 321 ns |
+| Spans / sec | **1 502 498** | 1 298 996 | 757 843 | 846 353 |
+| Flush p50 | 2.7 ms | 4.2 ms | 2.0 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 94.2% | 97.9% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
-| Benchmark binary size | **15.4 MB** | **15.4 MB** | 38.5 MB | 16.8 MB |
+| Benchmark binary size | **16.0 MB** | **16.0 MB** | 38.5 MB | 16.8 MB |
 
 The methodology is in [docs/bench-spec.md](docs/bench-spec.md), and
 [plots.html](docs/bench-results/plots.html) has interactive plots and the raw

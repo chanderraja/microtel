@@ -50,7 +50,7 @@ from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp` and the headers.
 | [0032](0032-release-reorder-v1.1.1.md) | v1.1.1 patch release; v1.2 Logs + Leaf, v1.3 Metrics, v1.4 Control Plane, later themes +1 | Accepted | — (docs follow-up) |
 | [0033](0033-shim-attribute-value-length-limit.md) | otel-cpp shim `ShimOptions::attribute_value_length_limit`; omit oversized byte-span attributes | Accepted | #336 |
 | [0034](0034-leaf-receiver-api.md) | `Provider::GetLeafReceiver`, the `LeafReceiver` API, and three leaf `DropReason`s | Accepted | — (v1.2 leaf receiver packet) |
-| [0035](0035-leaf-post-shutdown-counter.md) | Leaf payloads after `Shutdown` counted in `LeafReceiverStats::payloads_post_shutdown`, not `post_shutdown` | Accepted | feat/icp-0035-leaf-post-shutdown |
+| [0035](0035-leaf-post-shutdown-counter.md) | Leaf payloads after `Shutdown` counted in `LeafReceiverStats::payloads_post_shutdown`, not `post_shutdown` | Accepted | #354 |
 
 [ICP 0024](0024-v1.1-rescope.md) reserved number 0027 for an amendment to
 `docs/control-plane-design.md` §9 (the fourth thread role). That amendment is

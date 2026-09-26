@@ -114,9 +114,9 @@ jobs:
       # It earns its keep: it went green only after fixing basic_trace, which
       # had stopped compiling when microtel::Status grew two enumerators in
       # v1.1 and nothing asked the example to build again.
-      # MICROTEL_LEAF_ENCODER: the gcc cells build the upb leaf and its tests; the
-      # clang cells keep the default nanopb, whose vendored archives and tests
-      # build while the nanopb leaf backend does not exist yet.
+      # MICROTEL_LEAF_ENCODER: the gcc cells ship a upb leaf, the clang cells the
+      # default nanopb one. Either way the test tree builds and runs the leaf
+      # tests against both backends (docs/leaf-concentrator-design.md §7.1).
       - name: Configure
         run: |
           cmake -S . -B build \
@@ -252,9 +252,9 @@ jobs:
         env:
           CC:  clang-18
           CXX: clang++-18
-        # MICROTEL_BUILD_LEAF=ON also builds the nanopb archives, so the
-        # nanopb passes have something to scan. It adds nothing to the
-        # install tree.
+        # MICROTEL_BUILD_LEAF=ON with the default MICROTEL_LEAF_ENCODER=nanopb
+        # builds the nanopb leaf and its archives, so the nanopb passes and
+        # the leaf pass (including its no-heap check) have something to scan.
         run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_LEAF=ON
       - name: Build
         run: cmake --build build
@@ -271,12 +271,16 @@ jobs:
 
   # The leaf's standalone build (docs/leaf-concentrator-design.md §2.1): only a
   # C compiler, no CXX language, no nghttp2 / OpenSSL / zlib. This is the form
-  # a firmware toolchain uses, so it must keep configuring on its own. The
-  # installed archives then go through the same symbol-scan gate, leaf pass
-  # included.
+  # a firmware toolchain uses, so it must keep configuring on its own, with
+  # either backend. The installed archives then go through the same
+  # symbol-scan gate, leaf pass included (for nanopb, the no-heap check).
   leaf-standalone:
     runs-on: ubuntu-latest
-    name: leaf-standalone
+    strategy:
+      fail-fast: false
+      matrix:
+        encoder: [nanopb, upb]
+    name: leaf-standalone / ${{ matrix.encoder }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -286,7 +290,7 @@ jobs:
       - name: Configure (C only)
         env:
           CC: gcc
-        run: cmake -S leaf -B build-leaf -G Ninja -DMICROTEL_LEAF_ENCODER=upb
+        run: cmake -S leaf -B build-leaf -G Ninja -DMICROTEL_LEAF_ENCODER=${{ matrix.encoder }}
       - name: Assert no C++ toolchain was configured
         run: |
           if grep -q '^CMAKE_CXX_COMPILER:' build-leaf/CMakeCache.txt; then
@@ -346,12 +350,14 @@ jobs:
       # libFuzzer is clang-only, hence plain `clang` rather than the clang-18
       # used elsewhere: -fsanitize=fuzzer must match the driver that links it.
       # Tests off — the harnesses are the only targets this job needs.
+      # MICROTEL_BUILD_LEAF=ON: leaf_backend_diff_fuzz links both leaf backends.
       - name: Configure fuzz harnesses
         run: |
           cmake -S . -B build-fuzz -G Ninja \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_BUILD_TESTS=OFF \
             -DMICROTEL_WITH_CONCENTRATOR=ON
       - name: Build

@@ -297,7 +297,7 @@ static void check(bool ok, const char* test, const char* what)
     if (!ok)
     {
         ++g_failures;
-        fprintf(stderr, "FAIL %s: %s\n", test, what);
+        (void)fprintf(stderr, "FAIL %s: %s\n", test, what);
     }
 }
 
@@ -307,11 +307,11 @@ static void dump_mismatch(const uint8_t* got, size_t len)
     {
         if (got[i] != k_golden[i])
         {
-            fprintf(stderr,
-                    "  first difference at byte %zu: got 0x%02x, want 0x%02x\n",
-                    i,
-                    got[i],
-                    k_golden[i]);
+            (void)fprintf(stderr,
+                          "  first difference at byte %zu: got 0x%02x, want 0x%02x\n",
+                          i,
+                          got[i],
+                          k_golden[i]);
             return;
         }
     }
@@ -409,7 +409,7 @@ int main(void)
 
     if (g_failures != 0)
     {
-        fprintf(stderr, "%d check(s) failed\n", g_failures);
+        (void)fprintf(stderr, "%d check(s) failed\n", g_failures);
         return 1;
     }
     puts("nanopb_encode_test: all checks passed");

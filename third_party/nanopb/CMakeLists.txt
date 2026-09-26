@@ -5,7 +5,8 @@
 # Pin details and refresh procedure: third_party/nanopb/README.md
 #
 # nanopb is a dependency of the leaf only (ICP 0031 Decision 4): it is built
-# when the leaf is built with MICROTEL_LEAF_ENCODER=nanopb and never enters
+# when the leaf is built with MICROTEL_LEAF_ENCODER=nanopb (and, test-only, for
+# the leaf tests of a upb build, which cover both backends) and never enters
 # microtel::microtel or any other shipped archive. symbol-scan.sh fails any
 # non-leaf archive that references a pb_* or microtel_pb_* symbol.
 #

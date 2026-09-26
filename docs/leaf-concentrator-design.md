@@ -2040,6 +2040,29 @@ sources:
   times per encode. The rename list is in `third_party/nanopb/microtel_pb_rename.h`.
   `nanopb_encode_test` checks the first three against golden bytes. One
   assumption was wrong: `fixed_length` on `parent_span_id` (§2.4, now fixed).
+- nanopb backend (`leaf/src/backend_nanopb.c`): byte identity (§2.3)
+  **confirmed**. All 13 golden vectors encode byte for byte as upb wrote them,
+  with no change to the core, the options file or the vectors, and
+  `leaf_backend_diff_fuzz` (§7.2) finds no difference. Three points the
+  design did not spell out, none of which changes it:
+  - *Test builds build nanopb for a upb leaf too.* §7.1 runs every test on
+    both backends, so with tests or fuzz harnesses on, the in-tree build also
+    compiles the other backend's leaf (`microtel_leaf_<backend>`) and
+    `microtel_leaf_dual` (§7.2), and hence the nanopb archives. None of these
+    is installed or exported; the shipped `microtel::leaf` still links nanopb
+    only when `MICROTEL_LEAF_ENCODER=nanopb` (ICP 0031 Decision 4).
+  - *Streaming granularity.* nanopb hands the sink every tag, length and value
+    as a separate write: a one-span, one-attribute payload of 169 bytes is 64
+    `write` calls. That is what keeps the payload out of RAM (§1.8), but a
+    sink with a per-call cost (a UART driver, a datagram) should buffer.
+  - *Buffer mode on overflow.* The nanopb backend encodes straight into `out`
+    and, when the payload does not fit, measures it with a sizing pass. `out`
+    may then hold a partial payload; nothing is consumed and `*written` is the
+    size needed, as §1.8 says.
+  The §7.2 fuzz target checks each payload with a upb decode rather than
+  `IOtlpTraceDecoder`, which does not exist until the concentrator packet;
+  its seed corpus is builder programs mirroring the golden scenarios, since
+  its input is a program rather than a payload.
 - `arm-none-eabi-gcc` from Ubuntu's apt is recent enough for `-std=c11` and
   Cortex-M0+ (§7.6); any of the last several releases is.
 

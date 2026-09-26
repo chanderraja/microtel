@@ -52,6 +52,7 @@ jobs:
         response_decompression_fuzz
         baggage_fuzz
         provider_setters_fuzz
+        leaf_backend_diff_fuzz
         leaf_ingest_fuzz
         otlp_trace_decoder_fuzz
 
@@ -70,6 +71,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_BUILD_TESTS=OFF \
             -DMICROTEL_WITH_CONCENTRATOR=ON \
             -G Ninja

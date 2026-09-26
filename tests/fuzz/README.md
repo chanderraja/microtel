@@ -24,12 +24,15 @@ makes them a release requirement:
 
 ## v1.2 harnesses
 
-Built only with `MICROTEL_WITH_CONCENTRATOR=ON`, which the fuzz jobs set.
+`leaf_ingest_fuzz` and `otlp_trace_decoder_fuzz` are built only with
+`MICROTEL_WITH_CONCENTRATOR=ON`, `leaf_backend_diff_fuzz` only with
+`MICROTEL_BUILD_LEAF=ON`; the fuzz jobs set both.
 
 | File | Surface |
 |---|---|
 | `leaf_ingest_fuzz.cpp` | The concentrator's ingest path ([`leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md) §7.3, ICP 0031 ship gate 2): byte 0 picks the leaf id, the configured time mode and the unknown-leaf policy; the rest is the payload, fed to `LeafReceiver::Ingest` on a live provider with the real upb decoder. It asserts that an accepted payload's three counts add up to the spans it decodes to, that a rejected one moves exactly one of `leaf_payload_malformed`, `leaf_payload_too_large` and `leaf_unknown` by one, and that no reserved `microtel.leaf.*` key reaches a Resource. Seeds are well-formed leaf payloads plus truncations and single-byte corruptions of each. |
 | `otlp_trace_decoder_fuzz.cpp` | `IOtlpTraceDecoder` alone, bytes 0-2 choosing random `DecodeLimits`, so decoder bugs are not hidden behind the receiver's validation. |
+| `leaf_backend_diff_fuzz.cpp` | Byte identity of the leaf's upb and nanopb encoder backends ([docs/leaf-concentrator-design.md](../../docs/leaf-concentrator-design.md) §7.2). The input is a program of leaf builder calls (`tests/leaf/diff/`), run on two identical leaves linked through `microtel_leaf_dual`; every call must return the same status on both, and every encode the same status, size and bytes, which must decode with upb. Needs `-DMICROTEL_BUILD_LEAF=ON`. |
 
 ## Invariants
 
@@ -67,7 +70,7 @@ the `corpus-check` job in `ci.yml`. To reproduce it locally:
 ```bash
 cmake -S . -B build-fuzz \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-      -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
+      -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_BUILD_TESTS=OFF
 cmake --build build-fuzz
 ci/scripts/corpus-check.sh build-fuzz
 ```

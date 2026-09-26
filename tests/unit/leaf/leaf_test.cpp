@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Leaf C API unit tests (docs/leaf-concentrator-design.md §7.1), run against
-// the backend the binary is linked with. Every payload is decoded with upb and
-// checked field by field.
+// the backend the binary is linked with: this source builds both
+// microtel_leaf_upb_test and microtel_leaf_nanopb_test, which see
+// MICROTEL_LEAF_TEST_BACKEND_UPB or MICROTEL_LEAF_TEST_BACKEND_NANOPB. Every
+// payload is decoded with upb and checked field by field.
 
 #include "microtel/leaf.h"
 
@@ -1538,6 +1540,8 @@ TEST_F(LeafTest, Counters_ResetOnlyAfterASuccessfulEncode)
     EXPECT_FALSE(p2.ResourceAttr("microtel.leaf.dropped_items").has_value());
 }
 
+#if defined(MICROTEL_LEAF_TEST_BACKEND_UPB)
+
 // ---------------------------------------------------------------------------
 // upb backend: a fixed scratch buffer never touches the heap (§2.2)
 // ---------------------------------------------------------------------------
@@ -1634,5 +1638,172 @@ TEST_F(LeafUpbScratchTest, NoScratch_UsesTheHeap)
     (void)EncodeBytes();
     EXPECT_GT(HeapCounter::s_calls, 0);
 }
+
+// upb cannot stream (§1.8): the sink gets the whole payload in one write.
+TEST_F(LeafUpbScratchTest, EncodeTo_WritesThePayloadOnce)
+{
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans();
+    Collector c;
+    std::size_t written = 0;
+    ASSERT_EQ(microtel_leaf_encode_to(&m_leaf, &CollectWrite, &c, &written), MICROTEL_LEAF_OK);
+    EXPECT_EQ(c.calls, 1);
+    EXPECT_EQ(c.bytes.size(), written);
+}
+
+#endif  // MICROTEL_LEAF_TEST_BACKEND_UPB
+
+#if defined(MICROTEL_LEAF_TEST_BACKEND_NANOPB)
+
+// ---------------------------------------------------------------------------
+// nanopb backend: streams through the sink, ignores scratch (§1.8, §2.2)
+// ---------------------------------------------------------------------------
+
+class LeafNanopbTest : public LeafTest
+{
+protected:
+    void BuildSpans(int count)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            const microtel_leaf_span_t s = Start("span");
+            const auto kv = StrKv("key", "value");
+            ASSERT_EQ(microtel_leaf_span_set_attribute(&m_leaf, s, &kv), MICROTEL_LEAF_OK);
+            ASSERT_EQ(microtel_leaf_span_add_event(&m_leaf, s, "ev", 2, &kv, 1), MICROTEL_LEAF_OK);
+            ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
+        }
+    }
+};
+
+// The sink sees the payload piece by piece, never as one buffer, and the
+// pieces add up to what the buffer encode produces.
+TEST_F(LeafNanopbTest, EncodeTo_StreamsInPieces)
+{
+    constexpr int kSpans = 3;
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(kSpans);
+    std::size_t needed = 0;
+    ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &needed), MICROTEL_LEAF_ERR_BUFFER_SMALL);
+
+    Collector c;
+    std::size_t written = 0;
+    ASSERT_EQ(microtel_leaf_encode_to(&m_leaf, &CollectWrite, &c, &written), MICROTEL_LEAF_OK);
+    EXPECT_GT(c.calls, 1);
+    EXPECT_EQ(written, needed);
+    EXPECT_EQ(c.bytes.size(), written);
+    const auto p = lt::DecodeOrFail(c.bytes.data(), c.bytes.size());
+    EXPECT_EQ(p.spans.size(), static_cast<std::size_t>(kSpans));
+}
+
+// A sink that fails at any point aborts the encode and keeps the spans: fail
+// at every write in turn, which reaches every level of the message.
+struct FailAt
+{
+    int fail_at = 0;
+    int calls = 0;
+};
+
+int FailAtWrite(void* ctx, const std::uint8_t* /*bytes*/, std::size_t /*len*/)
+{
+    auto* f = static_cast<FailAt*>(ctx);
+    return f->calls++ == f->fail_at ? -1 : 0;
+}
+
+TEST_F(LeafNanopbTest, EncodeTo_FailingAtAnyWrite_ConsumesNothing)
+{
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(2);
+    const microtel_leaf_span_t s = Start("status");
+    ASSERT_EQ(microtel_leaf_span_set_status(&m_leaf, s, MICROTEL_LEAF_STATUS_ERROR, "bad", 3),
+              MICROTEL_LEAF_OK);
+    ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
+    std::size_t written = 0;
+    ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &written), MICROTEL_LEAF_ERR_BUFFER_SMALL);
+    const std::size_t needed = written;
+    // Count the writes of a full encode without consuming the spans.
+    FailAt count;
+    count.fail_at = -1;
+    ASSERT_EQ(microtel_leaf_encode_to(&m_leaf, &FailAtWrite, &count, &written), MICROTEL_LEAF_OK);
+    ASSERT_EQ(written, needed);
+    const int total = count.calls;
+    ASSERT_GT(total, 1);
+
+    // That encode consumed the spans; rebuild the same batch.
+    microtel_leaf_free(&m_leaf);
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(2);
+    const microtel_leaf_span_t s2 = Start("status");
+    ASSERT_EQ(microtel_leaf_span_set_status(&m_leaf, s2, MICROTEL_LEAF_STATUS_ERROR, "bad", 3),
+              MICROTEL_LEAF_OK);
+    ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s2), MICROTEL_LEAF_OK);
+    for (int i = 0; i < total; ++i)
+    {
+        FailAt f;
+        f.fail_at = i;
+        EXPECT_EQ(microtel_leaf_encode_to(&m_leaf, &FailAtWrite, &f, &written),
+                  MICROTEL_LEAF_ERR_ENCODE)
+            << "failing write " << i;
+        EXPECT_EQ(f.calls, i + 1);
+        EXPECT_EQ(written, 0U);
+    }
+    const auto p = EncodeAndDecode();
+    EXPECT_EQ(p.spans.size(), 3U);
+}
+
+// Every buffer size short of the payload reports the exact size and consumes
+// nothing, wherever in the message the encode runs out of room.
+TEST_F(LeafNanopbTest, Encode_AnyShortBuffer_ReportsExactSize)
+{
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(2);
+    std::size_t needed = 0;
+    ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &needed), MICROTEL_LEAF_ERR_BUFFER_SMALL);
+    std::vector<std::uint8_t> out(needed);
+    for (std::size_t cap = 0; cap < needed; ++cap)
+    {
+        std::size_t written = 0;
+        EXPECT_EQ(microtel_leaf_encode(&m_leaf, out.data(), cap, &written),
+                  MICROTEL_LEAF_ERR_BUFFER_SMALL)
+            << "cap " << cap;
+        EXPECT_EQ(written, needed);
+    }
+    const auto p = EncodeAndDecode();
+    EXPECT_EQ(p.spans.size(), 2U);
+}
+
+// scratch is a upb option; nanopb needs no arena, so even a tiny one is fine.
+TEST_F(LeafNanopbTest, Scratch_IsIgnored)
+{
+    constexpr std::size_t kTiny = 8;
+    std::array<std::uint8_t, kTiny> scratch{};
+    m_config.scratch = scratch.data();
+    m_config.scratch_size = scratch.size();
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(1);
+    const auto p = EncodeAndDecode();
+    EXPECT_EQ(p.spans.size(), 1U);
+    EXPECT_EQ(scratch, (std::array<std::uint8_t, kTiny>{}));
+}
+
+// A buffer one byte short reports the exact size and leaves the rest alone.
+TEST_F(LeafNanopbTest, Encode_BufferOneShort_ReportsExactSize)
+{
+    ASSERT_EQ(Init(), MICROTEL_LEAF_OK);
+    BuildSpans(2);
+    std::size_t needed = 0;
+    ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &needed), MICROTEL_LEAF_ERR_BUFFER_SMALL);
+    std::vector<std::uint8_t> out(needed + 1U, kCanary);
+    std::size_t again = 0;
+    EXPECT_EQ(microtel_leaf_encode(&m_leaf, out.data(), needed - 1U, &again),
+              MICROTEL_LEAF_ERR_BUFFER_SMALL);
+    EXPECT_EQ(again, needed);
+    EXPECT_EQ(out.back(), kCanary);
+    std::size_t written = 0;
+    ASSERT_EQ(microtel_leaf_encode(&m_leaf, out.data(), needed, &written), MICROTEL_LEAF_OK);
+    EXPECT_EQ(written, needed);
+    EXPECT_EQ(out.back(), kCanary);
+}
+
+#endif  // MICROTEL_LEAF_TEST_BACKEND_NANOPB
 
 }  // namespace

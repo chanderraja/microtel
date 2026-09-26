@@ -151,6 +151,26 @@ microtel_leaf_status_t microtel_leaf_internal_encode_upb(const microtel_leaf_int
                                                          size_t scratch_size,
                                                          size_t* written);
 
+/** @brief The nanopb backend (backend_nanopb.c); same contract, `scratch` unused. */
+microtel_leaf_status_t microtel_leaf_internal_encode_nanopb(
+    const microtel_leaf_internal_batch* batch,
+    const microtel_leaf_internal_sink* sink,
+    void* scratch,
+    size_t scratch_size,
+    size_t* written);
+
+/**
+ * @brief Test-only: forwards to the backend selected at run time
+ *        (tests/leaf/dual/). Defined only in `microtel_leaf_dual`, which links
+ *        both backends for the byte-identity comparison (§7.2); no shipped
+ *        build contains it.
+ */
+microtel_leaf_status_t microtel_leaf_internal_encode_dual(const microtel_leaf_internal_batch* batch,
+                                                          const microtel_leaf_internal_sink* sink,
+                                                          void* scratch,
+                                                          size_t scratch_size,
+                                                          size_t* written);
+
 #ifdef __cplusplus
 }
 #endif

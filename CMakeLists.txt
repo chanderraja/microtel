@@ -275,9 +275,18 @@ if(NOT MICROTEL_LEAF_ENCODER MATCHES "^(upb|nanopb)$")
         "MICROTEL_LEAF_ENCODER must be upb or nanopb, not '${MICROTEL_LEAF_ENCODER}'")
 endif()
 
-# nanopb is built only for a nanopb leaf (ICP 0031 Decision 4).
+# Declared here, ahead of the blocks that use them further down, because the
+# leaf builds test-only libraries of both backends when either is ON.
+option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
+option(MICROTEL_BUILD_FUZZ "Build libFuzzer harnesses (requires clang -fsanitize=fuzzer)" OFF)
+
+# nanopb is linked only into a nanopb leaf (ICP 0031 Decision 4). It is also
+# built for a upb leaf when tests or fuzz harnesses are on, because every leaf
+# test runs against both backends (docs/leaf-concentrator-design.md §7.1,
+# §7.2); those test-only archives are never installed.
 # CMake targets: microtel_nanopb (runtime, encoder only), microtel_nanopb_gen.
-if(MICROTEL_BUILD_LEAF AND MICROTEL_LEAF_ENCODER STREQUAL "nanopb")
+if(MICROTEL_BUILD_LEAF AND (MICROTEL_LEAF_ENCODER STREQUAL "nanopb"
+                            OR MICROTEL_BUILD_TESTS OR MICROTEL_BUILD_FUZZ))
     add_subdirectory(third_party/nanopb)
     add_subdirectory(gen/nanopb)
 endif()
@@ -371,8 +380,13 @@ set(MICROTEL_EXPORTED_TARGETS
     microtel_upb_runtime
     microtel_utf8_range)
 
+# A nanopb leaf carries its nanopb archives in the export set, as a upb leaf
+# relies on the upb archives already listed above.
 if(TARGET microtel_leaf)
     list(APPEND MICROTEL_EXPORTED_TARGETS microtel_leaf)
+    if(MICROTEL_LEAF_ENCODER STREQUAL "nanopb")
+        list(APPEND MICROTEL_EXPORTED_TARGETS microtel_nanopb_gen microtel_nanopb)
+    endif()
 endif()
 
 # `microtel_sdk` exports as `microtel::sdk`, not `microtel::microtel_sdk`.
@@ -512,8 +526,7 @@ if(MICROTEL_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
-
+# MICROTEL_BUILD_TESTS is declared with the leaf options above.
 if(MICROTEL_BUILD_TESTS)
     enable_testing()
 
@@ -536,9 +549,8 @@ endif()
 
 # Fuzz harnesses — libFuzzer, clang-only, independent of the gtest tree.
 # cmake -S . -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-#       -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
-option(MICROTEL_BUILD_FUZZ "Build libFuzzer harnesses (requires clang -fsanitize=fuzzer)" OFF)
-
+#       -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_BUILD_TESTS=OFF
+# MICROTEL_BUILD_FUZZ is declared with the leaf options above.
 if(MICROTEL_BUILD_FUZZ)
     add_subdirectory(tests/fuzz)
 endif()

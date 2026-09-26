@@ -238,13 +238,23 @@ symbols_of() {
 #     (§1.9). Only defined symbols count: its undefined references are to libc
 #     and to the renamed upb archives, which the passes above already cover.
 #
+#   - a nanopb leaf needs no heap: when libmicrotel_leaf.a is built with the
+#     nanopb backend (it defines microtel_leaf_internal_encode_nanopb), neither
+#     it nor the nanopb archives may reference an allocator. This is the
+#     mechanical form of §7.6's "the nanopb leaf needs no heap". A upb leaf
+#     does reference malloc: upb falls back to the heap when no scratch
+#     buffer is configured (§2.2).
+#
 # The generated upb archive keeps its unprefixed `opentelemetry_*` names, as
 # CLAUDE.md rule 13 allows, so the prefix check applies to the leaf's own
 # archive only.
 LEAF_ARCHIVE_NAME='libmicrotel_leaf.a'
-LEAF_C_ARCHIVES_PATTERN='/libmicrotel_(leaf|upb_runtime|upb_gen|utf8_range)\.a$'
+LEAF_C_ARCHIVES_PATTERN='/libmicrotel_(leaf|upb_runtime|upb_gen|utf8_range|nanopb|nanopb_gen)\.a$'
 CXX_RUNTIME_PATTERN='^(_Z|__cxa_|__gxx_personality)'
 LEAF_PREFIX_PATTERN='^microtel_leaf_'
+NANOPB_LEAF_MARKER='microtel_leaf_internal_encode_nanopb'
+NANOPB_LEAF_CLOSURE_PATTERN='/libmicrotel_(leaf|nanopb|nanopb_gen)\.a$'
+HEAP_PATTERN='^(malloc|calloc|realloc|free|aligned_alloc|posix_memalign)$'
 
 forbidden_violations=0
 unprefixed_violations=0
@@ -306,9 +316,13 @@ for artifact in "${ARTIFACTS[@]}"; do
 done
 
 leaf_present=0
+nanopb_leaf=0
 for artifact in "${ARTIFACTS[@]}"; do
     if [[ "$(basename "$artifact")" == "$LEAF_ARCHIVE_NAME" ]]; then
         leaf_present=1
+        if symbols_of "$artifact" -A -g --defined-only | grep -qx "$NANOPB_LEAF_MARKER"; then
+            nanopb_leaf=1
+        fi
     fi
 done
 
@@ -316,6 +330,14 @@ if [[ $leaf_present -eq 1 ]]; then
     for artifact in "${ARTIFACTS[@]}"; do
         if [[ ! "$artifact" =~ $LEAF_C_ARCHIVES_PATTERN ]]; then
             continue
+        fi
+        if [[ $nanopb_leaf -eq 1 && "$artifact" =~ $NANOPB_LEAF_CLOSURE_PATTERN ]]; then
+            hits=$(symbols_of "$artifact" -A -u | grep -E "$HEAP_PATTERN" | sort -u || true)
+            if [[ -n "$hits" ]]; then
+                echo "symbol-scan: heap allocator referenced by nanopb leaf archive $artifact" >&2
+                echo "$hits" | sed 's/^/    /' >&2
+                leaf_violations=$((leaf_violations + 1))
+            fi
         fi
         hits=$(symbols_of "$artifact" -A | grep -E "$CXX_RUNTIME_PATTERN" | sort -u || true)
         if [[ -n "$hits" ]]; then
@@ -363,8 +385,9 @@ fi
 if [[ $leaf_violations -ne 0 ]]; then
     echo >&2
     echo "symbol-scan: $leaf_violations leaf check(s) failed. The leaf and its C archives" >&2
-    echo "symbol-scan: carry no C++ runtime, and every leaf global starts with" >&2
-    echo "symbol-scan: microtel_leaf_ — see docs/leaf-concentrator-design.md §1.9, §7.6." >&2
+    echo "symbol-scan: carry no C++ runtime, every leaf global starts with microtel_leaf_," >&2
+    echo "symbol-scan: and a nanopb leaf references no heap allocator — see" >&2
+    echo "symbol-scan: docs/leaf-concentrator-design.md §1.9, §7.6." >&2
 fi
 
 if [[ $nanopb_outside_leaf_violations -ne 0 ]]; then
@@ -394,4 +417,7 @@ echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"
 echo "symbol-scan: clean — no nanopb outside the leaf, none unprefixed inside it"
 if [[ $leaf_present -eq 1 ]]; then
     echo "symbol-scan: clean — leaf closure has no C++ runtime; leaf globals are prefixed"
+fi
+if [[ $nanopb_leaf -eq 1 ]]; then
+    echo "symbol-scan: clean — the nanopb leaf references no heap allocator"
 fi

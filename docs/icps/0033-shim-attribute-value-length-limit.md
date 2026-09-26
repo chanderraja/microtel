@@ -1,6 +1,6 @@
 # ICP 0033: a `ShimOptions::attribute_value_length_limit` for the otel-cpp shim
 
-**Status:** Accepted.
+**Status:** Accepted — implemented by #336.
 **Affected interfaces / docs:** the otel-cpp shim only, all under
 `src/adapters/otelcpp/`:
 - new `shim_options.hpp` (`ShimOptions`)

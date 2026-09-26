@@ -125,6 +125,9 @@ FixNamespaceComments: true
 ShortNamespaceLines: 0
 CompactNamespaces: false
 
+# === extern "C" blocks (the C leaf headers, leaf/) ===
+IndentExternBlock: NoIndent
+
 # === Switch ===
 IndentCaseLabels: true
 IndentCaseBlocks: false

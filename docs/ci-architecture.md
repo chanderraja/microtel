@@ -24,6 +24,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `test-presence` | `test-presence` | ❌ (see below) |
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
+| `ci.yml` | `leaf-standalone` | `leaf-standalone` | ❌ |
 | `ci.yml` | `version-drift-check` | `version-drift-check` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
@@ -231,9 +232,23 @@ name; they ship renamed by
 [`third_party/nanopb/microtel_pb_rename.h`](../third_party/nanopb/microtel_pb_rename.h),
 whose comment carries the regeneration recipe.
 
-The leaf archives are not installed yet, so the job builds with
+A nanopb leaf is not installed yet, so the job builds with
 `-DMICROTEL_BUILD_LEAF=ON` and passes `--leaf-build build`, which adds the
 build tree's leaf archives to the install-tree scan and fails if there are none.
+
+**Pass 3 — the leaf** (run when `libmicrotel_leaf.a` is among the artifacts;
+[`docs/leaf-concentrator-design.md`](leaf-concentrator-design.md) §1.9, §7.6).
+The leaf is C and links into firmware that may have no C++ runtime, so neither
+its archive nor the C archives it links (upb runtime, generated upb accessors,
+utf8_range) may define or reference a C++ runtime symbol (`_Z*`, `__cxa_*`,
+`__gxx_personality*`); and every global the leaf archive defines must start
+with `microtel_leaf_`.
+
+The `symbol-scan` job's default-nanopb configuration builds no `microtel_leaf`
+until the nanopb backend exists, so this pass runs in the `leaf-standalone`
+job, which builds the upb leaf the way a firmware toolchain does —
+`cmake -S leaf` with only a C compiler, asserting that no C++ compiler was
+configured — installs it, and runs this script over that install tree.
 
 **Steps:**
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped

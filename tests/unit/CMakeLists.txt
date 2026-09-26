@@ -68,3 +68,9 @@ endif()
 if(TARGET microtel_nanopb_gen)
     add_subdirectory(nanopb)
 endif()
+
+# v1.2 — the leaf C library (docs/leaf-concentrator-design.md §7.1), only when
+# the top-level build enables it. Mirrors leaf/.
+if(TARGET microtel_leaf)
+    add_subdirectory(leaf)
+endif()

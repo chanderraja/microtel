@@ -282,6 +282,11 @@ if(MICROTEL_BUILD_LEAF AND MICROTEL_LEAF_ENCODER STREQUAL "nanopb")
     add_subdirectory(gen/nanopb)
 endif()
 
+# The leaf library itself, `microtel_leaf`, exported as `microtel::leaf`.
+if(MICROTEL_BUILD_LEAF)
+    add_subdirectory(leaf)
+endif()
+
 # System dependencies: OpenSSL (TLS) and nghttp2 (HTTP/2 transport).
 # Required by src/common/raii/ and src/transport/; also linked by their tests.
 find_package(OpenSSL REQUIRED)
@@ -356,6 +361,10 @@ set(MICROTEL_EXPORTED_TARGETS
     microtel_upb_runtime
     microtel_utf8_range)
 
+if(TARGET microtel_leaf)
+    list(APPEND MICROTEL_EXPORTED_TARGETS microtel_leaf)
+endif()
+
 # `microtel_sdk` exports as `microtel::sdk`, not `microtel::microtel_sdk`.
 # The aggregate is already bare `microtel`, so the regex leaves it alone.
 foreach(microtel_target IN LISTS MICROTEL_EXPORTED_TARGETS)
@@ -384,6 +393,12 @@ install(TARGETS microtel-preflight
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/microtel
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.hpp")
+
+# The leaf's one public header, a C header beside the C++ ones.
+if(TARGET microtel_leaf)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/leaf/include/microtel/leaf.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel)
+endif()
 
 # The vendored tl::expected, under a `vendor/` level of its own so that
 # `#include "tl/expected.hpp"` from expected.hpp keeps resolving without the

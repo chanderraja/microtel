@@ -1,6 +1,9 @@
 # microtel Leaf / Concentrator Design
 
-**Status:** Draft — awaiting sign-off.
+**Status:** Accepted — signed off 2026-09-26. Two checklist items stay open
+until the upb / nanopb assumptions listed under "Items to verify" are checked
+against the pinned sources: §2 (backends and byte identity) and §3.7 (the
+decode-arena cap).
 **Issue:** #319.
 **Implements:** [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) (scope,
 backends, nanopb, decode-into-the-pipeline), with the release renumbered to
@@ -11,8 +14,8 @@ v1.2 by [ICP 0032](icps/0032-release-reorder-v1.1.1.md).
 
 ICP 0031 Decision 6 requires this document to be signed off before any leaf
 or concentrator code is written, the way `docs/metrics-design.md` preceded
-metrics. It decides *what* and *why*. The signatures below are proposals
-concrete enough to review; the headers themselves are written in the first
+metrics. It decides *what* and *why*. The signatures below are concrete
+enough to implement against; the headers themselves are written in the first
 implementation packet and must match what is signed off here. Every point
 that changes a locked interface or document is marked **ICP** and lands as
 its own ICP before the code that needs it.
@@ -28,10 +31,17 @@ In scope for v1.2 (experimental):
   that decodes a leaf payload with upb, enriches its Resource per leaf,
   corrects its timestamps, and feeds the spans into the normal sampling /
   batching / export pipeline.
+- **Fan-in**: spans from many leaves leave the concentrator in one export
+  request per batch, one `ResourceSpans` per leaf (§3.6.1). Without it a
+  fleet-sized concentrator sends one request per leaf per batch.
 - The three time modes of spec §18.4.
 - The ship gates of ICP 0031: fuzzed ingest, end-to-end tests per backend and
-  protocol, published footprints with a Cortex-M CI job, and an example under
+  protocol (which, per §7.5, also check that many leaves share one export
+  request), published footprints with a Cortex-M CI job, and an example under
   `examples/leaf/`.
+
+If v1.2 scope has to be cut, the boot-relative time mode goes first; fan-in
+and streaming encode stay (§3.6.1).
 
 Out of scope, unchanged from spec §18.4 and ICP 0031 Decision 1:
 
@@ -45,25 +55,38 @@ Out of scope, unchanged from spec §18.4 and ICP 0031 Decision 1:
 
 ## Sign-off checklist
 
-Each item has a proposed **Decision** below. The reviewer approves by checking
-every box, after editing any decision they want changed.
+Each item has a **Decision** below. Items are ticked as settled at review;
+the two unticked items depend on upb / nanopb behaviour not yet verified
+against the pinned sources (see "Items to verify during implementation").
 
-- [ ] §1 Leaf C API: lifecycle, span building, encode, errors, no-heap rule,
-      header layout, symbol prefixes, versioning. **Traces only** in v1.2.
+- [x] §1 Leaf C API: lifecycle, size guards on caller-allocated state, span
+      building, id derivation on weak entropy, encode (buffer and streaming),
+      errors, no-heap rule, header layout, symbol prefixes, versioning.
+      **Traces only** in v1.2. **C11.**
 - [ ] §2 Encoder backends: `MICROTEL_LEAF_ENCODER`, byte-identity rules and
-      how they are tested, `gen/` layout, regen script, nanopb renaming.
-- [ ] §3 Concentrator ingest: public `LeafReceiver` API, error model, threading,
-      upb decode, pipeline entry, size limits. Three new `DropReason`s
-      (**ICP**), `Provider::GetLeafReceiver` (**ICP**), per-record Resource on
-      `ISpanProcessor` (**ICP**).
-- [ ] §4 Per-leaf identity and configuration: leaf id, TOML / env / code
-      schema, Resource merge order, fleet-size limits.
-- [ ] §5 Time modes: concentrator-stamped, sync-relative, boot-relative.
-- [ ] §6 ICP 0031 open questions: `MICROTEL_WITH_CONCENTRATOR` **OFF**,
+      how they are tested, `gen/` layout, regen script, nanopb renaming
+      (generated descriptors included). *Open until:* upb field order and
+      fixed-buffer arena, nanopb field order, `oneof` callbacks and
+      double-called submessage callbacks are verified.
+- [x] §3 Concentrator ingest (except §3.7): public `LeafReceiver` API and
+      `Provider::GetLeafReceiver` (**ICP**), error model with `OutOfMemory`
+      kept apart from too-large, three new `DropReason`s (**ICP**), threading,
+      upb decode, shared span queue, `SpanRecord::resource` (no ICP),
+      multi-Resource requests in v1.2 (no ICP).
+- [ ] §3.7 Size limits. *Open until:* the decode-arena factor of 4 is measured
+      against the golden vectors and fuzz corpus.
+- [x] §4 Per-leaf identity and configuration: transport id above the leaf's
+      own Resource and exported as `device.id` by default, TOML / env / code
+      schema, merge order, fleet-size limits, Resource-budget drops in
+      `LeafReceiverStats`.
+- [x] §5 Time modes: concentrator-stamped, sync-relative, boot-relative with
+      the second-smallest-sample anchor.
+- [x] §6 ICP 0031 open questions: `MICROTEL_WITH_CONCENTRATOR` **OFF**,
       per-leaf cardinality limits, **delta-only** leaf metrics, default
       backend **nanopb**.
-- [ ] §7 Test plan against the ICP 0031 ship gates.
-- [ ] §8 Follow-up ICPs and document edits.
+- [x] §7 Test plan against the ICP 0031 ship gates.
+- [x] §8 Follow-up ICPs and document edits.
+- [x] §9 Review decisions recorded.
 
 ---
 
@@ -96,9 +119,8 @@ and `memcmp`. No `stdio`, no `malloc`, no `strlen` on caller input (lengths
 are passed explicitly or bounded).
 
 *Alternative considered:* C99. It would admit a few older vendor toolchains
-but lose `_Static_assert`, which the opaque-storage design depends on. If the
-reviewer knows of a target audience stuck on C99, the checks can be done with
-the negative-array-size trick instead.
+but lose `_Static_assert`, which the opaque-storage design and the size
+guards depend on. Decided at review (§9, decision 11).
 
 ### 1.3 Signals: traces only in v1.2
 
@@ -142,13 +164,12 @@ The leaf never allocates. The caller provides three pieces of memory:
 The upb backend also takes an optional **scratch** buffer for its arena
 (§2.2). The nanopb backend ignores it.
 
-**Opaque storage.** `microtel_leaf_t` and `microtel_leaf_span_t` are declared
-in the public header as structs with a single private array member of fixed
-size. The caller can allocate them statically or on the stack; the
-implementation casts to its real struct and checks with `_Static_assert` that
-the real struct fits and that the alignment matches. The sizes are the same
-for both backends, because backend-specific state never lives in these
-structs.
+**Opaque storage.** `microtel_leaf_t` is declared in the public header as a
+struct with a single private array member of fixed size. The caller can
+allocate it statically or on the stack; the implementation casts to its real
+struct and checks with `_Static_assert` that the real struct fits and that the
+alignment matches. The size is the same for both backends, because
+backend-specific state never lives in it.
 
 ```c
 /* leaf/include/microtel/leaf.h */
@@ -159,12 +180,35 @@ typedef struct microtel_leaf
     uint64_t microtel_private[MICROTEL_LEAF_STATE_WORDS];
 } microtel_leaf_t;
 
-/* A span handle: a slot index plus a generation count. Copyable by value. */
-typedef struct microtel_leaf_span
-{
-    uint32_t microtel_private[2];
-} microtel_leaf_span_t;
+/* A span handle: slot index in the low 16 bits, generation count in the high
+ * 16 bits. A scalar, so its size is fixed for the life of the API. */
+typedef uint32_t microtel_leaf_span_t;
 ```
+
+**Size guard on caller-allocated state.** The header and the library archive
+can come from different releases. Firmware teams often link a prebuilt
+`libmicrotel_leaf.a` (from a vendor SDK, a CI artifact or a package) while the
+header in their include path is a newer or older copy. If the library's real
+state has grown past what the header's `MICROTEL_LEAF_STATE_WORDS` gives the
+caller, `microtel_leaf_init` writes past the end of the caller's static object
+into whatever the linker put next to it. On an MCU with no MMU that corrupts a
+neighbouring variable silently, and the fault shows up later, somewhere else.
+So every piece of caller-allocated state whose size can change is passed with
+its size, and the library checks it before writing anything:
+
+| Caller-allocated | Guard |
+|---|---|
+| `microtel_leaf_t` | `microtel_leaf_init` takes `leaf_size`; returns `MICROTEL_LEAF_ERR_ARG` without touching `leaf` or the record buffer if it is smaller than the library needs |
+| `microtel_leaf_config_t` | `struct_size` field (§1.9): fields past it read as zero, and a size below the v1.2 layout is `MICROTEL_LEAF_ERR_ARG` |
+| `microtel_leaf_counters_t` | `microtel_leaf_get_counters` takes `out_size` and writes only that many bytes (§1.7) |
+| `microtel_leaf_span_t` | none needed: a `uint32_t`, fixed forever |
+| `microtel_leaf_kv_t` | none needed: the layout is frozen for 1.x; a later value type must fit the existing union (checked by `_Static_assert`) |
+
+The span handle is a scalar rather than an opaque struct for the same reason.
+A handle is passed by value to every span call, so a size guard on
+`microtel_leaf_span_start` alone would not help: a handle struct whose size
+changed would change the calling convention of every other span function,
+which no runtime check can detect.
 
 **Strings are copied.** Span names, attribute keys, string values, event
 names and status messages are copied into the record buffer when they are
@@ -229,7 +273,11 @@ typedef struct microtel_leaf_config
     uint64_t (*now_ns)(void *ctx);
     void *clock_ctx;
 
-    /* Required: fills `out` with `len` random bytes, for trace and span ids. */
+    /* Required: fills `out` with `len` random bytes, for trace and span ids.
+     * Quality requirement (§1.6.1): the byte stream must differ between
+     * devices and between boots of one device. Seed it from a hardware RNG,
+     * or at least from a per-chip unique id plus boot_id. It need not be
+     * cryptographically secure; ids are not secrets. */
     void (*random_bytes)(void *ctx, uint8_t *out, size_t len);
     void *random_ctx;
 
@@ -248,7 +296,8 @@ typedef struct microtel_leaf_config
     uint16_t max_events_per_span;      /* [4]  */
     uint16_t max_attributes_per_event; /* [4]  */
 
-    /* Boot-relative mode only: a value that differs on every boot (§5.4). */
+    /* A value that differs on every boot: mixed into ids (§1.6.1), and sent
+     * as the boot identity in boot-relative mode (§5.4). 0 if unavailable. */
     uint32_t boot_id;
 
     /* upb backend only; ignored by nanopb. NULL means use the heap (§2.2). */
@@ -257,6 +306,7 @@ typedef struct microtel_leaf_config
 } microtel_leaf_config_t;
 
 microtel_leaf_status_t microtel_leaf_init(microtel_leaf_t *leaf,
+                                          size_t leaf_size, /* sizeof(microtel_leaf_t) */
                                           const microtel_leaf_config_t *config,
                                           void *record_buffer,
                                           size_t record_buffer_size);
@@ -264,7 +314,7 @@ microtel_leaf_status_t microtel_leaf_init(microtel_leaf_t *leaf,
 void microtel_leaf_free(microtel_leaf_t *leaf);
 ```
 
-`microtel_leaf_init` validates the config, copies the Resource and scope into
+`microtel_leaf_init` first checks `leaf_size` (§1.4), then validates the config, copies the Resource and scope into
 the record buffer, and fails without side effects if anything is invalid or
 the buffer is too small to hold even the Resource. `microtel_leaf_free`
 releases nothing (there is nothing to release) but clears the state so that a
@@ -331,9 +381,48 @@ microtel_leaf_status_t microtel_leaf_span_end(microtel_leaf_t *leaf,
 ```
 
 `parent` is NULL for a root span, or a handle to an open or ended span of the
-same leaf. The leaf generates ids with `random_bytes` and reads `now_ns` at
+same leaf. The leaf generates ids as §1.6.1 describes and reads `now_ns` at
 start, at each event, and at end. Setting the same attribute key twice
 overwrites, as the SDK does.
+
+#### 1.6.1 Trace and span ids on weak entropy
+
+**The failure mode.** A fleet runs one firmware image. Many MCUs have no
+hardware RNG, and a common `random_bytes` is a PRNG seeded from a constant,
+or from a tick count that reads the same value at the same point of every
+boot. Every device then produces the same id sequence. Device A's first trace
+has the same `trace_id` as device B's first trace, and span ids repeat too. A
+backend joins spans by id, so it merges unrelated devices' spans into one
+trace, attaches children to the wrong parents, and drops "duplicate" spans.
+Nothing fails at the leaf or the concentrator; the data is simply wrong, and
+wrong fleet-wide.
+
+**Decision.** The leaf never uses `random_bytes` output as an id directly. At
+init it computes a 64-bit **device key**: a hash of the configured Resource's
+keys and values in order (FNV-1a over the bytes, finished with a splitmix64
+mix), combined with `boot_id`. Each id is then
+
+```
+id_word[i] = splitmix64(device_key + counter++) XOR random_word[i]
+```
+
+over 64-bit words (two for a trace id, one for a span id), with an all-zero
+result retried. The counter is per leaf and never repeats within a boot.
+
+- With a good RNG, the XOR changes nothing about the ids' randomness.
+- With an identical PRNG sequence on every device, ids still differ between
+  devices as long as the configured Resource names the device
+  (`device.id`, `service.instance.id`, a serial number) and between boots as
+  long as `boot_id` changes. The hash is not cryptographic; it only has to
+  separate devices, and a 64-bit key makes a collision between two devices in
+  a fleet of a million about one in 36 million.
+- The derivation runs in the core, so both backends emit the same ids.
+
+What this cannot fix, and the header says so: a fleet whose PRNG is
+identical **and** whose leaf Resource is identical on every device (no
+per-device attribute) **and** whose `boot_id` is identical. Such a fleet gets
+the same ids everywhere. The concentrator's transport-derived leaf id (§4.1)
+still keeps the devices' Resources apart, but not their trace ids.
 
 What the v1.2 leaf deliberately leaves out, to keep flash small:
 
@@ -377,7 +466,9 @@ typedef struct microtel_leaf_counters
     uint32_t dropped_events;
 } microtel_leaf_counters_t;
 
-void microtel_leaf_get_counters(const microtel_leaf_t *leaf, microtel_leaf_counters_t *out);
+/* Writes min(out_size, sizeof(microtel_leaf_counters_t)) bytes. */
+void microtel_leaf_get_counters(const microtel_leaf_t *leaf,
+                                microtel_leaf_counters_t *out, size_t out_size);
 ```
 
 `microtel_leaf_get_counters()` exposes them to the application. They are also
@@ -668,8 +759,8 @@ generated names, which CLAUDE.md rule 13 leaves unchanged, these are likely to
 collide: a firmware that already generates OTLP with its own nanopb is exactly
 this leaf's audience. The rename header therefore also maps them to
 `microtel_pb_opentelemetry_proto_*`. This is within ICP 0031 Decision 4
-("its globally visible symbols get a `microtel_pb_` prefix"), and is flagged
-for the reviewer in §9 because it differs from the upb precedent.
+("its globally visible symbols get a `microtel_pb_` prefix"), and was
+decided at review because it differs from the upb precedent (§9, decision 9).
 
 ---
 
@@ -709,7 +800,8 @@ enum class LeafTimeMode : std::uint8_t
 struct IngestRequest
 {
     /// Transport-derived identity of the sender (§4.1). May be empty, in
-    /// which case the payload's `device.id` Resource attribute is used.
+    /// which case the payload's `leaf_id_attribute` value is used. Whichever
+    /// id is used is also exported as that attribute (§4.4).
     std::string_view leaf_id;
     /// The OTLP ExportTraceServiceRequest bytes. Borrowed for the call only.
     std::span<const std::byte> payload;
@@ -727,6 +819,7 @@ enum class IngestStatus : std::uint8_t
     UnknownLeaf = 4,       ///< leaf not configured and unknown_leaf = reject
     ShutDown = 5,          ///< Provider shut down
     Disabled = 6,          ///< concentrator not enabled or not compiled in
+    OutOfMemory = 7,       ///< allocation failed while processing (§3.3)
 };
 
 struct IngestResult
@@ -746,6 +839,9 @@ struct LeafReceiverStats
     std::uint64_t leaves_evicted = 0;
     std::uint64_t leaf_reported_drops = 0; ///< sum of microtel.leaf.dropped_* (§1.7)
     std::uint64_t time_fallbacks = 0;      ///< sync-relative payloads re-anchored (§5.3)
+    std::uint64_t payloads_out_of_memory = 0;       ///< §3.3
+    std::uint64_t resource_attributes_dropped = 0;  ///< over max_leaf_resource_bytes (§4.5)
+    std::uint64_t leaf_id_conflicts = 0;   ///< payload declared a different id (§4.4)
 };
 
 class LeafReceiver
@@ -801,8 +897,15 @@ takes the hot-path regime of `error-model.md` §2.2, with one addition:
 
 - It is `noexcept` and never throws. An allocation failure inside it is caught
   at the boundary (`std::bad_alloc`, not `catch (...)`); the payload is
-  reported as `TooLarge` and counted `leaf_payload_too_large`, since running
-  out of memory on it is a size problem.
+  reported as `OutOfMemory`, counted in
+  `LeafReceiverStats::payloads_out_of_memory`, and logged through the
+  rate-limited diagnostic. It is **not** counted as `leaf_payload_too_large`:
+  an allocation failure says the concentrator is short of memory, not that the
+  leaf sent something too big, and folding the two together would send an
+  operator to the wrong fix. A distinct `IngestStatus` value is the cheaper
+  choice: `IngestStatus` is new in this header, so the value costs nothing,
+  whereas a matching `DropReason` would be a fourth ICP-gated enumerator for a
+  condition that already surfaces in the process's own memory monitoring.
 - Every drop is counted on `IDiagnosticsSink` (below), so
   `GetExporterHealth()` shows it whether or not the caller looks at the result.
 - **Unlike** `StartSpan`, it also returns what happened. The application has a
@@ -907,9 +1010,9 @@ subset a microtel leaf emits. Values that `microtel::AttributeValue` cannot
 hold are handled as ICP 0015 Option B handles them in the otel-cpp shim:
 `bytes` become a lowercase hex string. `kvlist_value`, nested arrays and
 mixed-type arrays have no lossless mapping and are dropped, counted as
-`span_attribute_limit`. *Reviewer:* that counter is the nearest existing
-one, but not an exact fit; the alternative is a fourth new reason, and this
-case cannot arise from a microtel leaf.
+`span_attribute_limit`: the attribute is lost from the span, which is what
+that counter records (§9, decision 4). This case cannot arise from a microtel
+leaf.
 
 **Validation.** After decode, before anything enters the pipeline, the whole
 payload is checked. **Any failure rejects the whole payload** as `Malformed`:
@@ -980,8 +1083,9 @@ For each span, in payload order:
    `additional_attributes` and `trace_state` as for an in-process root.
    `Drop` and `RecordOnly` discard it and count it in `spans_sampled_out`,
    which is not a drop, just as an unsampled in-process span is not.
-4. **Enqueue.** `ISpanProcessor` receives the `SpanRecord` with the
-   leaf's scope and the leaf's resolved Resource (§4).
+4. **Enqueue.** `ISpanProcessor::OnEnd` receives the `SpanRecord`, with its
+   `resource` member set to the leaf's resolved Resource (§4), and the leaf's
+   scope.
 
 **Why every span is sampled as a root.** A leaf does no sampling (spec §18.4),
 so it has no sampled flag to pass down, and a parent-based decision at the
@@ -994,33 +1098,95 @@ say so.
 
 **Per-record Resource.** Today `BatchSpanProcessor` holds one Resource for all
 records and groups a drained batch by scope into one `BatchHandle` per scope
-(ICP 0023). `BatchHandle` already carries its own Resource, so the exporter and
-encoder need no change. The processor needs to accept a Resource per record
-and group by `(Resource, scope)`. **ICP:** add to `ISpanProcessor`:
+(ICP 0023). `BatchHandle` already carries its own Resource, so the encoder
+needs no change; only the processor needs to know which Resource each record
+belongs to.
+
+**Decision.** `internal::SpanRecord` gains one member:
 
 ```cpp
-/// @brief As OnEnd, but for a record whose Resource is not the Provider's.
-/// `resource` is shared, immutable, and never null.
-virtual void OnEndWithResource(SpanRecord&& record,
-                               const InstrumentationScope& scope,
-                               std::shared_ptr<const Resource> resource) noexcept = 0;
+// include/microtel/internal/batch.hpp
+struct SpanRecord
+{
+    // ... existing fields ...
+    /// The Resource this span belongs to. Null means the Provider's Resource,
+    /// which is every in-process span. Set only by the leaf receiver.
+    std::shared_ptr<const Resource> resource;
+};
 ```
 
-`BatchSpanProcessor` stores the pointer in its queued item (a null pointer
-there means "the Provider's Resource", so in-process spans pay nothing) and
-groups by pointer identity plus scope. `SimpleSpanProcessor` and the mock and
-fake follow. Pure virtual rather than a default implementation, because a
-default that dropped the Resource would silently mislabel a leaf's spans. This
-is the "late Resource enrichment" seam of spec §18.4, realised.
+`BatchSpanProcessor` groups a drained batch by `(resource, scope)`, using the
+processor's own Resource for a null pointer and pointer identity otherwise.
+`SimpleSpanProcessor` builds its single-record `BatchHandle` the same way. The
+receiver calls the ordinary `ISpanProcessor::OnEnd`, so **`ISpanProcessor` does
+not change and no ICP is needed**. In-process spans pay one empty
+`shared_ptr` per record (two pointer-sized words, both null, never touched on
+the hot path) and nothing else. `shared_ptr` rather than `unique_ptr` (CLAUDE.md
+rule 8) because one resolved Resource is shared by every queued record from
+that leaf and by the leaf table, and a record must keep its Resource alive
+after the leaf's table entry is evicted (§4.5). `SpanRecord` is an internal
+value type, not one of the locked interfaces; `docs/interfaces.md` §3.3 gets
+the new member in the packet that adds it. This is the "late Resource
+enrichment" seam of spec §18.4, realised.
 
-**One request per leaf per batch.** Because the exporter encodes one request
-per `BatchHandle`, a batch holding spans from N leaves produces N export
-requests. That is correct but costs requests in a large fleet. The fix is an
-encoder entry point that puts several `ResourceSpans` into one request, which
-changes `IOtlpEncoder` and the exporter's partial-success accounting and so
-needs its own **ICP**. **Proposed:** ship v1.2 without it, measure with the
-concentrator throughput bench, and raise the ICP if the request rate is the
-bottleneck. Flagged in §9.
+*Alternative considered:* a new `ISpanProcessor::OnEndWithResource`. It keeps
+`SpanRecord` unchanged but changes a locked interface (an ICP) and every
+processor, mock and fake, for no behaviour the member does not already give.
+
+#### 3.6.1 Many leaves in one export request
+
+Without further work, a batch holding spans from N leaves becomes N
+`BatchHandle`s and so N export requests, because the exporter sends one
+request per handle. For a concentrator that is the normal case, not an edge
+case: a gateway with 500 leaves would turn every batch into 500 HTTP/2
+requests, each with its own headers, retry state and partial-success
+accounting. Fan-in is the concentrator's job, so **multi-Resource requests are
+in v1.2 scope** and ship with the receiver.
+
+**Decision.** The exporter coalesces the `BatchHandle`s it drains into one
+request, up to `max_export_batch_size` spans per request, by concatenating
+their encoded bytes:
+
+- `ExportTraceServiceRequest` has exactly one field, `repeated ResourceSpans
+  resource_spans = 1`. Protobuf defines the parse of two concatenated encodings
+  of a message as the merge of the two, and merging appends repeated fields.
+  So `Encode(A) ++ Encode(B)` is, exactly, a valid request whose
+  `resource_spans` are A's followed by B's. The spec §18.4 caveat that
+  concatenated OTLP bytes are "not guaranteed semantically valid in general"
+  is about arbitrary messages; for this one it is guaranteed by the protobuf
+  encoding rules. Each leaf's spans become their own `ResourceSpans`, which is
+  what a collector expects.
+- The concatenation is one small function in `src/wire/encoder/`
+  (`ConcatenateTraceRequests`), next to the encoder that knows the message
+  shape. It needs no upb. `IOtlpEncoder` does not change.
+- **Accounting and retry move to the request.** A coalesced request is sent,
+  retried and classified as one unit, as a single batch is today. A partial
+  success's rejected count applies to the request and is counted once;
+  `retry_budget_exhausted` and `non_retryable_failure` count every record in
+  the request; `batches_sent` still counts `BatchHandle`s. `error-model.md` §3
+  replaces "one batch yields one accounting" with "one request yields one
+  accounting".
+- It applies to in-process spans too, where it merges the per-scope handles of
+  ICP 0023 into one request. That is a behaviour change on the existing path,
+  but a strict improvement (fewer requests, same data) with no interface
+  change.
+
+No ICP: `IExporter`, `IOtlpEncoder` and `BatchHandle` keep their contracts, and
+the change is internal to the exporter. The throughput bench (§7.9) confirms
+the fan-in — requests per batch stays at one as the number of leaves grows —
+rather than deciding whether to have it.
+
+*Alternative considered:* an `IOtlpEncoder::EncodeMany(std::span<const
+BatchHandle>)` that builds one upb message tree for all handles. It produces
+the same bytes up to field order within the request, but changes a locked
+interface (an ICP), costs one larger arena, and gains nothing over
+concatenation.
+
+**If v1.2 scope has to be cut,** cut the boot-relative time mode (§5.4), the
+only one that needs per-leaf state at the concentrator, rather than
+aggregation or streaming encode. Aggregation is what makes the concentrator
+usable at fleet scale, and streaming encode is what fits the nanopb leaf into
+its RAM budget (§9, decision 10).
 
 ### 3.7 Size limits
 
@@ -1077,8 +1243,9 @@ format is OTLP".
 
 **Decision.** By `IngestRequest::leaf_id`, supplied by the application from
 its transport: a CAN id, a BLE address, a UDP source address, a serial port
-name. If it is empty, the receiver uses the payload's `device.id` Resource
-attribute. If both are empty, the payload is `Malformed`.
+name. If it is empty, the receiver falls back to the payload's own value for
+the `leaf_id_attribute` key (default `device.id`). If that is empty too, or
+`leaf_id_attribute` is set to `""`, the payload is `Malformed`.
 
 The transport-derived id comes first because it is the one the leaf cannot
 choose. A self-declared id lets a misconfigured or cloned firmware image
@@ -1086,6 +1253,25 @@ present itself as another device. The payload fallback exists for transports
 that carry no useful address (a shared bus, a message queue). There is no
 authentication in v1.2 in either case; leaf authentication is v2.2
 (roadmap v2.2).
+
+**The id that keys the leaf table is the id in the exported telemetry.**
+Whatever id the receiver settles on is written into the `leaf_id_attribute`
+key of the leaf's Resource as the highest-precedence layer (§4.4), so a leaf
+that declares `device.id = "X"` but arrives on the transport as `"Y"` is
+configured, cached and exported as `"Y"`. The leaf's `"X"` is discarded and
+`LeafReceiverStats::leaf_id_conflicts` is incremented, which is how an
+operator finds cloned or mis-flashed images. Example:
+
+| Transport id | Payload `device.id` | Table key | Exported `device.id` | Conflict counted |
+|---|---|---|---|---|
+| `can0:0x1a4` | absent | `can0:0x1a4` | `can0:0x1a4` | no |
+| `can0:0x1a4` | `boiler-7` | `can0:0x1a4` | `can0:0x1a4` | yes |
+| empty | `boiler-7` | `boiler-7` | `boiler-7` | no |
+| empty | absent | — | — | payload `Malformed` |
+
+An operator who wants a friendlier name than the transport address in the
+telemetry puts it in a different attribute (`host.name`, `service.instance.id`)
+in the leaf's configured Resource.
 
 Leaf ids are opaque byte strings compared exactly, at most `max_leaf_id_bytes`
 long.
@@ -1101,7 +1287,7 @@ max_leaves            = 1024                   # §4.5
 max_leaf_resource_bytes = "2KiB"               # §4.5
 leaf_idle_timeout     = "1h"                   # §4.5
 unknown_leaf          = "accept"               # accept | reject   (§4.4)
-leaf_id_attribute     = "device.id"            # "" disables        (§4.4)
+leaf_id_attribute     = "device.id"            # "" disables export and fallback (§4.1)
 default_time_mode     = "auto"                 # auto | concentrator_stamped | sync_relative | boot_relative
 max_sync_age          = "1h"                   # §5.3
 max_clock_skew        = "5m"                   # §5.3
@@ -1201,12 +1387,12 @@ one merge rule in the codebase.
 
 **Decision.** Lowest to highest precedence:
 
-1. `leaf_id_attribute` (default `device.id`) set to the leaf id, if the
-   setting is non-empty.
-2. `leaf_defaults.resource`.
-3. The leaf's own Resource from the payload, with every `microtel.leaf.*` key
+1. `leaf_defaults.resource`.
+2. The leaf's own Resource from the payload, with every `microtel.leaf.*` key
    removed.
-4. The leaf's configured `resource` (file, then code, then resolver).
+3. The leaf's configured `resource` (file, then code, then resolver).
+4. `leaf_id_attribute` (default `device.id`) set to the leaf id from §4.1, if
+   the setting is non-empty.
 
 Each step is a `Resource::Merge` with the later layer overriding, so a layer
 replaces only the keys it names. If no layer sets `service.name`, it is set to
@@ -1222,18 +1408,24 @@ Why this order:
   device in config is correcting or enriching that device, which is the
   `device-id → service.*` mapping of spec §18.4. Firmware is harder to change
   than config.
-- **The leaf id is the floor.** It guarantees that every leaf's spans can be
-  told apart even with no config at all, and anything more specific wins.
+- **The leaf id is the ceiling.** It sits above the leaf's own Resource for
+  the same reason per-leaf config does: the transport-derived id is the one the
+  leaf cannot choose (§4.1). It also sits above per-leaf config, so that the id
+  the leaf table is keyed by and the id in the exported telemetry can never
+  disagree. Configuring the `leaf_id_attribute` key in `leaf_defaults.resource`
+  or in a leaf's `resource` is therefore a `ConfigError::Kind::InvalidValue`
+  (a resolver that returns it has the key ignored), since it could never take
+  effect.
 
 **The concentrator's own Resource is not merged in.** Its `host.name`,
 `service.name` and detector output describe the gateway, not the device, and
 merging them would misattribute every leaf span to the gateway. Operators who
 want a shared attribute (`deployment.environment`, `cloud.region`) on leaf
-spans put it in `leaf_defaults.resource`. Flagged in §9 in case the reviewer
-prefers an opt-in `inherit_resource_keys` list.
+spans put it in `leaf_defaults.resource`, which covers the need; there is no
+separate inheritance list (§9, decision 5).
 
 **Unknown leaves.** With `unknown_leaf = "accept"` (default), a leaf with no
-config entry and no resolver answer is processed with layers 1–3. With
+config entry and no resolver answer is processed with layers 1, 2 and 4. With
 `"reject"`, its payloads are `UnknownLeaf` and counted `leaf_unknown`.
 `accept` is the default because a new device in the field should show up in
 telemetry, not vanish; `reject` is for deployments that treat the config as an
@@ -1256,11 +1448,14 @@ when it changes), the boot-relative anchor (§5.4), and a last-seen time.
   checked on insert, so an idle concentrator costs no timer thread.
 - `max_leaf_resource_bytes` (default 2 KiB) bounds one leaf's resolved
   Resource, keys plus values. Leaf-declared attributes that would push past it
-  are dropped (lowest precedence first) and counted `span_attribute_limit`. An
+  are dropped (lowest precedence first) and counted in
+  `LeafReceiverStats::resource_attributes_dropped`, not as a `DropReason`: they
+  are not span attributes, and the span itself is kept. An
   over-budget *configured* Resource is a `ConfigError::Kind::InvalidValue` at
   `Build()` time instead, because it is the operator's own setting.
 - The worst-case table size is about `max_leaves × (max_leaf_resource_bytes +
-  per-entry overhead)`, about 2.5 MiB at the defaults. Operators with larger
+  boot-anchor samples (128 B, §5.4) + per-entry overhead)`, about 2.7 MiB at
+  the defaults. Operators with larger
   fleets per concentrator raise `max_leaves` knowing the cost.
 - If the leaf-declared Resource changes between payloads (a firmware update),
   the entry is re-resolved and replaced. Spans already queued keep the old
@@ -1360,20 +1555,35 @@ a consistent timeline across many payloads.
   and `microtel.leaf.boot_id`, the `boot_id` from its config. The application
   must supply a value that differs on every boot: a persisted counter, or
   random bytes if nothing persists.
-- **Concentrator keeps**, per leaf, `(boot_id, B)` where `B` estimates the
-  wall time of the boot. For each payload, `b = R − E` is one estimate, late by
-  that payload's latency. `B` is the **minimum** `b` seen over the last
-  `boot_anchor_window` (default 10 min). The minimum is the estimate with the
-  least latency in it; the window lets `B` follow the leaf clock's drift instead
-  of pinning to one old sample for the life of the boot.
+- **Concentrator keeps**, per leaf, `boot_id` and a ring of the last **16**
+  boot-time samples taken within `boot_anchor_window` (default 10 min). For
+  each payload, `b = R − E` is one sample, late by that payload's latency.
+- **The anchor `B` is the minimum corroborated by a second sample:** the
+  second-smallest sample in the ring. (Over at most 16 samples this is also the
+  nearest-rank 10th percentile with its rank floored at 2, so the two options
+  in the review coincide; the rule is stated as "second-smallest" because that
+  is what gets implemented and tested.) With a single sample (the first payload
+  of a boot, or after eviction), that sample is used provisionally until a
+  second arrives.
+
+  Why not the plain minimum: it is only right if no sample can be too *low*,
+  and one can. `b` is too low when `E` is too high or `R` too low: a leaf
+  clock that glitched forward, a payload the application timestamped with a
+  stale `received_at`, a concentrator clock step. The minimum would lock onto
+  that one outlier for the whole window and shift every span of the boot by
+  its error. Requiring a second sample at or below the chosen value rejects a
+  single outlier and costs at most the latency difference between the best and
+  second-best payload, which on a steady link is small. The window lets `B`
+  follow the leaf clock's drift instead of pinning to old samples for the life
+  of the boot. 16 samples of 8 bytes is 128 bytes per leaf (§4.5).
 - **Concentrator computes:** `t' = t + B`.
 - **A new `boot_id`** replaces the anchor. An evicted leaf (§4.5) re-anchors
   from its next payload.
-- **Error:** the latency of the best payload in the window, plus drift within
-  the window. Unlike concentrator-stamped, the error is the same for every
+- **Error:** the latency of the second-best payload in the window, plus drift
+  within the window. Unlike concentrator-stamped, the error is the same for every
   payload in the window, so relative timing across payloads is preserved.
-  When `B` moves to a lower value, payloads already exported keep the old,
-  later anchor; ordering across that boundary can be off by the difference.
+  When `B` moves, payloads already exported keep the old anchor; ordering
+  across that boundary can be off by the difference.
 
 ### 5.5 Summary
 
@@ -1381,7 +1591,7 @@ a consistent timeline across many payloads.
 |---|---|---|---|---|
 | concentrator-stamped | optional monotonic clock | leaf-clock times, `E` (or neither) | none | send + link latency, per payload |
 | sync-relative | monotonic clock, a wall-time source, `clock_sync` calls | Unix times, `E`, `sync_age` | none | drift since sync |
-| boot-relative | monotonic clock from boot, a per-boot id | since-boot times, `E`, `boot_id` | per-leaf anchor | best latency in window, drift within window |
+| boot-relative | monotonic clock from boot, a per-boot id | since-boot times, `E`, `boot_id` | per-leaf ring of 16 samples | second-best latency in window, drift within window |
 
 ---
 
@@ -1391,7 +1601,7 @@ a consistent timeline across many payloads.
 
 ### 6.1 Default leaf backend
 
-**Proposed: `nanopb`.**
+**Decision: `nanopb`** (§9, decision 1).
 
 - nanopb builds for every target upb builds for; the reverse is not true. A
   default that fails to fit on the most common IoT target is a poor first
@@ -1401,15 +1611,14 @@ a consistent timeline across many payloads.
 - A user who wants upb (shared code with a microtel process on the same
   Linux board) is making a deliberate choice and can set one option.
 
-*Alternative:* no default: configuring with `MICROTEL_BUILD_LEAF=ON` and no
-`MICROTEL_LEAF_ENCODER` is an error that explains the two choices. It forces a
-decision that most users can make in one line, at the cost of one failed first
-configure. *Alternative:* upb, as the backend with the longer history in the
-project. Left to the reviewer (§9).
+*Alternatives considered:* no default, so that configuring with
+`MICROTEL_BUILD_LEAF=ON` and no `MICROTEL_LEAF_ENCODER` is an error that
+explains the two choices; and upb, as the backend with the longer history in
+the project.
 
 ### 6.2 `MICROTEL_WITH_CONCENTRATOR`
 
-**Proposed: add it, default OFF in v1.2.**
+**Decision: add it, default OFF in v1.2.**
 
 - The receiver parses untrusted bytes. An experimental feature with that
   attack surface should be present only in the binaries that use it.
@@ -1434,7 +1643,7 @@ telemetry.
 
 ### 6.4 Delta-only leaf metrics
 
-**Proposed: yes. When leaf metrics come, a leaf must send delta temporality,
+**Decision: yes. When leaf metrics come, a leaf must send delta temporality,
 and the concentrator rejects cumulative leaf metrics as `Malformed`.**
 
 - A leaf cannot keep cumulative state across a restart, and the concentrator
@@ -1466,6 +1675,13 @@ source. Coverage:
 
 - init / free: every invalid config field, too-small buffer, `struct_size`
   older and newer than the library, use after free.
+- size guards (§1.4): `leaf_size` one byte short of what the library needs
+  returns `MICROTEL_LEAF_ERR_ARG` and leaves both `leaf` and the record buffer
+  byte-for-byte unchanged (checked against a canary fill); `out_size` smaller
+  than `microtel_leaf_counters_t` writes only `out_size` bytes.
+- ids (§1.6.1): two leaves with an identical, constant `random_bytes` and
+  different configured Resources produce disjoint trace and span ids; the same
+  with identical Resources and different `boot_id`s; ids are never all-zero.
 - span building: every API function's success and each error code; per-span
   caps; record buffer exhaustion, with the leaf staying usable; stale and ended
   handles; open spans surviving an encode and compaction.
@@ -1527,18 +1743,34 @@ the existing fake span processor and fake exporter:
 
 - validation: each rule in §3.4, one test per rule.
 - Resource merge: each layer of §4.4 overriding the one below it, per key;
-  reserved keys stripped; `unknown_service`; unknown-leaf accept and reject;
+  every row of the §4.1 id table, including a payload `device.id` that
+  differs from the transport id (exported as the transport id, and
+  `leaf_id_conflicts` incremented); configuring the `leaf_id_attribute` key
+  rejected at `Build()`; reserved keys stripped; Resource-budget drops counted
+  in `resource_attributes_dropped` and in no `DropReason`; `unknown_service`; unknown-leaf accept and reject;
   resolver called once per leaf and again after eviction; resolver called with
   no lock held (TSAN run).
-- time modes: each formula in §5, including fallback, anchor window, new boot
-  id, and the `auto` / constrained config rules.
+- time modes: each formula in §5, including fallback, new boot id, and the
+  `auto` / constrained config rules. Boot-relative: a single low outlier does
+  not move the anchor, a second sample at or below it does, samples older than
+  the window age out, the ring holds 16.
+- out of memory: an allocator that fails on the Nth allocation yields
+  `OutOfMemory`, increments `payloads_out_of_memory`, and leaves
+  `leaf_payload_too_large` unchanged.
 - limits: every row of §3.7 at the boundary and one past it.
 - cardinality: LRU eviction order, idle timeout, Resource change re-resolution.
 - sampling: `TraceIdRatio` decides the same for all spans of a trace spread
   over several payloads.
 - pipeline: queue-full drops reported in `IngestResult` and in
-  `GetExporterHealth()`; per-record Resource grouping in `BatchSpanProcessor`
-  (one `BatchHandle` per `(Resource, scope)`).
+  `GetExporterHealth()`; `SpanRecord::resource` grouping in
+  `BatchSpanProcessor` and `SimpleSpanProcessor` (one `BatchHandle` per
+  `(Resource, scope)`, null grouped with the Provider's Resource).
+- aggregation (§3.6.1): `ConcatenateTraceRequests` output decodes with upb to
+  the union of its inputs' `ResourceSpans`, in order; the exporter turns N
+  handles into one request up to `max_export_batch_size` spans and splits
+  beyond it; a partial success, a retry and a terminal failure of a coalesced
+  request are each counted once per request, with record counts summed over
+  its handles.
 - TSAN: concurrent `Ingest` from several threads with overlapping leaf ids.
 
 ### 7.5 End-to-end (gates 3 and 5)
@@ -1549,7 +1781,11 @@ under test → an in-memory byte queue standing in for the transport →
 is {upb, nanopb} × {OTLP/HTTP, OTLP/gRPC}, four runs. The collector writes with
 its file exporter; the test asserts on the written spans: ids, names,
 attributes, events, status, the merged Resource with no `microtel.leaf.*` keys,
-and timestamps corrected per mode within a tolerance. It runs in the
+and timestamps corrected per mode within a tolerance. Each run drives **several
+leaves** (at least 8, with distinct ids) into one batch and asserts that the
+collector received them as **one** export request carrying one `ResourceSpans`
+per leaf, so aggregation (§3.6.1) is part of the ship gate, not only a unit
+test. It runs in the
 collector job in `.github/workflows/interop.yml`, which already starts an
 otel-collector container.
 
@@ -1611,28 +1847,45 @@ the C++-only checks. The C section that ICP 0031 adds to
 
 ---
 
+### 7.9 Concentrator throughput bench
+
+The concentrator throughput bench (roadmap §9, v1.2) adds a profile that
+ingests from 1, 10, 100 and 1,000 simulated leaves at a fixed span rate and
+records spans per second, CPU, and **export requests per batch**. It confirms
+the fan-in that §3.6.1 builds: requests per batch stays at one (or at
+`ceil(spans / max_export_batch_size)`) as the leaf count grows. It does not
+decide whether aggregation ships; that is decided here.
+
 ## §8 Follow-up ICPs and document edits
 
 **ICPs required before the code that needs them:**
 
-1. `Provider::GetLeafReceiver()` pure virtual (§3.2). Precedent: ICP 0012.
-2. Three new `DropReason` enumerators and their payload unit (§3.3).
-   Precedent: ICPs 0008 and 0011. It must pick values after the last
+1. `Provider::GetLeafReceiver()` pure virtual and the `LeafReceiver` public
+   API it returns (§3.2). Precedent: ICP 0012.
+2. Three new `DropReason` enumerators, `leaf_payload_malformed`,
+   `leaf_payload_too_large` and `leaf_unknown`, and their payload unit
+   (§3.3). Precedent: ICPs 0008 and 0011. It must pick values after the last
    enumerator at the time, taking account of ICP 0030's draft
    `SignalNotCompiled`, which currently claims a value (23) that
    `LogAttributeLimit` already holds.
-3. `ISpanProcessor::OnEndWithResource` (§3.6).
 
-These can be one ICP ("leaf receiver public and internal surface") since they
-land together and have no use apart.
-
-**Possible later ICP**, only if the §3.6 measurement calls for it: an encoder
-entry point that packs several Resources into one export request.
+These can be one ICP ("leaf receiver public surface") since they land together
+and have no use apart. Nothing else in this design changes a locked
+interface or a locked rule; the items below were checked for it.
 
 **No ICP needed** (additive or already decided by ICP 0031):
 
-- `include/microtel/leaf_receiver.hpp`, `SdkBuilder::WithLeafReceiver`,
-  `LeafReceiverStats`.
+- `SdkBuilder::WithLeafReceiver` and the rest of `leaf_receiver.hpp`
+  (`IngestStatus`, including `OutOfMemory`, and `LeafReceiverStats`): new, so
+  additive. The header itself is covered by ICP 1 above because `Provider`
+  returns it.
+- `SpanRecord::resource` (§3.6): a new member of an internal value type;
+  `ISpanProcessor`, `BatchHandle` and `IExporter` keep their contracts.
+  `docs/interfaces.md` §3.3 is updated with it.
+- Multi-Resource requests (§3.6.1): internal to the exporter, plus a helper in
+  `src/wire/encoder/`; `IOtlpEncoder` does not change. `docs/error-model.md`
+  §3 changes "one batch yields one accounting" to "one request".
+- No new thread (§3.5): the `threading-model.md` §2 inventory is unchanged.
 - `IOtlpTraceDecoder`: a new internal interface, added to
   `docs/interfaces.md` §4 in the packet that introduces it, with its mock and
   fake.
@@ -1650,31 +1903,44 @@ entry point that packs several Resources into one export request.
 
 ---
 
-## §9 Decisions left for the reviewer
+## §9 Decisions
 
-Each has a proposal above; these are the ones where a reasonable reviewer
-might choose differently.
+These were open in the first draft of this document and were decided at
+review. Each is reflected in the section it names.
 
-1. **Default leaf backend** (§6.1): nanopb, no default, or upb.
-2. **Public type name** (§3.1): `LeafReceiver` / `GetLeafReceiver`, or
-   `Concentrator` / `GetConcentrator`, or a general `Receiver`.
-3. **Three drop reasons or one** (§3.3).
-4. **Attribute drops outside a span's own limits** (§3.4, §4.5): `kvlist` /
-   nested-array values from a non-microtel producer, and leaf-declared
-   Resource attributes over `max_leaf_resource_bytes`, are counted as
-   `span_attribute_limit`, or get a fourth reason.
-5. **Merge order** (§4.4): leaf defaults below the leaf's own Resource and
-   per-leaf config above it; and whether the concentrator's own Resource should
-   be inheritable through an opt-in key list.
-6. **`device.id` floor** (§4.4): on by default, or off unless configured.
-7. **Shared span queue** for leaf and in-process spans (§3.5), rather than a
-   separate processor and thread.
-8. **One export request per leaf per batch** in v1.2 (§3.6), with the
-   multi-Resource encoder deferred to a measured ICP.
-9. **Renaming nanopb's generated descriptors** (§2.5), which upb's generated
-   names are not.
-10. **Streaming encode** in the leaf API (§1.8), or buffer-only.
-11. **C11** rather than C99 (§1.2).
+1. **Default leaf backend: nanopb** (§6.1). The default should fit the
+   targets the leaf exists for, and byte identity makes the choice invisible
+   to the concentrator.
+2. **Public type name: `LeafReceiver`** (§3.1). It names what exists; a general
+   `Receiver` abstraction waits until a second receiver does.
+3. **Three distinct `DropReason`s** (§3.3). Malformed firmware, mis-sized
+   limits and config gaps need different fixes, and an operator should see
+   which one without reading application logs.
+4. **Resource-budget drops are counted in `LeafReceiverStats`, not as a
+   `DropReason`** (§4.5). They are neither span attributes nor worth a new
+   ICP-gated counter. `kvlist` and nested-array values from a non-microtel
+   producer are genuine span-attribute drops and keep `span_attribute_limit`
+   (§3.4).
+5. **Merge order as in §4.4**, with the transport-derived leaf id above the
+   leaf's own Resource (finding 1 of the review). There is no
+   `inherit_resource_keys` list; `leaf_defaults.resource` already lets an
+   operator put shared attributes on every leaf.
+6. **`device.id` from the leaf id is on by default** (§4.1, §4.4), so every
+   leaf's telemetry is attributable with no config, and it carries the same id
+   the leaf table is keyed by.
+7. **Shared span queue for v1.2** (§3.5). A separate queue and thread is an
+   ICP and a second budget, for a starvation problem nobody has measured.
+8. **Multi-Resource aggregation ships in v1.2** (§3.6.1). One request per leaf
+   per batch makes a fleet-sized concentrator unusable, so fan-in is scope,
+   and the bench confirms it rather than deciding it. If scope must be cut,
+   a time mode goes first.
+9. **nanopb's generated descriptors are renamed** (§2.5). A firmware that
+   generates OTLP with its own nanopb is exactly this leaf's audience, so the
+   collision is likely, unlike upb's.
+10. **Streaming encode stays** (§1.8). Without it the nanopb leaf holds the
+    payload twice in RAM and does not fit the 2 KB budget.
+11. **C11** (§1.2). `_Static_assert` is what makes the opaque-storage and size
+    guards checkable, and every relevant embedded toolchain accepts C11.
 
 ## Items to verify during implementation
 

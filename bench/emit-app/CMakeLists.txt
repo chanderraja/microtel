@@ -53,6 +53,19 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
         target_compile_definitions(emit_app PRIVATE BENCH_MICROTEL_GRPC=1)
     endif()
 
+    # The leaf-fanin workload (bench/profiles/leaf-fanin.yaml): the backend
+    # encodes leaf payloads with the C leaf library and ingests them through
+    # the concentrator's LeafReceiver, so it needs both compiled in.
+    option(BENCH_LEAF_FANIN "Build the microtel backend's leaf fan-in workload" OFF)
+    if(BENCH_LEAF_FANIN)
+        if(NOT TARGET microtel_leaf OR NOT MICROTEL_WITH_CONCENTRATOR)
+            message(FATAL_ERROR "BENCH_LEAF_FANIN needs -DMICROTEL_BUILD_LEAF=ON "
+                                "and -DMICROTEL_WITH_CONCENTRATOR=ON")
+        endif()
+        target_compile_definitions(emit_app PRIVATE BENCH_LEAF_FANIN=1)
+        target_link_libraries(emit_app PRIVATE microtel_leaf)
+    endif()
+
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
     find_package(opentelemetry-cpp REQUIRED COMPONENTS
         trace metrics logs otlp_grpc_exporter otlp_grpc_metrics_exporter

@@ -53,6 +53,9 @@ int main()
         .attribute_value_bytes = attr_value_bytes,
         .metric_interval_ms    = (mode == bench::WorkloadMode::HotLoopMetrics) ? 100 : 0,
         .logs_enabled          = (mode == bench::WorkloadMode::HotLoopLogs),
+        .leaf_count            = (mode == bench::WorkloadMode::LeafFanin)
+                                     ? std::stoi(EnvOr("EMIT_LEAVES", "100")) : 0,
+        .leaf_spans_per_payload = std::stoi(EnvOr("EMIT_LEAF_SPANS_PER_PAYLOAD", "10")),
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};

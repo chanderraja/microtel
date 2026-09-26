@@ -45,6 +45,8 @@ struct BackendOptions
     int         attribute_value_bytes{24}; ///< byte length of each attribute value
     int         metric_interval_ms{0};     ///< 0 = SDK default (60 s); set to 100 for metrics workload
     bool        logs_enabled{false};       ///< true for the logs workload (otel-cpp builds its log pipeline only then)
+    int         leaf_count{0};             ///< leaf_fanin: simulated leaves (0 = not the leaf workload)
+    int         leaf_spans_per_payload{0}; ///< leaf_fanin: spans in each leaf payload
 };
 
 /// Abstract tracing backend.
@@ -83,6 +85,11 @@ public:
     /// Used by the hot-loop-logs workload profile.
     /// Default is a no-op for backends that do not support logs.
     virtual void EmitLog() {}
+
+    /// Ingest one leaf payload through the concentrator's LeafReceiver: the
+    /// next simulated leaf's, round-robin. Used by the leaf-fanin profile.
+    /// Default is a no-op for backends without a concentrator.
+    virtual void EmitLeafPayload() {}
 
     /// Flush all in-flight spans to the exporter and return elapsed time in ns.
     /// Returns 0 if the backend has no explicit flush API.

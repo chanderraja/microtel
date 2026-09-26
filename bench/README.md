@@ -15,6 +15,12 @@ Other profiles are selected by name from `profiles/`, for example
 `./bench/bench.sh --profile hot-loop-metrics` or
 `./bench/bench.sh --profile hot-loop-logs`.
 
+`leaf-fanin` measures the experimental concentrator: simulated leaves'
+payloads ingested through `LeafReceiver`, with `--sweep-leaves 1,10,100,1000`
+to vary the leaf count. It runs one SUT, `microtel-concentrator`, which builds
+microtel with the leaf and the concentrator; the profile file explains what
+to read in the results.
+
 `bench.sh` checks the prerequisites and hands off to the Python driver
 (`python3 -m driver`; pass `-h` for the options). The driver builds each
 system-under-test (SUT) image itself: the microtel SUT compiles microtel

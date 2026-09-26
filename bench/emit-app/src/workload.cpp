@@ -24,6 +24,10 @@ WorkloadMode ParseWorkloadMode(std::string_view name) noexcept
     {
         return WorkloadMode::HotLoopLogs;
     }
+    if (name == "leaf_fanin")
+    {
+        return WorkloadMode::LeafFanin;
+    }
     return WorkloadMode::HotLoop;
 }
 
@@ -39,6 +43,9 @@ void EmitOnce(IBackend& backend, WorkloadMode mode)
         break;
     case WorkloadMode::HotLoopLogs:
         backend.EmitLog();
+        break;
+    case WorkloadMode::LeafFanin:
+        backend.EmitLeafPayload();
         break;
     case WorkloadMode::HotLoop:
         backend.EmitSpan();

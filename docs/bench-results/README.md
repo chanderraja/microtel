@@ -45,6 +45,7 @@ against 39.2 gzip'd (8.7×), both unchanged from v1.1.0.
 | [`results.md`](results.md) | Generated summary: environment, profile, warnings, results table. Start here. |
 | [`results.json`](results.json) | Raw per-sample data, schema version 1.0. What the plots and the summary are rendered from. |
 | [`plots.html`](plots.html) | Interactive charts. Loads plotly from a CDN, so it needs network to render. |
+| [`leaf-footprint.md`](leaf-footprint.md) | Not part of the benchmark run: the experimental leaf's flash and RAM for both encoder backends, as the `leaf-footprint` CI job measures them. Refreshed per release. |
 
 ## This snapshot
 

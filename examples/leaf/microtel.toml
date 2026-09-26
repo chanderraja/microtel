@@ -1,0 +1,23 @@
+# examples/leaf/microtel.toml: the concentrator's configuration.
+#
+# udp_concentrator loads this with SdkBuilder::FromFile. The endpoint, protocol
+# and service name are set in code; only the leaf receiver is configured here.
+# The table is documented in docs/configuration.md §3.14.
+
+[concentrator]
+enabled = true
+# A leaf with no entry below is still accepted. "reject" would make the
+# entries an allow-list.
+unknown_leaf = "accept"
+
+# Gap-fillers for every leaf: below the leaf's own Resource, so firmware that
+# sets the same key wins.
+[concentrator.leaf_defaults.resource]
+"deployment.environment" = "example"
+
+# One configured leaf, named by the id the concentrator gives it: the UDP
+# source address:port. This sits above the leaf's own Resource, so it renames
+# the device's service and adds a zone the firmware knows nothing about.
+[concentrator.leaves."127.0.0.1:9311".resource]
+"service.name" = "greenhouse-north"
+"greenhouse.zone" = "north"

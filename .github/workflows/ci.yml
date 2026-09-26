@@ -304,6 +304,33 @@ jobs:
       - name: Assert the leaf's dependency closure
         run: ci/scripts/symbol-scan.sh --prefix leaf-install
 
+  # Leaf footprint and closure (docs/leaf-concentrator-design.md §7.6, ICP 0031
+  # gate 4): the nanopb leaf cross-compiled for Cortex-M0+ and Cortex-M4 with
+  # arm-none-eabi-gcc, and the upb leaf for Linux on aarch64. Each links
+  # examples/leaf/size_probe.c with --gc-sections and writes the leaf's
+  # .text / .rodata / .data / .bss to the job summary, with an OVER / UNDER
+  # line against the flash target (< 15 KB nanopb, < 30 KB upb). The targets
+  # are not gates in v1.2: the job fails only if the build, the link or the
+  # closure scan (target nm; nanopb: no heap) fails.
+  leaf-footprint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: cortex-m0plus, packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
+          - { target: cortex-m4,     packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
+          - { target: aarch64,       packages: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu }
+    name: leaf-footprint / ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 ${{ matrix.packages }}
+      - name: Measure and scan
+        run: ci/scripts/leaf-footprint.sh ${{ matrix.target }}
+
   consumer-smoke:
     runs-on: ubuntu-latest
     name: consumer-smoke
@@ -424,9 +451,15 @@ jobs:
             -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_CXX_STANDARD=20 \
-            -DMICROTEL_BUILD_TESTS=ON
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
+            -DMICROTEL_WITH_CONCENTRATOR=ON
       - name: Build
         run: cmake --build build
+      # The leaf and the concentrator are on so the leaf end-to-end gate
+      # (tests/conformance/leaf/, ICP 0031 gates 3 and 5) runs here: both
+      # encoder backends, over both protocols, into the collector's otlp/leaf
+      # receiver.
       # Docker is preinstalled on the runner; conformance.sh detects podman
       # first and falls back to it. The script starts the pinned collector
       # (docs/interop-matrix.md), waits on its health extension, and fails the

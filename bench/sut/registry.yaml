@@ -62,6 +62,18 @@ suts:
       EMIT_COMPRESSION_GZIP: "1"
     b0: true
 
+  # Only the leaf-fanin profile lists it (docs/leaf-concentrator-design.md §7.9).
+  - name: microtel-concentrator
+    description: "microtel concentrator — leaf payloads through LeafReceiver, OTLP/gRPC exporter"
+    dockerfile: bench/sut/microtel-concentrator/Dockerfile
+    image_name: bench-sut-microtel-concentrator
+    protocol: grpc
+    ports:
+      control: 19090
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""  # driver sets to http://sink:4317
+    b0: true
+
   - name: otelcpp-grpc
     description: "opentelemetry-cpp v1.19.0 — OTLP/gRPC exporter"
     dockerfile: bench/sut/otelcpp-grpc/Dockerfile

@@ -1,0 +1,48 @@
+# leaf-fanin — concentrator throughput (docs/leaf-concentrator-design.md §7.9)
+#
+# The emit-app plays a concentrator: at start-up it encodes one payload per
+# simulated leaf with the real C leaf library (nanopb), then each iteration
+# ingests the next leaf's payload, round-robin, through
+# Provider::GetLeafReceiver()->Ingest. The spans leave through the normal
+# batch processor and exporter to the blackhole sink over OTLP/gRPC.
+#
+# spans_per_sample counts iterations, i.e. payloads; spans are that times
+# EMIT_LEAF_SPANS_PER_PAYLOAD. What to read in the results:
+#
+#   - spans/sec      concentrator throughput at this leaf count
+#   - latency p50    one Ingest call (decode, validate, Resource, enqueue)
+#   - export_requests per sample, from the sink: fan-in (§3.6.1) keeps it at
+#                    about spans / max_export_batch_size whatever the leaf
+#                    count, instead of growing with it
+#
+# Sweep the leaf count with --sweep-leaves:
+#   ./bench/bench.sh --profile leaf-fanin --sweep-leaves 1,10,100,1000
+
+profile: leaf-fanin
+description: "Leaf payloads ingested by a concentrator — spans/sec and export requests vs leaf count"
+
+workload:
+  spans_per_sample: 2000   # payloads per run command (20 000 spans at 10 per payload)
+  samples: 5
+  warmup_spans: 200
+
+sink:
+  mode: blackhole
+
+suts:
+  - microtel-concentrator
+
+env:
+  EMIT_WORKLOAD: leaf_fanin
+  EMIT_LEAVES: "100"
+  EMIT_LEAF_SPANS_PER_PAYLOAD: "10"
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

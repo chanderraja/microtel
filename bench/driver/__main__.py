@@ -107,6 +107,13 @@ def _parse_args(argv=None) -> argparse.Namespace:
              "Creates one virtual SUT per count named {sut}-{N}t.",
     )
     p.add_argument(
+        "--sweep-leaves", default=None, dest="sweep_leaves",
+        metavar="N,N,...",
+        help="Comma-separated leaf counts to sweep for the leaf-fanin profile "
+             "(e.g. 1,10,100,1000). Creates one virtual SUT per count named "
+             "{sut}-{N}l, with EMIT_LEAVES set.",
+    )
+    p.add_argument(
         "--sink-delay-ms", type=int, default=0, dest="sink_delay_ms",
         metavar="MS",
         help="Artificial per-request response delay injected into the blackhole sink (ms). "
@@ -147,12 +154,43 @@ _SPANS_PER_ITERATION = {
     "hot_loop_logs":     1,   # one log record per iteration
 }
 _DEFAULT_SPANS_PER_ITERATION = 1
+# leaf_fanin ingests one leaf payload per iteration; its span count is a
+# profile setting, with the emit-app's default.
+_DEFAULT_LEAF_SPANS_PER_PAYLOAD = 10
 
 
 def _spans_per_iteration(env: dict) -> int:
     """Spans the emit-app produces per workload iteration, per EMIT_WORKLOAD."""
     workload = str(env.get("EMIT_WORKLOAD", "hot_loop"))
+    if workload == "leaf_fanin":
+        return int(env.get("EMIT_LEAF_SPANS_PER_PAYLOAD", _DEFAULT_LEAF_SPANS_PER_PAYLOAD))
     return _SPANS_PER_ITERATION.get(workload, _DEFAULT_SPANS_PER_ITERATION)
+
+
+def _export_requests(sink_snap: dict) -> int:
+    """Export requests the sink received, over either protocol."""
+    return int(sink_snap.get("http_requests_received") or 0) + int(
+        sink_snap.get("grpc_requests_received") or 0)
+
+
+def _expand_sweep_leaves(suts: list, counts: str, image_ids: dict) -> Optional[list]:
+    """One virtual SUT per leaf count, named <sut>-<N>l with EMIT_LEAVES=N.
+
+    Returns None when @p counts is not a comma-separated list of integers. The
+    image id of each virtual SUT is its original's.
+    """
+    try:
+        leaf_counts = [int(c.strip()) for c in counts.split(",")]
+    except ValueError:
+        return None
+    expanded = []
+    for sut in suts:
+        for n in leaf_counts:
+            sweep_sut = dataclasses.replace(
+                sut, name=f"{sut.name}-{n}l", env={**sut.env, "EMIT_LEAVES": str(n)})
+            expanded.append(sweep_sut)
+            image_ids[sweep_sut.name] = image_ids.get(sut.name, "")
+    return expanded
 
 
 def _received_count(sink_snap: dict, signal: str) -> int:
@@ -361,6 +399,7 @@ def _run_sut(
                 sink_errors = sink_snap.get("errors", 0)
                 sink_http_req = sink_snap.get("http_requests_received", 0)
                 sink_grpc_req = sink_snap.get("grpc_requests_received", 0)
+                export_requests = _export_requests(sink_snap)
                 _log(
                     f"  sample {i + 1}/{n_samples}: "
                     f"emitted={result['spans_emitted']} "
@@ -416,6 +455,7 @@ def _run_sut(
                     "latency_max_ns":    result["latency_max_ns"],
                     "latency_histogram": result.get("latency_histogram", []),
                     "flush_ns":          flush_ns,
+                    "export_requests":   export_requests,
                     "sink": {
                         "mode":                   sink_snap["mode"],
                         "spans_received":         sink_snap["spans_received"],
@@ -586,6 +626,14 @@ def main(argv=None) -> int:
         active_suts = expanded
         _log(f"sweep: {len(sweep_sizes)} sizes × {len(active_suts)//len(sweep_sizes)} SUT(s) "
              f"= {len(active_suts)} runs")
+
+    if args.sweep_leaves:
+        expanded_leaves = _expand_sweep_leaves(active_suts, args.sweep_leaves, sut_image_ids)
+        if expanded_leaves is None:
+            _log("ERROR: --sweep-leaves must be comma-separated integers")
+            return 1
+        active_suts = expanded_leaves
+        _log(f"leaf sweep: {args.sweep_leaves} — {len(active_suts)} total runs")
 
     if args.sweep_threads:
         sweep_thread_counts = [int(t.strip()) for t in args.sweep_threads.split(",")]

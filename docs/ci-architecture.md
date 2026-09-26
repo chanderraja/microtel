@@ -179,8 +179,9 @@ Verifies that regenerating the proto accessors produces a zero-diff result again
 
 **Steps:**
 1. Install pinned `protoc` v29.4 and build `protoc-gen-upb` / `protoc-gen-upb_minitable` from the matching protobuf tag.
-2. Run [`ci/scripts/regen-protos.sh`](../ci/scripts/regen-protos.sh) with those binaries.
-3. `git diff --exit-code gen/`. Fail if any diff.
+2. Clone the nanopb generator at the tag `third_party/nanopb/` is pinned to (`nanopb-0.4.9.2`) and install `protobuf==5.29.4` into a venv for it.
+3. Run [`ci/scripts/regen-protos.sh`](../ci/scripts/regen-protos.sh) with those binaries and `--nanopb-generator`, which also regenerates the leaf's nanopb descriptors under `gen/nanopb/`.
+4. `git diff --exit-code gen/`, and `git status --porcelain gen/` for files the generator newly emits. Fail if either reports anything.
 
 **Pass condition:** generated code matches the result of regenerating from pinned sources.
 
@@ -190,7 +191,7 @@ Verifies that regenerating the proto accessors produces a zero-diff result again
 
 ### `symbol-scan` (job in `.github/workflows/ci.yml`)
 
-Mechanical enforcement of the dependency closure, in two passes.
+Mechanical enforcement of the dependency closure, in several passes (the script header lists them all).
 
 **Pass 1 — forbidden namespaces.** No shipped artifact defines **or references**
 a symbol from gRPC, abseil, or the protobuf C++ runtime. This is the test behind
@@ -219,12 +220,28 @@ unprefixed; the fix is to regenerate the list using the recipe in
 [`third_party/upb/microtel_upb_rename.h`](../third_party/upb/microtel_upb_rename.h),
 never to widen the pattern.
 
+**The nanopb passes — nanopb stays in the leaf, renamed.** nanopb is a dependency
+of the leaf only (ICP 0031 Decision 4). The script splits artifacts by name:
+`libmicrotel_leaf*.a` and `libmicrotel_nanopb*.a` are leaf archives, everything
+else is not. One pass fails any non-leaf artifact that defines or references a
+nanopb symbol, renamed (`microtel_pb_*`) or not. The other fails any leaf archive
+carrying a nanopb global (`pb_*`) or a generated nanopb descriptor
+(`opentelemetry_proto_*_msg`, `_field_info`, `_submsg_info`) under its upstream
+name; they ship renamed by
+[`third_party/nanopb/microtel_pb_rename.h`](../third_party/nanopb/microtel_pb_rename.h),
+whose comment carries the regeneration recipe.
+
+The leaf archives are not installed yet, so the job builds with
+`-DMICROTEL_BUILD_LEAF=ON` and passes `--leaf-build build`, which adds the
+build tree's leaf archives to the install-tree scan and fails if there are none.
+
 **Steps:**
 1. Configure with `-DMICROTEL_BUILD_TESTS=OFF` — the gate must see the shipped
-   configuration only, never gtest/gmock or other test-only inputs.
+   configuration only, never gtest/gmock or other test-only inputs — and
+   `-DMICROTEL_BUILD_LEAF=ON`, which builds the nanopb archives.
 2. Build.
 3. `cmake --install build --prefix install-tree`.
-4. Run [`ci/scripts/symbol-scan.sh --prefix install-tree`](../ci/scripts/symbol-scan.sh).
+4. Run [`ci/scripts/symbol-scan.sh --prefix install-tree --leaf-build build`](../ci/scripts/symbol-scan.sh).
 
 **It scans the install tree, not the build tree** (ICP 0020 Decision 5). Once
 `cmake --install` exists, "shipped" means what `cmake --install` produces;
@@ -236,7 +253,8 @@ form (`symbol-scan.sh [build-dir]`) for the quicker local loop.
 
 **Pass condition:** zero forbidden symbols and zero unprefixed vendored symbols
 across every installed `libmicrotel_*.a` and the installed `microtel-preflight`
-binary.
+binary, no nanopb symbol in any of them, and no unprefixed nanopb symbol in the
+leaf archives.
 
 ### `version-drift-check` (job in `.github/workflows/ci.yml`)
 

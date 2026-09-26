@@ -716,9 +716,16 @@ options:
 
 - every `string`, `bytes` and `repeated` field: `type:FT_CALLBACK`, except the
   ids below
-- `trace_id`: `max_size:16 fixed_length:true`; `span_id` and
-  `parent_span_id`: `max_size:8 fixed_length:true` (static, since they have a
-  fixed size and are always present)
+- `trace_id`: `max_size:16 fixed_length:true`; `span_id`:
+  `max_size:8 fixed_length:true` (static, since they have a fixed size and are
+  always present)
+- `parent_span_id`: `max_size:8`, *without* `fixed_length`. A root span has no
+  parent, and nanopb always encodes a proto3 `fixed_length` bytes field
+  (`pb_check_proto3_default_value` in `pb_encode.c` never treats one as
+  default), so a root span would carry eight zero bytes where upb writes
+  nothing, breaking §2.3 rule 2. A static bytes array with a size is omitted
+  when the size is 0. (Found when vendoring; the first draft had
+  `fixed_length` here.)
 - no `FT_POINTER` anywhere, so `PB_ENABLE_MALLOC` is never defined
 
 Compile definitions for the nanopb archive: `PB_NO_ERRMSG` (saves the error
@@ -742,8 +749,9 @@ a developer-time tool only (ICP 0031 Decision 4).
 release: the runtime sources `pb.h`, `pb_common.{c,h}`, `pb_encode.{c,h}`, its
 `LICENSE.txt` (zlib), and a `README.md` pin table in the same form as
 `third_party/upb/README.md`. The generator is not vendored; the regen script
-documents the exact version to install. The latest release at the time of
-writing is 0.4.9.x. *Verify* the exact tag when vendoring.
+documents the exact version to install. The pinned release is
+`nanopb-0.4.9.2`; its generator is run from that git tag, since PyPI stops at
+0.4.9.1 (`third_party/nanopb/README.md`).
 
 **Renaming.** `third_party/nanopb/microtel_pb_rename.h` is force-included
 (`-include`) into every nanopb and generated-nanopb translation unit, exactly
@@ -1950,10 +1958,18 @@ sources:
 - upb v29.4: `upb_Arena_Init` with a NULL `upb_alloc` never grows (§2.2);
   field-number output order (§2.3); the decoded-to-wire memory ratio behind the
   arena factor of 4 (§3.7).
-- nanopb 0.4.x: descriptor field order matches tag order (§2.3);
-  `FT_CALLBACK` members inside a `oneof` (§2.3 rule 6); `pb_encode_submessage`
-  calling callbacks twice (§2.2); the exact global symbol list for the rename
-  header (§2.5).
+- nanopb: **checked against 0.4.9.2 when vendoring.** Descriptor field order
+  is tag order: the generator sorts the field list by tag whatever
+  `sort_by_tag` says (`nanopb_generator.py`, "Field descriptor array must be
+  sorted by tag number"), and `pb_encode` walks it in that order.
+  `FT_CALLBACK` members inside a `oneof` work: the generator puts a
+  `pb_callback_t` in the union, and `encode_field` calls it when `which_` names
+  it, so rule 6 needs no hand-written `KeyValue` callback.
+  `pb_encode_submessage` runs the callbacks once to size and once to write, and
+  fails if the two disagree; a callback nested *d* submessages deep runs *d*+1
+  times per encode. The rename list is in `third_party/nanopb/microtel_pb_rename.h`.
+  `nanopb_encode_test` checks the first three against golden bytes. One
+  assumption was wrong: `fixed_length` on `parent_span_id` (§2.4, now fixed).
 - `arm-none-eabi-gcc` from Ubuntu's apt is recent enough for `-std=c11` and
   Cortex-M0+ (§7.6); any of the last several releases is.
 

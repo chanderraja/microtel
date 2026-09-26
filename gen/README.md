@@ -47,3 +47,14 @@ v29.4 source. Afterwards, `git diff gen/` shows what changed.
 The `regen-check` job in `.github/workflows/ci.yml` runs
 `ci/scripts/regen-protos.sh` and then `git diff --exit-code gen/`, so a PR
 that changes `proto/` without updating `gen/` fails CI.
+
+## nanopb/ — the leaf's descriptors
+
+[`nanopb/`](nanopb/) holds nanopb output for the four trace-path schemas
+(common, resource, trace, collector/trace), used only by the leaf's nanopb
+encoder backend (`docs/leaf-concentrator-design.md` §2.4). It is a sibling
+tree, so the upb output above is unaffected. The generator options are in
+[`leaf/nanopb/otlp_trace.options`](../leaf/nanopb/otlp_trace.options). Pass
+`--nanopb-generator` to `regen-protos.sh` to regenerate it; the script's
+header gives the pinned generator version and install steps. `regen-check`
+passes the flag, so this tree is held to the same zero-diff rule.

@@ -274,7 +274,7 @@ def _render_md(doc: dict) -> str:
         for s in suts:
             d = s.get("summary", {}).get("spans_dropped", {})
             lines.append(
-                f"| Spans dropped (total) | " +
+                f"| {unit.capitalize()}s dropped (total) | " +
                 " | ".join(str(ss.get("summary", {}).get("spans_dropped", {}).get("total", 0))
                             for ss in suts) + " |"
             )

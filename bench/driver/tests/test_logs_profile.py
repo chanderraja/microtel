@@ -117,6 +117,7 @@ def test_markdown_labels_log_rows_per_record():
     assert "Emit p50 (ns)" in md
     assert "Records/sec" in md
     assert "Wire bytes/record" in md
+    assert "Records dropped (total)" in md
     assert "StartSpan p50" not in md
 
 

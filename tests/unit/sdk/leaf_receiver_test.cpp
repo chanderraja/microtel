@@ -825,14 +825,24 @@ TEST_F(LeafReceiverTest, AllocationFailureIsOutOfMemoryAndNotTooLarge)
 // Shutdown
 // ---------------------------------------------------------------------------
 
-TEST_F(LeafReceiverTest, IngestAfterShutdownCountsOnePostShutdownPerPayload)
+TEST_F(LeafReceiverTest, IngestAfterShutdownCountsPayloadsPostShutdownNotADropReason)
 {
     auto rx = Make();
     Decodes(Payload(Reserved(), {LeafSpan(1, 1), LeafSpan(1, 2), LeafSpan(1, 3)}));
     rx->MarkShutDown();
 
-    ExpectRejected(rx->Ingest(Request()), mt::IngestStatus::ShutDown, mt::DropReason::PostShutdown);
+    const mt::IngestResult r = rx->Ingest(Request());
+    EXPECT_EQ(r.status, mt::IngestStatus::ShutDown);
+    EXPECT_EQ(std::uint64_t{r.spans_accepted} + r.spans_sampled_out + r.spans_dropped, 0U);
     EXPECT_EQ(decoder->decode_call_count, 0) << "the payload is not decoded after shutdown";
+    EXPECT_TRUE(processor.received_spans.empty());
+
+    const mt::LeafReceiverStats stats = rx->Stats();
+    EXPECT_EQ(stats.payloads_post_shutdown, 1U);
+    EXPECT_EQ(stats.payloads_rejected, 0U) << "the two payload counters are disjoint (ICP 0035)";
+    EXPECT_EQ(Drops(sink, mt::DropReason::PostShutdown), 0U)
+        << "post_shutdown counts records only (ICP 0035)";
+    EXPECT_EQ(TotalDrops(sink), 0U);
 }
 
 // ---------------------------------------------------------------------------

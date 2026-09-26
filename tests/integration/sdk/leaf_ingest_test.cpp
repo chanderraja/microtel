@@ -305,14 +305,25 @@ TEST(LeafIngestIntegrationTest, IngestAfterProviderShutdownIsShutDown)
 {
     const Concentrator c = MakeConcentrator(mt::LeafReceiverOptions{});
     const auto receiver = c.provider->GetLeafReceiver();
+    const auto tracer = c.provider->GetTracer("gateway-lib", "1");
     ASSERT_EQ(c.provider->Shutdown(kFlushTimeout), mt::Status::Completed);
 
-    const auto payload = LeafPayload({}, {LeafSpan(1, 1, "late")});
+    const auto payload = LeafPayload({}, {LeafSpan(1, 1, "late"), LeafSpan(1, 2, "late")});
     EXPECT_EQ(receiver->Ingest(mt::IngestRequest{.leaf_id = "a", .payload = payload}).status,
               mt::IngestStatus::ShutDown);
+    EXPECT_EQ(receiver->Stats().payloads_post_shutdown, 1U);
+    EXPECT_EQ(receiver->Stats().payloads_rejected, 0U);
+    EXPECT_EQ(c.provider->GetExporterHealth().drop_counters.at(
+                  static_cast<std::size_t>(mt::DropReason::PostShutdown)),
+              0U)
+        << "a late leaf payload is not a post_shutdown record (ICP 0035)";
+
+    // An in-process span after Shutdown is still one post_shutdown record.
+    tracer->StartSpan("late-in-process")->End();
     EXPECT_EQ(c.provider->GetExporterHealth().drop_counters.at(
                   static_cast<std::size_t>(mt::DropReason::PostShutdown)),
               1U);
+    EXPECT_EQ(receiver->Stats().payloads_post_shutdown, 1U);
 }
 
 TEST(LeafIngestIntegrationTest, ReceiverOutlivesItsProvider)

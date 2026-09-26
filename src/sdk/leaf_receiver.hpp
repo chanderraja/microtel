@@ -108,6 +108,7 @@ private:
         std::atomic<std::uint64_t> resource_attributes_dropped{0};
         std::atomic<std::uint64_t> leaf_id_conflicts{0};
         std::atomic<std::uint64_t> time_fallbacks{0};
+        std::atomic<std::uint64_t> payloads_post_shutdown{0};
     };
 
     /// The body of `Ingest`; may throw `std::bad_alloc`. Fills @p result as

@@ -129,8 +129,10 @@ IngestResult SdkLeafReceiver::Ingest(const IngestRequest& request) noexcept
 {
     if (m_shut_down.load(std::memory_order_acquire))
     {
-        // Counted per payload: it is not decoded, so its spans are not known.
-        return Reject(IngestStatus::ShutDown, DropReason::PostShutdown);
+        // Not decoded, so its spans are not known: counted as a payload in
+        // LeafReceiverStats, never as a post_shutdown record (ICP 0035).
+        m_counters.payloads_post_shutdown.fetch_add(1, std::memory_order_relaxed);
+        return IngestResult{.status = IngestStatus::ShutDown};
     }
     IngestResult result{.status = IngestStatus::Accepted};
     try
@@ -589,6 +591,7 @@ LeafReceiverStats SdkLeafReceiver::Stats() const noexcept
         .resource_attributes_dropped =
             m_counters.resource_attributes_dropped.load(std::memory_order_relaxed),
         .leaf_id_conflicts = m_counters.leaf_id_conflicts.load(std::memory_order_relaxed),
+        .payloads_post_shutdown = m_counters.payloads_post_shutdown.load(std::memory_order_relaxed),
     };
 }
 

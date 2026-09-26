@@ -881,6 +881,7 @@ struct LeafReceiverStats
     std::uint64_t payloads_out_of_memory = 0;       ///< §3.3
     std::uint64_t resource_attributes_dropped = 0;  ///< over max_leaf_resource_bytes (§4.5)
     std::uint64_t leaf_id_conflicts = 0;   ///< payload declared a different id (§4.4)
+    std::uint64_t payloads_post_shutdown = 0;  ///< Ingest after Shutdown; not decoded (ICP 0035)
 };
 
 class LeafReceiver
@@ -960,7 +961,6 @@ takes the hot-path regime of `error-model.md` §2.2, with one addition:
 |---|---|---|
 | span limits applied to a decoded span (§3.6) | `span_attribute_limit`, `span_event_limit`, `span_link_limit`, `event_attribute_limit`, `link_attribute_limit`, `attribute_value_truncated` | as today |
 | `ISpanProcessor::OnEnd` | `queue_full`, `record_too_large` | records |
-| call after `Shutdown` | `post_shutdown` | **payloads** (the payload is not decoded, so its spans are not counted) |
 
 Three failures happen before there are any records, and no existing reason
 describes them. **ICP:** add three `DropReason` enumerators, with the next
@@ -971,6 +971,10 @@ free values at the time the ICP lands:
 | `leaf_payload_malformed` | the payload fails to decode, fails validation (§3.4), declares an unsupported wire version, or its time mode conflicts with the leaf's config (§5.1) | payloads |
 | `leaf_payload_too_large` | the payload exceeds `max_payload_bytes`, `max_spans_per_payload`, the decode depth limit, or the decode arena cap (§3.7) | payloads |
 | `leaf_unknown` | the leaf is not configured and `unknown_leaf = "reject"` (§4.4) | payloads |
+
+A payload that arrives after `Shutdown` is not decoded, so its spans are not
+known. It is not a `DropReason` — `post_shutdown` counts records only — but
+`LeafReceiverStats::payloads_post_shutdown` ([ICP 0035](icps/0035-leaf-post-shutdown-counter.md)).
 
 These are the first reasons counted in payloads rather than records. That is
 deliberate: a payload that cannot be decoded has no trustworthy span count, and

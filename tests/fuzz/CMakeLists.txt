@@ -11,7 +11,7 @@
 # Usage:
 #   cmake -S . -B build-fuzz \
 #         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-#         -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
+#         -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_BUILD_TESTS=OFF
 #   cmake --build build-fuzz
 #   ./build-fuzz/tests/fuzz/toml_fuzz corpus/toml_fuzz/ -max_total_time=60
 
@@ -88,3 +88,29 @@ target_include_directories(provider_setters_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/src
 # varies and lets the rest default, the same waiver the sdk_provider tests take.
 target_compile_options(provider_setters_fuzz PRIVATE
     -Wno-missing-field-initializers)
+
+# v1.2 — byte identity of the leaf's upb and nanopb backends
+# (docs/leaf-concentrator-design.md §7.2). Needs MICROTEL_BUILD_LEAF=ON, which
+# builds microtel_leaf_dual_fuzz: the leaf core with both backends, instrumented
+# for libFuzzer. The program interpreter is shared with the deterministic
+# microtel_leaf_backend_diff_test (tests/unit/leaf/).
+if(TARGET microtel_leaf_dual_fuzz)
+    set(MICROTEL_LEAF_DIFF_SOURCES
+        leaf_backend_diff_fuzz.cpp
+        ${CMAKE_SOURCE_DIR}/tests/leaf/diff/leaf_diff_program.cpp)
+    microtel_add_fuzz_target(
+        NAME    leaf_backend_diff_fuzz
+        SOURCES ${MICROTEL_LEAF_DIFF_SOURCES}
+                ${CMAKE_SOURCE_DIR}/tests/leaf/vectors/leaf_vectors.c
+        LIBS    microtel_leaf_dual_fuzz microtel_upb_gen)
+
+    # The interpreter decodes each payload with upb: gen/ and the upb runtime
+    # headers, with the rename header forced in as for every upb consumer.
+    target_include_directories(leaf_backend_diff_fuzz PRIVATE
+        ${CMAKE_SOURCE_DIR}/gen
+        ${CMAKE_SOURCE_DIR}/third_party/upb)
+    set_source_files_properties(${MICROTEL_LEAF_DIFF_SOURCES} PROPERTIES
+        COMPILE_OPTIONS "-include;${MICROTEL_UPB_RENAME_HEADER}")
+elseif(MICROTEL_BUILD_LEAF)
+    message(WARNING "leaf_backend_diff_fuzz not built: microtel_leaf_dual_fuzz is missing")
+endif()

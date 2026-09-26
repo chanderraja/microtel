@@ -324,7 +324,9 @@ microtel_leaf_status_t microtel_leaf_encode(microtel_leaf_t* leaf,
  * @brief Streaming form: bytes are handed to `write` in order. `write` returns 0
  *        on success; any other value aborts the encode with
  *        MICROTEL_LEAF_ERR_ENCODE and leaves the spans in the buffer. The upb
- *        backend calls `write` once with the whole payload.
+ *        backend calls `write` once with the whole payload; the nanopb backend
+ *        calls it for each piece as it is encoded (every tag, length and
+ *        value), so the payload is never held whole.
  */
 microtel_leaf_status_t microtel_leaf_encode_to(microtel_leaf_t* leaf,
                                                int (*write)(void* ctx,

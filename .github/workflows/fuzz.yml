@@ -52,6 +52,7 @@ jobs:
         response_decompression_fuzz
         baggage_fuzz
         provider_setters_fuzz
+        leaf_backend_diff_fuzz
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +69,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_BUILD_TESTS=OFF \
             -G Ninja
           cmake --build build-fuzz --parallel

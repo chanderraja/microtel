@@ -22,6 +22,12 @@ makes them a release requirement:
 | `baggage_fuzz.cpp` | The W3C `baggage` header parser, required by clause 3 of the v1.1 ships-when gate ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Besides crash-freedom, it asserts the three grammar limits and that `FromHeader`/`ToHeader` round-trips are stable. |
 | `provider_setters_fuzz.cpp` | The validation surface of the four hot-reload `Provider` setters ([ICP 0026](../../docs/icps/0026-provider-setters.md)), required by clause 2 of the same gate. The input is a program rather than a value: byte 0 picks the provider's shape, and the rest is a stream of opcodes replayed against one live provider, so interleavings get fuzzed along with ranges. It asserts that `InvalidArgument` comes back exactly when the harness independently judges the value bad, that nothing but `Completed`, `InvalidArgument` or `Unsupported` comes back before `Shutdown`, and that `Unsupported` depends on the pipeline and not on history. |
 
+## v1.2 harnesses
+
+| File | Surface |
+|---|---|
+| `leaf_backend_diff_fuzz.cpp` | Byte identity of the leaf's upb and nanopb encoder backends ([docs/leaf-concentrator-design.md](../../docs/leaf-concentrator-design.md) §7.2). The input is a program of leaf builder calls (`tests/leaf/diff/`), run on two identical leaves linked through `microtel_leaf_dual`; every call must return the same status on both, and every encode the same status, size and bytes, which must decode with upb. Needs `-DMICROTEL_BUILD_LEAF=ON`. |
+
 ## Invariants
 
 From `docs/grpc-wire-protocol.md` §7.4, applied to every harness:
@@ -58,7 +64,7 @@ the `corpus-check` job in `ci.yml`. To reproduce it locally:
 ```bash
 cmake -S . -B build-fuzz \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-      -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_TESTS=OFF
+      -DMICROTEL_BUILD_FUZZ=ON -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_BUILD_TESTS=OFF
 cmake --build build-fuzz
 ci/scripts/corpus-check.sh build-fuzz
 ```

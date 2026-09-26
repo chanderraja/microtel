@@ -63,8 +63,9 @@ if(MICROTEL_USE_SPDLOG OR MICROTEL_BUILD_GLOG_BRIDGE OR MICROTEL_BUILD_LOG4CXX_B
     add_subdirectory(adapters)
 endif()
 
-# v1.2 — vendored nanopb runtime + generated OTLP trace descriptors, built only
-# for a nanopb leaf (MICROTEL_BUILD_LEAF=ON, MICROTEL_LEAF_ENCODER=nanopb).
+# v1.2 — vendored nanopb runtime + generated OTLP trace descriptors, built with
+# the leaf (MICROTEL_BUILD_LEAF=ON): for a nanopb leaf, and for the leaf tests,
+# which run on both backends.
 if(TARGET microtel_nanopb_gen)
     add_subdirectory(nanopb)
 endif()

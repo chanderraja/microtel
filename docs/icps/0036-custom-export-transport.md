@@ -8,7 +8,9 @@
   `LeafReceiverOptions` gains `max_node_resource_bytes`)
 - `leaf/include/microtel/leaf.h` (one documentation line on empty encodes)
 - `src/sdk/sdk_builder.cpp` (`BuildExporters`, `BuildWireCodec`, the
-  `CreateTransport` call), a new internal codec under `src/wire/custom/`,
+  `CreateTransport` call), `src/exporter/otlp_exporter.cpp` (the
+  `max_request_bytes` join condition), a new internal codec under
+  `src/wire/custom/`,
   `src/sdk/leaf_resource.cpp`, `src/sdk/leaf_receiver.cpp`,
   `src/common/config/` (the `"unix"` time-mode value)
 - `docs/interfaces.md` §4.3 (a third `IWireCodec` implementation)
@@ -119,6 +121,10 @@ struct ExportTransportOptions
     bool traces = true;
     bool metrics = false;  ///< Decision 3
     bool logs = false;     ///< Decision 3
+    /// Cap, in encoded uncompressed OTLP bytes, on joining trace batches into
+    /// one request. 0 means no cap. Coalescing only: one batch that alone
+    /// exceeds it is still sent whole (see "Capping coalesced requests").
+    std::uint32_t max_request_bytes = 64U * 1024U;
 };
 
 }  // namespace microtel
@@ -195,6 +201,46 @@ is dropped. `IWireCodec::Send` carries no attempt number, the codec cannot
 tell a retry of one request from the next request in a drain, and adding one
 would change a locked interface. Because the bytes are identical, a transport
 that needs to spot a retry can compare content.
+
+**Capping coalesced requests: `max_request_bytes`.** The trace exporter joins
+the `BatchHandle`s of a drain into one request (design §3.6.1), today up to
+`max_export_batch_size` spans. With a custom transport it also stops a join
+when adding the next handle's encoded size would take the request past
+`max_request_bytes`, and that handle starts the next request. There is no
+encoder change. `OtlpExporter::FanOutAndProcess` encodes each handle once,
+groups on span count and on bytes, and concatenates each group with
+`ConcatenateTraceRequests`. The grouping is fixed for the drain, so a retry
+re-encodes the same group and the bytes stay identical.
+
+- **Units:** encoded, uncompressed OTLP bytes, the size of
+  `ExportRequest::bytes`. That is the size the concentrator compares with its
+  `max_payload_bytes`.
+- **Default: 64 KiB**, the concentrator's default `max_payload_bytes`. The
+  pair is right out of the box, as ICP 0033 set its shim default to match the
+  SDK's. `0` turns the cap off, for a transport with no size limit. A cap
+  below the concentrator's limit costs only more requests, so erring low is
+  safe.
+- **A single handle that alone exceeds the cap is still sent whole.** Splitting
+  one handle means encoding a subset of its spans, which is encoder work and
+  stays out of scope. A handle holds at most `max_export_batch_size` spans, so
+  that setting still governs the residual. The codec logs a rate-limited
+  `Warn` for each request it hands over above the cap, naming the size and the
+  cap. The request's fate then follows from the link and the concentrator,
+  with `non_retryable_failure` on the node and `leaf_payload_too_large` on the
+  concentrator if it is refused.
+- **Traces only.** The metric and log exporters send one request per handle
+  and never join, so the cap has nothing to act on there.
+
+**Why `max_export_batch_size` alone can't do this.** It counts spans, and the
+constraint is bytes. One span with a large attribute and a few events can
+fill a datagram alone, so no span count guarantees a fit. The overflow depends
+on the data and shows up in production, not in a test with small spans.
+**Why application fragmentation doesn't help either.** The link can fragment
+and reassemble, but the concentrator's `max_payload_bytes` applies to the
+reassembled payload. An oversized request is still `TooLarge` there, and so
+`NonRetryable`: the data is lost, not delayed. Only the exporter can split at
+the OTLP-message level, and the cheap case, where the size comes from joining
+handles, is exactly what the cap covers.
 
 **Other settings.** Endpoint, protocol, headers, TLS, auth and compression
 have no meaning with a custom transport:
@@ -363,15 +409,35 @@ join the concentrator's batches and leave in shared requests, one
   a root (§3.6). A trace-id-ratio sampler at the same ratio on both sides is
   idempotent. A lower ratio at the concentrator thins the node's traces
   further.
-- **Sizes.** A default node request (512 spans) can exceed the concentrator's
-  `max_payload_bytes` (64 KiB) and a UDP datagram. Size the node's
-  `max_export_batch_size` to the link. The Resource budget is its own
-  decision, below.
+- **Sizes.** See "Three limits that must agree", below. The Resource budget
+  is its own decision after that.
 - **Mapping `IngestResult` back**, on a link that carries an answer:
   `Accepted` → `Success`; `PartiallyAccepted` → `Success` with `rejected =
   spans_dropped`; `Malformed`, `TooLarge`, `UnknownLeaf`, `Disabled` →
   `NonRetryable`; `ShutDown`, `OutOfMemory` → `Retryable`. A fire-and-forget
   link such as UDP returns `Success` once the datagram is sent.
+
+**Three limits that must agree.** A full node's request passes three size
+limits: the node's `max_request_bytes` (call it N), the concentrator's
+`max_payload_bytes` (C), and the link's MTU or frame limit (M). They are set
+in different places and can drift, as ICP 0033's S and L can. What drift does:
+
+| Relation | Result |
+|---|---|
+| N ≤ C, request ≤ M | Sent as one frame and accepted. |
+| N ≤ C, M < request | The application fragments and reassembles. That is its framing problem, and fine, because the reassembled size is still ≤ C. |
+| N > C | A request between C and N is `TooLarge` at the concentrator, counted `leaf_payload_too_large` there and `NonRetryable` → `non_retryable_failure` on the node. These are **drops**, and nothing recovers them. |
+| any N, one handle > C | Same drop, whatever N is. `max_export_batch_size` is the only knob for that. |
+
+The rule is **N ≤ C**, and N ≤ M too if the application does not want to
+fragment. The defaults satisfy N = C = 64 KiB. They do not satisfy N ≤ M for
+UDP, whose largest datagram is 65,507 bytes: the example sets
+`max_request_bytes` to 60 KiB, and the deployment guide says why. Like ICP
+0033, the ICP can make the default case right but cannot stop an operator
+raising C on one side and forgetting the other. A node that sets N above a
+concentrator's C will see `non_retryable_failure` rise, if its link reports
+the concentrator's answer, and `leaf_payload_too_large` rise on the
+concentrator either way.
 
 **A full node's Resource needs its own budget.** `max_leaf_resource_bytes`
 (2 KiB) is sized for an MCU leaf's handful of attributes. A full node with the
@@ -446,8 +512,9 @@ peers, so that reasoning would need revisiting there, not here.
   and its `sendto` runs with an `SO_SNDTIMEO` taken from the request
   deadline, so the example shows the cancellation pattern rather than stubbing
   it. `examples/leaf/microtel.toml` gains a
-  `[concentrator.leaves."127.0.0.1:<port>"]` entry with `time_mode = "unix"`,
-  and the README a third terminal line. The same concentrator then shows C
+  `[concentrator.leaves."127.0.0.1:<port>"]` entry with `time_mode = "unix"`.
+  The node sets `max_request_bytes` to 60 KiB, under the UDP datagram limit.
+  The README gains a third terminal line. The same concentrator then shows C
   leaves and a C++ node side by side.
 - **Unit tests.** `tests/mocks/mock_export_transport.hpp` (returns what it is
   told; its `Cancel` only records the call, since `Cancel` is pure virtual)
@@ -462,6 +529,14 @@ peers, so that reasoning would need revisiting there, not here.
   one transport. A shutdown test uses a fake whose `Send` blocks past its
   deadline until `Cancel`, and asserts that `Shutdown` returns `TimedOut` in
   bounded time.
+- **Request cap.** Coalescing stops at `max_request_bytes`, and the handle
+  that would cross it starts the next request. With the cap at 0, joining is
+  by span count only, as today. A single handle larger than the cap is sent
+  whole, unchanged, with one `Warn`. A retry of a capped request re-encodes
+  the same group. In the conformance job, a node with `max_request_bytes`
+  above the concentrator's `max_payload_bytes` sends one oversized request,
+  and the test asserts the documented drop: `leaf_payload_too_large` on the
+  concentrator, nothing at the collector.
 - **Encode determinism.** A test drives a retryable first attempt through the
   trace exporter with a multi-handle request (several scopes and Resources),
   and the same for metrics and logs. It asserts that attempt 0 and every retry
@@ -559,7 +634,14 @@ that encodes on a timer should skip the send when nothing has ended. Code that s
 - **Disabling metrics and logs outright with a custom transport.** Simpler,
   but it would block the applications that route those signals themselves.
   Opt-in costs two booleans.
-- **A byte cap on coalesced requests** (`max_request_bytes`), so a request
-  always fits the link. Useful, but the exporter joins handles by span count
-  today, and cutting one oversized handle would need encoder changes. Left out
-  of this ICP; the batch size is the knob for now.
+- **A byte cap on requests, all or nothing.** An earlier draft deferred any
+  cap because cutting one oversized handle needs encoder work. The problem
+  splits in two. Capping the join of handles is a different loop condition at
+  a boundary that already exists, so it is in this ICP. Splitting a single
+  handle is the expensive part, and it stays deferred; `max_export_batch_size`
+  covers it for now.
+- **The cap on `BatchOptions` instead, for every transport.** HTTP collectors
+  have their own request limits, so a general cap could be useful. But this
+  ICP is about custom transports, and a cap on the HTTP path changes its
+  request count, which is a separate decision. Scoped to
+  `ExportTransportOptions` for now.

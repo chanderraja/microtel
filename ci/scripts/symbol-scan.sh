@@ -14,6 +14,17 @@
 #      compile in the consumer's build; a shipped archive that referenced
 #      either library would make it a link requirement for every consumer.
 #
+# and two nanopb passes (ICP 0031 Decision 4, docs/leaf-concentrator-design.md
+# §2.5 and §7.6). nanopb belongs to the leaf alone, so the passes split the
+# artifacts by name: leaf archives are `libmicrotel_leaf*.a` and
+# `libmicrotel_nanopb*.a`, everything else is non-leaf.
+#
+#   4. NANOPB OUTSIDE THE LEAF — no non-leaf artifact defines or references a
+#      nanopb symbol, renamed (`microtel_pb_*`) or not.
+#   5. UNPREFIXED NANOPB — no leaf artifact defines or references a nanopb
+#      global, or a generated nanopb descriptor, under its upstream name. They
+#      ship renamed by third_party/nanopb/microtel_pb_rename.h.
+#
 # This is the mechanical backing for CLAUDE.md rule 13 ("No gRPC library, no
 # abseil, no protobuf-cpp runtime. Ever.") and for spec §3's dependency-closure
 # claim. The claim is the project's whole reason to exist, so it is tested
@@ -23,8 +34,13 @@
 # carrying `U absl::...` makes abseil a link requirement for every consumer, even
 # though the archive itself contains none of abseil's code.
 #
-# Usage:  ci/scripts/symbol-scan.sh --prefix <install-prefix>
+# Usage:  ci/scripts/symbol-scan.sh --prefix <install-prefix> [--leaf-build <build-dir>]
 #         ci/scripts/symbol-scan.sh [build-dir]     (default: build)
+#
+# --leaf-build adds the leaf archives of a build tree configured with
+# MICROTEL_BUILD_LEAF=ON to a --prefix scan, and fails if it finds none. The
+# leaf archives are not installed yet, so without it a --prefix scan never sees
+# nanopb. The build-dir form finds them in its own sweep.
 #
 # --prefix is the form CI uses. ICP 0020 Decision 5: once `cmake --install`
 # exists, "shipped" means the install tree, and a gate that scans the build tree
@@ -40,11 +56,23 @@ set -euo pipefail
 
 NM="${NM:-nm}"
 
+LEAF_BUILD=""
+
 if [[ "${1:-}" == "--prefix" ]]; then
     SCAN_MODE="prefix"
     SCAN_ROOT="${2:-}"
     if [[ -z "$SCAN_ROOT" ]]; then
         echo "symbol-scan: --prefix requires an install prefix" >&2
+        exit 2
+    fi
+    if [[ "${3:-}" == "--leaf-build" ]]; then
+        LEAF_BUILD="${4:-}"
+        if [[ ! -d "$LEAF_BUILD" ]]; then
+            echo "symbol-scan: --leaf-build requires a build directory" >&2
+            exit 2
+        fi
+    elif [[ -n "${3:-}" ]]; then
+        echo "symbol-scan: unknown argument '${3}'" >&2
         exit 2
     fi
 else
@@ -90,6 +118,24 @@ UNPREFIXED_VENDORED_PATTERN='^(_?upb_|_?kUpb_|kWyhashSalt$|UPB_linkarr|utf8_rang
 # reference them — only the header-only bridges, compiled by the consumer, do.
 # `google::protobuf::` also matches here; it is already reported by pass 1.
 LOG_BRIDGE_PATTERN='^(google::|gflags::|fL[BIS]::|log4cxx::)'
+# nanopb's descriptors for the generated OTLP messages: `<message>_msg` and the
+# `_field_info` / `_submsg_info` tables PB_BIND emits beside it. The suffix is
+# what separates them from upb's generated names, which also start with
+# `opentelemetry_proto_` (`..._proto_upb_file_layout`) and are legal anywhere.
+NANOPB_DESCRIPTOR='opentelemetry_proto_[A-Za-z0-9_]+_(msg|field_info|submsg_info)$'
+
+# Pass 4, non-leaf artifacts: any nanopb symbol at all, renamed or not. A
+# renamed runtime symbol starts `microtel_pb_`, and so does a renamed
+# descriptor (`microtel_pb_opentelemetry_proto_..._msg`).
+NANOPB_ANY_PATTERN="^((microtel_)?_?pb_|${NANOPB_DESCRIPTOR})"
+
+# Pass 5, leaf artifacts: nanopb under its upstream name. Anything this matches
+# escaped third_party/nanopb/microtel_pb_rename.h; regenerate that header (its
+# comment has the recipe) rather than widening this pattern.
+UNPREFIXED_NANOPB_PATTERN="^(_?pb_|${NANOPB_DESCRIPTOR})"
+
+# Leaf archives, by basename. Only these may carry nanopb.
+LEAF_ARCHIVE_PATTERN='^libmicrotel_(leaf|nanopb)[A-Za-z0-9_]*\.a$'
 
 # This pass looks at *externally visible* symbols only (`nm -g`: `T`/`D`/`R`/`B`,
 # weak `W`/`V`, and undefined `U`). That is precisely the collision surface —
@@ -131,6 +177,22 @@ else
     )
 fi
 
+# --leaf-build: the leaf archives are not installed yet, so a --prefix scan
+# takes them from the named build tree. Asking for them and finding none fails
+# for the same reason an empty scan does.
+if [[ -n "$LEAF_BUILD" ]]; then
+    mapfile -t LEAF_ARTIFACTS < <(
+        find "$LEAF_BUILD" -type f \( -name "libmicrotel_leaf*.a" -o -name "libmicrotel_nanopb*.a" \) \
+            2>/dev/null | sort
+    )
+    if [[ ${#LEAF_ARTIFACTS[@]} -eq 0 ]]; then
+        echo "symbol-scan: no leaf archives found under '$LEAF_BUILD'" >&2
+        echo "symbol-scan: configure it with -DMICROTEL_BUILD_LEAF=ON and build first" >&2
+        exit 2
+    fi
+    ARTIFACTS+=("${LEAF_ARTIFACTS[@]}")
+fi
+
 # A scan that finds nothing must fail, not pass. Otherwise a build-layout change
 # silently turns this gate into a no-op that still reports green.
 if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
@@ -166,6 +228,8 @@ symbols_of() {
 forbidden_violations=0
 unprefixed_violations=0
 bridge_violations=0
+nanopb_outside_leaf_violations=0
+nanopb_unprefixed_violations=0
 
 for artifact in "${ARTIFACTS[@]}"; do
     hits=$(symbols_of "$artifact" -A -C | grep -E "$FORBIDDEN_PATTERN" | sort -u || true)
@@ -192,6 +256,31 @@ for artifact in "${ARTIFACTS[@]}"; do
         echo "$hits" | sed 's/^/    /' >&2
         bridge_violations=$((bridge_violations + 1))
     fi
+
+    # Globals only, as for upb: a file-local nanopb helper is not a collision.
+    if [[ "$(basename "$artifact")" =~ $LEAF_ARCHIVE_PATTERN ]]; then
+        hits=$(
+            symbols_of "$artifact" "${NM_VENDORED_FLAGS[@]}" \
+                | grep -E "$UNPREFIXED_NANOPB_PATTERN" \
+                | sort -u || true
+        )
+        if [[ -n "$hits" ]]; then
+            echo "symbol-scan: UNPREFIXED nanopb symbols in $artifact" >&2
+            echo "$hits" | sed 's/^/    /' >&2
+            nanopb_unprefixed_violations=$((nanopb_unprefixed_violations + 1))
+        fi
+    else
+        hits=$(
+            symbols_of "$artifact" "${NM_VENDORED_FLAGS[@]}" \
+                | grep -E "$NANOPB_ANY_PATTERN" \
+                | sort -u || true
+        )
+        if [[ -n "$hits" ]]; then
+            echo "symbol-scan: nanopb symbols in non-leaf artifact $artifact" >&2
+            echo "$hits" | sed 's/^/    /' >&2
+            nanopb_outside_leaf_violations=$((nanopb_outside_leaf_violations + 1))
+        fi
+    fi
 done
 
 if [[ $forbidden_violations -ne 0 ]]; then
@@ -215,10 +304,27 @@ if [[ $bridge_violations -ne 0 ]]; then
     echo "symbol-scan: archive — see src/adapters/glog/README.md and ICP 0014." >&2
 fi
 
-if [[ $((forbidden_violations + unprefixed_violations + bridge_violations)) -ne 0 ]]; then
+if [[ $nanopb_outside_leaf_violations -ne 0 ]]; then
+    echo >&2
+    echo "symbol-scan: $nanopb_outside_leaf_violations non-leaf artifact(s) reference nanopb." >&2
+    echo "symbol-scan: nanopb is a dependency of the leaf only — see ICP 0031 Decision 4." >&2
+fi
+
+if [[ $nanopb_unprefixed_violations -ne 0 ]]; then
+    echo >&2
+    echo "symbol-scan: $nanopb_unprefixed_violations leaf artifact(s) ship nanopb symbols under" >&2
+    echo "symbol-scan: their upstream names. Every nanopb global and generated descriptor" >&2
+    echo "symbol-scan: must carry the microtel_pb_ prefix — see ICP 0031 Decision 4 and the" >&2
+    echo "symbol-scan: regeneration recipe in third_party/nanopb/microtel_pb_rename.h." >&2
+fi
+
+total_violations=$((forbidden_violations + unprefixed_violations + bridge_violations))
+total_violations=$((total_violations + nanopb_outside_leaf_violations + nanopb_unprefixed_violations))
+if [[ $total_violations -ne 0 ]]; then
     exit 1
 fi
 
 echo "symbol-scan: clean — no gRPC, abseil, or protobuf-cpp symbols"
 echo "symbol-scan: clean — no unprefixed vendored upb/utf8_range symbols"
 echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"
+echo "symbol-scan: clean — no nanopb outside the leaf, none unprefixed inside it"

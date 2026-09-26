@@ -62,3 +62,9 @@ add_subdirectory(sugar)
 if(MICROTEL_USE_SPDLOG OR MICROTEL_BUILD_GLOG_BRIDGE OR MICROTEL_BUILD_LOG4CXX_BRIDGE)
     add_subdirectory(adapters)
 endif()
+
+# v1.2 — vendored nanopb runtime + generated OTLP trace descriptors, built only
+# for a nanopb leaf (MICROTEL_BUILD_LEAF=ON, MICROTEL_LEAF_ENCODER=nanopb).
+if(TARGET microtel_nanopb_gen)
+    add_subdirectory(nanopb)
+endif()

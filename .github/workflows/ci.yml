@@ -103,8 +103,14 @@ jobs:
             sudo apt-get install -y clang-18
           fi
           sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev \
-            libgoogle-glog-dev liblog4cxx-dev
+            libgoogle-glog-dev liblog4cxx-dev libmosquitto-dev
 
+      # libmosquitto-dev is for examples/leaf_mqtt, whose concentrator links
+      # it. Without it CMake skips that example with a STATUS line instead of
+      # failing, so the package is what keeps the example compiling on every
+      # PR. Only the cxx20 / clang cell builds examples; the install step is
+      # shared by the matrix.
+      #
       # MICROTEL_BUILD_EXAMPLES is ON for exactly one matrix entry — cxx20 /
       # clang — so examples/ cannot rot against the public API without a PR
       # going red. One entry, not four: the examples are plain consumer code

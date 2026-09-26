@@ -1717,7 +1717,6 @@ TEST_F(LeafNanopbTest, EncodeTo_FailingAtAnyWrite_ConsumesNothing)
     ASSERT_EQ(microtel_leaf_span_set_status(&m_leaf, s, MICROTEL_LEAF_STATUS_ERROR, "bad", 3),
               MICROTEL_LEAF_OK);
     ASSERT_EQ(microtel_leaf_span_end(&m_leaf, s), MICROTEL_LEAF_OK);
-    Collector c;
     std::size_t written = 0;
     ASSERT_EQ(microtel_leaf_encode(&m_leaf, nullptr, 0, &written), MICROTEL_LEAF_ERR_BUFFER_SMALL);
     const std::size_t needed = written;

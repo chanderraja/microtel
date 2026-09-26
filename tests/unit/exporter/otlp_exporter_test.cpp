@@ -1090,3 +1090,83 @@ TEST(OtlpExporterTest, ExportGroup_RefusesWhatDoesNotFitAndCountsItAsExportWould
     exporter.ExportGroup(Batches({4}));
     EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 4U);
 }
+
+// ---------------------------------------------------------------------------
+// Queue bound in spans (issue #345). A processor drain from N Resources is N
+// batches, so a bound in batches alone let a many-leaf concentrator queue a
+// fraction of the spans a one-leaf one could. `max_queued_spans` bounds what
+// the batches carry; its default holds as many spans as the batch bound did
+// when every batch was a full one.
+// ---------------------------------------------------------------------------
+
+TEST(OtlpExporterTest, QueueBound_DefaultHoldsManySmallBatchesThatAFewFullOnesWould)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    const mte::OtlpExporterConfig cfg;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    codec.scripted_results.push_front(mti::WireResult{.success = true});
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+    // Four drains of 512 one-span batches, as four drains from 512 leaves
+    // would be: 2,048 spans, far inside the span budget, but eight times the
+    // 256 batches the queue used to be limited to.
+    constexpr std::size_t kDrains = 4;
+    for (std::size_t d = 0; d < kDrains; ++d)
+    {
+        std::vector<mti::BatchHandle> drain;
+        drain.reserve(cfg.max_spans_per_request);
+        for (std::size_t i = 0; i < cfg.max_spans_per_request; ++i)
+        {
+            drain.push_back(MakeBatch());
+        }
+        exporter.ExportGroup(std::move(drain));
+    }
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 0U);
+    codec.Release();
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+    EXPECT_EQ(sink.batches_sent, 1U + (kDrains * cfg.max_spans_per_request));
+}
+
+TEST(OtlpExporterTest, QueueBound_RefusesTheBatchThatWouldPassTheSpanBudget)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporterConfig cfg;
+    cfg.max_queued_spans = 5;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    codec.scripted_results.push_front(mti::WireResult{.success = true});
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+    ASSERT_EQ(exporter.Export(MakeBatchOf(3)), mti::ExportResult::Success);
+    EXPECT_EQ(exporter.Export(MakeBatchOf(3)), mti::ExportResult::Dropped) << "3 + 3 > 5";
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 3U);
+    EXPECT_EQ(exporter.Export(MakeBatchOf(2)), mti::ExportResult::Success)
+        << "the budget is a ceiling the queue may reach";
+    exporter.ExportGroup(Batches({1, 1}));
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 5U)
+        << "a group is refused batch by batch, as Export would refuse each";
+
+    codec.Release();
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+    EXPECT_EQ(exporter.Export(MakeBatchOf(5)), mti::ExportResult::Success)
+        << "the drain gave the spans it took back to the budget";
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 5U);
+}
+
+TEST(OtlpExporterTest, QueueBound_SpanBudgetScalesWithTheProcessorBatch)
+{
+    // SdkBuilder sizes the trace exporter's queue from the batch size it gives
+    // the processor, so a larger batch keeps the same number of full drains.
+    const mte::OtlpExporterConfig defaults;
+    EXPECT_EQ(mte::QueuedSpanBudget(defaults.max_spans_per_request), defaults.max_queued_spans);
+    EXPECT_EQ(mte::QueuedSpanBudget(4 * defaults.max_spans_per_request),
+              4 * defaults.max_queued_spans);
+}

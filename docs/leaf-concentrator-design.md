@@ -1228,6 +1228,15 @@ is recorded once. The throughput bench (§7.9) confirms
 the fan-in — requests per batch stays at one as the number of leaves grows —
 rather than deciding whether to have it.
 
+*Queue bound.* The exporter's queue is budgeted in **spans**
+(`OtlpExporterConfig::max_queued_spans`), not only in `BatchHandle`s: a drain
+is one handle from one leaf but one per leaf from many, so a bound of 256
+handles held 256 full drains for one leaf and about five for a hundred. The
+bench found it (issue #345): with 100 leaves, half the spans were refused as
+`queue_full` while one request was in flight. `SdkBuilder` sets the budget to
+256 × `max_export_batch_size` spans, the most the handle bound ever admitted,
+and raises the handle bound to match so it never binds first.
+
 *Alternative considered:* an `IOtlpEncoder::EncodeMany(std::span<const
 BatchHandle>)` that builds one upb message tree for all handles. It produces
 the same bytes up to field order within the request, but changes a locked
@@ -1988,6 +1997,14 @@ encodes one payload per simulated leaf at start-up with the C leaf and then
 ingests them round-robin, so a sample measures the concentrator, not the leaf.
 Each sample records the export requests the sink received. CPU is not recorded
 separately: the harness has no CPU metric for any profile.
+
+The first run showed 100 and 1,000 leaves losing about half their spans as
+`queue_full`, fixed as issue #345 (the exporter's queue bound, §3.6.1, and the
+processor's per-drain grouping). All four leaf counts now deliver every span.
+What remains is a per-Resource wire cost, not a queue: with ~50 leaves in a
+512-span request, the request is ~13% larger and the Go blackhole sink takes
+~30% longer to decode it (one `Resource` per `ResourceSpans`), so the flush
+after the emit phase is ~25% longer than with one leaf.
 
 ## §8 Follow-up ICPs and document edits
 

@@ -6,6 +6,7 @@
 // schema_url/attributes dropped, global registration end-to-end).
 
 #include "adapters/otelcpp/logger_shim.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "fakes/fake_provider.hpp"
 
 #include <gtest/gtest.h>
@@ -55,6 +56,27 @@ TEST(OtelCppLoggerShim, EmitNullLogRecordIsANoOp)
     shim.EmitLogRecord(opentelemetry::nostd::unique_ptr<otel_logs::LogRecord>{});
 
     EXPECT_TRUE(fake->emitted.empty());
+}
+
+TEST(OtelCppLoggerShim, CreatedRecordsInheritTheLoggerOptions)
+{
+    auto fake = std::make_shared<microtel::testing::FakeLogger>();
+    LoggerShim shim{
+        "my.scope",
+        fake,
+        microtel::adapters::otelcpp::ShimOptions{.attribute_value_length_limit = std::uint32_t{4}}};
+    const std::uint8_t over[] = {0xab, 0xcd, 0xef};
+
+    auto record = shim.CreateLogRecord();
+    record->SetAttribute("blob",
+                         opentelemetry::common::AttributeValue{
+                             opentelemetry::nostd::span<const std::uint8_t>{over, 3}});
+    record->SetAttribute("host", opentelemetry::common::AttributeValue{"db"});
+    shim.EmitLogRecord(std::move(record));
+
+    ASSERT_EQ(fake->emitted.size(), 1U);
+    ASSERT_EQ(fake->emitted[0].attributes.size(), 1U);
+    EXPECT_EQ(fake->emitted[0].attributes[0].key, "host");
 }
 
 // ── LoggerProviderShim ────────────────────────────────────────────────────────

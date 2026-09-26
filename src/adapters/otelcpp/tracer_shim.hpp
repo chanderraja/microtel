@@ -9,6 +9,7 @@
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 #include "adapters/otelcpp/context_conversion.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "adapters/otelcpp/span_shim.hpp"
 
 #include <chrono>
@@ -128,13 +129,16 @@ class TracerShim final : public opentelemetry::trace::Tracer
 public:
     /// @param tracer   the microtel tracer to start spans on. Must be non-null.
     /// @param provider the owning provider, for flush/close. Must be non-null.
+    /// @param options  the shim options, normally the creating provider
+    ///                 shim's; copied into every span this tracer starts.
     ///
     /// `shared_ptr` throughout is dictated by the otel-cpp API surface
     /// (`GetTracer`/`StartSpan` return `nostd::shared_ptr`) and matches
     /// microtel's own `Provider::GetTracer` joint-ownership contract.
     TracerShim(std::shared_ptr<microtel::Tracer> tracer,
-               std::shared_ptr<microtel::Provider> provider) noexcept
-        : m_tracer{std::move(tracer)}, m_provider{std::move(provider)}
+               std::shared_ptr<microtel::Provider> provider,
+               ShimOptions options = {}) noexcept
+        : m_tracer{std::move(tracer)}, m_provider{std::move(provider)}, m_options{options}
     {
     }
 
@@ -148,7 +152,8 @@ public:
         const opentelemetry::trace::SpanContextKeyValueIterable& links,
         const opentelemetry::trace::StartSpanOptions& options) noexcept override
     {
-        const std::vector<microtel::KeyValue> initial_attributes = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> initial_attributes =
+            ConvertKeyValues(attributes, m_options);
         const microtel::StartSpanOptions start_options{
             .kind = detail::ToMicrotelSpanKind(options.kind),
             .parent = detail::ResolveParent(options.parent),
@@ -163,17 +168,18 @@ public:
         // microtel takes links post-creation; otel-cpp only at creation
         // (AddLink is ABI v2). Forward each before the span is handed out.
         links.ForEachKeyValue(
-            [&handle](opentelemetry::trace::SpanContext link_context,
-                      const otel_common::KeyValueIterable& link_attributes) noexcept
+            [&handle, this](opentelemetry::trace::SpanContext link_context,
+                            const otel_common::KeyValueIterable& link_attributes) noexcept
             {
-                const std::vector<microtel::KeyValue> converted = ConvertKeyValues(link_attributes);
+                const std::vector<microtel::KeyValue> converted =
+                    ConvertKeyValues(link_attributes, m_options);
                 handle->AddLink(ToMicrotelSpanContext(link_context),
                                 microtel::AttributeSpan{converted});
                 return true;
             });
 
         return opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>{
-            std::make_shared<SpanShim>(std::move(handle))};
+            std::make_shared<SpanShim>(std::move(handle), m_options)};
     }
 
     /// @brief Flush buffered spans; delegates to `Provider::ForceFlush`.
@@ -199,6 +205,7 @@ private:
 
     std::shared_ptr<microtel::Tracer> m_tracer;
     std::shared_ptr<microtel::Provider> m_provider;
+    ShimOptions m_options;
 };
 
 /// @brief An otel-cpp tracer provider backed by a microtel provider.
@@ -211,8 +218,10 @@ class TracerProviderShim final : public opentelemetry::trace::TracerProvider
 {
 public:
     /// @param provider the microtel provider to adapt. Must be non-null.
-    explicit TracerProviderShim(std::shared_ptr<microtel::Provider> provider) noexcept
-        : m_provider{std::move(provider)}
+    /// @param options  copied into every tracer this provider hands out.
+    explicit TracerProviderShim(std::shared_ptr<microtel::Provider> provider,
+                                ShimOptions options = {}) noexcept
+        : m_provider{std::move(provider)}, m_options{options}
     {
     }
 
@@ -226,11 +235,13 @@ public:
         return opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer>{
             std::make_shared<TracerShim>(
                 m_provider->GetTracer({name.data(), name.size()}, {version.data(), version.size()}),
-                m_provider)};
+                m_provider,
+                m_options)};
     }
 
 private:
     std::shared_ptr<microtel::Provider> m_provider;
+    ShimOptions m_options;
 };
 
 /// @brief Build an otel-cpp tracer provider over a microtel provider, ready
@@ -243,11 +254,16 @@ private:
 /// ```
 /// After that, already-instrumented otel-cpp code routes to microtel with no
 /// call-site edits — the point of the shim (ICP 0014).
+///
+/// @param options copied into the provider shim and every tracer and span it
+///                creates (ICP 0033). If you set a non-default
+///                `SpanLimitOptions::attribute_value_length_limit`, pass the
+///                same value here.
 [[nodiscard]] inline opentelemetry::nostd::shared_ptr<opentelemetry::trace::TracerProvider>
-MakeTracerProvider(std::shared_ptr<microtel::Provider> provider)
+MakeTracerProvider(std::shared_ptr<microtel::Provider> provider, ShimOptions options = {})
 {
     return opentelemetry::nostd::shared_ptr<opentelemetry::trace::TracerProvider>{
-        std::make_shared<TracerProviderShim>(std::move(provider))};
+        std::make_shared<TracerProviderShim>(std::move(provider), options)};
 }
 
 }  // namespace microtel::adapters::otelcpp

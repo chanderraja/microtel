@@ -6,9 +6,13 @@
 #include "microtel/attribute.hpp"
 
 #include "adapters/otelcpp/abi_guard.hpp"
+#include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -24,8 +28,11 @@
 /// microtel's has 8, matching what the OpenTelemetry data model actually
 /// specifies. Thirteen of the sixteen map exactly or widen losslessly. The
 /// remaining three have no faithful *type* mapping and are preserved with a
-/// degraded type instead — the exact value the application set always
-/// survives; nothing is dropped and nothing is clamped. Policy: ICP 0015.
+/// degraded type instead — the exact value the application set survives and
+/// nothing is clamped. Policy: ICP 0015. The one omission: a byte span whose
+/// hex rendering would exceed `ShimOptions::attribute_value_length_limit` is
+/// left out and counted, rather than forwarded for the SDK to cut mid-byte
+/// (ICP 0033).
 
 namespace microtel::adapters::otelcpp
 {
@@ -49,17 +56,12 @@ namespace detail
 /// Hex rather than base64: unambiguous, no padding, and a debugging reader
 /// can eyeball it (ICP 0015, "Rationale & alternatives").
 ///
-/// @warning Output is 2 chars per input byte, so any byte span over 2048 bytes
-/// renders longer than the 4096-byte default `attribute_value_length_limit`.
-/// **That limit is now enforced** (issue #181): `SdkSpan::SetAttribute`
-/// truncates the value to the limit, backing up only over UTF-8 continuation
-/// bytes. Hex is ASCII, so the cut is an exact byte cut and can land on an odd
-/// nibble boundary — the truncated string decodes to a different final byte
-/// than the application set, which is silent corruption rather than mere data
-/// loss. ICP 0015's addendum asks for an even-length cut (or omission above the
-/// limit, per its own preserve-or-omit principle) for this one producer; the
-/// SDK's generic string truncation cannot tell hex from any other string, so
-/// the rounding has to happen here. Tracked in issue #238.
+/// Output is 2 chars per input byte. `SdkSpan::SetAttribute` truncates any
+/// string longer than its `attribute_value_length_limit` (issue #181), and an
+/// odd cut of a hex string decodes to a final byte the application never set.
+/// `ConvertAttributeValue` therefore never calls this for a span whose
+/// rendering would exceed `ShimOptions::attribute_value_length_limit`; it
+/// omits the attribute instead (ICP 0033, issue #238).
 [[nodiscard]] inline std::string RenderBytesAsHex(
     opentelemetry::nostd::span<const std::uint8_t> bytes)
 {
@@ -121,9 +123,8 @@ namespace detail
     return microtel::AttributeValue{std::move(out)};
 }
 
-}  // namespace detail
-
-/// @brief Convert an otel-cpp attribute value to microtel's.
+/// @brief Convert an otel-cpp attribute value to microtel's, with no length
+///        limit.
 ///
 /// Total: every one of otel-cpp's 16 alternatives produces a value. Thirteen
 /// map exactly or widen losslessly (`int32_t`, `uint32_t` → `std::int64_t`).
@@ -137,9 +138,10 @@ namespace detail
 /// - `span<const uint8_t>` → lowercase hex string, no separators.
 ///
 /// Clamping never happens: a reported value is always one the application
-/// set. Nothing is dropped, so there is nothing to account for — no
-/// `DropReason`, no diagnostics path.
-[[nodiscard]] inline microtel::AttributeValue ConvertAttributeValue(
+/// set. Used directly for the log body, which is not an attribute and has no
+/// attribute limit (ICP 0033 §3); attribute paths go through
+/// `ConvertAttributeValue`.
+[[nodiscard]] inline microtel::AttributeValue ConvertUnlimitedAttributeValue(
     const otel_common::AttributeValue& value) noexcept
 {
     constexpr auto kInt64Max = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
@@ -229,22 +231,67 @@ namespace detail
         value);
 }
 
+/// @brief True when @p byte_count bytes, rendered as hex (two characters per
+///        byte), would exceed `options.attribute_value_length_limit`.
+///
+/// Decided from the size alone, before rendering, so an oversized span is
+/// never allocated. 2n > S is tested as n > ⌊S/2⌋, which cannot overflow.
+[[nodiscard]] constexpr bool HexRenderingExceedsLimit(std::size_t byte_count,
+                                                      const ShimOptions& options) noexcept
+{
+    constexpr std::uint32_t kHexCharsPerByte = 2U;
+    if (!options.attribute_value_length_limit.has_value())
+    {
+        return false;
+    }
+    return byte_count > *options.attribute_value_length_limit / kHexCharsPerByte;
+}
+
+}  // namespace detail
+
+/// @brief Convert an otel-cpp attribute value to microtel's, applying the
+///        shim's byte-span length limit.
+///
+/// Every alternative converts as `detail::ConvertUnlimitedAttributeValue`
+/// describes (ICP 0015), except one case.
+///
+/// @return `std::nullopt` only for a byte span whose hex rendering exceeds
+///         `options.attribute_value_length_limit`; that case is counted in
+///         `ShimDiagnostics` before return. Callers drop a `std::nullopt`
+///         instead of forwarding it.
+[[nodiscard]] inline std::optional<microtel::AttributeValue> ConvertAttributeValue(
+    const otel_common::AttributeValue& value, const ShimOptions& options) noexcept
+{
+    const auto* const bytes = std::get_if<opentelemetry::nostd::span<const std::uint8_t>>(&value);
+    if (bytes != nullptr && detail::HexRenderingExceedsLimit(bytes->size(), options))
+    {
+        detail::RecordOversizedByteAttributeOmitted(bytes->size());
+        return std::nullopt;
+    }
+    return detail::ConvertUnlimitedAttributeValue(value);
+}
+
 /// @brief Materialise an otel-cpp `KeyValueIterable` as owned microtel
 ///        key/values, converting every value via `ConvertAttributeValue`.
 ///
-/// The result owns its strings, so it outlives the iterable's borrowed
-/// storage; callers pass it on as an `AttributeSpan`.
+/// Values `ConvertAttributeValue` omits are left out of the result; the
+/// order of the rest is kept. The result owns its strings, so it outlives
+/// the iterable's borrowed storage; callers pass it on as an `AttributeSpan`.
 [[nodiscard]] inline std::vector<microtel::KeyValue> ConvertKeyValues(
-    const otel_common::KeyValueIterable& attributes)
+    const otel_common::KeyValueIterable& attributes, const ShimOptions& options)
 {
     std::vector<microtel::KeyValue> out;
     out.reserve(attributes.size());
     attributes.ForEachKeyValue(
-        [&out](opentelemetry::nostd::string_view key,
-               const otel_common::AttributeValue& value) noexcept
+        [&out, &options](opentelemetry::nostd::string_view key,
+                         const otel_common::AttributeValue& value) noexcept
         {
-            out.push_back({.key = std::string{key.data(), key.size()},
-                           .value = ConvertAttributeValue(value)});
+            auto converted = ConvertAttributeValue(value, options);
+            if (converted.has_value())
+            {
+                out.push_back(
+                    {.key = std::string{key.data(), key.size()}, .value = *std::move(converted)});
+            }
             return true;
         });
     return out;

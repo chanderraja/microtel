@@ -8,6 +8,7 @@
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/attribute_conversion.hpp"
 #include "adapters/otelcpp/context_conversion.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <chrono>
 #include <string_view>
@@ -25,7 +26,8 @@
 /// `SpanShim` — implements `opentelemetry::trace::Span` (ABI v1) over a
 /// `microtel::SpanHandle`. Every otel-cpp call forwards onto the underlying
 /// microtel span; attribute values route through `ConvertAttributeValue`
-/// (ICP 0015), identities through `context_conversion.hpp`.
+/// (ICP 0015, with the byte-span limit of ICP 0033), identities through
+/// `context_conversion.hpp`.
 
 namespace microtel::adapters::otelcpp
 {
@@ -45,9 +47,13 @@ namespace microtel::adapters::otelcpp
 class SpanShim final : public opentelemetry::trace::Span
 {
 public:
-    /// @param span the microtel span to forward onto. Must be non-null, which
-    ///             `Tracer::StartSpan` guarantees; a null handle is UB.
-    explicit SpanShim(microtel::SpanHandle span) noexcept : m_span{std::move(span)} {}
+    /// @param span    the microtel span to forward onto. Must be non-null,
+    ///                which `Tracer::StartSpan` guarantees; a null handle is UB.
+    /// @param options the shim options, normally the creating tracer's.
+    explicit SpanShim(microtel::SpanHandle span, ShimOptions options = {}) noexcept
+        : m_span{std::move(span)}, m_options{options}
+    {
+    }
 
     // The overrides below would otherwise hide the base class's non-virtual
     // convenience overloads (initializer-list and iterable-template forms).
@@ -56,7 +62,11 @@ public:
     void SetAttribute(opentelemetry::nostd::string_view key,
                       const otel_common::AttributeValue& value) noexcept override
     {
-        m_span->SetAttribute(ToStringView(key), ConvertAttributeValue(value));
+        auto converted = ConvertAttributeValue(value, m_options);
+        if (converted.has_value())
+        {
+            m_span->SetAttribute(ToStringView(key), *std::move(converted));
+        }
     }
 
     void AddEvent(opentelemetry::nostd::string_view name) noexcept override
@@ -75,7 +85,7 @@ public:
                   otel_common::SystemTimestamp timestamp,
                   const otel_common::KeyValueIterable& attributes) noexcept override
     {
-        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes);
+        const std::vector<microtel::KeyValue> converted = ConvertKeyValues(attributes, m_options);
         m_span->AddEvent(ToStringView(name),
                          microtel::AttributeSpan{converted},
                          static_cast<std::chrono::system_clock::time_point>(timestamp));
@@ -146,6 +156,7 @@ private:
     }
 
     microtel::SpanHandle m_span;
+    ShimOptions m_options;
 };
 
 }  // namespace microtel::adapters::otelcpp

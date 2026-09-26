@@ -8,6 +8,7 @@
 
 #include "adapters/otelcpp/abi_guard.hpp"
 #include "adapters/otelcpp/metrics_instruments_shim.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -51,9 +52,11 @@ namespace microtel::adapters::otelcpp
 class MeterShim final : public opentelemetry::metrics::Meter
 {
 public:
-    /// @param meter the microtel meter to create instruments on. Must be
-    ///              non-null.
-    explicit MeterShim(std::shared_ptr<microtel::Meter> meter) noexcept : m_meter{std::move(meter)}
+    /// @param meter   the microtel meter to create instruments on. Must be
+    ///                non-null.
+    /// @param options copied into every instrument this meter creates.
+    explicit MeterShim(std::shared_ptr<microtel::Meter> meter, ShimOptions options = {}) noexcept
+        : m_meter{std::move(meter)}, m_options{options}
     {
     }
 
@@ -65,7 +68,8 @@ public:
         return opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Counter<std::uint64_t>>{
             std::make_unique<detail::CounterShim<std::uint64_t, std::int64_t>>(
                 m_meter->CreateCounter<std::int64_t>(
-                    ToString(name), ToString(description), ToString(unit)))};
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Counter<double>>
@@ -74,8 +78,10 @@ public:
                         opentelemetry::nostd::string_view unit = "") noexcept override
     {
         return opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Counter<double>>{
-            std::make_unique<detail::CounterShim<double, double>>(m_meter->CreateCounter<double>(
-                ToString(name), ToString(description), ToString(unit)))};
+            std::make_unique<detail::CounterShim<double, double>>(
+                m_meter->CreateCounter<double>(
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
@@ -124,7 +130,8 @@ public:
         return opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<std::uint64_t>>{
             std::make_unique<detail::HistogramShim<std::uint64_t, std::int64_t>>(
                 m_meter->CreateHistogram<std::int64_t>(
-                    ToString(name), ToString(description), ToString(unit)))};
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>
@@ -135,7 +142,8 @@ public:
         return opentelemetry::nostd::unique_ptr<opentelemetry::metrics::Histogram<double>>{
             std::make_unique<detail::HistogramShim<double, double>>(
                 m_meter->CreateHistogram<double>(
-                    ToString(name), ToString(description), ToString(unit)))};
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
@@ -186,7 +194,8 @@ public:
             opentelemetry::metrics::UpDownCounter<std::int64_t>>{
             std::make_unique<detail::UpDownCounterShim<std::int64_t, std::int64_t>>(
                 m_meter->CreateUpDownCounter<std::int64_t>(
-                    ToString(name), ToString(description), ToString(unit)))};
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::unique_ptr<opentelemetry::metrics::UpDownCounter<double>>
@@ -197,7 +206,8 @@ public:
         return opentelemetry::nostd::unique_ptr<opentelemetry::metrics::UpDownCounter<double>>{
             std::make_unique<detail::UpDownCounterShim<double, double>>(
                 m_meter->CreateUpDownCounter<double>(
-                    ToString(name), ToString(description), ToString(unit)))};
+                    ToString(name), ToString(description), ToString(unit)),
+                m_options)};
     }
 
     [[nodiscard]] opentelemetry::nostd::shared_ptr<opentelemetry::metrics::ObservableInstrument>
@@ -256,7 +266,7 @@ private:
                    opentelemetry::nostd::string_view description,
                    opentelemetry::nostd::string_view unit) noexcept
     {
-        auto registry = std::make_shared<detail::ObservableCallbackRegistry<T>>();
+        auto registry = std::make_shared<detail::ObservableCallbackRegistry<T>>(m_options);
         create(ToString(name),
                ToString(description),
                ToString(unit),
@@ -266,6 +276,7 @@ private:
     }
 
     std::shared_ptr<microtel::Meter> m_meter;
+    ShimOptions m_options;
 };
 
 /// @brief An otel-cpp meter provider backed by a microtel provider.
@@ -278,8 +289,10 @@ class MeterProviderShim final : public opentelemetry::metrics::MeterProvider
 {
 public:
     /// @param provider the microtel provider to adapt. Must be non-null.
-    explicit MeterProviderShim(std::shared_ptr<microtel::Provider> provider) noexcept
-        : m_provider{std::move(provider)}
+    /// @param options  copied into every meter this provider hands out.
+    explicit MeterProviderShim(std::shared_ptr<microtel::Provider> provider,
+                               ShimOptions options = {}) noexcept
+        : m_provider{std::move(provider)}, m_options{options}
     {
     }
 
@@ -294,20 +307,27 @@ public:
             std::make_shared<MeterShim>(
                 m_provider->GetMeter({name.data(), name.size()},
                                      {version.data(), version.size()},
-                                     {schema_url.data(), schema_url.size()}))};
+                                     {schema_url.data(), schema_url.size()}),
+                m_options)};
     }
 
 private:
     std::shared_ptr<microtel::Provider> m_provider;
+    ShimOptions m_options;
 };
 
 /// @brief Build an otel-cpp meter provider over a microtel provider, ready
 ///        for `opentelemetry::metrics::Provider::SetMeterProvider`.
+///
+/// @param options copied into the provider shim and every meter and
+///                instrument it creates (ICP 0033). On a metric, an omitted
+///                attribute moves the measurement to a different series; see
+///                the shim README.
 [[nodiscard]] inline opentelemetry::nostd::shared_ptr<opentelemetry::metrics::MeterProvider>
-MakeMeterProvider(std::shared_ptr<microtel::Provider> provider)
+MakeMeterProvider(std::shared_ptr<microtel::Provider> provider, ShimOptions options = {})
 {
     return opentelemetry::nostd::shared_ptr<opentelemetry::metrics::MeterProvider>{
-        std::make_shared<MeterProviderShim>(std::move(provider))};
+        std::make_shared<MeterProviderShim>(std::move(provider), options)};
 }
 
 }  // namespace microtel::adapters::otelcpp

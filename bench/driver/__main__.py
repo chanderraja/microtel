@@ -138,11 +138,13 @@ def _binary_bytes(engine: str, image_name: str) -> Optional[int]:
 # The emit-app's spans_emitted counts workload *iterations* (one latency
 # sample each), not spans: EMIT_WORKLOAD=realistic_request emits a parent and
 # two children per iteration.  Delivery is spans received over spans sent, so
-# the denominator scales by this factor.
+# the denominator scales by this factor.  For signal=logs the unit is log
+# records rather than spans.
 _SPANS_PER_ITERATION = {
     "hot_loop":          1,
     "realistic_request": 3,
     "hot_loop_metrics":  0,   # emits metric records, no spans
+    "hot_loop_logs":     1,   # one log record per iteration
 }
 _DEFAULT_SPANS_PER_ITERATION = 1
 
@@ -153,15 +155,33 @@ def _spans_per_iteration(env: dict) -> int:
     return _SPANS_PER_ITERATION.get(workload, _DEFAULT_SPANS_PER_ITERATION)
 
 
+def _received_count(sink_snap: dict, signal: str) -> int:
+    """Items of the profile's signal the sink counted: log records for
+    signal=logs, spans otherwise."""
+    if signal == "logs":
+        return int(sink_snap.get("log_records_received") or 0)
+    return int(sink_snap["spans_received"])
+
+
+def _sink_mode_error(signal: str, sink_mode: str) -> Optional[str]:
+    """Reason the sink cannot measure this signal, or None if it can.
+
+    The collector sink runs only a traces pipeline and scrapes span counters.
+    """
+    if signal == "logs" and sink_mode == "collector":
+        return "signal=logs needs --sink blackhole; the collector sink counts spans only"
+    return None
+
+
 def _delivery_rate_pct(spans_received: int, spans_expected: int,
                        signal: str) -> Optional[float]:
-    """Percentage of the spans sent that reached the sink, or None if undefined.
+    """Percentage of the items sent that reached the sink, or None if undefined.
 
-    Delivery is only meaningful for trace profiles: sink.spans_received counts
-    OTLP trace spans.  Metric exports land at /v1/metrics and are not decoded,
-    so spans_received stays 0 for signal=metrics profiles.
+    Delivery is meaningful for trace and log profiles: the sink decodes and
+    counts OTLP spans and log records.  Metric exports land at /v1/metrics and
+    are not decoded, so nothing is counted for signal=metrics profiles.
     """
-    if signal != "traces" or spans_expected <= 0:
+    if signal not in ("traces", "logs") or spans_expected <= 0:
         return None
     return round(spans_received / spans_expected * 100, 2)
 
@@ -344,7 +364,7 @@ def _run_sut(
                 _log(
                     f"  sample {i + 1}/{n_samples}: "
                     f"emitted={result['spans_emitted']} "
-                    f"sink_received={sink_snap['spans_received']} "
+                    f"sink_received={_received_count(sink_snap, signal)} "
                     f"(http={sink_http_req} grpc={sink_grpc_req}) "
                     f"p50={result['latency_p50_ns']}ns "
                     f"flush={flush_result.get('flush_ns', 0)}ns"
@@ -354,7 +374,7 @@ def _run_sut(
                         f"  WARNING: sink errors={sink_errors} "
                         f"last_error={sink_snap.get('last_error', '')!r}"
                     )
-                elif sink_snap["spans_received"] == 0 and sink_http_req == 0 and sink_grpc_req == 0:
+                elif _received_count(sink_snap, signal) == 0 and sink_http_req == 0 and sink_grpc_req == 0:
                     _log(
                         "  WARNING: sink received 0 requests — "
                         "check endpoint URL, port, and container network"
@@ -363,7 +383,7 @@ def _run_sut(
                 flush_ns = flush_result.get("flush_ns", 0)
                 bytes_rx = sink_snap.get("bytes_received")
                 total_ns = dur_ns + flush_ns
-                spans_rx = sink_snap["spans_received"]
+                spans_rx = _received_count(sink_snap, signal)
                 # Wire throughput: bytes land at sink during flush, not during emit.
                 # Use flush_ns (the actual HTTP-transfer window) as denominator.
                 throughput_mbps = (
@@ -382,6 +402,7 @@ def _run_sut(
                 samples.append({
                     "spans_emitted":  result["spans_emitted"],
                     "spans_expected": spans_expected,
+                    "items_received": spans_rx,
                     "spans_dropped":  result["spans_dropped"],
                     "bytes_sent":     result.get("bytes_sent", 0),
                     "duration_ns":     dur_ns,
@@ -398,6 +419,7 @@ def _run_sut(
                     "sink": {
                         "mode":                   sink_snap["mode"],
                         "spans_received":         sink_snap["spans_received"],
+                        "log_records_received":   sink_snap.get("log_records_received", 0),
                         "bytes_received":         sink_snap["bytes_received"],
                         "http_requests_received": sink_http_req,
                         "grpc_requests_received": sink_grpc_req,
@@ -502,6 +524,10 @@ def main(argv=None) -> int:
     n_samples = args.reps if args.reps is not None else profile.samples
     engine = detect_engine(args.engine)
     sink_mode = args.sink if args.sink != "auto" else profile.sink_mode
+    sink_error = _sink_mode_error(profile.signal, sink_mode)
+    if sink_error:
+        _log(f"ERROR: {sink_error}")
+        return 1
 
     # Resolve flamegraph settings early so we can fail fast before building images.
     flamegraph_dir: Optional[Path] = None

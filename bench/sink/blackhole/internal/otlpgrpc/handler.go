@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	logpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
@@ -147,4 +148,42 @@ func (h *MetricHandler) Export(
 	}
 	h.c.RecordGRPCExport(0, reqBytes, respBytes)
 	return resp, nil
+}
+
+// LogHandler implements the OTLP LogsService gRPC endpoint.
+// It counts LogRecords, bytes and requests.
+type LogHandler struct {
+	logpb.UnimplementedLogsServiceServer
+	c       *counters.Counters
+	delayMs int
+}
+
+// NewLogHandler returns a LogHandler that records exports into c.
+func NewLogHandler(c *counters.Counters, delayMs int) *LogHandler {
+	return &LogHandler{c: c, delayMs: delayMs}
+}
+
+// Export counts log records and bytes, then returns an empty success response.
+func (h *LogHandler) Export(
+	ctx context.Context,
+	req *logpb.ExportLogsServiceRequest,
+) (*logpb.ExportLogsServiceResponse, error) {
+	reqBytes := requestWireBytes(ctx, uint64(proto.Size(req)))
+	resp := &logpb.ExportLogsServiceResponse{}
+	respBytes := uint64(proto.Size(resp))
+	if h.delayMs > 0 {
+		time.Sleep(time.Duration(h.delayMs) * time.Millisecond)
+	}
+	h.c.RecordGRPCLogExport(countLogRecords(req), reqBytes, respBytes)
+	return resp, nil
+}
+
+func countLogRecords(req *logpb.ExportLogsServiceRequest) uint64 {
+	var n uint64
+	for _, rl := range req.ResourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			n += uint64(len(sl.LogRecords))
+		}
+	}
+	return n
 }

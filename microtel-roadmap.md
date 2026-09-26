@@ -413,7 +413,7 @@ A few themes don't fit a single milestone but progress across releases:
 ### Performance benchmarks
 The `bench/` directory evolves alongside the project:
 - **v1.0:** establishes baseline against `opentelemetry-cpp` for traces.
-- **v1.2:** adds logs workload profiles. *(Not started.)*
+- **v1.2:** adds logs workload profiles. *(Done: `hot-loop-logs`.)*
 - **v1.2:** adds leaf footprint measurement (both backends) and concentrator throughput. *(Moved from v2.0.)*
 - **v1.3:** adds metrics workload profiles. *(Done early: `hot-loop-metrics`.)*
 - **v1.6:** adds high-cardinality, bursty, and outage-recovery scenarios.

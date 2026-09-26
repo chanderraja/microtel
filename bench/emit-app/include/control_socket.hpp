@@ -8,6 +8,7 @@
 #pragma once
 
 #include "backend.hpp"
+#include "workload.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,14 +16,6 @@
 
 namespace bench
 {
-
-/// Workload pattern the emit-app runs during a "run" command.
-enum class WorkloadMode : std::uint8_t
-{
-    HotLoop,          ///< EmitSpan() called as fast as possible (or rate-limited)
-    RealisticRequest, ///< EmitRequest() — one parent span + two child spans per iteration
-    HotLoopMetrics,   ///< EmitRecord() — one Counter::Add() + one Histogram::Record() per iteration
-};
 
 struct RunResult
 {

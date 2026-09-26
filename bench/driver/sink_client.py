@@ -22,6 +22,8 @@ class SinkClient:
         return {
             "mode": "blackhole",
             "spans_received": data["spans_received"],
+            # Absent on sink images built before log records were counted.
+            "log_records_received": data.get("log_records_received", 0),
             "bytes_received": data["bytes_received"],
             "http_requests_received": data.get("http_requests_received", 0),
             "grpc_requests_received": data.get("grpc_requests_received", 0),

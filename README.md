@@ -286,6 +286,7 @@ per-sample data. To reproduce with Docker or Podman:
 ```bash
 cd bench && ./bench.sh              # hot-loop-traces profile
 ./bench.sh --profile hot-loop-metrics
+./bench.sh --profile hot-loop-logs
 ./bench.sh --flamegraph             # adds per-SUT SVG flame graphs
 ```
 

@@ -1,0 +1,42 @@
+# hot-loop-logs — logs pipeline throughput baseline
+#
+# Emits log records as fast as possible (no rate limiting). Each iteration
+# is one Logger::Emit() of a minimal record: severity INFO, a short string
+# body, no attributes. The SDK fills observed_time itself on both libraries.
+#
+# The blackhole sink decodes /v1/logs and LogsService.Export and counts log
+# records, so delivery rate, records/sec and wire bytes/record are reported
+# the same way hot-loop-traces reports them per span. In the report the
+# JSON keys keep their span names (spans_per_sec, wire_bytes_per_span);
+# for signal=logs they count log records.
+
+profile: hot-loop-logs
+signal: logs
+description: "Uncapped log record emission — measures Logger::Emit latency, throughput and delivery"
+
+workload:
+  spans_per_sample: 10000  # log records per run command
+  samples: 10
+  warmup_spans: 1000
+
+sink:
+  mode: blackhole          # /v1/logs on 4318 (HTTP) and LogsService on 4317 (gRPC)
+
+suts:
+  - microtel
+  - microtel-grpc
+  - otelcpp-grpc
+  - otelcpp-http
+
+env:
+  EMIT_WORKLOAD: hot_loop_logs  # switches emit-app to EmitLog() mode
+
+metrics:
+  - spans_emitted
+  - spans_dropped
+  - duration_ns
+  - latency_p50_ns
+  - latency_p95_ns
+  - latency_p99_ns
+  - latency_min_ns
+  - latency_max_ns

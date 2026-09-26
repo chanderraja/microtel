@@ -44,6 +44,7 @@ struct BackendOptions
     int         attributes_per_span{0};    ///< 0 = no attributes (hot-loop default)
     int         attribute_value_bytes{24}; ///< byte length of each attribute value
     int         metric_interval_ms{0};     ///< 0 = SDK default (60 s); set to 100 for metrics workload
+    bool        logs_enabled{false};       ///< true for the logs workload (otel-cpp builds its log pipeline only then)
 };
 
 /// Abstract tracing backend.
@@ -77,6 +78,11 @@ public:
     /// Used by the hot-loop-metrics workload profile.
     /// Default is a no-op for backends that do not support metrics.
     virtual void EmitRecord() {}
+
+    /// Emit one log record: one Logger::Emit() of a minimal INFO record.
+    /// Used by the hot-loop-logs workload profile.
+    /// Default is a no-op for backends that do not support logs.
+    virtual void EmitLog() {}
 
     /// Flush all in-flight spans to the exporter and return elapsed time in ns.
     /// Returns 0 if the backend has no explicit flush API.

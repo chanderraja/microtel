@@ -7,11 +7,15 @@
 #if defined(BENCH_BACKEND_OTELCPP_GRPC)
 #include <opentelemetry/exporters/otlp/otlp_grpc_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_grpc_exporter_options.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_log_record_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_log_record_exporter_options.h>
 #include <opentelemetry/exporters/otlp/otlp_grpc_metric_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_grpc_metric_exporter_options.h>
 #elif defined(BENCH_BACKEND_OTELCPP_HTTP)
 #include <opentelemetry/exporters/otlp/otlp_http_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_http_exporter_options.h>
+#include <opentelemetry/exporters/otlp/otlp_http_log_record_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_http_log_record_exporter_options.h>
 #include <opentelemetry/exporters/otlp/otlp_http_metric_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_http_metric_exporter_options.h>
 #else
@@ -25,6 +29,14 @@ static_assert(false, "BENCH_BACKEND_OTELCPP_GRPC or BENCH_BACKEND_OTELCPP_HTTP r
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/tracer.h>
+
+// Logs SDK
+#include <opentelemetry/logs/logger.h>
+#include <opentelemetry/logs/severity.h>
+#include <opentelemetry/sdk/logs/batch_log_record_processor_factory.h>
+#include <opentelemetry/sdk/logs/batch_log_record_processor_options.h>
+#include <opentelemetry/sdk/logs/exporter.h>
+#include <opentelemetry/sdk/logs/logger_provider.h>
 
 // Metrics SDK
 #include <opentelemetry/context/context.h>
@@ -51,6 +63,10 @@ namespace
 namespace otlp      = opentelemetry::exporter::otlp;
 namespace sdktrace  = opentelemetry::sdk::trace;
 namespace sdkmetrics = opentelemetry::sdk::metrics;
+namespace sdklogs   = opentelemetry::sdk::logs;
+namespace logs_api  = opentelemetry::logs;
+
+constexpr const char* kLogBody = "bench log record";
 namespace trace_api = opentelemetry::trace;
 namespace metrics_api = opentelemetry::metrics;
 
@@ -72,6 +88,10 @@ public:
         if (opts.metric_interval_ms > 0)
         {
             InitMetrics(opts);
+        }
+        if (opts.logs_enabled)
+        {
+            InitLogs(opts);
         }
     }
 
@@ -113,6 +133,18 @@ public:
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
+    void EmitLog() override
+    {
+        if (!m_logger_provider)
+        {
+            return;
+        }
+        // Minimal record, matching the microtel backend: INFO severity and a
+        // short string body. The SDK stamps the observed timestamp.
+        m_logger->EmitLogRecord(logs_api::Severity::kInfo, kLogBody);
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
     [[nodiscard]] uint64_t ForceFlush() override
     {
         using Clock = std::chrono::steady_clock;
@@ -121,6 +153,10 @@ public:
         if (m_metric_provider)
         {
             m_metric_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+        }
+        if (m_logger_provider)
+        {
+            m_logger_provider->ForceFlush(std::chrono::microseconds(30'000'000));
         }
         const auto t1 = Clock::now();
         return static_cast<uint64_t>(
@@ -135,6 +171,11 @@ public:
         {
             m_metric_provider->ForceFlush(std::chrono::microseconds(30'000'000));
             m_metric_provider->Shutdown();
+        }
+        if (m_logger_provider)
+        {
+            m_logger_provider->ForceFlush(std::chrono::microseconds(30'000'000));
+            m_logger_provider->Shutdown();
         }
     }
 
@@ -222,6 +263,33 @@ private:
         m_histogram   = meter->CreateDoubleHistogram("bench.histogram", "Bench histogram", "ms");
     }
 
+    void InitLogs(const BackendOptions& opts)
+    {
+        std::unique_ptr<sdklogs::LogRecordExporter> exporter;
+
+#if defined(BENCH_BACKEND_OTELCPP_GRPC)
+        otlp::OtlpGrpcLogRecordExporterOptions log_opts;
+        log_opts.endpoint            = opts.endpoint;
+        log_opts.use_ssl_credentials = false;
+        exporter = otlp::OtlpGrpcLogRecordExporterFactory::Create(log_opts);
+#elif defined(BENCH_BACKEND_OTELCPP_HTTP)
+        otlp::OtlpHttpLogRecordExporterOptions log_opts;
+        log_opts.url = opts.endpoint + "/v1/logs";
+        exporter     = otlp::OtlpHttpLogRecordExporterFactory::Create(log_opts);
+#endif
+
+        if (!exporter)
+        {
+            throw std::runtime_error("opentelemetry-cpp log record exporter creation failed");
+        }
+
+        sdklogs::BatchLogRecordProcessorOptions proc_opts;
+        auto processor = sdklogs::BatchLogRecordProcessorFactory::Create(std::move(exporter),
+                                                                         proc_opts);
+        m_logger_provider = std::make_shared<sdklogs::LoggerProvider>(std::move(processor));
+        m_logger = m_logger_provider->GetLogger("bench", opts.service_name, opts.service_version);
+    }
+
     // Trace members
     std::shared_ptr<sdktrace::TracerProvider>                       m_trace_provider;
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> m_tracer;
@@ -229,6 +297,10 @@ private:
     int                                                             m_attrs_per_span{0};
     std::vector<std::string>                                        m_attr_keys;
     std::string                                                     m_attr_value;
+
+    // Log members (null unless the logs workload is selected)
+    std::shared_ptr<sdklogs::LoggerProvider>                                m_logger_provider;
+    opentelemetry::nostd::shared_ptr<logs_api::Logger>                      m_logger;
 
     // Metric members (null when metric_interval_ms == 0)
     std::shared_ptr<sdkmetrics::MeterProvider>                              m_metric_provider;

@@ -12,6 +12,7 @@ import (
 // All methods are safe for concurrent use.
 type Counters struct {
 	spansReceived        atomic.Uint64
+	logRecordsReceived   atomic.Uint64
 	bytesReceived        atomic.Uint64
 	requestsReceived     atomic.Uint64
 	httpRequestsReceived atomic.Uint64
@@ -60,6 +61,22 @@ func (c *Counters) RecordGRPCExport(spans, reqBytes, respBytes uint64) {
 	c.grpcRequestsReceived.Add(1)
 }
 
+// RecordHTTPLogExport records one successful OTLP/HTTP logs export.
+// records: number of LogRecords in the request. Bytes and request counts
+// are accounted exactly as RecordHTTPExport does.
+func (c *Counters) RecordHTTPLogExport(records, reqBytes, respBytes uint64) {
+	c.logRecordsReceived.Add(records)
+	c.RecordHTTPExport(0, reqBytes, respBytes)
+}
+
+// RecordGRPCLogExport records one successful OTLP/gRPC logs export.
+// records: number of LogRecords in the request. Bytes and request counts
+// are accounted exactly as RecordGRPCExport does.
+func (c *Counters) RecordGRPCLogExport(records, reqBytes, respBytes uint64) {
+	c.logRecordsReceived.Add(records)
+	c.RecordGRPCExport(0, reqBytes, respBytes)
+}
+
 // RecordError increments the error counter and stores the description
 // of the most recent error. In-flight requests crossing a Reset boundary
 // may produce post-reset increments; the driver must quiesce traffic
@@ -72,6 +89,7 @@ func (c *Counters) RecordError(desc string) {
 // Reset atomically zeroes all counters. Does not reset uptime_seconds.
 func (c *Counters) Reset() {
 	c.spansReceived.Store(0)
+	c.logRecordsReceived.Store(0)
 	c.bytesReceived.Store(0)
 	c.requestsReceived.Store(0)
 	c.httpRequestsReceived.Store(0)
@@ -84,6 +102,7 @@ func (c *Counters) Reset() {
 // Snapshot is the JSON-serializable snapshot returned by GET /stats.
 type Snapshot struct {
 	SpansReceived        uint64  `json:"spans_received"`
+	LogRecordsReceived   uint64  `json:"log_records_received"`
 	BytesReceived        uint64  `json:"bytes_received"`
 	RequestsReceived     uint64  `json:"requests_received"`
 	HTTPRequestsReceived uint64  `json:"http_requests_received"`
@@ -102,6 +121,7 @@ func (c *Counters) Snapshot() Snapshot {
 	lastErr, _ := c.lastErr.Load().(string)
 	return Snapshot{
 		SpansReceived:        c.spansReceived.Load(),
+		LogRecordsReceived:   c.logRecordsReceived.Load(),
 		BytesReceived:        c.bytesReceived.Load(),
 		RequestsReceived:     c.requestsReceived.Load(),
 		HTTPRequestsReceived: c.httpRequestsReceived.Load(),

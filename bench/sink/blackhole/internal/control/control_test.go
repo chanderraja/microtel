@@ -78,6 +78,23 @@ func TestStats_ReturnsValidJSON(t *testing.T) {
 	}
 }
 
+func TestStats_IncludesLogRecordsReceived(t *testing.T) {
+	h, c := newHandler()
+	c.RecordHTTPLogExport(9, 100, 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("unmarshal: %v\nbody: %s", err, rec.Body.String())
+	}
+	if got, ok := raw["log_records_received"].(float64); !ok || got != 9 {
+		t.Errorf("log_records_received: want 9, got %v", raw["log_records_received"])
+	}
+}
+
 func TestStats_WrongMethod(t *testing.T) {
 	h, _ := newHandler()
 	req := httptest.NewRequest(http.MethodPost, "/stats", nil)

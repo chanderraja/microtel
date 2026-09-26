@@ -59,7 +59,7 @@ def test_load_invalid_signal(tmp_path):
     bad = tmp_path / "bad.yaml"
     bad.write_text(
         "profile: bad\n"
-        "signal: logs\n"
+        "signal: profiles\n"
         "workload:\n"
         "  spans_per_sample: 100\n"
         "suts:\n"

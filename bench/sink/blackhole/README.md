@@ -1,18 +1,18 @@
 # blackhole-sink
 
 A minimal OTLP receiver used as the benchmark target. It accepts spans
-over OTLP/gRPC and OTLP/HTTP, counts them with atomic counters, and
-discards everything else, so latency and throughput reflect the SDK
-under test and the network path with no collector work mixed in.
-Metrics and logs requests are accepted and counted as requests and
+and log records over OTLP/gRPC and OTLP/HTTP, counts them with atomic
+counters, and discards everything else, so latency and throughput
+reflect the SDK under test and the network path with no collector work
+mixed in. Metrics requests are accepted and counted as requests and
 bytes, but their contents are not decoded.
 
 ## Ports
 
 | Port | Protocol | Endpoint |
 |------|----------|----------|
-| 4317 | gRPC (plaintext) | OTLP TraceService.Export, MetricsService.Export |
-| 4318 | HTTP/2 cleartext (h2c) | POST /v1/traces (parsed), /v1/metrics and /v1/logs (stubbed) |
+| 4317 | gRPC (plaintext) | OTLP TraceService.Export, LogsService.Export, MetricsService.Export |
+| 4318 | HTTP/2 cleartext (h2c) | POST /v1/traces and /v1/logs (parsed), /v1/metrics (stubbed) |
 | 19080 | HTTP/1.1 | GET /health, GET /stats, POST /reset |
 
 ## Control API
@@ -28,6 +28,7 @@ POST /reset    → 200 "{}" (zeroes all counters; uptime is not reset)
 | Field | Type | Description |
 |-------|------|-------------|
 | `spans_received` | uint64 | Total span records counted |
+| `log_records_received` | uint64 | Total log records counted (`/v1/logs` and `LogsService`) |
 | `bytes_received` | uint64 | Wire bytes in (HTTP: body size; gRPC: proto.Size — see Compression) |
 | `requests_received` | uint64 | HTTP + gRPC request total |
 | `http_requests_received` | uint64 | HTTP-only request count |
@@ -39,12 +40,12 @@ POST /reset    → 200 "{}" (zeroes all counters; uptime is not reset)
 
 ## Compression
 
-Both listeners inflate gzip before counting spans, so the `*-gzip` SUTs report
+Both listeners inflate gzip before counting spans and log records, so the `*-gzip` SUTs report
 real delivery:
 
 | Path | Trigger | Inflated by |
 |------|---------|-------------|
-| HTTP | `content-encoding: gzip` | the trace handler, after `bytes_received` is taken |
+| HTTP | `content-encoding: gzip` | the trace and logs handlers, after `bytes_received` is taken |
 | gRPC | `grpc-encoding: gzip` (message CF=`0x01`) | grpc-go, via the registered gzip compressor |
 
 `bytes_received` means the same thing on both: the compressed size of what
@@ -61,9 +62,9 @@ without it `bytes_received` silently falls back to the uncompressed
 
 ## Response delay
 
-Setting `SINK_RESPONSE_DELAY_MS` makes the trace handlers (and the gRPC
-metrics handler) sleep that many milliseconds before responding. The
-stubbed HTTP metrics and logs routes are not delayed. The driver sets it from
+Setting `SINK_RESPONSE_DELAY_MS` makes the trace and logs handlers (and
+the gRPC metrics handler) sleep that many milliseconds before responding.
+The stubbed HTTP metrics route is not delayed. The driver sets it from
 `--sink-delay-ms` to push the batch span processor's queue toward
 saturation in the backpressure profile.
 

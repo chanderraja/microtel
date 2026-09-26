@@ -146,6 +146,18 @@ Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attrib
 ### 4.6 `binary-size` (static, no execution)
 Build all three SUTs, measure stripped shared library size, statically-linked dep closure size, and `.text` / `.rodata` section sizes via `size` and `bloaty`. Pure static measurement; no runs.
 
+### 4.7 `hot-loop-logs`
+Tight loop of `Logger::Emit()` calls, each a minimal record (severity INFO, a short string body, no attributes), against the four microtel and opentelemetry-cpp SUTs over both OTLP/HTTP and OTLP/gRPC. Measures **per-record emit latency (p50/p95/p99), records/sec, delivery rate and wire bytes per record.** The profile sets `signal: logs`: the blackhole sink decodes `/v1/logs` and `LogsService.Export` and counts log records, and the driver computes delivery and bytes per record from that count. It runs against the blackhole sink only; the collector sink has no logs pipeline.
+
+```yaml
+profile: hot-loop-logs
+signal: logs
+workload:
+  spans_per_sample: 10000   # log records per sample
+env:
+  EMIT_WORKLOAD: hot_loop_logs
+```
+
 Users add their own profile by dropping a YAML file into `bench/profiles/`.
 
 ---

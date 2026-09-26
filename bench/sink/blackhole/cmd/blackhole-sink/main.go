@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // blackhole-sink is a zero-logic OTLP receiver for benchmarking microtel.
-// It accepts OTLP/gRPC on :4317 and OTLP/HTTP on :4318, counts spans and
-// bytes with atomic counters, and exposes a control API on :19080.
+// It accepts OTLP/gRPC on :4317 and OTLP/HTTP on :4318, counts spans, log
+// records and bytes with atomic counters, and exposes a control API on :19080.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"syscall"
 
+	logpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
@@ -98,6 +99,7 @@ func buildGRPC(c *counters.Counters, delayMs int) *grpc.Server {
 	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
 	tracepb.RegisterTraceServiceServer(srv, otlpgrpc.New(c, delayMs))
 	metricpb.RegisterMetricsServiceServer(srv, otlpgrpc.NewMetricHandler(c, delayMs))
+	logpb.RegisterLogsServiceServer(srv, otlpgrpc.NewLogHandler(c, delayMs))
 	reflection.Register(srv)
 	return srv
 }

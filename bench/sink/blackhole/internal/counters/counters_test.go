@@ -151,3 +151,50 @@ func TestReset_DoesNotResetUptime(t *testing.T) {
 		t.Errorf("uptime_seconds after reset: want >= 0, got %f", snap.UptimeSeconds)
 	}
 }
+
+func TestRecordHTTPLogExport_CountsRecordsNotSpans(t *testing.T) {
+	c := counters.New()
+	c.RecordHTTPLogExport(7, 300, 0)
+	snap := c.Snapshot()
+	if snap.LogRecordsReceived != 7 {
+		t.Errorf("log_records_received: want 7, got %d", snap.LogRecordsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+	if snap.BytesReceived != 300 {
+		t.Errorf("bytes_received: want 300, got %d", snap.BytesReceived)
+	}
+	if snap.HTTPRequestsReceived != 1 || snap.RequestsReceived != 1 {
+		t.Errorf("requests: want http=1 total=1, got http=%d total=%d",
+			snap.HTTPRequestsReceived, snap.RequestsReceived)
+	}
+}
+
+func TestRecordGRPCLogExport_CountsRecordsNotSpans(t *testing.T) {
+	c := counters.New()
+	c.RecordGRPCLogExport(4, 120, 2)
+	c.RecordGRPCLogExport(6, 80, 2)
+	snap := c.Snapshot()
+	if snap.LogRecordsReceived != 10 {
+		t.Errorf("log_records_received: want 10, got %d", snap.LogRecordsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+	if snap.BytesReceived != 200 {
+		t.Errorf("bytes_received: want 200, got %d", snap.BytesReceived)
+	}
+	if snap.GRPCRequestsReceived != 2 {
+		t.Errorf("grpc_requests_received: want 2, got %d", snap.GRPCRequestsReceived)
+	}
+}
+
+func TestReset_ZeroesLogRecords(t *testing.T) {
+	c := counters.New()
+	c.RecordHTTPLogExport(5, 100, 0)
+	c.Reset()
+	if got := c.Snapshot().LogRecordsReceived; got != 0 {
+		t.Errorf("log_records_received: want 0, got %d", got)
+	}
+}

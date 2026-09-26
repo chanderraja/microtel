@@ -4,7 +4,7 @@
 **Affected interfaces / docs:** the otel-cpp shim only, all under
 `src/adapters/otelcpp/`:
 - new `shim_options.hpp` (`ShimOptions`)
-- `shim_diagnostics.hpp` (one new `ShimDiagnostics` field)
+- `shim_diagnostics.hpp` (two new `ShimDiagnostics` fields)
 - `attribute_conversion.hpp` (`ConvertAttributeValue`, `ConvertKeyValues`)
 - `tracer_shim.hpp`, `span_shim.hpp`, `logger_shim.hpp`, `log_record_shim.hpp`,
   `meter_shim.hpp`, `metrics_instruments_shim.hpp`, `global_registration.hpp`
@@ -13,7 +13,8 @@
 
 Amends [ICP 0015](0015-unrepresentable-attribute-policy.md) (a byte-span
 attribute can now be omitted, not only degraded) and
-[ICP 0016](0016-adapter-drop-accounting.md) (a third shim-local counter). No
+[ICP 0016](0016-adapter-drop-accounting.md) (a third shim-local counter and a
+high-water mark). No
 microtel core header, locked interface, or wire change.
 **Affected tracks:** the otel-cpp shim (experimental). None of microtel core.
 
@@ -117,27 +118,51 @@ instrument and observer attribute sets.
 The log **body** is not an attribute and no attribute limit applies to it. It
 is converted with no shim limit, as today.
 
-### 4. Counter
+### 4. Diagnostics
 
-`ShimDiagnostics` gains:
+`ShimDiagnostics` gains two fields:
 
 ```cpp
 /// A `span<const uint8_t>` attribute was omitted because its hex rendering
 /// would exceed `ShimOptions::attribute_value_length_limit`. One per omitted
 /// value.
 std::uint64_t oversized_byte_attributes_omitted = 0;
+
+/// Largest size, in bytes of the application's byte span (not hex
+/// characters), of any attribute counted in `oversized_byte_attributes_omitted`.
+/// 0 if none has been omitted. Monotonic: it only ever increases.
+std::uint64_t largest_omitted_byte_attribute = 0;
 ```
 
-It is backed by a function-local static atomic like the other two and read
-through `GetShimDiagnostics()`. It is named for what happened (an oversized
-byte span) rather than `unrepresentable_attributes_omitted`, because the value
-is representable, just not within the limit.
+The counter is a relaxed `fetch_add`, like the existing two. The high-water
+mark is a relaxed compare-exchange loop that stores n only if n is larger
+(`std::atomic::fetch_max` is C++26). The two are updated independently, so a
+snapshot taken during an omission can show one updated and not yet the other;
+they are diagnostics, not a transaction.
+
+The high-water mark tells an operator which fix applies. With limit S, the
+ratio 2 × `largest_omitted_byte_attribute` / S near 1 means the limit is a
+little low; a ratio of 100 means blobs are being put in attributes. The field
+is in bytes because that is the size the application chose and can compare
+with its own data. `ShimDiagnostics` is a plain aggregate of counters returned
+by value, so adding fields is source-compatible and costs one more static
+atomic.
+
+The counter is named for what happened (an oversized byte span) rather than
+`unrepresentable_attributes_omitted`, because the value is representable, just
+not within the limit.
 
 ### 5. When the two limits differ
 
-Call the shim limit S and the SDK limit L. The shim only ever forwards hex of
-even length 2n with 2n ≤ S. The SDK cuts a string only when its length exceeds
-L. So:
+Call the shim limit S and the SDK limit L. S governs only the hex rendering of
+byte spans. L applies to every string attribute on a span, including ordinary
+strings the shim passes through untouched. Setting S = L makes byte spans safe;
+it does not make the shim enforce L. A plain string attribute longer than L is
+still truncated by the SDK, correctly, at a UTF-8 boundary, and counted under
+`AttributeValueTruncated`. That is ordinary truncation, not corruption.
+
+The shim only ever forwards hex of even length 2n with 2n ≤ S. The SDK cuts a
+string only when its length exceeds L. So:
 
 - **No byte span is ever cut by the SDK if and only if 2·⌊S/2⌋ ≤ L.** S ≤ L is
   the practical rule; S = L + 1 with L even also qualifies.
@@ -154,8 +179,64 @@ This applies to span, event and link attributes only. The SDK enforces no
 value length on log or metric attributes, so on those paths the shim limit is
 the only cap. It is applied there anyway so byte spans follow one rule on every
 signal, and so the v1.2 logs work cannot reintroduce #238 by adding a log value
-limit. On metrics, an omitted attribute changes the attribute set, so the
-measurement lands in the series without that key.
+limit.
+
+**Metrics: a known correctness hazard.** On a metric, the attribute set is the
+time series' identity. Omitting one attribute sends the measurement to a
+*different series*: measurements that should aggregate together are split, or
+merged into the series of a different logical entity that genuinely lacks that
+key. The effect depends on the data: the same instrument with the same keys
+lands in a different series depending on one attribute's byte length.
+
+The alternative is to omit the whole measurement, which keeps every series
+correct but loses the value. This ICP ships attribute omission and documents
+the hazard in the shim README. Losing measurements outright is worse for most
+users than a misattributed one: a counter that silently undercounts is harder
+to notice than a stray series, and every omission here is counted. It also
+keeps one rule across signals. Byte-span attributes on metrics are rare, since
+no semantic convention uses them and a high-cardinality blob in a metric key is
+already a mistake. Revisit if that turns out to be wrong.
+
+### 6. Calling `RegisterGlobally` more than once
+
+The shim keeps no process-wide state of its own apart from the
+`ShimDiagnostics` counters. `RegisterGlobally` builds three new provider shims
+and hands them to otel-cpp's `Provider::Set*Provider`, which replaces
+otel-cpp's global. Options are copied into each provider shim when it is
+constructed and never change afterwards, and every tracer, span, meter,
+instrument, logger and log record copies them from the object that created it.
+So:
+
+- **The last call wins** for anything obtained through otel-cpp's globals
+  after it.
+- **Objects already handed out keep the options they were created with**, for
+  their lifetime. A tracer obtained under the first call keeps the first limit;
+  spans started from it do too. Instrumentation that caches a tracer or meter
+  at startup does not see a later change.
+- The same holds for providers built directly with `Make*Provider`: each has
+  its own options, and several can coexist with different limits.
+
+This follows from how the code already works (every shim class holds its
+inputs by value, and otel-cpp owns the global slot). A process-wide shim
+option read on every conversion would let a second call reach objects already
+handed out, but it would need an atomic read on every attribute conversion and
+could not express two providers with different limits. It is not proposed.
+
+### 7. Diagnostics are process-wide
+
+`ShimDiagnostics` is backed by function-local static atomics in a header-only
+library, so there is one set per process. It is shared across every provider,
+every option set and every `RegisterGlobally` call, and it has no reset. An
+operator running two option sets sees their omissions added together, and the
+high-water mark is the largest across both.
+
+Tests that exercise more than one option set, or share a process with other
+shim tests, see interleaved counts. They should take a snapshot before and
+compare after, as the existing shim diagnostics tests do: assert on the
+difference for `oversized_byte_attributes_omitted`, and on
+`after == max(before, n)` for `largest_omitted_byte_attribute`, since a
+maximum cannot be diffed. No reset function is proposed; it would be a
+test-only public entry point that could also clear an operator's counts.
 
 ## Migration
 
@@ -193,3 +274,5 @@ measurement lands in the series without that key.
   byte span the application never set, which ICP 0015's addendum (point 4)
   treats as disqualifying. Omission with a counter preserves ICP 0015's
   preserve-or-omit rule.
+- **On metrics, omit the whole measurement instead of the attribute.** It keeps
+  every series correct, but the value is lost. Rejected for now; see §5.

@@ -10,9 +10,11 @@
 #include "microtel/internal/log_record_processor.hpp"
 #include "microtel/internal/metric_exporter.hpp"
 #include "microtel/internal/otlp_encoder.hpp"
+#include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/processor.hpp"
 #include "microtel/internal/transport.hpp"
 #include "microtel/internal/wire_codec.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
@@ -29,6 +31,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -42,6 +45,7 @@ class MetricProducer;
 class PeriodicExportingMetricReader;
 class BatchSpanProcessor;
 class BatchLogRecordProcessor;
+class SdkLeafReceiver;
 
 /// @brief All owned objects passed to SdkProvider at construction.
 ///
@@ -112,6 +116,16 @@ struct SdkProviderArgs
     /// Set by `SdkBuilder::Build` from `WithProfileName`; defaults to
     /// `microtel::kDefaultProfileName`, which is what every v1.0 program gets.
     std::string profile_name{kDefaultProfileName};
+    /// @brief The leaf receiver's options (ICP 0034), or unset for none.
+    ///
+    /// The provider builds a live `SdkLeafReceiver` only when these are set
+    /// with `enabled`, `leaf_decoder` is non-null, and the library was built
+    /// with `MICROTEL_WITH_CONCENTRATOR`; otherwise `GetLeafReceiver` returns
+    /// the no-op receiver. `SdkBuilder::Build` validates them first.
+    std::optional<LeafReceiverOptions> leaf_receiver;
+    /// @brief The OTLP decoder the leaf receiver owns. Ignored without
+    /// `leaf_receiver`.
+    std::unique_ptr<internal::IOtlpTraceDecoder> leaf_decoder;
 };
 
 /// @brief Production `Provider` wiring the full export pipeline.
@@ -168,6 +182,11 @@ public:
     /// exporter is configured.
     [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(
         std::string_view name, std::string_view version = {}) override;
+
+    /// @brief The receiver built at construction: live when the concentrator
+    ///        is compiled in and configured, the no-op otherwise (ICP 0034).
+    ///        The same object on every call; `Shutdown` stops it.
+    [[nodiscard]] std::shared_ptr<microtel::LeafReceiver> GetLeafReceiver() override;
 
     // ── Hot reload (ICP 0026) ──────────────────────────────────────────────
     // Contracts are on `microtel::Provider`; the notes here are about where
@@ -258,6 +277,9 @@ private:
     ///        first-wins. Split out of `ForceFlush` so the timeout counter is
     ///        recorded once for the whole call rather than once per arm.
     [[nodiscard]] Status FlushPipeline(std::chrono::milliseconds timeout) noexcept;
+    /// @brief Make the live leaf receiver refuse every later payload. A single
+    ///        atomic store, so the fork child handler may call it too.
+    void StopLeafReceiver() noexcept;
 
 public:
 private:
@@ -357,6 +379,15 @@ private:
     std::mutex m_logger_mu;
     std::unordered_map<std::string, std::shared_ptr<microtel::Logger>> m_loggers;
     std::shared_ptr<microtel::Logger> m_noop_logger;
+
+    // The leaf receiver (ICP 0034), built once at construction and never
+    // reassigned, so it needs no lock. Shared with the application, which may
+    // keep it past this provider; it holds m_trace, as a tracer does, so what
+    // it borrows outlives it. m_sdk_leaf_receiver is a borrowed alias when it
+    // is the live receiver, so Shutdown and the fork handler can stop it; null
+    // for the no-op, and unused in a build without the concentrator.
+    std::shared_ptr<microtel::LeafReceiver> m_leaf_receiver;
+    [[maybe_unused]] SdkLeafReceiver* m_sdk_leaf_receiver{nullptr};
 
     // The registry's key for this provider. Assigned once at construction and
     // never reassigned, so it needs no lock — and the registry, which reads it

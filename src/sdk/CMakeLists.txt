@@ -31,7 +31,20 @@ add_library(microtel_sdk STATIC
     sdk_builder.cpp
     resource_detectors.cpp
     resource_builder.cpp
-    view_registry.cpp)
+    view_registry.cpp
+    span_limits.cpp)
+
+# The leaf receiver (docs/leaf-concentrator-design.md §3.1, §6.2). Its sources
+# are left out entirely when the option is OFF; the definition lets
+# sdk_provider.cpp and sdk_builder.cpp choose between it and the no-op.
+if(MICROTEL_WITH_CONCENTRATOR)
+    target_sources(microtel_sdk PRIVATE
+        leaf_options.cpp
+        leaf_receiver.cpp
+        leaf_resource.cpp
+        leaf_table.cpp)
+    target_compile_definitions(microtel_sdk PRIVATE MICROTEL_WITH_CONCENTRATOR=1)
+endif()
 
 # microtel_api is PUBLIC: it defines methods declared on public API types
 # (TraceId::ToHex, SpanId::ToHex), so every SDK consumer needs them in its

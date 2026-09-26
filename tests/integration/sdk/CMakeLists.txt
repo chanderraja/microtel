@@ -35,3 +35,21 @@ microtel_add_integration_test(
 # intentionally leave later fields at their defaults.
 target_compile_options(exemplar_wiring_test PRIVATE
     -Wno-missing-field-initializers)
+
+# v1.2 — the concentrator ingest path end to end, short of a network: leaf
+# payloads through the real decoder, processor, exporter and encoder into a
+# recording codec, decoded again with upb (docs/leaf-concentrator-design.md
+# §3.6.1, §7.4).
+if(MICROTEL_WITH_CONCENTRATOR)
+    microtel_add_integration_test(
+        NAME    leaf_ingest_test
+        SOURCES leaf_ingest_test.cpp
+        LIBS    microtel_sdk microtel_exporter microtel_encoder microtel_upb_gen)
+    target_include_directories(leaf_ingest_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/gen
+            ${CMAKE_SOURCE_DIR}/third_party/upb)
+    target_compile_options(leaf_ingest_test PRIVATE
+        -include ${MICROTEL_UPB_RENAME_HEADER}
+        -Wno-missing-field-initializers)
+endif()

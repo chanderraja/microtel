@@ -131,6 +131,9 @@ jobs:
           LLVM_PROFDATA:             llvm-profdata-18
           LLVM_COV:                  llvm-cov-21
           MICROTEL_COVERAGE_ENFORCE: "0"
+          # Same as the ci.yml coverage job: the concentrator is OFF by default,
+          # so build it for SonarQube to see its coverage.
+          COVERAGE_EXTRA_CMAKE_ARGS: -DMICROTEL_WITH_CONCENTRATOR=ON
         run: ci/scripts/coverage.sh build/coverage
 
       # The scanner is handed SonarQube's generic coverage XML, not the lcov

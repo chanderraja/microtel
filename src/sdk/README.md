@@ -90,6 +90,24 @@ Metrics ([`docs/metrics-design.md`](../../docs/metrics-design.md)):
 - `MetricProducer`, `ViewRegistry`, and the two readers,
   `PeriodicExportingMetricReader` and `SynchronousMetricReader`.
 
+Concentrator ([`docs/leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md)
+§3–§4, [ICP 0034](../../docs/icps/0034-leaf-receiver-api.md); experimental,
+compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
+
+- `microtel::LeafReceiver` as `SdkLeafReceiver`
+  ([`leaf_receiver.{hpp,cpp}`](leaf_receiver.hpp)): size limits, decode
+  through `internal::IOtlpTraceDecoder`, all-or-nothing validation, leaf
+  identity, root sampling and `BatchSpanProcessor::Enqueue`. The reserved wire
+  attributes and the Resource merge are in
+  [`leaf_resource.{hpp,cpp}`](leaf_resource.hpp), the bounded LRU leaf table
+  in [`leaf_table.{hpp,cpp}`](leaf_table.hpp), and `Build()`'s checks of
+  `LeafReceiverOptions` in [`leaf_options.{hpp,cpp}`](leaf_options.hpp).
+  `SdkProvider` builds it at construction and stops it in `Shutdown`.
+- [`noop_leaf_receiver.hpp`](noop_leaf_receiver.hpp): what `GetLeafReceiver`
+  returns when the concentrator is off or not compiled in. Always built.
+- [`span_limits.{hpp,cpp}`](span_limits.hpp): the span-limit helpers `SdkSpan`
+  and the leaf receiver share (`TruncateStrings`, `ApplySpanLimits`).
+
 Logs ([`docs/logs-design.md`](../../docs/logs-design.md)):
 
 - `SdkLogger` and `NoopLogger`.
@@ -105,6 +123,8 @@ Logs ([`docs/logs-design.md`](../../docs/logs-design.md)):
 - `ISpanProcessor` and `ISampler`: `mock_span_processor.hpp`,
   `mock_sampler.hpp`, and `fake_span_processor.hpp`.
 - `IDiagnosticsSink`: `fake_diagnostics_sink.hpp`.
+- `IOtlpTraceDecoder` (the leaf receiver): `mock_otlp_trace_decoder.hpp` and
+  `fake_otlp_trace_decoder.hpp`.
 - `IResourceDetector`: `fake_resource_detector.hpp`.
 - The `Config` value from [`src/common/config/`](../common/config/), built
   directly in tests; there is no interface.
@@ -134,6 +154,10 @@ left the structure as an M3 implementation choice.
   end-to-end against fakes.
 - `tests/conformance/`: against a real OpenTelemetry Collector (shared
   with `src/exporter/`).
+- The concentrator: `tests/unit/sdk/leaf_receiver_test.cpp`,
+  `leaf_table_test.cpp` and `leaf_receiver_builder_test.cpp`;
+  `tests/integration/sdk/leaf_ingest_test.cpp` end to end through a recording
+  codec; `tests/fuzz/leaf_ingest_fuzz.cpp`.
 
 ## Style notes
 

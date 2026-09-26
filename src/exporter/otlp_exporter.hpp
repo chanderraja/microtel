@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "microtel/internal/batch_group_exporter.hpp"
 #include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/exporter.hpp"
@@ -36,6 +37,12 @@ struct OtlpExporterConfig
     std::chrono::milliseconds export_deadline{std::chrono::seconds(10)};
     /// @brief Retry / backoff policy.
     RetryPolicyConfig retry_policy{};
+    /// @brief Most spans one export request may carry when the worker joins
+    /// several drained batches into one request
+    /// (`docs/leaf-concentrator-design.md` §3.6.1). A batch is never split: a
+    /// batch larger than this goes as a request of its own. `SdkBuilder` sets
+    /// it to `BatchOptions::max_export_batch_size`.
+    std::size_t max_spans_per_request = 512;
 };
 
 /// @brief Protocol-agnostic OTLP export pipeline.
@@ -47,6 +54,14 @@ struct OtlpExporterConfig
 /// A retryable failure is retried by `RetryEngine`, the engine the metric
 /// and log exporters share (`RetryPolicyConfig`).
 ///
+/// **Multi-Resource requests.** The batches the worker drains together are
+/// sent as one request, up to `max_spans_per_request` spans, by concatenating
+/// their encodings (`wire::ConcatenateTraceRequests`,
+/// `docs/leaf-concentrator-design.md` §3.6.1). A request is sent, retried and
+/// classified as one unit; its outcome is counted once per batch it carries.
+/// `ExportGroup` queues all the batches of one processor drain under one lock,
+/// so they are always drained together.
+///
 /// **Dependencies (all non-owning):**
 /// - `IOtlpEncoder` — required.
 /// - `IWireCodec` — required; must be connected before first `Export` call.
@@ -56,7 +71,7 @@ struct OtlpExporterConfig
 /// @threadsafety `Export` is thread-safe. `ForceFlush` and `Shutdown` are
 ///   caller-thread-safe and idempotent.
 /// @see docs/interfaces.md §4.4
-class OtlpExporter final : public internal::IExporter
+class OtlpExporter final : public internal::IExporter, public internal::IBatchGroupExporter
 {
 public:
     explicit OtlpExporter(internal::IOtlpEncoder* encoder,
@@ -74,6 +89,8 @@ public:
 
     [[nodiscard]] internal::ExportResult Export(internal::BatchHandle&& batch) noexcept override;
 
+    void ExportGroup(std::vector<internal::BatchHandle>&& batches) noexcept override;
+
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
 
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
@@ -82,6 +99,12 @@ private:
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
+    /// @brief Queue one batch, or count why not. Caller must hold `m_mu`.
+    [[nodiscard]] internal::ExportResult EnqueueLocked(internal::BatchHandle&& batch) noexcept;
+    /// @brief Encode the batches `[first, first + count)` of @p batches and
+    ///        join them into one request.
+    [[nodiscard]] internal::EncodedPayload EncodeRequest(
+        const std::vector<internal::BatchHandle>& batches, std::size_t first, std::size_t count);
     /// @brief Add `n` to the counter for `reason`. No-op when no sink was
     ///        supplied. Lock-free, so it is safe under `m_mu`.
     void RecordDropped(DropReason reason, std::uint64_t n) noexcept;

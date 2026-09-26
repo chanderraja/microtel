@@ -233,6 +233,7 @@ Every mutex in v1, by owner. This table named five locks until ICP 0021; three o
 | `m_mu` | `EpollReactor` | `m_callbacks` register / unregister / dispatch lookup |
 | `m_pending_mu`, `m_cancel_mu` | `Http2Transport` | request-queue push / drain; cancel-queue push / drain |
 | `m_io_done_mu` | `Http2Transport` | the I/O-loop-exited flag `Close` waits on |
+| `m_mu` | `LeafTable` (the leaf receiver's, v1.2 concentrator builds only) | one leaf lookup or insert; a leaf lock, never held across a call out — the Resource is resolved before it is taken and the processor is called after it is released ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.5) |
 
 There is **no completion lock and no shutdown lock**: request completion is a `std::promise` / `std::future` pair (§3.3), and shutdown is a set of atomic flags (§5.3).
 
@@ -486,6 +487,7 @@ These three seams collectively make every cross-thread contract in this document
 | `Baggage` | Immutable value; thread-safe for read. `Set` / `Erase` are copy-on-write and return a new value rather than mutating a shared list (LOCKED — cites `src/api/baggage.cpp:Baggage`) | `@threadsafety Thread-safe` |
 | `ScopedContext` | **Thread-confined** — constructed and destroyed on one thread, never shared. Restore is positional: destroy scopes in reverse order of creation (LOCKED — cites `src/api/context.cpp:ScopedContext`) | `@threadsafety Thread-confined` |
 | `ScopedSpan` | **Thread-confined**, for the `ScopedContext` it holds. Ends its span before restoring the context (LOCKED — cites `include/microtel/span.hpp:ScopedSpan`) | `@threadsafety Thread-confined` |
+| `LeafReceiver` | Thread-safe: `Ingest` and `Stats` may be called concurrently from any application thread, and `Ingest` never blocks. It runs on the caller's thread; microtel starts no thread for it ([ICP 0034](icps/0034-leaf-receiver-api.md)) | `@threadsafety Thread-safe` |
 | `LogSink` (callback) | Caller-supplied; microtel makes no thread-safety assumption beyond "may be called from any internal thread" | documented in `log_sink.hpp` |
 | `microtel::GetProvider` | Thread-safe, **lock-free and allocation-free** — `kMaxProfiles` acquire-loads and at most that many short string compares. Returns a **borrowed** pointer: valid across that provider's `Shutdown`, dangling after its destruction, `nullptr` in a forked child until it re-builds (LOCKED — cites `src/sdk/provider_registry.cpp:FindProvider`) | `@threadsafety Thread-safe` |
 

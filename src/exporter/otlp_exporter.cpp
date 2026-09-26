@@ -8,13 +8,17 @@
 #include "microtel/status.hpp"
 
 #include "exporter/retry_engine.hpp"
+#include "wire/encoder/trace_request_concat.hpp"
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace microtel::exporter
 {
@@ -46,10 +50,42 @@ OtlpExporter::~OtlpExporter() noexcept
 
 internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexcept
 {
+    const internal::ExportResult result = [this, &batch]
+    {
+        const std::scoped_lock lock{m_mu};
+        return EnqueueLocked(std::move(batch));
+    }();
+    if (result == internal::ExportResult::Success)
+    {
+        m_cv.notify_one();
+    }
+    return result;
+}
+
+void OtlpExporter::ExportGroup(std::vector<internal::BatchHandle>&& batches) noexcept
+{
+    std::vector<internal::BatchHandle> group = std::move(batches);
+    bool queued = false;
+    {
+        // One lock for the whole group, so the worker cannot wake between two
+        // of its batches and send the first alone (design §3.6.1).
+        const std::scoped_lock lock{m_mu};
+        for (auto& batch : group)
+        {
+            queued = (EnqueueLocked(std::move(batch)) == internal::ExportResult::Success) || queued;
+        }
+    }
+    if (queued)
+    {
+        m_cv.notify_one();
+    }
+}
+
+internal::ExportResult OtlpExporter::EnqueueLocked(internal::BatchHandle&& batch) noexcept
+{
     // Read before the move: a rejected batch is still counted in spans, and
     // after `push_back` consumes it there is nothing left to count.
     const auto span_count = static_cast<std::uint64_t>(batch.Spans().size());
-    const std::scoped_lock lock{m_mu};
     if (m_shutdown.load(std::memory_order_relaxed))
     {
         RecordDropped(DropReason::PostShutdown, span_count);
@@ -75,7 +111,6 @@ internal::ExportResult OtlpExporter::Export(internal::BatchHandle&& batch) noexc
         RecordDropped(DropReason::QueueFull, span_count);
         return internal::ExportResult::Dropped;
     }
-    m_cv.notify_one();
     return internal::ExportResult::Success;
 }
 
@@ -183,6 +218,18 @@ void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
     }
 }
 
+internal::EncodedPayload OtlpExporter::EncodeRequest(
+    const std::vector<internal::BatchHandle>& batches, std::size_t first, std::size_t count)
+{
+    std::vector<internal::EncodedPayload> parts;
+    parts.reserve(count);
+    for (std::size_t i = first; i < first + count; ++i)
+    {
+        parts.push_back(m_encoder->Encode(batches.at(i)));
+    }
+    return wire::ConcatenateTraceRequests(std::move(parts));
+}
+
 void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& batches)
 {
     if (batches.empty())
@@ -190,29 +237,56 @@ void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& ba
         return;
     }
 
-    std::vector<internal::EncodedPayload> payloads;
-    payloads.reserve(batches.size());
-    for (const auto& batch : batches)
+    // Split the drained batches into requests: consecutive batches while the
+    // running span count stays within max_spans_per_request. A request holds
+    // at least one batch, so a batch over the limit goes alone and whole.
+    struct Request
     {
-        payloads.push_back(m_encoder->Encode(batch));
+        std::size_t first = 0;
+        std::size_t count = 0;
+    };
+    std::vector<Request> requests;
+    std::size_t spans_in_request = 0;
+    for (std::size_t i = 0; i < batches.size(); ++i)
+    {
+        const std::size_t spans = batches[i].Spans().size();
+        if (requests.empty() || spans_in_request + spans > m_config.max_spans_per_request)
+        {
+            requests.push_back(Request{.first = i, .count = 0});
+            spans_in_request = 0;
+        }
+        ++requests.back().count;
+        spans_in_request += spans;
+    }
+
+    std::vector<internal::EncodedPayload> payloads;
+    payloads.reserve(requests.size());
+    for (const auto& request : requests)
+    {
+        payloads.push_back(EncodeRequest(batches, request.first, request.count));
     }
 
     // Fan-out: all requests submitted concurrently; SendAll collapses N
     // sequential round trips into one (see ICP 0007).
     const auto results = m_codec->SendAll(std::move(payloads), m_config.export_deadline);
 
-    // The fan-out counts as attempt 0. Exactly one outcome per batch:
-    // intermediate retryable failures are attempts, not failed batches.
-    // `at()`: a codec returning more results than batches throws into
-    // DrainQueue's catch rather than reading past the end.
+    // The fan-out counts as attempt 0. Exactly one outcome per request, and
+    // intermediate retryable failures are attempts, not failed batches. A
+    // retry re-encodes the whole request: bytes do not survive an attempt
+    // (memory-model.md §3.1). `at()`: a codec returning more results than
+    // requests throws into DrainQueue's catch rather than reading past the end.
     for (std::size_t i = 0; i < results.size(); ++i)
     {
-        const internal::BatchHandle& batch = batches.at(i);
+        const Request& request = requests.at(i);
         m_retry.Settle(
             results.at(i),
-            [this, &batch]
-            { return m_codec->Send(m_encoder->Encode(batch), m_config.export_deadline); },
-            kFailureStage);
+            [this, &batches, &request]
+            {
+                return m_codec->Send(EncodeRequest(batches, request.first, request.count),
+                                     m_config.export_deadline);
+            },
+            kFailureStage,
+            request.count);
     }
 }
 

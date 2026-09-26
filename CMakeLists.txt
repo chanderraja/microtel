@@ -296,6 +296,16 @@ if(MICROTEL_BUILD_LEAF)
     add_subdirectory(leaf)
 endif()
 
+# The concentrator's leaf receiver (docs/leaf-concentrator-design.md §6.2,
+# ICP 0034). Default OFF in v1.2: the receiver parses untrusted bytes, and it
+# pulls upb's decoder into the link, which no default build contains. With it
+# OFF the receiver and decoder sources are left out, the public types in
+# leaf_receiver.hpp stay declared, Provider::GetLeafReceiver returns a no-op
+# receiver, and SdkBuilder::WithLeafReceiver fails Build(). Shaped like the
+# MICROTEL_WITH_* options of ICP 0030 (draft), and folded into it when it lands.
+option(MICROTEL_WITH_CONCENTRATOR
+    "Compile the concentrator's leaf receiver (experimental)" OFF)
+
 # System dependencies: OpenSSL (TLS) and nghttp2 (HTTP/2 transport).
 # Required by src/common/raii/ and src/transport/; also linked by their tests.
 find_package(OpenSSL REQUIRED)

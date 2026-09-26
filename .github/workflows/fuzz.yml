@@ -53,6 +53,8 @@ jobs:
         baggage_fuzz
         provider_setters_fuzz
         leaf_backend_diff_fuzz
+        leaf_ingest_fuzz
+        otlp_trace_decoder_fuzz
 
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +73,7 @@ jobs:
             -DMICROTEL_BUILD_FUZZ=ON \
             -DMICROTEL_BUILD_LEAF=ON \
             -DMICROTEL_BUILD_TESTS=OFF \
+            -DMICROTEL_WITH_CONCENTRATOR=ON \
             -G Ninja
           cmake --build build-fuzz --parallel
 

@@ -38,6 +38,14 @@ Track A — Trace SDK.
 - Retry orchestration for every signal, with defaults from the OTLP spec: 5 attempts,
   1 s initial backoff, 32 s ceiling, 1.5× multiplier, ±20 % jitter, a 5-minute
   budget.
+- Multi-Resource requests for traces
+  ([`leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md)
+  §3.6.1): the batches the worker drains together go out as one request, up
+  to `max_spans_per_request` spans, joined by `wire::ConcatenateTraceRequests`.
+  A request is sent, retried and classified once, and its outcome counted once
+  per batch in it. `OtlpExporter` also implements
+  `internal::IBatchGroupExporter`, so the span processor can hand over a whole
+  drain under one lock.
 - Drop accounting at the export boundary: `retryable_failure_recovered`,
   `retry_budget_exhausted`, `non_retryable_failure`,
   `partial_success_rejection`, and `queue_full` / `post_shutdown` when a batch

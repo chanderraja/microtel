@@ -67,9 +67,22 @@ public:
     ///                      exception propagates and nothing is recorded.
     /// @param failure_stage the error message recorded when a failed result
     ///                      carries no `Error` of its own. Borrowed.
+    /// @param batches       how many batches the request carried. The trace
+    ///                      exporter sends several `BatchHandle`s as one
+    ///                      request (`docs/leaf-concentrator-design.md`
+    ///                      §3.6.1); the request is retried and resolved once,
+    ///                      and its outcome is counted once per batch in it —
+    ///                      `batches_sent`, `batches_failed`, and the
+    ///                      `non_retryable_failure`, `retry_budget_exhausted`
+    ///                      and `retryable_failure_recovered` counters — so the
+    ///                      counts are what they were before requests were
+    ///                      coalesced. A partial success's rejected count is
+    ///                      the collector's for the whole request and is
+    ///                      recorded once.
     void Settle(const internal::WireResult& first_attempt,
                 const RetryAttempt& retry,
-                std::string_view failure_stage);
+                std::string_view failure_stage,
+                std::uint64_t batches = 1);
 
     /// @brief Wake any backoff sleep and end every retry loop at its next
     ///        sleep, now and from now on. Called by `Shutdown`
@@ -78,7 +91,8 @@ public:
 
 private:
     [[nodiscard]] internal::WireResult Resolve(const internal::WireResult& first_attempt,
-                                               const RetryAttempt& retry);
+                                               const RetryAttempt& retry,
+                                               std::uint64_t batches);
     /// @return The last retry's result, or `nullopt` when no retry was made
     ///         (the first backoff would reach the budget, or `Abort`).
     [[nodiscard]] std::optional<internal::WireResult> RunRetryLoop(
@@ -91,7 +105,9 @@ private:
                                           std::uint32_t attempt,
                                           internal::TimePointSteady budget_deadline);
     [[nodiscard]] bool SleepUnlessAborted(std::chrono::milliseconds backoff);
-    void RecordOutcome(const internal::WireResult& result, std::string_view failure_stage) noexcept;
+    void RecordOutcome(const internal::WireResult& result,
+                       std::string_view failure_stage,
+                       std::uint64_t batches) noexcept;
     [[nodiscard]] internal::TimePointSteady ClockNow() const noexcept;
     [[nodiscard]] double DrawJitter01() noexcept;
     [[nodiscard]] static std::uint64_t ClockSeed() noexcept;

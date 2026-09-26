@@ -1198,8 +1198,10 @@ their encoded bytes:
 - **Accounting and retry move to the request.** A coalesced request is sent,
   retried and classified as one unit, as a single batch is today. A partial
   success's rejected count applies to the request and is counted once;
-  `retry_budget_exhausted` and `non_retryable_failure` count every record in
-  the request; `batches_sent` still counts `BatchHandle`s. `error-model.md` §3
+  `retry_budget_exhausted` and `non_retryable_failure` are counted once per
+  `BatchHandle` in the request, as `batches_sent` and `batches_failed` are,
+  so the counters keep the unit they had before requests were joined (see the
+  implementation note below). `error-model.md` §3
   replaces "one batch yields one accounting" with "one request yields one
   accounting".
 - It applies to in-process spans too, where it merges the per-scope handles of
@@ -1208,7 +1210,18 @@ their encoded bytes:
   change.
 
 No ICP: `IExporter`, `IOtlpEncoder` and `BatchHandle` keep their contracts, and
-the change is internal to the exporter. The throughput bench (§7.9) confirms
+the change is internal to the exporter.
+
+*Implementation note.* Handed a drain one `Export` call per `BatchHandle`, the
+exporter's worker can wake between two of them and send the first alone, so
+whether one drain leaves as one request would depend on thread timing. The
+processor therefore hands a drain's handles over in one call through a new,
+additive internal interface, `IBatchGroupExporter` (`interfaces.md` §4.14),
+which `OtlpExporter` implements beside `IExporter`. A request's outcome is
+counted once per `BatchHandle` it carries, so `batches_sent`,
+`batches_failed` and the failure counters read as they did before requests
+were joined; the partial-success count is the collector's for the request and
+is recorded once. The throughput bench (§7.9) confirms
 the fan-in — requests per batch stays at one as the number of leaves grows —
 rather than deciding whether to have it.
 
@@ -1233,7 +1246,7 @@ its RAM budget (§9, decision 10).
 | `max_payload_bytes` | 64 KiB | before decode | `TooLarge`, `leaf_payload_too_large` |
 | `max_spans_per_payload` | 512 | during decode | `TooLarge`, `leaf_payload_too_large` |
 | decode depth | 16 | `upb_DecodeOptions_MaxDepth` | `TooLarge`, `leaf_payload_too_large` |
-| decode arena | 4 × `max_payload_bytes` | counting `upb_alloc` | `TooLarge`, `leaf_payload_too_large` |
+| decode arena | 16 × `max_payload_bytes` + 16 KiB (measured; see below) | counting `upb_alloc` | `TooLarge`, `leaf_payload_too_large` |
 | `max_leaf_id_bytes` | 128 | before lookup | `Malformed`, `leaf_payload_malformed` |
 | per-span structure | the Provider's `SpanLimitOptions` | §3.6 step 2 | per item, existing reasons |
 | per-record size | `max_record_bytes` | `OnEnd` | per span, `record_too_large` |
@@ -1242,13 +1255,16 @@ its RAM budget (§9, decision 10).
 The depth of 16 leaves room for the deepest legal path in the trace schema
 (request → ResourceSpans → ScopeSpans → Span → Event → KeyValue → AnyValue →
 ArrayValue → AnyValue is nine levels) and stops recursion bombs. The arena
-factor of 4 is a first estimate of upb's decoded-to-wire ratio for OTLP spans.
-*Verify* it against the golden vectors and the fuzz corpus, and set it from
-the measured worst case with a margin.
+factor of 4 was a first estimate of upb's decoded-to-wire ratio for OTLP spans.
+**Measured** when the decoder landed (upb v29.4): legitimate payloads need
+6–12 × their wire size, up to about 15 × for dense numeric arrays, plus about
+2 KiB of fixed arena overhead that dominates a small payload. The cap is
+therefore 16 × `max_payload_bytes` + 16 KiB, and `otlp_trace_decoder_test`
+pins that it fits the worst measured shape.
 
 A microtel leaf payload is typically well under 1 KB. 64 KiB is generous for
 leaves and small enough that a hostile payload cannot cost more than about
-256 KiB of transient memory per concurrent `Ingest`.
+1 MiB of transient arena per concurrent `Ingest`.
 
 ### 3.8 Reserved wire attributes
 
@@ -1805,8 +1821,8 @@ the existing fake span processor and fake exporter:
   the union of its inputs' `ResourceSpans`, in order; the exporter turns N
   handles into one request up to `max_export_batch_size` spans and splits
   beyond it; a partial success, a retry and a terminal failure of a coalesced
-  request are each counted once per request, with record counts summed over
-  its handles.
+  request are each resolved once per request, and counted once per handle it
+  carries (the partial-success count once per request).
 - TSAN: concurrent `Ingest` from several threads with overlapping leaf ids.
 
 ### 7.5 End-to-end (gates 3 and 5)
@@ -1986,8 +2002,9 @@ sources:
 - upb v29.4: ~~`upb_Arena_Init` with a NULL `upb_alloc` never grows (§2.2)~~
   **refuted**: it dereferences the NULL allocator when the initial block runs
   out; the leaf passes a refusing allocator instead (§2.2). Field-number
-  output order (§2.3): **confirmed**. Still open: the decoded-to-wire memory
-  ratio behind the arena factor of 4 (§3.7), which belongs to the decoder.
+  output order (§2.3): **confirmed**. The decoded-to-wire memory ratio behind
+  the arena factor (§3.7) was measured when the decoder landed: 4 was too
+  small, and the cap is now 16 × `max_payload_bytes` + 16 KiB.
 - nanopb: **checked against 0.4.9.2 when vendoring.** Descriptor field order
   is tag order: the generator sorts the field list by tag whatever
   `sort_by_tag` says (`nanopb_generator.py`, "Field descriptor array must be

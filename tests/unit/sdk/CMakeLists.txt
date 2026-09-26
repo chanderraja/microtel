@@ -476,3 +476,36 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(resource_builder_test
     PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# v1.2 — SdkBuilder::WithLeafReceiver (ICP 0034, docs/leaf-concentrator-design.md
+# §4.3, §6.2). Built in both configurations of MICROTEL_WITH_CONCENTRATOR, and
+# told which one it is so it can check the other half of the contract.
+microtel_add_test(
+    NAME    leaf_receiver_builder_test
+    SOURCES leaf_receiver_builder_test.cpp
+    LIBS    microtel_sdk)
+target_compile_options(leaf_receiver_builder_test PRIVATE
+    -Wno-missing-field-initializers)
+if(MICROTEL_WITH_CONCENTRATOR)
+    target_compile_definitions(leaf_receiver_builder_test PRIVATE MICROTEL_WITH_CONCENTRATOR=1)
+endif()
+
+# v1.2 — the concentrator ingest path: SdkLeafReceiver against the dumb decoder
+# mock and the fake, and the leaf table under it. Only in a concentrator build.
+if(MICROTEL_WITH_CONCENTRATOR)
+    microtel_add_test(
+        NAME    leaf_receiver_test
+        SOURCES leaf_receiver_test.cpp
+        LIBS    microtel_sdk)
+    target_include_directories(leaf_receiver_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(leaf_receiver_test PRIVATE
+        -Wno-missing-field-initializers)
+
+    microtel_add_test(
+        NAME    leaf_table_test
+        SOURCES leaf_table_test.cpp
+        LIBS    microtel_sdk)
+    target_include_directories(leaf_table_test
+        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+endif()

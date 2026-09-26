@@ -93,6 +93,23 @@ TEST_F(SimpleSpanProcessorTest, EachBatchCarriesTheScopeItsOnEndWasGiven)
     EXPECT_EQ(m_exporter.received_batches[1].Scope().version, "2");
 }
 
+// A leaf span carries its own Resource (docs/leaf-concentrator-design.md
+// §3.6); an in-process span leaves it null and gets the processor's.
+TEST_F(SimpleSpanProcessorTest, BatchCarriesTheRecordsResourceOrTheProcessorsWhenNull)
+{
+    mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};
+    const auto leaf = std::make_shared<const mt::Resource>();
+
+    auto leaf_record = MakeSpanRecord("leaf");
+    leaf_record.resource = leaf;
+    proc.OnEnd(std::move(leaf_record), m_scope);
+    proc.OnEnd(MakeSpanRecord("in-process"), m_scope);
+
+    ASSERT_EQ(m_exporter.received_batches.size(), std::size_t{2});
+    EXPECT_EQ(&m_exporter.received_batches[0].ResourceRef(), leaf.get());
+    EXPECT_EQ(&m_exporter.received_batches[1].ResourceRef(), m_resource.get());
+}
+
 TEST_F(SimpleSpanProcessorTest, ForceFlushReturnsCompletedWithoutEngagingExporter)
 {
     mt::internal::SimpleSpanProcessor proc{&m_exporter, m_resource};

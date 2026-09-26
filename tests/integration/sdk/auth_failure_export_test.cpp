@@ -104,7 +104,14 @@ void ExportThreeBatches(mti::IAuthProvider& auth,
     mtfk::MockOtlpEncoder encoder;
     transport.default_response = OkResponse();
     mtw::HttpWireCodec codec{&transport, MakeCodecConfig(), &auth, &sink, nullptr};
-    mte::OtlpExporter exporter{&encoder, &codec, mte::OtlpExporterConfig{}, &sink, nullptr};
+    // One span per request: each batch is its own request, and so its own
+    // auth callback. Without it the exporter may join drained batches into one
+    // request (docs/leaf-concentrator-design.md §3.6.1), which fetches one
+    // header for all of them, and which batch a failure costs would depend on
+    // the worker's timing.
+    mte::OtlpExporterConfig config;
+    config.max_spans_per_request = 1;
+    mte::OtlpExporter exporter{&encoder, &codec, config, &sink, nullptr};
 
     for (int i = 0; i < 3; ++i)
     {

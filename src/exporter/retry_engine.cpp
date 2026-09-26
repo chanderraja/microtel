@@ -29,9 +29,10 @@ RetryEngine::RetryEngine(const RetryPolicyConfig& policy,
 
 void RetryEngine::Settle(const internal::WireResult& first_attempt,
                          const RetryAttempt& retry,
-                         std::string_view failure_stage)
+                         std::string_view failure_stage,
+                         std::uint64_t batches)
 {
-    RecordOutcome(Resolve(first_attempt, retry), failure_stage);
+    RecordOutcome(Resolve(first_attempt, retry, batches), failure_stage, batches);
 }
 
 void RetryEngine::Abort() noexcept
@@ -44,7 +45,8 @@ void RetryEngine::Abort() noexcept
 }
 
 internal::WireResult RetryEngine::Resolve(const internal::WireResult& first_attempt,
-                                          const RetryAttempt& retry)
+                                          const RetryAttempt& retry,
+                                          std::uint64_t batches)
 {
     if (first_attempt.success || !first_attempt.retryable)
     {
@@ -62,7 +64,7 @@ internal::WireResult RetryEngine::Resolve(const internal::WireResult& first_atte
     {
         // Not a loss — the batch was delivered — but the export path is
         // unhealthy, and this counter is the only place that shows it.
-        m_diag->RecordDrop(DropReason::RetryableFailureRecovered);
+        m_diag->RecordDrop(DropReason::RetryableFailureRecovered, batches);
     }
     return std::move(*retried);
 }
@@ -120,7 +122,8 @@ bool RetryEngine::SleepUnlessAborted(std::chrono::milliseconds backoff)
 }
 
 void RetryEngine::RecordOutcome(const internal::WireResult& result,
-                                std::string_view failure_stage) noexcept
+                                std::string_view failure_stage,
+                                std::uint64_t batches) noexcept
 {
     if (m_diag == nullptr)
     {
@@ -135,7 +138,10 @@ void RetryEngine::RecordOutcome(const internal::WireResult& result,
             m_diag->RecordDrop(DropReason::PartialSuccessRejection,
                                result.partial_success_rejected);
         }
-        m_diag->RecordBatchSent();
+        for (std::uint64_t i = 0; i < batches; ++i)
+        {
+            m_diag->RecordBatchSent();
+        }
         return;
     }
     // This funnel runs exactly once per batch, after every retry has been
@@ -144,12 +150,17 @@ void RetryEngine::RecordOutcome(const internal::WireResult& result,
     // retry cut short by Shutdown are the same outcome to an operator and
     // share one counter.
     m_diag->RecordDrop(result.retryable ? DropReason::RetryBudgetExhausted
-                                        : DropReason::NonRetryableFailure);
+                                        : DropReason::NonRetryableFailure,
+                       batches);
     // A codec may report failure without populating `error`. Recording an
     // empty message would leave GetExporterHealth() saying a batch failed and
     // refusing to say why, so name the stage instead.
-    m_diag->RecordBatchFailed(result.error.value_or(
-        Error{.kind = Error::Kind::Network, .message = std::string{failure_stage}}));
+    const Error error = result.error.value_or(
+        Error{.kind = Error::Kind::Network, .message = std::string{failure_stage}});
+    for (std::uint64_t i = 0; i < batches; ++i)
+    {
+        m_diag->RecordBatchFailed(error);
+    }
 }
 
 internal::TimePointSteady RetryEngine::ClockNow() const noexcept

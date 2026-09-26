@@ -27,12 +27,41 @@
 namespace microtel::exporter
 {
 
+/// @brief How many full processor batches the trace exporter's queue holds.
+inline constexpr std::size_t kQueuedFullBatches = 256;
+
+/// @brief Default most spans in one export request: the default
+/// `BatchOptions::max_export_batch_size`.
+inline constexpr std::size_t kDefaultMaxSpansPerRequest = 512;
+
+/// @brief The trace exporter's queue budget in spans, for a processor that
+/// cuts batches of @p max_export_batch_size spans: `kQueuedFullBatches` of
+/// them (issue #345).
+///
+/// The budget is in spans, not batches, because a processor drain becomes one
+/// batch per `(Resource, scope)` group: the same drain is one batch from one
+/// leaf and hundreds from hundreds of leaves. A bound in batches alone let a
+/// many-leaf concentrator queue a small fraction of the spans a one-leaf one
+/// could.
+[[nodiscard]] constexpr std::size_t QueuedSpanBudget(std::size_t max_export_batch_size) noexcept
+{
+    return kQueuedFullBatches * max_export_batch_size;
+}
+
 /// @brief Configuration for `OtlpExporter`.
 struct OtlpExporterConfig
 {
     /// @brief Maximum number of batches held in the worker queue.
-    /// `Export` returns `Dropped` when the queue is at capacity.
-    std::size_t max_queue_size = 256;
+    /// `Export` returns `Dropped` when the queue is at capacity. Every batch
+    /// the processor hands over carries at least one span, so at its default,
+    /// equal to `max_queued_spans`, this never binds before the span budget.
+    std::size_t max_queue_size = QueuedSpanBudget(kDefaultMaxSpansPerRequest);
+    /// @brief Maximum number of spans, summed over the queued batches.
+    /// A batch that would take the queue past it is refused like one that
+    /// finds the queue full (`Dropped`, `queue_full` per span); the limit is
+    /// a ceiling the queue may reach. `SdkBuilder` sets it to
+    /// `QueuedSpanBudget(BatchOptions::max_export_batch_size)`.
+    std::size_t max_queued_spans = QueuedSpanBudget(kDefaultMaxSpansPerRequest);
     /// @brief Per-export deadline passed to `IWireCodec::Send`.
     std::chrono::milliseconds export_deadline{std::chrono::seconds(10)};
     /// @brief Retry / backoff policy.
@@ -42,7 +71,7 @@ struct OtlpExporterConfig
     /// (`docs/leaf-concentrator-design.md` §3.6.1). A batch is never split: a
     /// batch larger than this goes as a request of its own. `SdkBuilder` sets
     /// it to `BatchOptions::max_export_batch_size`.
-    std::size_t max_spans_per_request = 512;
+    std::size_t max_spans_per_request = kDefaultMaxSpansPerRequest;
 };
 
 /// @brief Protocol-agnostic OTLP export pipeline.
@@ -133,6 +162,9 @@ private:
     RetryEngine m_retry;
 
     std::deque<internal::BatchHandle> m_queue;
+    /// Summed span count of the batches in `m_queue`, held against
+    /// `OtlpExporterConfig::max_queued_spans`. Guarded by `m_mu`.
+    std::size_t m_queued_spans = 0;
     std::mutex m_mu;
     std::condition_variable m_cv;
     std::uint64_t m_flush_seq = 0;

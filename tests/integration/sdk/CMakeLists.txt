@@ -53,3 +53,12 @@ if(MICROTEL_WITH_CONCENTRATOR)
         -include ${MICROTEL_UPB_RENAME_HEADER}
         -Wno-missing-field-initializers)
 endif()
+
+# Issue #345: the real BatchSpanProcessor feeding the real OtlpExporter from
+# many Resources — the exporter's queue must hold what one Resource's would.
+microtel_add_integration_test(
+    NAME    fanin_export_test
+    SOURCES fanin_export_test.cpp
+    LIBS    microtel_sdk microtel_exporter)
+target_compile_options(fanin_export_test PRIVATE
+    -Wno-missing-field-initializers)

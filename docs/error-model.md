@@ -69,7 +69,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 
 | Reason (counter name) | Where incremented | Triggered by |
 |---|---|---|
-| `queue_full` | `BatchSpanProcessor` / `BatchLogRecordProcessor` on enqueue, and each exporter's `Export` | queue at capacity — in records (`max_queue_size`) or, for spans, in bytes (`max_total_queue_bytes`); whichever fills first. Counted in records, not batches: a batch the exporter refuses costs every record in it. Both drop policies lose one record per rejection — the policy picks which one. The byte cap may need more than one eviction to admit a record, and each one is counted |
+| `queue_full` | `BatchSpanProcessor` / `BatchLogRecordProcessor` on enqueue, and each exporter's `Export` | queue at capacity — in records (`max_queue_size`) or, for spans, in bytes (`max_total_queue_bytes`); whichever fills first. An exporter's queue is bounded in batches, and the trace exporter's also in the spans they carry (`max_queued_spans`, issue #345). Counted in records, not batches: a batch the exporter refuses costs every record in it. Both drop policies lose one record per rejection — the policy picks which one. The byte cap may need more than one eviction to admit a record, and each one is counted |
 | `record_too_large` | `BatchSpanProcessor::OnEnd`, before the record is queued | record's size estimate (`sdk::EstimateRecordBytes`) exceeds `max_record_bytes`. Counted in records: the record is refused, never queued, and the rest of the batch is unaffected |
 | `span_attribute_limit` | API layer, in `SetAttribute` | per-span `attribute_count_limit` reached |
 | `span_event_limit` | API layer, in `AddEvent` | per-span `event_count_limit` reached |

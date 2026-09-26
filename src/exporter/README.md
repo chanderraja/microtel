@@ -45,7 +45,9 @@ Track A — Trace SDK.
   A request is sent, retried and classified once, and its outcome counted once
   per batch in it. `OtlpExporter` also implements
   `internal::IBatchGroupExporter`, so the span processor can hand over a whole
-  drain under one lock.
+  drain under one lock. The trace queue is bounded in spans
+  (`max_queued_spans`) as well as in batches, because a drain from many
+  leaves is many small batches (issue #345).
 - Drop accounting at the export boundary: `retryable_failure_recovered`,
   `retry_budget_exhausted`, `non_retryable_failure`,
   `partial_success_rejection`, and `queue_full` / `post_shutdown` when a batch

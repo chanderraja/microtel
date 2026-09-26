@@ -52,6 +52,7 @@
 #include "wire/http/http_wire_codec.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -566,8 +567,13 @@ struct ExporterPack
     // A request carries at most one processor batch's worth of spans, so
     // joining drained batches never makes a request larger than a batch the
     // processor could have cut (design §3.6.1). Fixed at build time: a later
-    // SetBatchOptions retunes the processor, not this.
+    // SetBatchOptions retunes the processor, not this. The queue is budgeted
+    // in spans, a fixed number of full batches' worth, so a drain split over
+    // many leaves' Resources costs no more of it than one leaf's (issue #345).
+    const std::size_t queued_spans = exporter::QueuedSpanBudget(cfg.batch.max_export_batch_size);
     const exporter::OtlpExporterConfig ex_cfg{
+        .max_queue_size = queued_spans,
+        .max_queued_spans = queued_spans,
         .export_deadline = cfg.timeouts.per_export,
         .retry_policy = retry_policy,
         .max_spans_per_request = cfg.batch.max_export_batch_size,

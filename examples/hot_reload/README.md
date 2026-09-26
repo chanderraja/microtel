@@ -67,11 +67,11 @@ What each setter rejects with `InvalidArgument`:
 | `SetSamplerRatio` | NaN; `< 0.0`; `> 1.0` |
 | `SetLogLevel` | a value outside the declared `LogLevel` enumerators |
 
-The setters are stricter than the builder. `SdkBuilder` only checks that
-`max_export_batch_size` doesn't exceed `max_queue_size`, so a zero queue size
-(paired with a zero batch size), a zero batch size or a zero `schedule_delay`
-all pass `Build()` today and produce a processor that never drains or spins.
-ICP 0026 records this under Discrepancies.
+`SetBatchOptions` and `SdkBuilder::Build` share one validator
+(`config::CheckBatchOptions`), so a `BatchOptions` the setter rejects also
+fails `Build()` with `ConfigError::Kind::InvalidValue`, and the reverse. Until
+v1.2 the builder checked only that `max_export_batch_size` didn't exceed
+`max_queue_size` (ICP 0026 Discrepancy 1, closed by issue #267).
 
 After `Shutdown`, every setter returns `AlreadyShutDown`. The shutdown flag is
 checked before any mutex is taken, the same pattern `GetMeter` and `GetLogger`
@@ -152,9 +152,7 @@ running for 60s, one root span every 50ms
 t=+5s  emitted=101 sampled=101  (last 5s: 101 emitted, 101 sampled)  trace_id=dad391af…
 t=+10s  SetSamplerRatio(0.1) -> Completed
 t=+15s  emitted=300 sampled=207  (last 5s: 99 emitted, 6 sampled)  trace_id=8ed77ef8…
-         [microtel warn] SetBatchOptions rejected: max_queue_size and max_export_batch_size
-                         must both be non-zero, max_export_batch_size must not exceed
-                         max_queue_size, and schedule_delay must be greater than zero
+         [microtel warn] SetBatchOptions rejected: max_queue_size must be greater than zero
 t=+20s  SetBatchOptions({max_queue_size=0}) [invalid] -> InvalidArgument
 t=+30s  SetLogLevel(Error) -> Completed
 t=+40s  SetBatchOptions({max_queue_size=0}) [invalid, and now unexplained] -> InvalidArgument

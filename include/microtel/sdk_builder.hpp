@@ -203,6 +203,12 @@ public:
     SdkBuilder& WithResourceDetector(std::unique_ptr<internal::IResourceDetector> detector);
 
     SdkBuilder& WithSampler(SamplerHandle sampler);
+    /// @brief Set the batch processor knobs (span and log pipelines).
+    ///
+    /// Validated by `Build()` with the same rules `Provider::SetBatchOptions`
+    /// applies: a zero `max_queue_size`, a zero `max_export_batch_size`, a
+    /// `max_export_batch_size` above `max_queue_size`, or a `schedule_delay`
+    /// of zero or less fails `Build()` with `ConfigError::Kind::InvalidValue`.
     SdkBuilder& WithBatch(BatchOptions opts);
     SdkBuilder& WithSpanLimits(SpanLimitOptions opts);
     SdkBuilder& WithMemoryLimits(MemoryLimitOptions opts);
@@ -238,7 +244,8 @@ public:
     /// @brief Validate configuration and construct a `Provider`.
     ///
     /// Eager validation: TOML parsing, env-var parsing, endpoint URL
-    /// validation, TLS material readability. Network reachability is **not**
+    /// validation, TLS material readability, batch-option coherence (see
+    /// `WithBatch`). Network reachability is **not**
     /// validated — call `Provider::Connect()` if eager network preflight is
     /// needed.
     ///

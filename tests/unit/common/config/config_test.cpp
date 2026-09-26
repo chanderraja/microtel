@@ -21,10 +21,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -741,6 +744,56 @@ TEST(ValidateTest, BatchSizeExceedsQueueSize_ReturnsInvalidValue)
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue);
     EXPECT_EQ(result.error().field, "sdk.max_export_batch_size");
+}
+
+// Issue #267: the three rules SetBatchOptions already enforced, now enforced by
+// Validate too. The cross-surface agreement is asserted end to end in
+// tests/unit/sdk/batch_options_validation_test.cpp.
+TEST(ValidateTest, IncoherentBatchOptions_ReturnInvalidValueNamingTheField)
+{
+    struct Case
+    {
+        std::uint32_t queue;
+        std::uint32_t batch;
+        std::chrono::milliseconds delay;
+        std::string_view field;
+    };
+    const Case cases[] = {
+        {.queue = 0, .batch = 0, .delay = std::chrono::seconds(5), .field = "sdk.max_queue_size"},
+        {.queue = 8192,
+         .batch = 0,
+         .delay = std::chrono::seconds(5),
+         .field = "sdk.max_export_batch_size"},
+        {.queue = 8192,
+         .batch = 512,
+         .delay = std::chrono::milliseconds(0),
+         .field = "sdk.schedule_delay_ms"},
+        {.queue = 8192,
+         .batch = 512,
+         .delay = std::chrono::milliseconds(-1),
+         .field = "sdk.schedule_delay_ms"},
+    };
+    for (const auto& c : cases)
+    {
+        mc::Config cfg = MinimalValidConfig();
+        cfg.batch.max_queue_size = c.queue;
+        cfg.batch.max_export_batch_size = c.batch;
+        cfg.batch.schedule_delay = c.delay;
+        const auto result = mc::Validate(cfg);
+        ASSERT_FALSE(result.has_value()) << c.field;
+        EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue) << c.field;
+        EXPECT_EQ(result.error().field, c.field);
+    }
+}
+
+TEST(ValidateTest, SmallestCoherentBatchOptions_Succeed)
+{
+    mc::Config cfg = MinimalValidConfig();
+    cfg.batch.max_queue_size = 1;
+    cfg.batch.max_export_batch_size = 1;
+    cfg.batch.schedule_delay = std::chrono::milliseconds(1);
+    const auto result = mc::Validate(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
 }
 
 TEST(ValidateTest, ValidMinimalConfig_Succeeds)

@@ -294,6 +294,24 @@ drop_policy = "oldest"
 `ConfigError::InvalidValue` on field `sdk.drop_policy`) and
 `DropPolicy::DropNewest` / `DropPolicy::DropOldest` in code. Spec §5.4.
 
+`Build()` rejects an incoherent combination with `ConfigError::InvalidValue`,
+naming the first field at fault, whether it came from code or from TOML:
+
+| Rejected | `field` |
+|---|---|
+| `max_queue_size = 0` | `sdk.max_queue_size` |
+| `max_export_batch_size = 0` | `sdk.max_export_batch_size` |
+| `max_export_batch_size > max_queue_size` | `sdk.max_export_batch_size` |
+| `schedule_delay_ms <= 0` | `sdk.schedule_delay_ms` |
+
+A zero queue refuses every record, a zero batch size never drains the queue,
+and a non-positive delay turns the worker's wait into a spin. The smallest
+accepted combination is `1` / `1` / `1 ms`, and a batch size equal to the queue
+size is accepted. These are exactly the rules `Provider::SetBatchOptions`
+applies at runtime — both call one validator — so a value the setter answers
+`InvalidArgument` for also fails `Build()`, and the reverse. Before v1.2
+`Build()` checked only the third rule (ICP 0026 Discrepancy 1, issue #267).
+
 Three corrections (#196): the TOML table is `[sdk]`, not `[batch]`; the delay
 key is `schedule_delay_ms` (integer milliseconds), not `schedule_delay`; and
 there is no `WithDropPolicy` setter — it is a `BatchOptions` field. The

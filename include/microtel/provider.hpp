@@ -235,7 +235,9 @@ public:
     ///
     /// Rejected with `InvalidArgument`: a zero `max_queue_size`, a zero
     /// `max_export_batch_size`, a `max_export_batch_size` above
-    /// `max_queue_size`, or a `schedule_delay` of zero or less.
+    /// `max_queue_size`, or a `schedule_delay` of zero or less — the same
+    /// rules `SdkBuilder::Build` applies to `WithBatch` and the `[sdk]` table,
+    /// so a value is accepted here exactly when it would build.
     ///
     /// The change is applied to the two pipelines in turn and is **not atomic
     /// across them**: for the duration of one call a span batch may be cut

@@ -9,6 +9,7 @@
 #include <charconv>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -310,6 +311,31 @@ struct AuthorityPath
 // Public API
 // ---------------------------------------------------------------------------
 
+std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noexcept
+{
+    if (opts.max_queue_size == 0U)
+    {
+        return BatchOptionsFault{.field = "sdk.max_queue_size",
+                                 .message = "max_queue_size must be greater than zero"};
+    }
+    if (opts.max_export_batch_size == 0U)
+    {
+        return BatchOptionsFault{.field = "sdk.max_export_batch_size",
+                                 .message = "max_export_batch_size must be greater than zero"};
+    }
+    if (opts.max_export_batch_size > opts.max_queue_size)
+    {
+        return BatchOptionsFault{.field = "sdk.max_export_batch_size",
+                                 .message = "max_export_batch_size must not exceed max_queue_size"};
+    }
+    if (opts.schedule_delay.count() <= 0)
+    {
+        return BatchOptionsFault{.field = "sdk.schedule_delay_ms",
+                                 .message = "schedule_delay must be greater than zero"};
+    }
+    return std::nullopt;
+}
+
 microtel::Expected<void, ConfigError> Validate(Config& cfg)
 {
     // --- Protocol (spec §12.2) ---
@@ -350,13 +376,12 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
         return microtel::make_unexpected(tls_ok.error());
     }
 
-    // --- Batch coherence ---
-    if (cfg.batch.max_export_batch_size > cfg.batch.max_queue_size)
+    // --- Batch coherence (the same rules SetBatchOptions applies, #267) ---
+    if (const auto fault = CheckBatchOptions(cfg.batch))
     {
-        return microtel::make_unexpected(
-            ConfigError{.kind = ConfigError::Kind::InvalidValue,
-                        .field = "sdk.max_export_batch_size",
-                        .message = "max_export_batch_size must not exceed max_queue_size"});
+        return microtel::make_unexpected(ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                                                     .field = std::string{fault->field},
+                                                     .message = std::string{fault->message}});
     }
 
     // --- Service identity ---

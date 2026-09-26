@@ -9,6 +9,10 @@
 #   2. UNPREFIXED VENDORED — no artifact defines or references a vendored upb /
 #      utf8_range symbol under its upstream name. They ship renamed to
 #      `microtel_*` (ICP 0020 Decision 4).
+#   3. LOG BRIDGE — no artifact defines or references a glog, gflags or log4cxx
+#      symbol. The glog and log4cxx bridges (issue #304) are header-only and
+#      compile in the consumer's build; a shipped archive that referenced
+#      either library would make it a link requirement for every consumer.
 #
 # This is the mechanical backing for CLAUDE.md rule 13 ("No gRPC library, no
 # abseil, no protobuf-cpp runtime. Ever.") and for spec §3's dependency-closure
@@ -78,6 +82,14 @@ FORBIDDEN_PATTERN='^(absl::|absl_|grpc::|grpc_|GRPC_|google::protobuf::)'
 # pin bump. The fix is to regenerate the header, not to widen this pattern; the
 # recipe is in the header's comment block.
 UNPREFIXED_VENDORED_PATTERN='^(_?upb_|_?kUpb_|kWyhashSalt$|UPB_linkarr|utf8_range_)'
+
+# glog / gflags / log4cxx, matched like FORBIDDEN_PATTERN (demangled, anchored,
+# defined or undefined). glog and gflags live in `google::` (gflags also in
+# `gflags::` and the `fL?::` flag namespaces); log4cxx in `log4cxx::`. None of
+# these is a member of CLAUDE.md rule 12's closure, so nothing shipped may
+# reference them — only the header-only bridges, compiled by the consumer, do.
+# `google::protobuf::` also matches here; it is already reported by pass 1.
+LOG_BRIDGE_PATTERN='^(google::|gflags::|fL[BIS]::|log4cxx::)'
 
 # This pass looks at *externally visible* symbols only (`nm -g`: `T`/`D`/`R`/`B`,
 # weak `W`/`V`, and undefined `U`). That is precisely the collision surface —
@@ -153,6 +165,7 @@ symbols_of() {
 
 forbidden_violations=0
 unprefixed_violations=0
+bridge_violations=0
 
 for artifact in "${ARTIFACTS[@]}"; do
     hits=$(symbols_of "$artifact" -A -C | grep -E "$FORBIDDEN_PATTERN" | sort -u || true)
@@ -172,6 +185,13 @@ for artifact in "${ARTIFACTS[@]}"; do
         echo "$hits" | sed 's/^/    /' >&2
         unprefixed_violations=$((unprefixed_violations + 1))
     fi
+
+    hits=$(symbols_of "$artifact" -A -C | grep -E "$LOG_BRIDGE_PATTERN" | sort -u || true)
+    if [[ -n "$hits" ]]; then
+        echo "symbol-scan: LOG BRIDGE dependency symbols in $artifact" >&2
+        echo "$hits" | sed 's/^/    /' >&2
+        bridge_violations=$((bridge_violations + 1))
+    fi
 done
 
 if [[ $forbidden_violations -ne 0 ]]; then
@@ -188,9 +208,17 @@ if [[ $unprefixed_violations -ne 0 ]]; then
     echo "symbol-scan: regeneration recipe in third_party/upb/microtel_upb_rename.h." >&2
 fi
 
-if [[ $((forbidden_violations + unprefixed_violations)) -ne 0 ]]; then
+if [[ $bridge_violations -ne 0 ]]; then
+    echo >&2
+    echo "symbol-scan: $bridge_violations artifact(s) reference glog, gflags or log4cxx." >&2
+    echo "symbol-scan: The log bridges are header-only and must stay out of every shipped" >&2
+    echo "symbol-scan: archive — see src/adapters/glog/README.md and ICP 0014." >&2
+fi
+
+if [[ $((forbidden_violations + unprefixed_violations + bridge_violations)) -ne 0 ]]; then
     exit 1
 fi
 
 echo "symbol-scan: clean — no gRPC, abseil, or protobuf-cpp symbols"
 echo "symbol-scan: clean — no unprefixed vendored upb/utf8_range symbols"
+echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"

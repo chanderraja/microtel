@@ -20,7 +20,7 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 | Trace runtime + OTLP exporter | Done | Open bugs only (#271, #223) |
 | v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (v1.4, #297) |
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
-| v1.2 Logs | Mostly done, experimental | glog and log4cxx bridges; collector conformance tests; logs bench profile; logs cookbook |
+| v1.2 Logs | Mostly done, experimental | collector conformance tests; logs bench profile; logs cookbook |
 | v1.2 Leaf / concentrator | Not started; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Design doc; C leaf with upb and nanopb backends; concentrator ingest path; the ship gates in the ICP |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
@@ -143,16 +143,16 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Logs go supported, and the embedded story starts: the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md), renumbered from v1.3 by [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)).
 
-**Status:** mostly done and shipping as experimental. Remaining: the glog and log4cxx bridges, collector conformance tests, and a logs bench profile.
+**Status:** mostly done and shipping as experimental. Remaining: collector conformance tests and a logs bench profile.
 
 - **OTel Logs API:** Logger, LogRecord, severity levels, attribute schema. *(Done.)*
 - **OTLP/logs export** on both wire protocols. *(Done, with retry since v1.1.1, #222.)*
 - **Trace context correlation:** logs emitted within an active span carry the `trace_id` and `span_id` automatically. *(Done.)*
 - **Bridge adapters as separate packages:**
   - `microtel-bridge-spdlog`: a spdlog sink that converts spdlog records to OTel LogRecords. The natural pairing given microtel's internal logging dependency. *(Done, in-tree as `microtel/adapters/spdlog_sink.hpp` rather than a separate package.)*
-  - `microtel-bridge-glog`: same for `glog`. *(Not started.)*
-  - `microtel-bridge-log4cxx`: same for `log4cxx`. *(Not started.)*
-  - Bridges are independently versioned packages.
+  - `microtel-bridge-glog`: same for `glog`. *(Done, #304: in-tree as `microtel/adapters/glog_sink.hpp`, header-only, glog 0.6–0.7, opt-in via `MICROTEL_BUILD_GLOG_BRIDGE`.)*
+  - `microtel-bridge-log4cxx`: same for `log4cxx`. *(Done, #304: in-tree as `microtel/adapters/log4cxx_appender.hpp`, header-only, log4cxx 1.1+, opt-in via `MICROTEL_BUILD_LOG4CXX_BRIDGE`.)*
+  - Bridges are independently versioned packages. *(Superseded: all three ship in-tree as header-only adapters versioned with microtel. None adds to microtel's link closure, and `ci/scripts/symbol-scan.sh` fails any shipped archive that references glog, gflags or log4cxx.)*
 
 **Compatibility tier:** Tier 1 and Tier 2 add logs; metrics follow in v1.3. The Tier 3 shim is already experimental for all three signals.
 
@@ -421,7 +421,7 @@ The `bench/` directory evolves alongside the project:
 ### Documentation
 - **v1.0:** spec, migration guide, README, compatibility matrix, interop matrix.
 - **v1.1:** hot-reload setter guide — what is reloadable, what is not, and why. *(Partial: covered by `examples/hot_reload/README.md` and `docs/control-plane-design.md` §2; no standalone guide.)*
-- **v1.2:** logs cookbook with bridge examples. *(Partial: `docs/logs-design.md` and the spdlog adapter README only.)*
+- **v1.2:** logs cookbook with bridge examples. *(Partial: `docs/logs-design.md` and the spdlog, glog and log4cxx adapter READMEs only.)*
 - **v1.2:** leaf programming guide, concentrator deployment guide, embedded examples. *(Moved from v2.0.)*
 - **v1.3:** metrics design doc (M11 from v1 spec). *(Done.)*
 - **v1.4:** control plane operator guide, threat model. *(Not started.)*

@@ -474,6 +474,8 @@ Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.
 | `MICROTEL_USE_SPDLOG` | `ON` | When `OFF`, microtel uses a minimal stderr logger instead of spdlog. Sink injection still works. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | When `ON`, a configuration with `tls.insecure = true` fails `Build()` with `ConfigError::Kind::InsecureDisallowed`. Default builds warn instead. See §3.5. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp adapter (ICP 0014). |
+| `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests. Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |
+| `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Builds the header-only log4cxx log bridge and its tests. Needs log4cxx 1.1 or later installed (`find_package(log4cxx)`). |
 | `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree. Set `OFF` for cross-compilation. |
 | `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Builds the header compile check that includes every public and internal header. |
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the standalone API examples under `examples/`. |

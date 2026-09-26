@@ -211,7 +211,7 @@ section paralleling `[traces]`/`[metrics]`, with `endpoint`, `protocol`,
 `batch`, and `correlation` keys. Logs are opt-in: absent any logs config, the
 provider returns no-op loggers and spins up no log worker.
 
-## §10 spdlog bridge adapter (L6)
+## §10 Log bridge adapters (L6, #304)
 
 **Decision.** Shipped as a separate adapter target (like the experimental compat
 shims), not linked into the core. A `SpdlogSink` implements `spdlog::sinks::sink`
@@ -219,6 +219,55 @@ and forwards each `spdlog::details::log_msg` to a `Logger::Emit`, mapping spdlog
 levels → `SeverityNumber` and the formatted payload → `LogRecord::body`. It is
 the only place logs depend on the optional spdlog dependency; core builds without
 it. Implemented after L4/L5 so it targets a stable `Logger`.
+
+**glog and log4cxx (v1.2, issue #304)** follow the same shape: one header-only
+public header each, an INTERFACE target, off by default.
+
+| Bridge | Header | Option | Supported versions | Registration |
+|---|---|---|---|---|
+| spdlog | `microtel/adapters/spdlog_sink.hpp` | `MICROTEL_USE_SPDLOG` (on) | the FetchContent pin | `std::make_shared<SpdlogSinkMt>(logger)` on an `spdlog::logger` |
+| glog | `microtel/adapters/glog_sink.hpp` | `MICROTEL_BUILD_GLOG_BRIDGE` (off) | 0.6.x, 0.7.x | `GlogSink` registers with `google::AddLogSink` on construction and unregisters on destruction |
+| log4cxx | `microtel/adapters/log4cxx_appender.hpp` | `MICROTEL_BUILD_LOG4CXX_BRIDGE` (off) | 1.1 and later | `logger->addAppender(std::make_shared<Log4cxxAppender>(logger))`; `removeAppender` or `close()` stops it |
+
+Severity follows the Logs Data Model's base values:
+
+| Native | glog | log4cxx | `SeverityNumber` |
+|---|---|---|---|
+| trace | — | `TRACE` (and below) | `Trace` (1) |
+| debug | — | `DEBUG` | `Debug` (5) |
+| info | `INFO`, every `VLOG(n)` | `INFO` | `Info` (9) |
+| warn | `WARNING` | `WARN` | `Warn` (13) |
+| error | `ERROR` | `ERROR` | `Error` (17) |
+| fatal | `FATAL` | `FATAL` | `Fatal` (21) |
+
+glog does not pass the `VLOG` verbosity to a `LogSink`, so verbose messages
+arrive as `INFO` and are mapped as such. A custom log4cxx level maps to the
+base severity of the highest standard level at or below it. `severity_text` is
+the native level name; `body` is the message text; `time` is the native event
+timestamp (microsecond resolution in both libraries).
+
+Call-site location uses the current semantic-convention names —
+`code.file.path`, `code.line.number`, `code.function.name` (the deprecated
+`code.filepath` / `code.lineno` / `code.function` are not emitted). glog
+reports file and line only; log4cxx reports all three when the location is
+known, the function as `ns::Class::method` parsed from `__PRETTY_FUNCTION__`.
+log4cxx MDC entries become string attributes under their own keys; the NDC
+and the log4cxx logger name are not mapped (the scope is the microtel `Logger`
+the appender was built with).
+
+Neither bridge does anything on the logging thread beyond building the record
+and calling `Logger::Emit`, which is where trace correlation happens (§4): both
+libraries call their sinks synchronously on the thread that logged, so a record
+logged inside an active span carries its ids. A record emitted after the
+provider shut down is dropped and counted under `DropReason::PostShutdown`, as
+for any `Logger`. Both conversion paths are `noexcept`.
+
+**Link closure.** Neither glog nor log4cxx joins rule 12's closure. The bridges
+compile against the headers already in the consumer's build (ICP 0014's
+source-distributed allowance); their headers install with the rest of
+`include/microtel/` and no bridge target is exported (ICP 0020 Decision 3).
+`ci/scripts/symbol-scan.sh` has a third pass that fails any shipped archive
+defining or referencing a `google::`, `gflags::`, `fL?::` or `log4cxx::` symbol.
 
 ## Open items flagged for the reviewer
 

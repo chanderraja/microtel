@@ -1,14 +1,41 @@
 # M14 L6 — spdlog bridge sink.
-microtel_add_test(
-    NAME    spdlog_sink_test
-    SOURCES spdlog_sink_test.cpp
-    LIBS    microtel_spdlog_bridge)
-target_include_directories(spdlog_sink_test
-    PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
-target_compile_options(spdlog_sink_test PRIVATE
-    -Wno-missing-field-initializers)
+if(MICROTEL_USE_SPDLOG)
+    microtel_add_test(
+        NAME    spdlog_sink_test
+        SOURCES spdlog_sink_test.cpp
+        LIBS    microtel_spdlog_bridge)
+    target_include_directories(spdlog_sink_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
+    target_compile_options(spdlog_sink_test PRIVATE
+        -Wno-missing-field-initializers)
+endif()
+
+# Issue #304 — glog and log4cxx bridges. microtel_sdk backs the tests that run
+# a real provider (trace correlation, post-shutdown drop accounting); src/ is
+# for the internal SdkProvider header those tests construct it through.
+if(MICROTEL_BUILD_GLOG_BRIDGE)
+    microtel_add_test(
+        NAME    glog_sink_test
+        SOURCES glog_sink_test.cpp
+        LIBS    microtel_glog_bridge microtel_sdk)
+    target_include_directories(glog_sink_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
+endif()
+
+if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
+    microtel_add_test(
+        NAME    log4cxx_appender_test
+        SOURCES log4cxx_appender_test.cpp
+        LIBS    microtel_log4cxx_bridge microtel_sdk)
+    target_include_directories(log4cxx_appender_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/tests)
+endif()
 
 # M17 L1 — pins the opentelemetry-cpp API configuration the shim is built
 # against. Mostly static_asserts: the failure this guards against (falling back

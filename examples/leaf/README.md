@@ -289,16 +289,16 @@ Link all three into the firmware. The nanopb build never allocates, and a CI
 check fails if it ever references `malloc` or `free`.
 
 [`size_probe.c`](size_probe.c) is the smallest useful firmware: one span, one
-attribute, one streaming encode. The `leaf-footprint` CI job links it for
-Cortex-M0+ and Cortex-M4 on every PR and reports the leaf's share of the
-image in the job summary. `ci/scripts/leaf-footprint.sh cortex-m4` runs the
+attribute, one streaming encode. The `leaf-footprint` CI job links it with
+each backend for Cortex-M0+, Cortex-M4 and aarch64 on every PR and reports the
+leaf's share of the image and its worst-case stack in the job summary. `ci/scripts/leaf-footprint.sh cortex-m4` runs the
 same measurement locally if `arm-none-eabi-gcc` is installed. The latest
 figures are in
 [`docs/bench-results/leaf-footprint.md`](../../docs/bench-results/leaf-footprint.md).
 
 For a Linux-class device, the upb encoder (`-DMICROTEL_LEAF_ENCODER=upb`)
-produces byte-for-byte the same payloads. It takes about two and a half times
-the flash, encodes into an arena (pass `config.scratch` to keep it off the
+produces byte-for-byte the same payloads. It takes about one and a half times
+the flash on the same target (14.4 KB against 9.3 KB on a Cortex-M4), encodes into an arena (pass `config.scratch` to keep it off the
 heap), and calls `write` once per payload instead of once per field.
 
 ## Exit codes

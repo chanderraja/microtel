@@ -305,23 +305,27 @@ jobs:
         run: ci/scripts/symbol-scan.sh --prefix leaf-install
 
   # Leaf footprint and closure (docs/leaf-concentrator-design.md §7.6, ICP 0031
-  # gate 4): the nanopb leaf cross-compiled for Cortex-M0+ and Cortex-M4 with
-  # arm-none-eabi-gcc, and the upb leaf for Linux on aarch64. Each links
+  # gate 4): the leaf cross-compiled with each backend for Cortex-M0+ and
+  # Cortex-M4 (arm-none-eabi-gcc) and for Linux on aarch64, so the backends
+  # compare on the same targets (issue #351). Each links
   # examples/leaf/size_probe.c with --gc-sections and writes the leaf's
-  # .text / .rodata / .data / .bss to the job summary, with an OVER / UNDER
-  # line against the flash target (< 15 KB nanopb, < 30 KB upb). The targets
-  # are not gates in v1.2: the job fails only if the build, the link or the
-  # closure scan (target nm; nanopb: no heap) fails.
+  # .text / .rodata / .data / .bss and the worst-case stack of every public
+  # entry point (ci/scripts/leaf-stack.py) to the job summary, with an OVER /
+  # UNDER line against the flash target (< 15 KB nanopb, < 30 KB upb). The
+  # targets are not gates in v1.2: the job fails only if the build, the link,
+  # the stack analysis or the closure scan (target nm; nanopb: no heap) fails.
   leaf-footprint:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        target: [cortex-m0plus, cortex-m4, aarch64]
+        encoder: [nanopb, upb]
         include:
           - { target: cortex-m0plus, packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
           - { target: cortex-m4,     packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
           - { target: aarch64,       packages: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu }
-    name: leaf-footprint / ${{ matrix.target }}
+    name: leaf-footprint / ${{ matrix.target }} / ${{ matrix.encoder }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -329,7 +333,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build python3 ${{ matrix.packages }}
       - name: Measure and scan
-        run: ci/scripts/leaf-footprint.sh ${{ matrix.target }}
+        run: ci/scripts/leaf-footprint.sh ${{ matrix.target }} ${{ matrix.encoder }}
+
+  # The leaf's tests on other targets (issue #351, ci/scripts/leaf-target.sh):
+  # bare-metal Cortex-M0+ code on QEMU's Cortex-M0 (micro:bit; ARMv6-M, no
+  # unaligned access, checked by a control that must fault) and Cortex-M4
+  # (MPS2 AN386), running the C runner of tests/leaf/target/ over Arm
+  # semihosting; and the full gtest leaf suite plus the runner under
+  # qemu-aarch64 and as a 32-bit i686 process. The runner also reports the
+  # stack each public entry point used, to the job summary.
+  leaf-target:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: cortex-m0plus, packages: gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm }
+          - { target: cortex-m4,     packages: gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm }
+          - { target: aarch64,       packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user }
+          - { target: i686,          packages: gcc-i686-linux-gnu g++-i686-linux-gnu }
+    name: leaf-target / ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ${{ matrix.packages }}
+      - name: Build and run
+        run: ci/scripts/leaf-target.sh ${{ matrix.target }}
 
   consumer-smoke:
     runs-on: ubuntu-latest

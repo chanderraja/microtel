@@ -1935,7 +1935,12 @@ closure scan is `symbol-scan.sh` with the target's `nm` over the installed
 archives. First figures: nanopb 9,472 bytes of flash on Cortex-M0+ and 9,298 on
 Cortex-M4, upb 23,966 on aarch64, all under target; the leaf's own static RAM
 is zero on nanopb. The probe's record buffer is 256 bytes and upb's scratch
-2 KiB.
+2 KiB. Issue #351 widened the job to both backends on every target (six cells),
+added the worst-case stack of every entry point from GCC's call graph
+(`ci/scripts/leaf-stack.py`), and added a `leaf-target` job that runs the leaf's
+tests on Cortex-M0+ and Cortex-M4 under QEMU, under qemu-aarch64 and as a
+32-bit i686 process; on the same Cortex-M4, nanopb takes 9,298 bytes of flash
+and upb 14,392.
 
 ### 7.7 Example (gate 6)
 

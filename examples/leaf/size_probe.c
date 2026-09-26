@@ -7,9 +7,9 @@
  * (docs/leaf-concentrator-design.md §7.6, ICP 0031 gate 4).
  *
  * It initialises a leaf in static memory, builds one span with one attribute,
- * and streams the payload to a sink. The CI jobs `leaf-footprint` link it for
- * Cortex-M0+ and Cortex-M4 (nanopb) and for aarch64 Linux (upb) with
- * --gc-sections, so only the code a trace-only firmware needs is counted.
+ * and streams the payload to a sink. The CI job `leaf-footprint` links it with
+ * each backend for Cortex-M0+, Cortex-M4 and aarch64 Linux with --gc-sections,
+ * so only the code a trace-only firmware needs is counted.
  *
  * It is not a program anyone runs: the "clock", the "random source" and the
  * "link" are stand-ins that keep the compiler from discarding the work. The
@@ -49,6 +49,34 @@ static uint32_t g_rng = PROBE_SEED;
 
 /* Stands in for a peripheral data register. */
 volatile uint8_t g_link_register;
+
+#if defined(PROBE_WITH_SCRATCH) && defined(__ARM_ARCH_6M__)
+/* upb on ARMv6-M (Cortex-M0 / M0+): the core has no exclusive load / store,
+ * so GCC compiles upb's C11 atomics (its arena's reference count) to calls
+ * into libatomic, which newlib does not provide, and the link fails with an
+ * undefined __atomic_compare_exchange_4. Firmware supplies it, usually with
+ * interrupts masked; this single-threaded probe needs only the plain
+ * compare-and-swap. */
+_Bool __atomic_compare_exchange_4(
+    volatile void* ptr, void* expected, unsigned int desired, _Bool weak, int success, int failure);
+
+_Bool __atomic_compare_exchange_4(
+    volatile void* ptr, void* expected, unsigned int desired, _Bool weak, int success, int failure)
+{
+    volatile unsigned int* word = (volatile unsigned int*)ptr;
+    unsigned int* want = (unsigned int*)expected;
+    (void)weak;
+    (void)success;
+    (void)failure;
+    if (*word == *want)
+    {
+        *word = desired;
+        return 1;
+    }
+    *want = *word;
+    return 0;
+}
+#endif
 
 static uint64_t probe_now_ns(void* ctx)
 {

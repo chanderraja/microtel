@@ -25,7 +25,8 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `regen-check` | `regen-check` | ❌ (see below) |
 | `ci.yml` | `symbol-scan` | `symbol-scan` | ✅ |
 | `ci.yml` | `leaf-standalone` | `leaf-standalone / nanopb`, `leaf-standalone / upb` | ❌ |
-| `ci.yml` | `leaf-footprint` | `leaf-footprint / cortex-m0plus`, `leaf-footprint / cortex-m4`, `leaf-footprint / aarch64` | ❌ |
+| `ci.yml` | `leaf-footprint` | `leaf-footprint / <cortex-m0plus, cortex-m4, aarch64> / <nanopb, upb>` (six cells) | ❌ |
+| `ci.yml` | `leaf-target` | `leaf-target / cortex-m0plus`, `leaf-target / cortex-m4`, `leaf-target / aarch64`, `leaf-target / i686` | ❌ |
 | `ci.yml` | `version-drift-check` | `version-drift-check` | ✅ |
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
@@ -283,30 +284,59 @@ leaf archives.
 ### `leaf-footprint` (job in `.github/workflows/ci.yml`)
 
 ICP 0031 gate 4 ([`leaf-concentrator-design.md`](leaf-concentrator-design.md)
-§7.6): the leaf's flash and RAM, measured on every PR for the targets it exists
-for. A matrix of three cells, each running
-[`ci/scripts/leaf-footprint.sh <target>`](../ci/scripts/leaf-footprint.sh):
+§7.6): the leaf's flash, RAM and stack, measured on every PR for the targets it
+exists for, with both backends on each so they compare like for like (issue
+#351). A matrix of six cells, target × backend, each running
+[`ci/scripts/leaf-footprint.sh <target> <backend>`](../ci/scripts/leaf-footprint.sh):
 
-| Cell | Backend | Toolchain (apt) |
-|---|---|---|
-| `cortex-m0plus`, `cortex-m4` | nanopb | `gcc-arm-none-eabi`, `libnewlib-arm-none-eabi` |
-| `aarch64` | upb | `gcc-aarch64-linux-gnu` |
+| Target | Toolchain (apt) |
+|---|---|
+| `cortex-m0plus`, `cortex-m4` | `gcc-arm-none-eabi`, `libnewlib-arm-none-eabi` |
+| `aarch64` | `gcc-aarch64-linux-gnu` |
 
 **Steps (in the script):** configure `cmake -S leaf` with the toolchain file in
 [`cmake/toolchains/`](../cmake/toolchains/) and `MinSizeRel`; build and install;
 link [`examples/leaf/size_probe.c`](../examples/leaf/size_probe.c) with
 `--gc-sections` and a linker map; sum the leaf archives' kept input sections
-with [`leaf-footprint.py`](../ci/scripts/leaf-footprint.py) and write the table,
-the caller-owned RAM and the whole-image `size` to the job summary; then run
+with [`leaf-footprint.py`](../ci/scripts/leaf-footprint.py); compute the
+worst-case stack of every public entry point with
+[`leaf-stack.py`](../ci/scripts/leaf-stack.py) from the call graph GCC writes
+with `-fcallgraph-info=su`; write the tables, the caller-owned RAM and the
+whole-image `size` to the job summary; then run
 `symbol-scan.sh --prefix` over the install with `NM=<target>-nm`, so the
 closure checks (no C++ runtime, prefixed globals, and for nanopb no heap) run on
 the target's objects.
 
-**Pass condition:** the build, the link and the closure scan succeed. The
+**Pass condition:** the build, the link, the stack analysis (every indirect
+call resolved, no undeclared recursion) and the closure scan succeed. The
 flash figures are compared with ICP 0031's targets (< 15 KB nanopb, < 30 KB upb)
 and printed as OVER or UNDER, but do not fail the job: they are targets in
 v1.2, and v2.1 makes the nanopb one a gate. Release figures are recorded in
 [`bench-results/leaf-footprint.md`](bench-results/leaf-footprint.md).
+
+### `leaf-target` (job in `.github/workflows/ci.yml`)
+
+The leaf's tests on targets other than the x86-64 host (issue #351), one cell
+per target, each running
+[`ci/scripts/leaf-target.sh <target>`](../ci/scripts/leaf-target.sh) over the
+project in [`tests/leaf/target/`](../tests/leaf/target/):
+
+| Cell | Runs on | What runs | Toolchain (apt) |
+|---|---|---|---|
+| `cortex-m0plus` | `qemu-system-arm -M microbit` (Cortex-M0; QEMU has no M0+, both are ARMv6-M) | the C runner, nanopb, and an alignment control | `gcc-arm-none-eabi`, `libnewlib-arm-none-eabi`, `qemu-system-arm` |
+| `cortex-m4` | `qemu-system-arm -M mps2-an386` | the C runner, nanopb and upb | the same |
+| `aarch64` | `qemu-aarch64` user mode | the gtest leaf suite and the C runner | `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`, `qemu-user` |
+| `i686` | the runner itself (32-bit, static) | the same | `gcc-i686-linux-gnu`, `g++-i686-linux-gnu` |
+
+The C runner (`tests/leaf/target/leaf_target_test.c`) has no test framework,
+no heap and no stdio; on bare metal its output and exit status go over Arm
+semihosting, and a fault handler reports the faulting PC. It checks the golden
+vectors and a subset of the API tests with buffers at odd byte offsets, and
+prints each public entry point's stack, measured by painting, to the job
+summary. The alignment control does one unaligned word load and must fault,
+which shows the emulated ARMv6-M core traps what silicon would.
+
+**Pass condition:** every test passes on every target, and the control faults.
 
 ### `version-drift-check` (job in `.github/workflows/ci.yml`)
 

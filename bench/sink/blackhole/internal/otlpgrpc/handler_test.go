@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"testing"
 
+	logpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	otlplogs "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -390,6 +392,89 @@ func TestGRPC_MetricExport_AccumulatesRequests(t *testing.T) {
 	}
 	if snap.RequestsReceived != 3 {
 		t.Errorf("requests_received: want 3, got %d", snap.RequestsReceived)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Log handler
+// ---------------------------------------------------------------------------
+
+func newLogTestServer(t *testing.T) (logpb.LogsServiceClient, *counters.Counters) {
+	t.Helper()
+	c := counters.New()
+	lis := bufconn.Listen(bufSize)
+	srv := grpc.NewServer(otlpgrpc.StatsHandlerOption())
+	logpb.RegisterLogsServiceServer(srv, otlpgrpc.NewLogHandler(c, 0))
+	t.Cleanup(func() { srv.Stop() })
+	go srv.Serve(lis) //nolint:errcheck
+
+	conn, err := grpc.NewClient("passthrough://bufnet",
+		grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	return logpb.NewLogsServiceClient(conn), c
+}
+
+func buildLogRequest(nRecords int) *logpb.ExportLogsServiceRequest {
+	records := make([]*otlplogs.LogRecord, nRecords)
+	for i := range records {
+		records[i] = &otlplogs.LogRecord{SeverityText: "INFO"}
+	}
+	// Two scopes so the count must sum across ScopeLogs, not read one.
+	half := nRecords / 2
+	return &logpb.ExportLogsServiceRequest{
+		ResourceLogs: []*otlplogs.ResourceLogs{
+			{ScopeLogs: []*otlplogs.ScopeLogs{
+				{LogRecords: records[:half]},
+				{LogRecords: records[half:]},
+			}},
+		},
+	}
+}
+
+func TestGRPC_LogExport_CountsLogRecords(t *testing.T) {
+	client, c := newLogTestServer(t)
+
+	req := buildLogRequest(5)
+	if _, err := client.Export(context.Background(), req); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	snap := c.Snapshot()
+	if snap.LogRecordsReceived != 5 {
+		t.Errorf("log_records_received: want 5, got %d", snap.LogRecordsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+	if snap.GRPCRequestsReceived != 1 {
+		t.Errorf("grpc_requests_received: want 1, got %d", snap.GRPCRequestsReceived)
+	}
+	// Uncompressed: wire length is the message plus the 5-byte gRPC prefix.
+	want := uint64(proto.Size(req)) + 5
+	if snap.BytesReceived != want {
+		t.Errorf("bytes_received: want %d, got %d", want, snap.BytesReceived)
+	}
+}
+
+func TestGRPC_LogExport_Accumulates(t *testing.T) {
+	client, c := newLogTestServer(t)
+
+	for range 3 {
+		if _, err := client.Export(context.Background(), buildLogRequest(4)); err != nil {
+			t.Fatalf("Export: %v", err)
+		}
+	}
+
+	if got := c.Snapshot().LogRecordsReceived; got != 12 {
+		t.Errorf("log_records_received: want 12, got %d", got)
 	}
 }
 

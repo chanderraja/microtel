@@ -11,6 +11,10 @@ full spec is [`docs/bench-spec.md`](../docs/bench-spec.md).
 ./bench/bench.sh
 ```
 
+Other profiles are selected by name from `profiles/`, for example
+`./bench/bench.sh --profile hot-loop-metrics` or
+`./bench/bench.sh --profile hot-loop-logs`.
+
 `bench.sh` checks the prerequisites and hands off to the Python driver
 (`python3 -m driver`; pass `-h` for the options). The driver builds each
 system-under-test (SUT) image itself: the microtel SUT compiles microtel

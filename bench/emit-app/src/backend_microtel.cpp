@@ -3,6 +3,7 @@
 
 #include "backend.hpp"
 
+#include "microtel/logger.hpp"
 #include "microtel/meter.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
@@ -14,6 +15,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace bench
@@ -21,6 +23,9 @@ namespace bench
 
 namespace
 {
+
+constexpr std::string_view kLogBody = "bench log record";
+constexpr std::string_view kSeverityText = "INFO";
 
 class MicrotelBackend final : public IBackend
 {
@@ -69,6 +74,7 @@ public:
         }
 
         m_tracer = m_provider->GetTracer("bench");
+        m_logger = m_provider->GetLogger("bench");
 
         auto meter = m_provider->GetMeter("bench");
         m_counter   = meter->CreateCounter<int64_t>("bench.records",
@@ -90,6 +96,20 @@ public:
     {
         m_counter->Add(1, {});
         m_histogram->Record(1.0, {});
+        m_emit_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void EmitLog() override
+    {
+        // Minimal record with the same wire content the otel-cpp backend
+        // sends: severity INFO (otel-cpp's OTLP recordable always fills
+        // severity_text from the number) and a short string body. The SDK
+        // stamps observed_time.
+        m_logger->Emit(microtel::LogRecord{
+            .severity_number = microtel::SeverityNumber::Info,
+            .severity_text = std::string{kSeverityText},
+            .body = std::string{kLogBody},
+        });
         m_emit_count.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -164,6 +184,7 @@ public:
 private:
     std::shared_ptr<microtel::Provider>          m_provider;
     std::shared_ptr<microtel::Tracer>            m_tracer;
+    std::shared_ptr<microtel::Logger>            m_logger;
     std::shared_ptr<microtel::Counter<int64_t>>  m_counter;
     std::shared_ptr<microtel::Histogram<double>> m_histogram;
     std::atomic<uint64_t>                        m_emit_count{0};

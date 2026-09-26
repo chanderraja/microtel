@@ -37,6 +37,16 @@ def _stats(values: list[float]) -> dict[str, float]:
     }
 
 
+def _received(sample: dict) -> int:
+    """Items of the profile's signal the sink counted for one sample.
+
+    items_received is spans for trace profiles and log records for logs
+    profiles; results documents written before it existed fall back to
+    sink.spans_received.
+    """
+    return sample.get("items_received", sample["sink"]["spans_received"])
+
+
 def _drop_sum(samples: list[dict], key: str) -> int:
     return sum(s["spans_dropped"].get(key, 0) for s in samples)
 
@@ -94,7 +104,7 @@ def _summarize(samples: list[dict]) -> dict[str, Any]:
                        if s["sink"]["bytes_received"] is not None]
     if bytes_available and len(bytes_available) == len(samples):
         wire_bytes = _stats([
-            s["sink"]["bytes_received"] / max(s["sink"]["spans_received"], 1)
+            s["sink"]["bytes_received"] / max(_received(s), 1)
             for s in samples
         ])
     else:
@@ -146,7 +156,7 @@ def _delivery_rate_from_sink(samples: list[dict]):
     # workload iterations, which is 3x smaller on realistic-request.  Results
     # documents written before spans_expected existed fall back to it.
     total_expected = sum(s.get("spans_expected", s["spans_emitted"]) for s in samples)
-    total_received = sum(s["sink"]["spans_received"] for s in samples)
+    total_received = sum(_received(s) for s in samples)
     if total_expected == 0:
         return 100.0
     return round(total_received / total_expected * 100, 4)
@@ -235,11 +245,16 @@ def _render_md(doc: dict) -> str:
                     cells.append(fmt(val) if val is not None else "—")
             lines.append(f"| {label} | " + " | ".join(cells) + " |")
 
-        _row("StartSpan p50 (ns)",   "latency_p50_ns", lambda v: f"{v:.0f}")
-        _row("StartSpan p95 (ns)",   "latency_p95_ns", lambda v: f"{v:.0f}")
-        _row("StartSpan p99 (ns)",   "latency_p99_ns", lambda v: f"{v:.0f}")
+        # JSON keys keep their span names; for signal=logs they count log
+        # records, and the row labels say so.
+        is_logs = profile.get("signal") == "logs"
+        op = "Emit" if is_logs else "StartSpan"
+        unit = "record" if is_logs else "span"
+        _row(f"{op} p50 (ns)",       "latency_p50_ns", lambda v: f"{v:.0f}")
+        _row(f"{op} p95 (ns)",       "latency_p95_ns", lambda v: f"{v:.0f}")
+        _row(f"{op} p99 (ns)",       "latency_p99_ns", lambda v: f"{v:.0f}")
         _row("Flush latency p50 (ns)", "flush_ns",      lambda v: f"{v:.0f}")
-        _row("Spans/sec",             "spans_per_sec",  lambda v: f"{v:,.0f}")
+        _row(f"{unit.capitalize()}s/sec", "spans_per_sec", lambda v: f"{v:,.0f}")
         _row("Throughput (Mbps)",     "throughput_mbps", lambda v: f"{v:.1f}")
         # Delivery rate row — computed from sink vs emitted, works even when SUT drop counters are unavailable.
         dr_cells = []
@@ -247,7 +262,7 @@ def _render_md(doc: dict) -> str:
             dr = s.get("summary", {}).get("delivery_rate_pct")
             dr_cells.append(f"{dr:.2f}%" if dr is not None else "N/A")
         lines.append(f"| Delivery rate (sink/emitted) | " + " | ".join(dr_cells) + " |")
-        _row("Wire bytes/span",      "wire_bytes_per_span", lambda v: f"{v:.1f}")
+        _row(f"Wire bytes/{unit}",    "wire_bytes_per_span", lambda v: f"{v:.1f}")
 
         # Binary size row — pulled from top-level sut dict, not summary.
         bin_cells = []

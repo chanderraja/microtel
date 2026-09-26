@@ -13,7 +13,7 @@ from typing import Dict, List
 class Profile:
     name: str
     description: str
-    signal: str          # "traces" | "metrics" — governs delivery-rate semantics
+    signal: str          # "traces" | "metrics" | "logs" — governs delivery-rate semantics
     spans_per_sample: int
     samples: int
     warmup_spans: int
@@ -26,7 +26,7 @@ class Profile:
 
 
 _SINK_MODES = {"blackhole", "collector"}
-_SIGNALS = {"traces", "metrics"}
+_SIGNALS = {"traces", "metrics", "logs"}
 
 
 def load(profiles_dir: Path, name: str) -> Profile:

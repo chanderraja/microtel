@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	logpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	otlplogs "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
@@ -281,6 +283,90 @@ func TestHTTP_MetricsStub_Returns200AndCounts(t *testing.T) {
 	}
 	if snap.SpansReceived != 0 {
 		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Logs
+// ---------------------------------------------------------------------------
+
+func buildLogRequest(nRecords int) []byte {
+	records := make([]*otlplogs.LogRecord, nRecords)
+	for i := range records {
+		records[i] = &otlplogs.LogRecord{SeverityText: "INFO"}
+	}
+	half := nRecords / 2
+	req := &logpb.ExportLogsServiceRequest{
+		ResourceLogs: []*otlplogs.ResourceLogs{
+			{ScopeLogs: []*otlplogs.ScopeLogs{
+				{LogRecords: records[:half]},
+				{LogRecords: records[half:]},
+			}},
+		},
+	}
+	b, _ := proto.Marshal(req)
+	return b
+}
+
+func TestHTTP_Logs_CountsLogRecords(t *testing.T) {
+	h, c := newTestHandler()
+	body := buildLogRequest(6)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", rec.Code)
+	}
+	snap := c.Snapshot()
+	if snap.LogRecordsReceived != 6 {
+		t.Errorf("log_records_received: want 6, got %d", snap.LogRecordsReceived)
+	}
+	if snap.SpansReceived != 0 {
+		t.Errorf("spans_received: want 0, got %d", snap.SpansReceived)
+	}
+	if snap.BytesReceived != uint64(len(body)) {
+		t.Errorf("bytes_received: want %d, got %d", len(body), snap.BytesReceived)
+	}
+}
+
+func TestHTTP_Logs_GzipEncodedBody_CountsRecordsAndWireBytes(t *testing.T) {
+	h, c := newTestHandler()
+	body := gzipBytes(t, buildLogRequest(4))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status: want 200, got %d", rec.Code)
+	}
+	snap := c.Snapshot()
+	if snap.LogRecordsReceived != 4 {
+		t.Errorf("log_records_received: want 4, got %d", snap.LogRecordsReceived)
+	}
+	if snap.BytesReceived != uint64(len(body)) {
+		t.Errorf("bytes_received: want compressed %d, got %d", len(body), snap.BytesReceived)
+	}
+}
+
+func TestHTTP_Logs_InvalidProto_Returns400(t *testing.T) {
+	h, c := newTestHandler()
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs",
+		bytes.NewReader([]byte{0xff, 0xff, 0xff, 0xff}))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status: want 400, got %d", rec.Code)
+	}
+	if c.Snapshot().Errors != 1 {
+		t.Errorf("errors: want 1, got %d", c.Snapshot().Errors)
 	}
 }
 

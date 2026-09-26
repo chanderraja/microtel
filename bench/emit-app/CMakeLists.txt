@@ -26,6 +26,7 @@ add_executable(emit_app
     src/main.cpp
     src/histogram.cpp
     src/control_socket.cpp
+    src/workload.cpp
 )
 
 target_compile_definitions(emit_app PRIVATE
@@ -54,24 +55,30 @@ if(BENCH_BACKEND STREQUAL "MICROTEL")
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_GRPC")
     find_package(opentelemetry-cpp REQUIRED COMPONENTS
-        trace metrics otlp_grpc_exporter otlp_grpc_metrics_exporter)
+        trace metrics logs otlp_grpc_exporter otlp_grpc_metrics_exporter
+        otlp_grpc_log_record_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
         opentelemetry-cpp::metrics
+        opentelemetry-cpp::logs
         opentelemetry-cpp::otlp_grpc_exporter
-        opentelemetry-cpp::otlp_grpc_metrics_exporter)
+        opentelemetry-cpp::otlp_grpc_metrics_exporter
+        opentelemetry-cpp::otlp_grpc_log_record_exporter)
 
 elseif(BENCH_BACKEND STREQUAL "OTELCPP_HTTP")
     find_package(CURL REQUIRED)
     find_package(opentelemetry-cpp REQUIRED COMPONENTS
-        trace metrics otlp_http_exporter otlp_http_metric_exporter)
+        trace metrics logs otlp_http_exporter otlp_http_metric_exporter
+        otlp_http_log_record_exporter)
     target_sources(emit_app PRIVATE src/backend_otelcpp.cpp)
     target_link_libraries(emit_app PRIVATE
         opentelemetry-cpp::trace
         opentelemetry-cpp::metrics
+        opentelemetry-cpp::logs
         opentelemetry-cpp::otlp_http_exporter
-        opentelemetry-cpp::otlp_http_metric_exporter)
+        opentelemetry-cpp::otlp_http_metric_exporter
+        opentelemetry-cpp::otlp_http_log_record_exporter)
 
 else()
     message(FATAL_ERROR "Unknown BENCH_BACKEND: ${BENCH_BACKEND}. "
@@ -88,4 +95,11 @@ if(MICROTEL_BUILD_BENCH)
     )
     target_include_directories(histogram_selftest PRIVATE include)
     add_test(NAME bench_histogram_selftest COMMAND histogram_selftest)
+
+    add_executable(workload_selftest
+        test/workload_selftest.cpp
+        src/workload.cpp
+    )
+    target_include_directories(workload_selftest PRIVATE include)
+    add_test(NAME bench_workload_selftest COMMAND workload_selftest)
 endif()

@@ -3,6 +3,7 @@
 
 #include "backend.hpp"
 #include "control_socket.hpp"
+#include "workload.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -39,15 +40,7 @@ int main()
     const int attr_value_bytes    = std::stoi(EnvOr("EMIT_ATTRIBUTE_VALUE_BYTES", "24"));
     const std::string workload_env = EnvOr("EMIT_WORKLOAD", "hot_loop");
 
-    bench::WorkloadMode mode = bench::WorkloadMode::HotLoop;
-    if (workload_env == "realistic_request")
-    {
-        mode = bench::WorkloadMode::RealisticRequest;
-    }
-    else if (workload_env == "hot_loop_metrics")
-    {
-        mode = bench::WorkloadMode::HotLoopMetrics;
-    }
+    const bench::WorkloadMode mode = bench::ParseWorkloadMode(workload_env);
 
     const bool compression_gzip = EnvOr("EMIT_COMPRESSION_GZIP", "0") == "1";
 
@@ -59,6 +52,7 @@ int main()
         .attributes_per_span   = attrs_per_span,
         .attribute_value_bytes = attr_value_bytes,
         .metric_interval_ms    = (mode == bench::WorkloadMode::HotLoopMetrics) ? 100 : 0,
+        .logs_enabled          = (mode == bench::WorkloadMode::HotLoopLogs),
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};

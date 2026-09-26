@@ -5,6 +5,7 @@
 
 #include "backend.hpp"
 #include "histogram.hpp"
+#include "workload.hpp"
 
 #include <chrono>
 #include <functional>
@@ -159,18 +160,7 @@ void WorkerThread(uint64_t span_count, uint64_t rate_hz_per_thread,
         tb.Consume();
         using Clock = std::chrono::steady_clock;
         const auto t0 = Clock::now();
-        if (mode == WorkloadMode::RealisticRequest)
-        {
-            backend.EmitRequest();
-        }
-        else if (mode == WorkloadMode::HotLoopMetrics)
-        {
-            backend.EmitRecord();
-        }
-        else
-        {
-            backend.EmitSpan();
-        }
+        EmitOnce(backend, mode);
         const auto t1 = Clock::now();
         const uint64_t ns = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());

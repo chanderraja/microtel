@@ -1424,7 +1424,8 @@ The resolver is for fleets whose per-device table lives in a database or an
 inventory service. It is the answer to "a TOML table with ten thousand
 entries". A resolver that returns `std::nullopt` means "not configured", which
 `unknown_leaf` then governs. *Implemented:* the answer is cached in the leaf's
-table entry, a negative one included, so the resolver runs once per entry; one
+table entry, so the resolver runs once per entry, except that a negative answer
+under `unknown_leaf = reject` is cached apart, for a bounded time (§4.5); one
 that throws a `std::exception` (other than `std::bad_alloc`, which is
 `OutOfMemory`) counts as `std::nullopt`; reserved and `leaf_id_attribute` keys
 in its Resource are ignored, and keys over `max_leaf_resource_bytes` are
@@ -1515,6 +1516,16 @@ when it changes), the boot-relative anchor (§5.4), and a last-seen time.
   eviction; it is counted in `LeafReceiverStats::leaves_evicted`.
 - `leaf_idle_timeout` (default 1 h) evicts entries not seen for that long,
   checked on insert, so an idle concentrator costs no timer thread.
+- *Implemented (#343):* under `unknown_leaf = reject`, a leaf that is refused
+  takes no table entry, so a burst of unknown ids cannot evict the leaves that
+  are accepted and their anchors. The "not configured" answer is kept in a
+  separate cache of 256 ids, each used for at most 60 s from when it was
+  cached, the oldest dropped first when full; a transport id with a cached
+  answer is refused before the decode, as an unknown one is when there is no
+  resolver. A leaf configured in the resolver later is accepted within 60 s,
+  or sooner if its answer is pushed out. Both bounds are fixed, not
+  configurable; losing an answer costs one more resolver call. Under
+  `accept`, an unknown leaf is processed like any other and has its entry.
 - `max_leaf_resource_bytes` (default 2 KiB) bounds one leaf's resolved
   Resource, keys plus values. Leaf-declared attributes that would push past it
   are dropped (lowest precedence first) and counted in

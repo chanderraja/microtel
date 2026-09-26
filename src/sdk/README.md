@@ -102,7 +102,9 @@ compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
   reserved wire attributes and the Resource merge are in
   [`leaf_resource.{hpp,cpp}`](leaf_resource.hpp); the bounded leaf table —
   settings, Resource, boot anchor and last sighting per leaf, with LRU and
-  idle-timeout eviction on insert — in [`leaf_table.{hpp,cpp}`](leaf_table.hpp);
+  idle-timeout eviction on insert — and, apart from it, the bounded, expiring
+  cache of leaves a rejecting receiver refuses (`UnknownLeafCache`, #343) in
+  [`leaf_table.{hpp,cpp}`](leaf_table.hpp);
   the time modes' arithmetic and the boot-relative anchor in
   [`leaf_time.{hpp,cpp}`](leaf_time.hpp); and `Build()`'s checks of
   `LeafReceiverOptions` in [`leaf_options.{hpp,cpp}`](leaf_options.hpp). The

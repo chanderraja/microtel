@@ -221,3 +221,82 @@ TEST(LeafTableTest, IdleEvictionRunsBeforeTheCapacityCheck)
     EXPECT_EQ(table.Evicted(), 1U) << "only the idle a went, so b is not evicted for room";
     EXPECT_NE(table.Settings("b", At(100)), nullptr);
 }
+
+// ---------------------------------------------------------------------------
+// UnknownLeafCache: negative settings answers, kept apart from the table so
+// they can never evict a leaf the receiver accepts (issue #343)
+// ---------------------------------------------------------------------------
+
+TEST(UnknownLeafCacheTest, MissesUntilInsertedAndHitsWithinTheTtl)
+{
+    mts::UnknownLeafCache cache{4, std::chrono::seconds{60}};
+    EXPECT_FALSE(cache.Contains("a", At(0)));
+
+    cache.Insert("a", At(0));
+
+    EXPECT_TRUE(cache.Contains("a", At(60))) << "an answer exactly the TTL old is still used";
+    EXPECT_EQ(cache.Size(), 1U);
+}
+
+TEST(UnknownLeafCacheTest, AnAnswerOlderThanTheTtlIsForgotten)
+{
+    mts::UnknownLeafCache cache{4, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+
+    EXPECT_FALSE(cache.Contains("a", At(61)));
+    EXPECT_EQ(cache.Size(), 0U) << "the expired answer is dropped, not just skipped";
+}
+
+TEST(UnknownLeafCacheTest, AHitDoesNotExtendTheTtl)
+{
+    mts::UnknownLeafCache cache{4, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+    ASSERT_TRUE(cache.Contains("a", At(50)));
+
+    EXPECT_FALSE(cache.Contains("a", At(61)))
+        << "a leaf that keeps sending is still asked about again once per TTL";
+}
+
+TEST(UnknownLeafCacheTest, WhenFullTheOldestAnswerGoes)
+{
+    mts::UnknownLeafCache cache{2, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+    cache.Insert("b", At(1));
+    ASSERT_TRUE(cache.Contains("a", At(2)));
+
+    cache.Insert("c", At(2));
+
+    EXPECT_EQ(cache.Size(), 2U);
+    EXPECT_FALSE(cache.Contains("a", At(2)));
+    EXPECT_TRUE(cache.Contains("b", At(2)));
+    EXPECT_TRUE(cache.Contains("c", At(2)));
+}
+
+TEST(UnknownLeafCacheTest, ExpiredAnswersMakeRoomBeforeALiveOneIsEvicted)
+{
+    mts::UnknownLeafCache cache{2, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+    cache.Insert("b", At(50));
+
+    cache.Insert("c", At(100));
+
+    EXPECT_TRUE(cache.Contains("b", At(100)));
+    EXPECT_TRUE(cache.Contains("c", At(100)));
+}
+
+TEST(UnknownLeafCacheTest, ASecondInsertOfTheSameIdKeepsOneAnswer)
+{
+    mts::UnknownLeafCache cache{4, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+    cache.Insert("a", At(10));
+
+    EXPECT_EQ(cache.Size(), 1U);
+    EXPECT_FALSE(cache.Contains("a", At(61))) << "the first answer's age governs";
+}
+
+TEST(UnknownLeafCacheTest, AZeroCapacityIsRaisedToOne)
+{
+    mts::UnknownLeafCache cache{0, std::chrono::seconds{60}};
+    cache.Insert("a", At(0));
+    EXPECT_TRUE(cache.Contains("a", At(0)));
+}

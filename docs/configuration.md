@@ -555,6 +555,12 @@ the `leaf_id_attribute` key are ignored, and keys over the Resource budget are
 dropped and counted in `LeafReceiverStats::resource_attributes_dropped`. A
 resolver that throws is treated as answering "not configured".
 
+With `unknown_leaf = "reject"`, a "not configured" answer is remembered for up
+to 60 s (at most 256 leaf ids, oldest first out) and the leaf's payloads are
+refused before decoding meanwhile; a leaf added to the resolver's inventory is
+accepted within that time. Refused leaves take no place in the `max_leaves`
+table (design §4.5).
+
 ---
 
 ## 4. Build-time options

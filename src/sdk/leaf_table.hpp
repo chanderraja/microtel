@@ -37,6 +37,14 @@ struct TransparentStringHash
     }
 };
 
+/// How many negative settings answers the receiver keeps (issue #343): enough
+/// to spare the resolver a repeat question from a handful of unconfigured
+/// leaves, small enough that a flood of ids costs little.
+inline constexpr std::uint32_t kUnknownLeafCacheSize = 256;
+/// How long a negative answer is used before the resolver is asked again, so
+/// a leaf configured later is accepted within this time.
+inline constexpr std::chrono::seconds kUnknownLeafTtl{60};
+
 /// @brief A leaf's effective configuration: its static `leaves` entry with
 ///        the resolver's answer merged over it (§4.3). Resolved once per table
 ///        entry and shared, immutable, by every payload of that leaf.
@@ -165,6 +173,59 @@ private:
     std::unordered_map<std::string, Recency::iterator, TransparentStringHash, std::equal_to<>>
         m_index;
     std::uint64_t m_evicted = 0;
+};
+
+/// @brief The leaf ids whose settings answer was "not configured", for a
+///        receiver that rejects unknown leaves (issue #343; design §4.5).
+///
+/// Kept apart from the `LeafTable`, so a burst of unknown ids can evict only
+/// other negative answers, never a leaf the receiver accepts along with its
+/// Resource and boot anchor. An answer is used for at most `ttl` from when it
+/// was cached, however often the leaf is seen, so a leaf configured later is
+/// accepted within that time; when the cache is full, the oldest answer goes.
+/// Losing an answer costs only a repeat resolver call.
+///
+/// @threadsafety Thread-safe. One mutex, held only for the lookup or update
+///               itself; never taken together with the `LeafTable`'s.
+class UnknownLeafCache
+{
+public:
+    using TimePoint = internal::TimePointSteady;
+
+    /// @param capacity the most answers kept; at least 1.
+    /// @param ttl      how long an answer is used after it is cached.
+    UnknownLeafCache(std::uint32_t capacity, std::chrono::nanoseconds ttl) noexcept;
+
+    /// @brief Whether @p id has a negative answer no older than the TTL at
+    ///        @p now. An expired answer is dropped.
+    /// @throws std::bad_alloc if the lookup key cannot be built.
+    [[nodiscard]] bool Contains(std::string_view id, TimePoint now);
+
+    /// @brief Cache a negative answer for @p id at @p now, first dropping the
+    ///        expired answers and then, if still full, the oldest. If @p id
+    ///        already has one (two threads raced on it), that one is kept.
+    /// @throws std::bad_alloc if the entry cannot be allocated.
+    void Insert(std::string_view id, TimePoint now);
+
+    /// @brief How many answers the cache holds now.
+    [[nodiscard]] std::uint64_t Size() const noexcept;
+
+private:
+    struct Answer
+    {
+        std::string id;
+        TimePoint at{};
+    };
+    using Age = std::list<Answer>;  ///< front = oldest
+
+    /// Drop the answer at @p it. Lock held.
+    void Erase(Age::iterator it) noexcept;
+
+    std::uint32_t m_capacity;
+    std::chrono::nanoseconds m_ttl;
+    mutable std::mutex m_mu;
+    Age m_age;
+    std::unordered_map<std::string, Age::iterator, TransparentStringHash, std::equal_to<>> m_index;
 };
 
 }  // namespace microtel::sdk

@@ -134,7 +134,9 @@ default configuration would fail out of the box.
 
 - `GetMeter` and `GetLogger` return a no-op `Meter` or `Logger`. A no-op
   logger already exists; this ICP adds a matching no-op meter.
-- `DropReason` gains `SignalNotCompiled = 23`. Its counter goes up by one each
+- `DropReason` gains `SignalNotCompiled = 27`. (This draft first said 23,
+  which `LogAttributeLimit` already holds; ICP 0034 took 24–26 for the leaf
+  drop reasons.) Its counter goes up by one each
   time `GetMeter` or `GetLogger` hands out a no-op object.
 - One warning goes to the `LogSink` the first time it happens.
 

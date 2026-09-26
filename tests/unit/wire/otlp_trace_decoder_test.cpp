@@ -356,8 +356,10 @@ TEST(OtlpTraceDecoderTest, TheReceiversArenaCapFitsDenseLegitimatePayloads)
 TEST(OtlpTraceDecoderTest, AnArenaThatRunsOutPartWayIsTooLarge)
 {
     // Room for the arena's first block but not for 200 spans.
+    constexpr int kSpans = 200;
     std::vector<mti::SpanRecord> spans;
-    for (int i = 0; i < 200; ++i)
+    spans.reserve(kSpans);
+    for (int i = 0; i < kSpans; ++i)
     {
         spans.push_back(Span(1, static_cast<std::uint8_t>(i + 1)));
     }

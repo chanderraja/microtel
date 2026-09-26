@@ -28,6 +28,11 @@ namespace microtel::config
 ///   OTEL_SERVICE_NAME               → service_name
 ///   OTEL_RESOURCE_ATTRIBUTES        → resource_attrs ("k=v,k2=v2")
 ///
+/// and the `MICROTEL_CONCENTRATOR_*` variables of `docs/configuration.md`
+/// §3.14 (`ENABLED`, `MAX_PAYLOAD_BYTES`, `MAX_LEAVES`, `UNKNOWN_LEAF`,
+/// `DEFAULT_TIME_MODE`, and `RESOURCE_ATTRIBUTES`, merged per key into
+/// `concentrator.leaf_defaults_resource`).
+///
 /// @param cfg Config to overlay (mutated in place).
 /// @return ConfigError::Kind::EnvParseFailure if any set variable has an
 ///         unparseable value.

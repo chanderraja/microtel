@@ -23,6 +23,10 @@
 //      exactly one of `leaf_payload_malformed`, `leaf_payload_too_large` and
 //      `leaf_unknown`, by exactly one, and the one that matches its status.
 //   3. No reserved `microtel.leaf.*` key reaches a Resource.
+//   4. Whenever the payload reached the decoder, the decode arena stayed
+//      within its cap, and the cap was the one design §3.7 sets for
+//      `max_payload_bytes`: 16 x max_payload_bytes + 16 KiB. The decoder
+//      reports each call's arena use through its `ArenaStats` observer.
 //
 // Seeds under corpus/leaf_ingest_fuzz/ are well-formed leaf payloads plus
 // truncations and single-byte corruptions of each.
@@ -71,6 +75,8 @@ constexpr unsigned kRejectBit = 0x10U;
 // Small enough that the fuzzer reaches the size limits.
 constexpr std::uint32_t kMaxPayloadBytes = 4096;
 constexpr std::uint32_t kMaxSpans = 16;
+// The decode arena cap the receiver must pass for kMaxPayloadBytes (§3.7).
+constexpr std::size_t kArenaCap = (std::size_t{16} * kMaxPayloadBytes) + (std::size_t{16} * 1024U);
 
 void Require(bool condition)
 {
@@ -171,6 +177,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const auto* const bytes = reinterpret_cast<const std::byte*>(data);
     const std::span<const std::byte> payload = std::span{bytes, size}.subspan(1);
 
+    mt::wire::OtlpTraceDecoder::ArenaStats arena;
     auto processor = std::make_unique<mtm::FakeSpanProcessor>();
     const auto* const recorded = processor.get();
     auto provider = std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
@@ -186,13 +193,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         .span_limits = {},
         .connect_opts = {},
         .leaf_receiver = OptionsFor(selector),
-        .leaf_decoder = std::make_unique<mt::wire::OtlpTraceDecoder>(),
+        .leaf_decoder = std::make_unique<mt::wire::OtlpTraceDecoder>(&arena),
     });
 
     const auto receiver = provider->GetLeafReceiver();
     const auto r = receiver->Ingest(
         mt::IngestRequest{.leaf_id = kLeafIds.at(selector & kLeafIdMask), .payload = payload});
     const mt::HealthSnapshot health = provider->GetExporterHealth();
+    if (arena.cap != 0)
+    {
+        Require(arena.cap == kArenaCap);
+        Require(arena.used <= arena.cap);
+    }
 
     switch (r.status)
     {

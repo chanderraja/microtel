@@ -42,7 +42,8 @@ if(MICROTEL_WITH_CONCENTRATOR)
         leaf_options.cpp
         leaf_receiver.cpp
         leaf_resource.cpp
-        leaf_table.cpp)
+        leaf_table.cpp
+        leaf_time.cpp)
     target_compile_definitions(microtel_sdk PRIVATE MICROTEL_WITH_CONCENTRATOR=1)
 endif()
 

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/clock.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/processor.hpp"
@@ -12,12 +13,15 @@
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 
+#include "sdk/leaf_resource.hpp"
 #include "sdk/leaf_table.hpp"
+#include "sdk/leaf_time.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -49,22 +53,24 @@ struct LeafReceiverDeps
     std::unique_ptr<internal::IOtlpTraceDecoder> decoder;
     /// The Provider's span limits, applied to every decoded span (§3.6).
     SpanLimitOptions span_limits;
+    /// Borrowed. The wall clock read for `R` when a request carries no
+    /// `received_at` (§5.1); null means `std::chrono::system_clock`.
+    const internal::IClock* clock = nullptr;
+    /// Borrowed. The clock the leaf table's idle timeout runs on (§4.5); null
+    /// means `std::chrono::steady_clock`.
+    const internal::ISteadyClock* steady_clock = nullptr;
 };
 
 /// @brief The concentrator's `LeafReceiver` (`docs/leaf-concentrator-design.md`
-///        §3, §4.1, §4.4, §4.5; ICP 0034).
+///        §3–§5; ICP 0034).
 ///
 /// `Ingest`, on the caller's thread and never blocking: size limits, decode,
 /// validation of the whole payload (any failure rejects all of it), leaf
-/// identity, Resource resolution through the leaf table, span limits, root
+/// identity, the leaf's settings (static `leaves` entry and resolver answer,
+/// cached in the leaf table), the time-mode rule of §5.1, Resource resolution
+/// through the leaf table, time correction (§5.2–§5.4), span limits, root
 /// sampling, and `Enqueue` into the Provider's span processor with the leaf's
 /// Resource on every record.
-///
-/// **Not yet here** (the next packet, with the full `[concentrator]` config):
-/// the three time-mode corrections of §5 — decoded timestamps currently pass
-/// through as the leaf wrote them, and `time_fallbacks` stays 0 — the per-leaf
-/// resolver callback, and idle-timeout eviction. The payload's declared time
-/// mode is already validated against the leaf's config (§5.1).
 ///
 /// @threadsafety Thread-safe. `Ingest` and `Stats` may run concurrently from
 ///               any threads. The only lock is the leaf table's (§3.5).
@@ -101,6 +107,7 @@ private:
         std::atomic<std::uint64_t> payloads_out_of_memory{0};
         std::atomic<std::uint64_t> resource_attributes_dropped{0};
         std::atomic<std::uint64_t> leaf_id_conflicts{0};
+        std::atomic<std::uint64_t> time_fallbacks{0};
     };
 
     /// The body of `Ingest`; may throw `std::bad_alloc`. Fills @p result as
@@ -113,21 +120,42 @@ private:
     [[nodiscard]] bool Identify(const IngestRequest& request,
                                 Payload& payload,
                                 IngestResult& result);
+    /// The leaf's settings, from the table or resolved (§4.3); the resolver
+    /// runs with no lock held.
+    [[nodiscard]] std::shared_ptr<const LeafSettings> SettingsFor(std::string_view leaf_id,
+                                                                  LeafTable::TimePoint now);
+    /// The static entry for @p leaf_id with the resolver's answer over it.
+    [[nodiscard]] LeafSettings ResolveSettings(std::string_view leaf_id);
+    /// The resolver's answer, or nullopt when there is no resolver or it
+    /// threw anything but `std::bad_alloc`, which propagates.
+    [[nodiscard]] std::optional<LeafConfig> AskResolver(std::string_view leaf_id) const;
     /// The leaf's Resource for one ResourceSpans, from the table or resolved.
     [[nodiscard]] std::shared_ptr<const Resource> ResourceFor(
         const Payload& payload, const std::vector<KeyValue>& declared);
+    /// How one ResourceSpans' timestamps become Unix times (§5); updates the
+    /// boot-relative anchor, and sets @p fell_back on a sync-relative fallback.
+    [[nodiscard]] TimeCorrection CorrectionFor(const Payload& payload,
+                                               LeafTimeMode mode,
+                                               const LeafWireInfo& info,
+                                               bool& fell_back);
     /// Limits, sampling and enqueue for every span of the payload.
     void Enqueue(Payload& payload, IngestResult& result);
     /// Limits, sampling and enqueue for every span of one ResourceSpans.
     void EnqueueResourceSpans(const std::shared_ptr<const Resource>& resource,
+                              const TimeCorrection& correction,
                               internal::DecodedResourceSpans& rs,
                               IngestResult& result) const noexcept;
-    /// Limits, sampling and enqueue for one span; moves it out when it is
-    /// handed to the processor.
+    /// Time correction, limits, sampling and enqueue for one span; moves it
+    /// out when it is handed to the processor.
     void EnqueueSpan(internal::SpanRecord& span,
                      const internal::InstrumentationScope& scope,
                      const std::shared_ptr<const Resource>& resource,
+                     const TimeCorrection& correction,
                      IngestResult& result) const noexcept;
+    /// `R` in Unix nanoseconds: the request's `received_at`, else the clock.
+    [[nodiscard]] std::int64_t ReceivedNs(const IngestRequest& request) const noexcept;
+    /// Now, on the clock the leaf table's idle timeout runs on.
+    [[nodiscard]] LeafTable::TimePoint SteadyNow() const noexcept;
     /// The leaf id: the transport's, else the first the payload declares
     /// (§4.1); empty when there is none.
     [[nodiscard]] std::string SettleLeafId(const IngestRequest& request,
@@ -144,7 +172,8 @@ private:
 
     LeafReceiverOptions m_options;
     LeafReceiverDeps m_deps;
-    /// Immutable after construction; read without a lock.
+    /// The static `leaves`, keyed by id. Immutable after construction; read
+    /// without a lock.
     std::unordered_map<std::string, LeafConfig, TransparentStringHash, std::equal_to<>> m_leaves;
     LeafTable m_table;
     Counters m_counters;

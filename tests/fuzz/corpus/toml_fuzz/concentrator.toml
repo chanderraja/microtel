@@ -1,0 +1,26 @@
+[concentrator]
+enabled               = true
+max_payload_bytes     = "64KiB"
+max_spans_per_payload = 512
+max_leaves            = 1024
+max_leaf_resource_bytes = 2048
+leaf_idle_timeout     = "1h"
+unknown_leaf          = "accept"
+leaf_id_attribute     = "device.id"
+default_time_mode     = "auto"
+max_sync_age          = "1h"
+max_clock_skew        = "5m"
+boot_anchor_window    = "10m"
+
+[concentrator.leaf_defaults.resource]
+"service.namespace"      = "boiler-fleet"
+"deployment.environment" = "prod"
+
+[concentrator.leaves."can0:0x1a4"]
+time_mode = "boot_relative"
+[concentrator.leaves."can0:0x1a4".resource]
+"service.name" = "burner-controller"
+"host.name"    = "boiler-7"
+"sensors"      = 3
+"gain"         = 1.5
+"calibrated"   = true

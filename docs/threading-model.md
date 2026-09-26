@@ -233,7 +233,7 @@ Every mutex in v1, by owner. This table named five locks until ICP 0021; three o
 | `m_mu` | `EpollReactor` | `m_callbacks` register / unregister / dispatch lookup |
 | `m_pending_mu`, `m_cancel_mu` | `Http2Transport` | request-queue push / drain; cancel-queue push / drain |
 | `m_io_done_mu` | `Http2Transport` | the I/O-loop-exited flag `Close` waits on |
-| `m_mu` | `LeafTable` (the leaf receiver's, v1.2 concentrator builds only) | one leaf lookup or insert; a leaf lock, never held across a call out — the Resource is resolved before it is taken and the processor is called after it is released ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.5) |
+| `m_mu` | `LeafTable` (the leaf receiver's, v1.2 concentrator builds only) | one leaf lookup, insert (with its idle and LRU evictions) or boot-anchor update; a leaf lock, never held across a call out — the leaf's settings (including the user's resolver) and its Resource are resolved before it is taken and the processor is called after it is released ([`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.5) |
 
 There is **no completion lock and no shutdown lock**: request completion is a `std::promise` / `std::future` pair (§3.3), and shutdown is a set of atomic flags (§5.3).
 

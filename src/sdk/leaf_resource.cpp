@@ -385,6 +385,45 @@ std::vector<KeyValue> AdmitDeclared(const LeafResourceLayers& layers,
 
 }  // namespace
 
+std::uint64_t MergeResolverResource(std::vector<KeyValue>& configured,
+                                    const std::vector<KeyValue>& answer,
+                                    const LeafResourceLayers& fixed)
+{
+    // The budget holds views of the keys it has charged, so it charges a copy
+    // that does not move while `configured` grows.
+    const std::vector<KeyValue> base = configured;
+    LeafResourceLayers layers = fixed;
+    layers.declared = nullptr;
+    layers.configured = &base;
+    Budget budget;
+    (void)ChargeFixedLayers(layers, budget);
+    std::uint64_t dropped = 0;
+    for (const auto& kv : answer)
+    {
+        if (IsReserved(kv.key) || (!fixed.id_key.empty() && kv.key == fixed.id_key))
+        {
+            continue;
+        }
+        const std::size_t value_bytes = ValueBytes(kv.value);
+        if (budget.TotalWith(kv.key, value_bytes) > fixed.budget)
+        {
+            ++dropped;
+            continue;
+        }
+        const auto it = std::ranges::find(configured, kv.key, &KeyValue::key);
+        if (it == configured.end())
+        {
+            configured.push_back(kv);
+        }
+        else
+        {
+            it->value = kv.value;
+        }
+        budget.Set(kv.key, value_bytes);
+    }
+    return dropped;
+}
+
 ResolvedLeafResource ResolveLeafResource(const LeafResourceLayers& layers)
 {
     Budget budget;

@@ -17,6 +17,8 @@ namespace microtel::sdk
 /// Refused with `ConfigError::Kind::InvalidValue`, `field` naming the setting
 /// by its `[concentrator]` TOML path:
 /// - a zero `max_payload_bytes`, `max_spans_per_payload` or `max_leaves`;
+/// - a zero or negative `leaf_idle_timeout`, `max_sync_age`,
+///   `max_clock_skew` or `boot_anchor_window`;
 /// - a leaf id that is empty or longer than 128 bytes;
 /// - a reserved `microtel.leaf.*` key in any configured Resource (§4.2);
 /// - the `leaf_id_attribute` key in any configured Resource, which could

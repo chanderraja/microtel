@@ -23,6 +23,7 @@
 #include "microtel/sampler.hpp"
 
 #include "common/config/auth_providers.hpp"
+#include "common/config/concentrator_config.hpp"
 #include "common/config/config.hpp"
 #include "common/config/config_validator.hpp"
 #include "common/config/env_resolver.hpp"
@@ -95,7 +96,9 @@ struct SdkBuilder::Impl
     /// Unset means the default profile; empty is a validation error, because an
     /// unnamed profile is "default", not "" (ICP 0027 §5).
     std::optional<std::string> profile_name;
-    /// Unset: no receiver, and `GetLeafReceiver` hands out the no-op.
+    /// Unset: the receiver is whatever the `[concentrator]` table and the
+    /// `MICROTEL_CONCENTRATOR_*` variables say, disabled by default. Set: merged
+    /// over them, code highest (design §4.3).
     std::optional<LeafReceiverOptions> leaf_receiver;
 
     bool consumed = false;
@@ -640,21 +643,21 @@ struct ExporterPack
     return nullptr;
 }
 
-/// @brief Check `WithLeafReceiver`'s options, or refuse them in a build
-///        without the concentrator (design §6.2).
+/// @brief Check the resolved concentrator options — file, environment and
+///        `WithLeafReceiver` — or refuse them in a build without the
+///        concentrator (design §6.2).
 ///
 /// `ConfigError::Kind::FeatureNotCompiled` is ICP 0030's, still a draft, so a
 /// build without the option refuses with `InvalidValue` and names the option in
 /// the message. That changes to `FeatureNotCompiled` when ICP 0030 lands.
-[[nodiscard]] Expected<void, ConfigError> CheckLeafReceiver(
-    const std::optional<LeafReceiverOptions>& opts)
+[[nodiscard]] Expected<void, ConfigError> CheckLeafReceiver(const LeafReceiverOptions& opts)
 {
-    if (!opts.has_value() || !opts->enabled)
+    if (!opts.enabled)
     {
         return {};
     }
 #ifdef MICROTEL_WITH_CONCENTRATOR
-    return sdk::ValidateLeafReceiverOptions(*opts);
+    return sdk::ValidateLeafReceiverOptions(opts);
 #else
     return make_unexpected(ConfigError{
         .kind = ConfigError::Kind::InvalidValue,
@@ -688,6 +691,10 @@ Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig() const
     }
     ApplyExporterOverrides(cfg);
     ApplyResourceOverrides(cfg);
+    if (leaf_receiver)
+    {
+        config::MergeLeafReceiverOptions(cfg.concentrator, *leaf_receiver);
+    }
     if (auto r = config::Validate(cfg); !r)
     {
         return make_unexpected(r.error());
@@ -856,7 +863,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     WarnOnRiskyConfig(cfg);
 
     // --- Step 2b: the leaf receiver (ICP 0034, design §4.3, §6.2) ----------
-    if (auto r = CheckLeafReceiver(m_impl->leaf_receiver); !r)
+    if (auto r = CheckLeafReceiver(cfg.concentrator); !r)
     {
         return make_unexpected(r.error());
     }
@@ -892,7 +899,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
     const std::string& profile_name)
 {
     // --- Steps 7–9: encoder + codecs + exporters ----------------------------
-    const bool leaf_receiver_enabled = leaf_receiver.has_value() && leaf_receiver->enabled;
+    const bool leaf_receiver_enabled = cfg.concentrator.enabled;
     auto encoder = std::make_unique<wire::OtlpEncoder>();
     // Created before the exporters because they borrow it; ownership moves
     // into the Provider below, which declares it first and so destroys it last.
@@ -929,7 +936,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
         .log_exporter = std::move(exporters.log_exporter),
         .log_batch_opts = cfg.batch,
         .profile_name = profile_name,
-        .leaf_receiver = std::move(leaf_receiver),
+        .leaf_receiver = leaf_receiver_enabled ? std::optional{cfg.concentrator} : std::nullopt,
         .leaf_decoder = MakeLeafDecoder(leaf_receiver_enabled),
     });
 

@@ -91,17 +91,22 @@ Metrics ([`docs/metrics-design.md`](../../docs/metrics-design.md)):
   `PeriodicExportingMetricReader` and `SynchronousMetricReader`.
 
 Concentrator ([`docs/leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md)
-§3–§4, [ICP 0034](../../docs/icps/0034-leaf-receiver-api.md); experimental,
+§3–§5, [ICP 0034](../../docs/icps/0034-leaf-receiver-api.md); experimental,
 compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
 
 - `microtel::LeafReceiver` as `SdkLeafReceiver`
   ([`leaf_receiver.{hpp,cpp}`](leaf_receiver.hpp)): size limits, decode
   through `internal::IOtlpTraceDecoder`, all-or-nothing validation, leaf
-  identity, root sampling and `BatchSpanProcessor::Enqueue`. The reserved wire
-  attributes and the Resource merge are in
-  [`leaf_resource.{hpp,cpp}`](leaf_resource.hpp), the bounded LRU leaf table
-  in [`leaf_table.{hpp,cpp}`](leaf_table.hpp), and `Build()`'s checks of
-  `LeafReceiverOptions` in [`leaf_options.{hpp,cpp}`](leaf_options.hpp).
+  identity, the leaf's settings (static `leaves` plus the resolver's answer),
+  time correction, root sampling and `BatchSpanProcessor::Enqueue`. The
+  reserved wire attributes and the Resource merge are in
+  [`leaf_resource.{hpp,cpp}`](leaf_resource.hpp); the bounded leaf table —
+  settings, Resource, boot anchor and last sighting per leaf, with LRU and
+  idle-timeout eviction on insert — in [`leaf_table.{hpp,cpp}`](leaf_table.hpp);
+  the time modes' arithmetic and the boot-relative anchor in
+  [`leaf_time.{hpp,cpp}`](leaf_time.hpp); and `Build()`'s checks of
+  `LeafReceiverOptions` in [`leaf_options.{hpp,cpp}`](leaf_options.hpp). The
+  `[concentrator]` TOML table and variables are parsed in `src/common/config/`.
   `SdkProvider` builds it at construction and stops it in `Shutdown`.
 - [`noop_leaf_receiver.hpp`](noop_leaf_receiver.hpp): what `GetLeafReceiver`
   returns when the concentrator is off or not compiled in. Always built.
@@ -155,7 +160,8 @@ left the structure as an M3 implementation choice.
 - `tests/conformance/`: against a real OpenTelemetry Collector (shared
   with `src/exporter/`).
 - The concentrator: `tests/unit/sdk/leaf_receiver_test.cpp`,
-  `leaf_table_test.cpp` and `leaf_receiver_builder_test.cpp`;
+  `leaf_table_test.cpp`, `leaf_time_test.cpp` and
+  `leaf_receiver_builder_test.cpp`;
   `tests/integration/sdk/leaf_ingest_test.cpp` end to end through a recording
   codec; `tests/fuzz/leaf_ingest_fuzz.cpp`.
 

@@ -353,6 +353,24 @@ TEST(OtlpTraceDecoderTest, TheReceiversArenaCapFitsDenseLegitimatePayloads)
     }
 }
 
+TEST(OtlpTraceDecoderTest, AnObserverSeesEachCallsArenaUseWithinItsCap)
+{
+    mtw::OtlpTraceDecoder::ArenaStats stats;
+    const mtw::OtlpTraceDecoder decoder{&stats};
+    const auto bytes = Encode({}, {Span(1, 1), Span(1, 2)});
+
+    ASSERT_TRUE(decoder.Decode(bytes, kGenerous).has_value());
+    EXPECT_EQ(stats.cap, kGenerous.max_arena_bytes);
+    EXPECT_GT(stats.used, 0U);
+    EXPECT_LE(stats.used, stats.cap);
+
+    // A call that runs out of arena reports its use too, still within the cap.
+    EXPECT_FALSE(decoder.Decode(bytes, {.max_spans = 10, .max_depth = 16, .max_arena_bytes = 64})
+                     .has_value());
+    EXPECT_EQ(stats.cap, 64U);
+    EXPECT_LE(stats.used, stats.cap);
+}
+
 TEST(OtlpTraceDecoderTest, AnArenaThatRunsOutPartWayIsTooLarge)
 {
     // Room for the arena's first block but not for 200 spans.

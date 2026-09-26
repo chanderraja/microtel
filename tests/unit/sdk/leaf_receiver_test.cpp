@@ -20,9 +20,11 @@
 #include "microtel/sdk_builder.hpp"
 #include "microtel/trace.hpp"
 
+#include "fakes/fake_clock.hpp"
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_otlp_trace_decoder.hpp"
 #include "fakes/fake_span_processor.hpp"
+#include "fakes/fake_steady_clock.hpp"
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_otlp_trace_decoder.hpp"
 #include "mocks/mock_sampler.hpp"
@@ -36,8 +38,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <new>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -209,6 +214,8 @@ public:
     mtm::MockOtlpTraceDecoder* decoder = nullptr;  // owned by the receiver
     mt::LeafReceiverOptions options;
     mt::SpanLimitOptions limits;
+    mtm::FakeClock wall;
+    mtm::FakeSteadyClock steady;
 
     std::unique_ptr<mts::SdkLeafReceiver> Make()
     {
@@ -223,6 +230,8 @@ public:
                                                           .diagnostics = &sink,
                                                           .decoder = std::move(owned),
                                                           .span_limits = limits,
+                                                          .clock = &wall,
+                                                          .steady_clock = &steady,
                                                       });
     }
 
@@ -1128,6 +1137,655 @@ TEST_F(LeafReceiverTest, ConcurrentIngestFromSeveralThreadsWithOverlappingLeaves
     EXPECT_EQ(accepted.load(), kThreads * kPerThread);
     EXPECT_LE(rx.Stats().leaves_tracked, 3U);
     EXPECT_EQ(rx.Stats().payloads_accepted, static_cast<std::uint64_t>(kThreads * kPerThread));
+    (void)bsp.Shutdown(std::chrono::seconds(5));
+}
+
+// ---------------------------------------------------------------------------
+// Time modes (§5)
+// ---------------------------------------------------------------------------
+
+/// The reserved attributes of a payload in @p mode with encode time @p e and
+/// the mode's own attribute (`sync_age` or `boot_id`) set to @p extra.
+std::vector<mt::KeyValue> TimeReserved(mt::LeafTimeMode mode,
+                                       std::optional<std::int64_t> e,
+                                       std::int64_t extra = 0)
+{
+    std::vector<mt::KeyValue> attrs{
+        {.key = "microtel.leaf.proto", .value = std::int64_t{1}},
+        {.key = "microtel.leaf.time_mode", .value = static_cast<std::int64_t>(mode)},
+    };
+    if (e.has_value())
+    {
+        attrs.push_back({.key = "microtel.leaf.encode_time", .value = *e});
+    }
+    if (mode == mt::LeafTimeMode::SyncRelative)
+    {
+        attrs.push_back({.key = "microtel.leaf.sync_age", .value = extra});
+    }
+    if (mode == mt::LeafTimeMode::BootRelative)
+    {
+        attrs.push_back({.key = "microtel.leaf.boot_id", .value = extra});
+    }
+    return attrs;
+}
+
+/// A span at [@p start, @p end] in the leaf's clock, with one event at @p event.
+mti::SpanRecord TimedSpan(std::int64_t start, std::int64_t end, std::int64_t event)
+{
+    auto span = LeafSpan(1, 1);
+    span.start_time = Ns(start);
+    span.end_time = Ns(end);
+    mti::SpanEvent ev;
+    ev.name = "e";
+    ev.timestamp = Ns(event);
+    span.events.push_back(std::move(ev));
+    return span;
+}
+
+std::int64_t NsOf(std::chrono::system_clock::time_point tp)
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
+}
+
+mt::IngestRequest RequestAt(std::int64_t received_ns, std::string_view leaf_id = kLeaf)
+{
+    auto r = Request(leaf_id);
+    r.received_at = Ns(received_ns);
+    return r;
+}
+
+constexpr std::int64_t kSecond = 1'000'000'000;
+/// A receive time in the right century, so R - E is a realistic Unix offset.
+constexpr std::int64_t kR = 1'700'000'000 * kSecond;
+
+class LeafTimeTest : public LeafReceiverTest
+{
+public:
+    /// Ingest one boot-relative span at leaf time 0 with encode time @p e,
+    /// received at @p r; return its corrected start, the anchor B.
+    std::int64_t BootAnchorAfter(mts::SdkLeafReceiver& rx,
+                                 std::int64_t e,
+                                 std::int64_t r,
+                                 std::int64_t boot_id = 7,
+                                 std::string_view leaf = kLeaf)
+    {
+        Decodes(Payload(TimeReserved(mt::LeafTimeMode::BootRelative, e, boot_id),
+                        {TimedSpan(0, 0, 0)}));
+        processor.received_spans.clear();
+        const auto result = rx.Ingest(RequestAt(r, leaf));
+        EXPECT_EQ(result.status, mt::IngestStatus::Accepted);
+        if (processor.received_spans.size() != 1)
+        {
+            ADD_FAILURE() << "expected one span";
+            return -1;
+        }
+        return NsOf(processor.received_spans[0].start_time);
+    }
+};
+
+TEST_F(LeafTimeTest, ConcentratorStampedShiftsEveryTimestampByReceiveMinusEncode)
+{
+    auto rx = Make();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, 1000),
+                    {TimedSpan(100, 200, 150)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    ASSERT_EQ(processor.received_spans.size(), 1U);
+    const auto& span = processor.received_spans[0];
+    EXPECT_EQ(NsOf(span.start_time), kR - 900) << "t' = t + (R - E)";
+    EXPECT_EQ(NsOf(span.end_time), kR - 800);
+    ASSERT_EQ(span.events.size(), 1U);
+    EXPECT_EQ(NsOf(span.events[0].timestamp), kR - 850);
+    EXPECT_EQ(rx->Stats().time_fallbacks, 0U);
+}
+
+TEST_F(LeafTimeTest, ConcentratorStampedWithoutAClockStampsEverythingAtReceiveTime)
+{
+    auto rx = Make();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, std::nullopt),
+                    {TimedSpan(0, 0, 0)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    const auto& span = processor.received_spans.at(0);
+    EXPECT_EQ(NsOf(span.start_time), kR);
+    EXPECT_EQ(NsOf(span.end_time), kR);
+    EXPECT_EQ(NsOf(span.events.at(0).timestamp), kR);
+}
+
+TEST_F(LeafTimeTest, AnUnsetReceivedAtReadsTheProvidersClock)
+{
+    wall.now = Ns(kR);
+    auto rx = Make();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, 1000),
+                    {TimedSpan(100, 200, 150)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR - 900);
+}
+
+TEST_F(LeafTimeTest, ACorrectionThatWouldGoBelowZeroIsClampedToZero)
+{
+    auto rx = Make();
+    Decodes(
+        Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, kR), {TimedSpan(0, 10, 5)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(100)).status, mt::IngestStatus::Accepted);
+
+    const auto& span = processor.received_spans.at(0);
+    EXPECT_EQ(NsOf(span.start_time), 0);
+    EXPECT_EQ(NsOf(span.end_time), 0);
+}
+
+TEST_F(LeafTimeTest, ExtremeLeafValuesSaturateInsteadOfOverflowing)
+{
+    auto rx = Make();
+    constexpr std::int64_t kMax = std::numeric_limits<std::int64_t>::max();
+    constexpr std::int64_t kMin = std::numeric_limits<std::int64_t>::min();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, kMin),
+                    {TimedSpan(kMax - 1, kMax, kMax)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    const auto& span = processor.received_spans.at(0);
+    EXPECT_EQ(NsOf(span.start_time), kMax);
+    EXPECT_EQ(NsOf(span.end_time), kMax);
+}
+
+TEST_F(LeafTimeTest, SyncRelativeWithinBothLimitsIsTrusted)
+{
+    options.max_sync_age = std::chrono::seconds{10};
+    options.max_clock_skew = std::chrono::seconds{5};
+    auto rx = Make();
+    // At the limits exactly: sync_age == max_sync_age, |R - E| == max_clock_skew.
+    for (const std::int64_t e : {kR - (5 * kSecond), kR + (5 * kSecond)})
+    {
+        processor.received_spans.clear();
+        Decodes(Payload(TimeReserved(mt::LeafTimeMode::SyncRelative, e, 10 * kSecond),
+                        {TimedSpan(kR - 300, kR - 200, kR - 250)}));
+
+        ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+        const auto& span = processor.received_spans.at(0);
+        EXPECT_EQ(NsOf(span.start_time), kR - 300) << "t' = t";
+        EXPECT_EQ(NsOf(span.end_time), kR - 200);
+        EXPECT_EQ(NsOf(span.events.at(0).timestamp), kR - 250);
+    }
+    EXPECT_EQ(rx->Stats().time_fallbacks, 0U);
+}
+
+TEST_F(LeafTimeTest, SyncRelativeWithAStaleSyncFallsBackToConcentratorStamped)
+{
+    options.max_sync_age = std::chrono::seconds{10};
+    auto rx = Make();
+    const std::int64_t e = kR - 1000;
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::SyncRelative, e, (10 * kSecond) + 1),
+                    {TimedSpan(e - 300, e - 200, e - 250)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR - 300) << "t' = t + (R - E)";
+    EXPECT_EQ(rx->Stats().time_fallbacks, 1U);
+}
+
+TEST_F(LeafTimeTest, SyncRelativeWithANegativeSyncAgeFallsBack)
+{
+    auto rx = Make();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::SyncRelative, kR, -1),
+                    {TimedSpan(kR - 300, kR - 200, kR - 250)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR + 1000)).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR + 700);
+    EXPECT_EQ(rx->Stats().time_fallbacks, 1U);
+}
+
+TEST_F(LeafTimeTest, SyncRelativeWithASkewedClockFallsBackEitherWay)
+{
+    options.max_clock_skew = std::chrono::seconds{5};
+    auto rx = Make();
+    // The leaf's wall clock is ahead of the concentrator's, then behind it.
+    for (const std::int64_t e : {kR + (5 * kSecond) + 1, kR - (5 * kSecond) - 1})
+    {
+        processor.received_spans.clear();
+        Decodes(Payload(TimeReserved(mt::LeafTimeMode::SyncRelative, e, 0),
+                        {TimedSpan(e - 300, e - 200, e - 250)}));
+
+        ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+        EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR - 300);
+    }
+    EXPECT_EQ(rx->Stats().time_fallbacks, 2U);
+}
+
+TEST_F(LeafTimeTest, BootRelativeFirstPayloadAnchorsProvisionallyOnItsOwnSample)
+{
+    auto rx = Make();
+    Decodes(
+        Payload(TimeReserved(mt::LeafTimeMode::BootRelative, 5000, 7), {TimedSpan(100, 200, 150)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    const auto& span = processor.received_spans.at(0);
+    const std::int64_t b = kR - 5000;
+    EXPECT_EQ(NsOf(span.start_time), b + 100) << "t' = t + B";
+    EXPECT_EQ(NsOf(span.end_time), b + 200);
+    EXPECT_EQ(NsOf(span.events.at(0).timestamp), b + 150);
+}
+
+TEST_F(LeafTimeTest, BootRelativeAnchorIsTheSecondSmallestSample)
+{
+    auto rx = Make();
+    // Samples b = R - E of 3000, 1000 and 2000.
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, 4000), 3000) << "{3000}: provisional";
+    EXPECT_EQ(BootAnchorAfter(*rx, 2000, 3000), 3000) << "{3000, 1000}: second-smallest";
+    EXPECT_EQ(BootAnchorAfter(*rx, 3000, 5000), 2000) << "{3000, 1000, 2000}";
+}
+
+TEST_F(LeafTimeTest, OneLowOutlierDoesNotMoveTheBootAnchorButASecondOneDoes)
+{
+    auto rx = Make();
+    // A steady link: every sample is kR.
+    for (std::int64_t i = 0; i < 4; ++i)
+    {
+        EXPECT_EQ(BootAnchorAfter(*rx, i * kSecond, kR + (i * kSecond)), kR);
+    }
+    // The leaf clock glitches forward by 1 s once: its sample is 1 s too low.
+    EXPECT_EQ(BootAnchorAfter(*rx, (5 * kSecond) + kSecond, kR + (5 * kSecond)), kR)
+        << "a single low outlier must not move the anchor";
+    // A second sample at or below the current anchor does move it.
+    EXPECT_EQ(BootAnchorAfter(*rx, (6 * kSecond) + 400, kR + (6 * kSecond)), kR - 400);
+}
+
+TEST_F(LeafTimeTest, ANewBootIdReplacesTheAnchor)
+{
+    auto rx = Make();
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7), kR - 1000);
+    // The leaf restarted: its clock counts from 0 again, from a later boot.
+    EXPECT_EQ(BootAnchorAfter(*rx, 10, kR + kSecond, 8), kR + kSecond - 10)
+        << "the old boot's samples are gone, so the new boot anchors on its own";
+    EXPECT_EQ(BootAnchorAfter(*rx, 20, kR + kSecond + 30, 8), kR + kSecond + 10)
+        << "{-10, +10} of the new boot: the second-smallest";
+}
+
+TEST_F(LeafTimeTest, BootSamplesOlderThanTheWindowAgeOut)
+{
+    options.boot_anchor_window = std::chrono::seconds{600};
+    auto rx = Make();
+    constexpr std::int64_t kWindow = 600 * kSecond;
+    // Two low samples early on, then later ones 500 ns higher.
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 500 + kWindow, kR + kWindow), kR - 1000)
+        << "at exactly the window's age the early samples still count";
+    EXPECT_EQ(BootAnchorAfter(*rx, 501 + kWindow, kR + kWindow + 1), kR - 500)
+        << "one nanosecond later they have aged out; two samples of kR - 500 remain";
+}
+
+TEST_F(LeafTimeTest, TheBootAnchorRingHoldsSixteenSamples)
+{
+    auto rx = Make();
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR), kR - 1000);
+    // Fourteen later samples, each of kR + 500: the ring is full and still
+    // holds both low ones.
+    for (std::int64_t i = 1; i <= 14; ++i)
+    {
+        EXPECT_EQ(BootAnchorAfter(*rx, 1000 + i, kR + i + 1500), kR - 1000) << i;
+    }
+    // The 17th sample pushes the first low one out, leaving one: no longer
+    // corroborated, so the anchor moves up to the second-smallest.
+    EXPECT_EQ(BootAnchorAfter(*rx, 1015, kR + 1015 + 1500), kR + 500);
+}
+
+TEST_F(LeafTimeTest, EachLeafHasItsOwnBootAnchor)
+{
+    auto rx = Make();
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "a"), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 5000, kR, 7, "b"), kR - 5000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "a"), kR - 1000);
+}
+
+TEST_F(LeafTimeTest, AnEvictedLeafReAnchorsFromItsNextPayload)
+{
+    options.max_leaves = 1;
+    auto rx = Make();
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "a"), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "a"), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "b"), kR - 1000);  // evicts a
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR + 700, 7, "a"), kR - 300)
+        << "a's two earlier samples went with its entry";
+}
+
+TEST_F(LeafTimeTest, AConstrainedLeafMayStillSendConcentratorStampedAndIsCorrectedAsSuch)
+{
+    options.default_time_mode = mt::LeafTimeMode::SyncRelative;
+    auto rx = Make();
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, 1000),
+                    {TimedSpan(100, 200, 150)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR - 900);
+}
+
+// ---------------------------------------------------------------------------
+// Resolver (§4.3)
+// ---------------------------------------------------------------------------
+
+TEST_F(LeafReceiverTest, TheResolverIsCalledOncePerLeafAndItsAnswerIsUsed)
+{
+    std::vector<std::string> asked;
+    options.resolver = [&asked](std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        asked.emplace_back(id);
+        return mt::LeafConfig{.time_mode = std::nullopt,
+                              .resource = {{.key = "service.name", .value = std::string{"res"}}}};
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(asked, std::vector<std::string>{std::string{kLeaf}});
+    EXPECT_EQ(StringAt(*processor.received_spans.at(1).resource, "service.name"), "res");
+}
+
+TEST_F(LeafReceiverTest, TheResolversAnswerSitsAboveTheStaticEntryPerKey)
+{
+    options.leaves = {{std::string{kLeaf},
+                       mt::LeafConfig{.time_mode = mt::LeafTimeMode::SyncRelative,
+                                      .resource = {
+                                          {.key = "service.name", .value = std::string{"static"}},
+                                          {.key = "host.name", .value = std::string{"h-static"}},
+                                      }}}};
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        return mt::LeafConfig{.time_mode = std::nullopt,
+                              .resource = {{.key = "service.name", .value = std::string{"res"}}}};
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(mt::LeafTimeMode::BootRelative), {LeafSpan(1, 1)}));
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Malformed)
+        << "the resolver set no time mode, so the static entry's still constrains";
+
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    const auto& resource = *processor.received_spans.at(0).resource;
+    EXPECT_EQ(StringAt(resource, "service.name"), "res");
+    EXPECT_EQ(StringAt(resource, "host.name"), "h-static");
+}
+
+TEST_F(LeafReceiverTest, TheResolversTimeModeConstrainsTheLeaf)
+{
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    { return mt::LeafConfig{.time_mode = mt::LeafTimeMode::SyncRelative, .resource = {}}; };
+    auto rx = Make();
+    Decodes(Payload(Reserved(mt::LeafTimeMode::BootRelative), {LeafSpan(1, 1)}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, ANulloptResolverAnswerLeavesTheLeafUnknown)
+{
+    int calls = 0;
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    options.resolver = [&calls](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        ++calls;
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::UnknownLeaf, mt::DropReason::LeafUnknown);
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf);
+    EXPECT_EQ(calls, 1) << "a negative answer is cached like a positive one";
+}
+
+TEST_F(LeafReceiverTest, AResolverAnswerConfiguresTheLeafUnderReject)
+{
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    options.resolver = [](std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        if (id == "known")
+        {
+            return mt::LeafConfig{};
+        }
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    EXPECT_EQ(rx->Ingest(Request("known")).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(rx->Ingest(Request("other")).status, mt::IngestStatus::UnknownLeaf);
+}
+
+TEST_F(LeafReceiverTest, TheResolverIsCalledAgainAfterEviction)
+{
+    options.max_leaves = 1;
+    std::vector<std::string> asked;
+    options.resolver = [&asked](std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        asked.emplace_back(id);
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request("b")).status, mt::IngestStatus::Accepted);  // evicts a
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(asked, (std::vector<std::string>{"a", "b", "a"}));
+}
+
+TEST_F(LeafReceiverTest, TheResolverRunsWithNoLockHeld)
+{
+    mts::SdkLeafReceiver* self = nullptr;
+    std::uint64_t tracked_inside = 99;
+    options.resolver = [&self, &tracked_inside](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        // Stats() takes the leaf table's lock: with it held, this deadlocks.
+        tracked_inside = self->Stats().leaves_tracked;
+        return std::nullopt;
+    };
+    auto rx = Make();
+    self = rx.get();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(tracked_inside, 0U);
+}
+
+TEST_F(LeafReceiverTest, ReservedAndLeafIdKeysInAResolverAnswerAreIgnored)
+{
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        return mt::LeafConfig{.time_mode = std::nullopt,
+                              .resource = {
+                                  {.key = "device.id", .value = std::string{"spoofed"}},
+                                  {.key = "microtel.leaf.proto", .value = std::int64_t{9}},
+                                  {.key = "host.name", .value = std::string{"h"}},
+                              }};
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    const auto& resource = *processor.received_spans.at(0).resource;
+    EXPECT_EQ(StringAt(resource, "device.id"), kLeaf);
+    EXPECT_EQ(Find(resource, "microtel.leaf.proto"), nullptr);
+    EXPECT_EQ(StringAt(resource, "host.name"), "h");
+}
+
+TEST_F(LeafReceiverTest, ResolverKeysOverTheResourceBudgetAreDroppedAndCounted)
+{
+    // device.id (9 + 10) + service.name (12 + 15) = 46 bytes are fixed; 10 more fit.
+    options.max_leaf_resource_bytes = 56;
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        return mt::LeafConfig{.time_mode = std::nullopt,
+                              .resource = {
+                                  {.key = "k", .value = std::string{"12345678"}},     // 9: fits
+                                  {.key = "big", .value = std::string{"123456789"}},  // 12: over
+                              }};
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    const auto& resource = *processor.received_spans.at(0).resource;
+    EXPECT_EQ(StringAt(resource, "k"), "12345678");
+    EXPECT_EQ(Find(resource, "big"), nullptr);
+    EXPECT_EQ(rx->Stats().resource_attributes_dropped, 1U);
+    EXPECT_EQ(TotalDrops(sink), 0U) << "not a DropReason";
+}
+
+TEST_F(LeafReceiverTest, AThrowingResolverIsTreatedAsNoAnswer)
+{
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    { throw std::runtime_error{"inventory service down"}; };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf);
+}
+
+TEST_F(LeafReceiverTest, AResolverThatRunsOutOfMemoryIsOutOfMemory)
+{
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    { throw std::bad_alloc{}; };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::OutOfMemory);
+    EXPECT_EQ(rx->Stats().payloads_out_of_memory, 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Idle timeout (§4.5)
+// ---------------------------------------------------------------------------
+
+TEST_F(LeafReceiverTest, ALeafIdleForLongerThanTheTimeoutIsEvictedOnTheNextInsert)
+{
+    options.leaf_idle_timeout = std::chrono::seconds{60};
+    std::vector<std::string> asked;
+    options.resolver = [&asked](std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        asked.emplace_back(id);
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    steady.Advance(std::chrono::seconds{60});
+    ASSERT_EQ(rx->Ingest(Request("b")).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 2U) << "idle for exactly the timeout: kept";
+    EXPECT_EQ(rx->Stats().leaves_evicted, 0U);
+
+    steady.Advance(std::chrono::seconds{1});
+    ASSERT_EQ(rx->Ingest(Request("c")).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 2U) << "a, idle for 61 s, is gone; b and c remain";
+    EXPECT_EQ(rx->Stats().leaves_evicted, 1U);
+
+    ASSERT_EQ(rx->Ingest(Request("b")).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(asked, (std::vector<std::string>{"a", "b", "c", "a"}))
+        << "b was still cached; a was resolved again";
+}
+
+TEST_F(LeafReceiverTest, SeeingALeafResetsItsIdleClock)
+{
+    options.leaf_idle_timeout = std::chrono::seconds{60};
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    steady.Advance(std::chrono::seconds{50});
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    steady.Advance(std::chrono::seconds{50});
+    ASSERT_EQ(rx->Ingest(Request("b")).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(rx->Stats().leaves_evicted, 0U);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 2U);
+}
+
+/// One thread's share of the eviction race: boot-relative payloads from
+/// leaves that overlap with every other thread's, through a table too small
+/// for them, so inserts, evictions, anchor updates and resolver calls race.
+void IngestAndEvictFromOneThread(mts::SdkLeafReceiver& rx, int thread, std::atomic<int>& accepted)
+{
+    const std::array<std::string_view, 6> ids{"a", "b", "c", "d", "e", "f"};
+    for (int i = 0; i < kPerThread; ++i)
+    {
+        const auto id = ids.at(static_cast<std::size_t>(thread + i) % ids.size());
+        if (rx.Ingest(Request(id)).status == mt::IngestStatus::Accepted)
+        {
+            ++accepted;
+        }
+        (void)rx.Stats();
+    }
+}
+
+TEST_F(LeafReceiverTest, ConcurrentIngestWithEvictionAnchorsAndTheResolver)
+{
+    options.max_leaves = 2;
+    options.leaf_idle_timeout = std::chrono::seconds{1};
+    std::atomic<int> resolved{0};
+    options.resolver = [&resolved](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        ++resolved;
+        return mt::LeafConfig{.time_mode = mt::LeafTimeMode::BootRelative,
+                              .resource = {{.key = "service.name", .value = std::string{"r"}}}};
+    };
+    auto fake = std::make_unique<mtm::FakeOtlpTraceDecoder>();
+    fake->canned.push_back(Payload(Reserved(mt::LeafTimeMode::BootRelative), {LeafSpan(1, 1)}));
+    mtm::MockExporter exporter;
+    mts::BatchSpanProcessor bsp{&exporter,
+                                std::make_shared<mt::Resource>(),
+                                mt::BatchOptions{},
+                                1U << 20U,
+                                1U << 30U,
+                                &sink};
+    const auto always_on = mt::MakeAlwaysOnSampler();
+    // Real clocks: the fakes are not meant to be read from several threads.
+    mts::SdkLeafReceiver rx{options,
+                            mts::LeafReceiverDeps{.owner = nullptr,
+                                                  .sampler = always_on.Get(),
+                                                  .processor = &bsp,
+                                                  .batch_processor = &bsp,
+                                                  .diagnostics = nullptr,
+                                                  .decoder = std::move(fake),
+                                                  .span_limits = limits}};
+
+    constexpr int kThreads = 4;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    std::atomic<int> accepted{0};
+    for (int t = 0; t < kThreads; ++t)
+    {
+        threads.emplace_back([&rx, &accepted, t] { IngestAndEvictFromOneThread(rx, t, accepted); });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    EXPECT_EQ(accepted.load(), kThreads * kPerThread);
+    EXPECT_LE(rx.Stats().leaves_tracked, 2U);
+    EXPECT_GT(rx.Stats().leaves_evicted, 0U);
+    EXPECT_GE(resolved.load(), 6) << "every leaf was resolved at least once";
     (void)bsp.Shutdown(std::chrono::seconds(5));
 }
 

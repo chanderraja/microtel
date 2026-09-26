@@ -5,10 +5,14 @@
 
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/sdk_builder.hpp"
+
+#include "common/config/concentrator_config.hpp"
 
 // NOLINTNEXTLINE(misc-include-cleaner) — toml++ single-header
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +20,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include <toml++/toml.hpp>
 
@@ -387,6 +393,389 @@ constexpr std::string_view kValIgnore = "ignore";
     return std::nullopt;
 }
 
+// ---------------------------------------------------------------------------
+// [concentrator] (docs/leaf-concentrator-design.md §4.2)
+// ---------------------------------------------------------------------------
+//
+// Unlike the older sections, a key present with the wrong type is an error
+// here rather than silently skipped: every key names a limit or a policy, and
+// a typo that left the default in place would go unnoticed.
+
+[[nodiscard]] ConfigError InvalidAt(std::string_view section,
+                                    std::string_view key,
+                                    std::string_view message)
+{
+    std::string field{section};
+    field += '.';
+    field += key;
+    return ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                       .field = field,
+                       .message = field + ": " + std::string{message}};
+}
+
+/// Where a `[concentrator]` value is read from and what it is called.
+struct ConcentratorKey
+{
+    const toml::table* table = nullptr;
+    std::string_view section;
+    std::string_view key;
+};
+
+[[nodiscard]] std::optional<ConfigError> ReadBool(const ConcentratorKey& at, bool& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const b = node->as_boolean();
+    if (b == nullptr)
+    {
+        return InvalidAt(at.section, at.key, "must be true or false");
+    }
+    out = b->get();
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadCount(const ConcentratorKey& at, std::uint32_t& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const i = node->as_integer();
+    if (i == nullptr || !std::in_range<std::uint32_t>(i->get()))
+    {
+        return InvalidAt(at.section, at.key, "must be an integer from 0 to 4294967295");
+    }
+    out = static_cast<std::uint32_t>(i->get());
+    return std::nullopt;
+}
+
+/// A byte size: an integer number of bytes, or a string such as "64KiB".
+[[nodiscard]] std::optional<ConfigError> ReadByteSize(const ConcentratorKey& at, std::uint32_t& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr || node->is_integer())
+    {
+        return ReadCount(at, out);
+    }
+    const auto* const s = node->as_string();
+    const auto parsed = s == nullptr ? std::nullopt : ParseByteSize(s->get());
+    if (!parsed.has_value())
+    {
+        return InvalidAt(at.section,
+                         at.key,
+                         R"(must be a byte count or a string such as "64KiB" (B, KiB, MiB))");
+    }
+    out = *parsed;
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadDuration(const ConcentratorKey& at,
+                                                      std::chrono::seconds& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const s = node->as_string();
+    const auto parsed = s == nullptr ? std::nullopt : ParseDuration(s->get());
+    if (!parsed.has_value())
+    {
+        return InvalidAt(at.section, at.key, R"(must be a string such as "30s", "5m" or "1h")");
+    }
+    out = *parsed;
+    return std::nullopt;
+}
+
+/// A string key whose text @p parse turns into a value, or refuses.
+template <typename T, typename Parse>
+[[nodiscard]] std::optional<ConfigError> ReadEnum(const ConcentratorKey& at,
+                                                  Parse parse,
+                                                  std::string_view expected,
+                                                  T& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const s = node->as_string();
+    auto parsed = s == nullptr ? std::nullopt : parse(s->get());
+    if (!parsed.has_value())
+    {
+        return InvalidAt(at.section, at.key, expected);
+    }
+    out = *parsed;
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadString(const ConcentratorKey& at, std::string& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const s = node->as_string();
+    if (s == nullptr)
+    {
+        return InvalidAt(at.section, at.key, "must be a string");
+    }
+    out = s->get();
+    return std::nullopt;
+}
+
+/// One Resource value: a string, integer, float or boolean.
+[[nodiscard]] std::optional<AttributeValue> ResourceValue(const toml::node& node)
+{
+    if (const auto* const s = node.as_string())
+    {
+        return AttributeValue{s->get()};
+    }
+    if (const auto* const i = node.as_integer())
+    {
+        return AttributeValue{i->get()};
+    }
+    if (const auto* const d = node.as_floating_point())
+    {
+        return AttributeValue{d->get()};
+    }
+    if (const auto* const b = node.as_boolean())
+    {
+        return AttributeValue{b->get()};
+    }
+    return std::nullopt;
+}
+
+/// A `resource` sub-table of `[concentrator]`, as attributes in file order.
+[[nodiscard]] std::optional<ConfigError> ReadResource(const ConcentratorKey& at,
+                                                      std::vector<KeyValue>& out)
+{
+    const toml::node* const node = at.table->get(at.key);
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const tbl = node->as_table();
+    if (tbl == nullptr)
+    {
+        return InvalidAt(at.section, at.key, "must be a table");
+    }
+    std::vector<KeyValue> attrs;
+    for (const auto& [key, value] : *tbl)
+    {
+        auto v = ResourceValue(value);
+        if (!v.has_value())
+        {
+            return InvalidAt(at.section,
+                             at.key,
+                             "'" + std::string{key.str()} +
+                                 "' must be a string, integer, float or boolean (quote "
+                                 "dotted keys: \"service.name\" = ...)");
+        }
+        attrs.push_back(KeyValue{.key = std::string{key.str()}, .value = std::move(*v)});
+    }
+    out = std::move(attrs);
+    return std::nullopt;
+}
+
+constexpr std::string_view kConcentrator = "concentrator";
+
+[[nodiscard]] std::optional<ConfigError> ReadConcentratorLimits(const toml::table& sec,
+                                                                LeafReceiverOptions& o)
+{
+    const auto at = [&sec](std::string_view key)
+    { return ConcentratorKey{.table = &sec, .section = kConcentrator, .key = key}; };
+    std::optional<ConfigError> err = ReadBool(at("enabled"), o.enabled);
+    if (!err)
+    {
+        err = ReadByteSize(at("max_payload_bytes"), o.max_payload_bytes);
+    }
+    if (!err)
+    {
+        err = ReadCount(at("max_spans_per_payload"), o.max_spans_per_payload);
+    }
+    if (!err)
+    {
+        err = ReadCount(at("max_leaves"), o.max_leaves);
+    }
+    if (!err)
+    {
+        err = ReadByteSize(at("max_leaf_resource_bytes"), o.max_leaf_resource_bytes);
+    }
+    if (!err)
+    {
+        err = ReadDuration(at("leaf_idle_timeout"), o.leaf_idle_timeout);
+    }
+    return err;
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadConcentratorPolicies(const toml::table& sec,
+                                                                  LeafReceiverOptions& o)
+{
+    const auto at = [&sec](std::string_view key)
+    { return ConcentratorKey{.table = &sec, .section = kConcentrator, .key = key}; };
+    std::optional<ConfigError> err = ReadEnum(at("unknown_leaf"),
+                                              ParseUnknownLeafPolicy,
+                                              R"(must be "accept" or "reject")",
+                                              o.unknown_leaf);
+    if (!err)
+    {
+        err = ReadString(at("leaf_id_attribute"), o.leaf_id_attribute);
+    }
+    if (!err)
+    {
+        err = ReadEnum(
+            at("default_time_mode"),
+            ParseDefaultTimeMode,
+            R"(must be "auto", "concentrator_stamped", "sync_relative" or "boot_relative")",
+            o.default_time_mode);
+    }
+    if (!err)
+    {
+        err = ReadDuration(at("max_sync_age"), o.max_sync_age);
+    }
+    if (!err)
+    {
+        err = ReadDuration(at("max_clock_skew"), o.max_clock_skew);
+    }
+    if (!err)
+    {
+        err = ReadDuration(at("boot_anchor_window"), o.boot_anchor_window);
+    }
+    return err;
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadLeafDefaults(const toml::table& sec,
+                                                          LeafReceiverOptions& o,
+                                                          UnknownKeyMode mode)
+{
+    const toml::node* const node = sec.get("leaf_defaults");
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const tbl = node->as_table();
+    if (tbl == nullptr)
+    {
+        return InvalidAt(kConcentrator, "leaf_defaults", "must be a table");
+    }
+    constexpr std::string_view kSection = "concentrator.leaf_defaults";
+    if (auto err = CheckUnknown(*tbl, kSection, {"resource"}, mode))
+    {
+        return err;
+    }
+    return ReadResource(ConcentratorKey{.table = tbl, .section = kSection, .key = "resource"},
+                        o.leaf_defaults_resource);
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadLeaf(const toml::node& node,
+                                                  const std::string& section,
+                                                  LeafConfig& leaf,
+                                                  UnknownKeyMode mode)
+{
+    const auto* const tbl = node.as_table();
+    if (tbl == nullptr)
+    {
+        return ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                           .field = section,
+                           .message = section + ": must be a table"};
+    }
+    if (auto err = CheckUnknown(*tbl, section, {"time_mode", "resource"}, mode))
+    {
+        return err;
+    }
+    const auto at = [tbl, &section](std::string_view key)
+    { return ConcentratorKey{.table = tbl, .section = section, .key = key}; };
+    LeafTimeMode time_mode{};
+    if (auto err = ReadEnum(at("time_mode"),
+                            ParseLeafTimeMode,
+                            R"(must be "concentrator_stamped", "sync_relative" or "boot_relative")",
+                            time_mode))
+    {
+        return err;
+    }
+    if (tbl->contains("time_mode"))
+    {
+        leaf.time_mode = time_mode;
+    }
+    return ReadResource(at("resource"), leaf.resource);
+}
+
+[[nodiscard]] std::optional<ConfigError> ReadLeaves(const toml::table& sec,
+                                                    LeafReceiverOptions& o,
+                                                    UnknownKeyMode mode)
+{
+    const toml::node* const node = sec.get("leaves");
+    if (node == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto* const tbl = node->as_table();
+    if (tbl == nullptr)
+    {
+        return InvalidAt(kConcentrator, "leaves", "must be a table");
+    }
+    for (const auto& [id, value] : *tbl)
+    {
+        LeafConfig leaf;
+        const std::string section = "concentrator.leaves." + std::string{id.str()};
+        if (auto err = ReadLeaf(value, section, leaf, mode))
+        {
+            return err;
+        }
+        o.leaves.emplace_back(std::string{id.str()}, std::move(leaf));
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConfigError> ParseConcentratorSection(const toml::table& root,
+                                                                  Config& cfg)
+{
+    const auto* sec = root["concentrator"].as_table();
+    if (sec == nullptr)
+    {
+        return std::nullopt;
+    }
+    if (auto err = CheckUnknown(*sec,
+                                kConcentrator,
+                                {"enabled",
+                                 "max_payload_bytes",
+                                 "max_spans_per_payload",
+                                 "max_leaves",
+                                 "max_leaf_resource_bytes",
+                                 "leaf_idle_timeout",
+                                 "unknown_leaf",
+                                 "leaf_id_attribute",
+                                 "default_time_mode",
+                                 "max_sync_age",
+                                 "max_clock_skew",
+                                 "boot_anchor_window",
+                                 "leaf_defaults",
+                                 "leaves"},
+                                cfg.unknown_key_mode))
+    {
+        return err;
+    }
+    if (auto err = ReadConcentratorLimits(*sec, cfg.concentrator))
+    {
+        return err;
+    }
+    if (auto err = ReadConcentratorPolicies(*sec, cfg.concentrator))
+    {
+        return err;
+    }
+    if (auto err = ReadLeafDefaults(*sec, cfg.concentrator, cfg.unknown_key_mode))
+    {
+        return err;
+    }
+    return ReadLeaves(*sec, cfg.concentrator, cfg.unknown_key_mode);
+}
+
 /// Shared core: parse a pre-built toml::table into a Config.
 [[nodiscard]] microtel::Expected<Config, ConfigError> ParseTable(const toml::table& root)
 {
@@ -398,46 +787,41 @@ constexpr std::string_view kValIgnore = "ignore";
         return microtel::make_unexpected(*err);
     }
     // Top-level section check with the now-resolved mode.
-    if (auto err = CheckUnknown(
-            root,
-            "",
-            {"config", "exporter", "service", "resource", "tls", "sdk", "timeouts", "logging"},
-            cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(root,
+                                "",
+                                {"config",
+                                 "exporter",
+                                 "service",
+                                 "resource",
+                                 "tls",
+                                 "sdk",
+                                 "timeouts",
+                                 "logging",
+                                 "concentrator"},
+                                cfg.unknown_key_mode))
     {
         return microtel::make_unexpected(*err);
     }
 
-    if (auto err = ParseExporterSection(root, cfg))
+    // Every other section, in this order; the first error wins.
+    using SectionParser = std::optional<ConfigError> (*)(const toml::table&, Config&);
+    constexpr std::array<SectionParser, 9> kSections{
+        ParseExporterSection,
+        ParseExporterHeaders,
+        ParseServiceSection,
+        ParseResourceSection,
+        ParseTlsSection,
+        ParseSdkSection,
+        ParseLoggingSection,
+        ParseTimeoutsSection,
+        ParseConcentratorSection,
+    };
+    for (const SectionParser parse : kSections)
     {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseExporterHeaders(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseServiceSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseResourceSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseTlsSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseSdkSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseLoggingSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
-    }
-    if (auto err = ParseTimeoutsSection(root, cfg))
-    {
-        return microtel::make_unexpected(*err);
+        if (auto err = parse(root, cfg))
+        {
+            return microtel::make_unexpected(*err);
+        }
     }
     return cfg;
 }

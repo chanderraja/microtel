@@ -132,6 +132,12 @@ public:
         return m_arena;
     }
 
+    /// Bytes the allocator has handed out so far; never more than the cap.
+    [[nodiscard]] std::size_t Used() const noexcept
+    {
+        return m_alloc.used;
+    }
+
 private:
     CountingAlloc m_alloc;
     upb_Arena* m_arena;
@@ -477,13 +483,12 @@ internal::DecodeFailure FailureFor(upb_DecodeStatus status) noexcept
     return internal::DecodeFailure::Malformed;
 }
 
-}  // namespace
-
-Expected<std::vector<internal::DecodedResourceSpans>, internal::DecodeFailure>
-OtlpTraceDecoder::Decode(std::span<const std::byte> payload,
-                         const internal::DecodeLimits& limits) const
+/// The body of `Decode`, in an arena the caller owns and can inspect after.
+Expected<std::vector<internal::DecodedResourceSpans>, internal::DecodeFailure> DecodeInArena(
+    const CountingArena& arena,
+    std::span<const std::byte> payload,
+    const internal::DecodeLimits& limits)
 {
-    const CountingArena arena{limits.max_arena_bytes};
     UpbRequest* const req =
         arena.Get() == nullptr
             ? nullptr
@@ -521,6 +526,23 @@ OtlpTraceDecoder::Decode(std::span<const std::byte> payload,
         }
     }
     return out;
+}
+
+}  // namespace
+
+OtlpTraceDecoder::OtlpTraceDecoder(ArenaStats* observe) noexcept : m_observe(observe) {}
+
+Expected<std::vector<internal::DecodedResourceSpans>, internal::DecodeFailure>
+OtlpTraceDecoder::Decode(std::span<const std::byte> payload,
+                         const internal::DecodeLimits& limits) const
+{
+    const CountingArena arena{limits.max_arena_bytes};
+    auto result = DecodeInArena(arena, payload, limits);
+    if (m_observe != nullptr)
+    {
+        *m_observe = ArenaStats{.used = arena.Used(), .cap = limits.max_arena_bytes};
+    }
+    return result;
 }
 
 }  // namespace microtel::wire

@@ -109,4 +109,23 @@ struct ResolvedLeafResource
 /// @throws std::bad_alloc if the Resource cannot be built.
 [[nodiscard]] ResolvedLeafResource ResolveLeafResource(const LeafResourceLayers& layers);
 
+/// @brief Merge a resolver's Resource answer over a leaf's static configured
+///        Resource (§4.3): per key, the answer wins.
+///
+/// Keys under `microtel.leaf.` and @p fixed's `id_key` are ignored, as a
+/// resolver answer cannot be refused at `Build()` the way a configured table
+/// is (§4.4). An answer key that would take the fixed layers — the defaults,
+/// the configured Resource, the id and the `unknown_service` placeholder —
+/// over @p fixed's `budget` is dropped (§4.5).
+///
+/// @param configured the leaf's static configured Resource; updated in place.
+/// @param answer     the resolver's Resource.
+/// @param fixed      the defaults, id and budget; its `declared` and
+///                   `configured` members are not read.
+/// @return how many answer keys were dropped for the budget.
+/// @throws std::bad_alloc if @p configured cannot grow.
+[[nodiscard]] std::uint64_t MergeResolverResource(std::vector<KeyValue>& configured,
+                                                  const std::vector<KeyValue>& answer,
+                                                  const LeafResourceLayers& fixed);
+
 }  // namespace microtel::sdk

@@ -1,0 +1,25 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The leaf_mqtt example's opt-in overlay: one Mosquitto broker. Start it with
+# ./up-mqtt.sh, stop it with ./down-mqtt.sh.
+#
+# A **separate compose project** (`microtel-mqtt-example`), not an override of
+# examples/stack/compose.yaml: the shared stack is untouched while it runs.
+# The concentrator connects to this broker and exports to the shared stack's
+# collector on 4317 itself, so the broker needs no route to the stack.
+#
+# The port is published on 127.0.0.1 only, because the broker is plaintext
+# and anonymous (mosquitto.conf). The image tag is pinned like the stack's.
+# The mount is read-only and `:z`-labelled like every other bind mount in
+# this repository.
+
+name: microtel-mqtt-example
+
+services:
+  mosquitto:
+    image: docker.io/library/eclipse-mosquitto:2.1.2-alpine
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro,z
+    ports:
+      - "127.0.0.1:1883:1883"  # MQTT, plaintext, loopback only

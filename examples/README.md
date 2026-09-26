@@ -61,6 +61,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | Available |
 | [`tls/`](tls/) | TLS, a custom CA and mTLS, and the one configuration in which OTLP/HTTP works. Opt-in overlay. | Available |
 | [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. Needs extra build options; see below. | Available |
+| [`leaf_mqtt/`](leaf_mqtt/) | Experimental. The leaf example over MQTT: a C leaf publishes each payload to `microtel/<device-id>/traces` with coreMQTT, and a C++ concentrator subscribed with libmosquitto takes the leaf id from the topic. Needs the leaf build options and libmosquitto, and brings its own Mosquitto broker as an opt-in overlay. | Available |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 
 The planned set mirrors the v1.1 public surface; issue
@@ -70,9 +71,9 @@ coverage in v1.3 and v1.2 respectively (see [`microtel-roadmap.md`](../microtel-
 
 ### The leaf example
 
-[`leaf/`](leaf/) is the one example the default example build leaves out,
-because its two halves are experimental v1.2 features that are off by
-default. Turn them on, then run the concentrator and one or more leaves
+[`leaf/`](leaf/) and [`leaf_mqtt/`](leaf_mqtt/) are the examples the default
+example build leaves out, because their two halves are experimental v1.2
+features that are off by default. Turn them on, then run the concentrator and one or more leaves
 against the same stack as everything else:
 
 ```bash
@@ -93,22 +94,45 @@ The spans show up in Grafana under `greenhouse-north`, the name
 `microtel.toml` gives the leaf on port 9311. [`leaf/README.md`](leaf/README.md)
 walks through a run with two leaves and what the collector receives.
 
+[`leaf_mqtt/`](leaf_mqtt/) is the same pair of programs over MQTT, which
+also needs libmosquitto's development files (`mosquitto-devel` on Fedora,
+`libmosquitto-dev` on Debian and Ubuntu; without them CMake skips the example
+and says why). CMake fetches coreMQTT for the leaf itself. The broker is an
+opt-in overlay:
+
+```bash
+examples/stack/up.sh
+examples/leaf_mqtt/up-mqtt.sh                              # Mosquitto on 127.0.0.1:1883
+
+./build/examples/microtel_example_leaf_mqtt_concentrator & # microtel/+/traces -> :4317
+./build/examples/microtel_example_leaf_mqtt_leaf           # five payloads, then exits
+```
+
+The leaf id is the device id in the topic, so these spans show up under
+`greenhouse-north`, the name `leaf_mqtt/microtel.toml` gives `gh-north-01`.
+[`leaf_mqtt/README.md`](leaf_mqtt/README.md) covers why MQTT, the QoS
+choice, broker reconnects, and what a real broker needs (TLS on 8883 and an
+ACL per device).
+
 ### Opt-in overlays
 
 Two examples need a receiver the shared stack deliberately leaves out: one that
 checks a bearer token, and one that serves TLS. Each brings its own collector
 as a separate compose project on separate ports, started and torn down by its
-own scripts:
+own scripts. A third, `leaf_mqtt`, brings an MQTT broker the same way:
 
 ```bash
 examples/auth_bearer/up-auth.sh   # bearer-guarded OTLP/gRPC on :5317
 examples/tls/up-tls.sh            # TLS on :5327 (gRPC), :5328 (HTTP), :5337 (mTLS)
+examples/leaf_mqtt/up-mqtt.sh     # Mosquitto on 127.0.0.1:1883
 ```
 
 Nothing in [`stack/`](stack/) changes while they run. The shared collector
-keeps 4317/4318, every other example keeps working, and each overlay forwards
-what it accepts to the shared collector so its traces still reach Grafana.
-Start the shared stack first if you want to see them there.
+keeps 4317/4318, every other example keeps working, and each collector
+overlay forwards what it accepts to the shared collector so its traces still
+reach Grafana. (The broker forwards nothing; its concentrator exports to the
+shared collector itself.) Start the shared stack first if you want to see
+them there.
 
 ---
 

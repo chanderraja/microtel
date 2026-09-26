@@ -88,3 +88,21 @@ target_include_directories(provider_setters_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/src
 # varies and lets the rest default, the same waiver the sdk_provider tests take.
 target_compile_options(provider_setters_fuzz PRIVATE
     -Wno-missing-field-initializers)
+
+# v1.2 — the concentrator ingest path (docs/leaf-concentrator-design.md §7.3,
+# ICP 0031 ship gate 2): the receiver end to end, and the upb decoder alone.
+# Only in a concentrator build, where the receiver and decoder are compiled;
+# the fuzz jobs configure with MICROTEL_WITH_CONCENTRATOR=ON.
+if(MICROTEL_WITH_CONCENTRATOR)
+    microtel_add_fuzz_target(
+        NAME    leaf_ingest_fuzz
+        SOURCES leaf_ingest_fuzz.cpp
+        LIBS    microtel_sdk microtel_encoder microtel_common)
+    target_compile_options(leaf_ingest_fuzz PRIVATE
+        -Wno-missing-field-initializers)
+
+    microtel_add_fuzz_target(
+        NAME    otlp_trace_decoder_fuzz
+        SOURCES otlp_trace_decoder_fuzz.cpp
+        LIBS    microtel_encoder)
+endif()

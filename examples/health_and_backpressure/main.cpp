@@ -168,6 +168,12 @@ const char* DropReasonToString(microtel::DropReason reason) noexcept
             return "NonFiniteValue";
         case microtel::DropReason::LogAttributeLimit:
             return "LogAttributeLimit";
+        case microtel::DropReason::LeafPayloadMalformed:
+            return "LeafPayloadMalformed";
+        case microtel::DropReason::LeafPayloadTooLarge:
+            return "LeafPayloadTooLarge";
+        case microtel::DropReason::LeafUnknown:
+            return "LeafUnknown";
     }
     return "Unknown";
 }

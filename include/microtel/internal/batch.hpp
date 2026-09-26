@@ -42,6 +42,14 @@ struct SpanRecord
     std::vector<KeyValue> attributes;
     std::vector<class SpanEvent> events;
     std::vector<class SpanLink> links;
+    /// The Resource this span belongs to. Null means the Provider's Resource,
+    /// which is every in-process span. Set only by the leaf receiver
+    /// (`docs/leaf-concentrator-design.md` §3.6).
+    ///
+    /// `shared_ptr` rather than `unique_ptr`: one resolved leaf Resource is
+    /// shared by every queued record from that leaf and by the leaf table, and
+    /// a record must keep it alive after the table evicts the leaf.
+    std::shared_ptr<const Resource> resource;
 };
 
 /// @brief A timestamped event attached to a span.

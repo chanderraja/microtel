@@ -7,6 +7,7 @@
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
 #include "microtel/internal/resource_detector.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"
@@ -240,6 +241,19 @@ public:
     /// instrument, a default stream is created with the original instrument
     /// name. Multiple matching views create one stream each (fan-out).
     SdkBuilder& WithView(ViewConfig view);
+
+    /// @brief Enable the concentrator's leaf receiver (ICP 0034,
+    ///        `docs/leaf-concentrator-design.md` §4.3). Experimental.
+    ///
+    /// `Provider::GetLeafReceiver()` then returns a live receiver instead of
+    /// the no-op one. `Build()` validates @p opts and fails with
+    /// `ConfigError::Kind::InvalidValue` on a bad limit, a reserved or
+    /// `leaf_id_attribute` key in a configured Resource, or a configured
+    /// Resource over `max_leaf_resource_bytes`. In a library built without
+    /// `MICROTEL_WITH_CONCENTRATOR` (the default), `Build()` fails with
+    /// `InvalidValue` on field `concentrator.enabled` unless `opts.enabled` is
+    /// false.
+    SdkBuilder& WithLeafReceiver(LeafReceiverOptions opts);
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

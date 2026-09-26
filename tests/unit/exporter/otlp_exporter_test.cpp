@@ -20,11 +20,15 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace mt = microtel;
@@ -108,7 +112,12 @@ TEST(OtlpExporterTest, Export_MultipleExports_AllProcessed)
     mtmk::MockOtlpEncoder encoder;
     mtmk::MockWireCodec codec;
     codec.result_to_return.success = true;
-    mte::OtlpExporter exporter{&encoder, &codec};
+    // One span per request, so no two batches can be coalesced into one
+    // request (docs/leaf-concentrator-design.md §3.6.1) and every batch is
+    // its own send whatever the worker's timing.
+    mte::OtlpExporterConfig cfg;
+    cfg.max_spans_per_request = 1;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
 
     (void)exporter.Export(MakeBatch());
     (void)exporter.Export(MakeBatch());
@@ -820,4 +829,264 @@ TEST(OtlpExporterTest, Retry_FirstRetryWaitsForFanOutRetryAfter)
     EXPECT_EQ(codec.send_call_count.load(), 2);
     EXPECT_GE(elapsed, kFanOutRetryAfter) << "the fan-out's retry_after is slept before attempt 1";
     EXPECT_EQ(DropCount(sink, mt::DropReason::RetryableFailureRecovered), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Multi-Resource requests (docs/leaf-concentrator-design.md §3.6.1): the
+// batches the worker drains together go out as one request, up to
+// max_spans_per_request spans, by concatenating their encodings.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A FakeWireCodec whose first Send waits until the test releases it, so the
+/// test can queue several batches behind a busy worker and know they will be
+/// drained together.
+class GatedCodec : public mtmk::FakeWireCodec
+{
+public:
+    [[nodiscard]] mti::WireResult Send(mti::EncodedPayload&& payload,
+                                       std::chrono::milliseconds deadline) override
+    {
+        {
+            std::unique_lock lock{m_gate_mu};
+            m_entered = true;
+            m_gate_cv.notify_all();
+            m_gate_cv.wait(lock, [this] { return m_released; });
+        }
+        return FakeWireCodec::Send(std::move(payload), deadline);
+    }
+
+    /// Block until the worker is inside the first Send.
+    void WaitUntilEntered()
+    {
+        std::unique_lock lock{m_gate_mu};
+        m_gate_cv.wait(lock, [this] { return m_entered; });
+    }
+
+    void Release()
+    {
+        const std::scoped_lock lock{m_gate_mu};
+        m_released = true;
+        m_gate_cv.notify_all();
+    }
+
+private:
+    std::mutex m_gate_mu;
+    std::condition_variable m_gate_cv;
+    bool m_entered = false;
+    bool m_released = false;
+};
+
+/// What the mock encoder returns in the coalescing tests.
+std::vector<std::byte> Encoded()
+{
+    return {std::byte{0x0a}, std::byte{0x02}, std::byte{0x08}, std::byte{0x01}};
+}
+
+std::vector<std::byte> Repeated(const std::vector<std::byte>& part, std::size_t n)
+{
+    std::vector<std::byte> out;
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        out.insert(out.end(), part.begin(), part.end());
+    }
+    return out;
+}
+
+/// Occupies the worker with one gated batch, queues @p batches behind it, and
+/// releases the gate. The gated batch is always sent alone and succeeds.
+void SendBehindTheGate(mte::OtlpExporter& exporter,
+                       GatedCodec& codec,
+                       std::vector<mti::BatchHandle> batches)
+{
+    codec.scripted_results.push_front(mti::WireResult{.success = true});
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+    for (auto& batch : batches)
+    {
+        ASSERT_EQ(exporter.Export(std::move(batch)), mti::ExportResult::Success);
+    }
+    codec.Release();
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+}
+
+std::vector<mti::BatchHandle> Batches(std::initializer_list<std::size_t> sizes)
+{
+    std::vector<mti::BatchHandle> out;
+    for (const auto n : sizes)
+    {
+        out.push_back(MakeBatchOf(n));
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(OtlpExporterTest, Coalescing_BatchesDrainedTogether_GoOutAsOneConcatenatedRequest)
+{
+    mtmk::MockOtlpEncoder encoder;
+    encoder.bytes_to_return = Encoded();
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporter exporter{&encoder, &codec, mte::OtlpExporterConfig{}, &sink};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1}));
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 2U) << "the gated batch, then one request for the three behind it";
+    EXPECT_EQ(sent[1], Repeated(Encoded(), 3))
+        << "the request is the three encodings concatenated, in queue order";
+    EXPECT_EQ(encoder.encode_call_count.load(), 4);
+    EXPECT_EQ(sink.batches_sent, 4U) << "batches_sent still counts BatchHandles";
+    EXPECT_EQ(TotalDrops(sink), 0U);
+}
+
+TEST(OtlpExporterTest, Coalescing_SplitsAtMaxSpansPerRequest)
+{
+    mtmk::MockOtlpEncoder encoder;
+    encoder.bytes_to_return = Encoded();
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_spans_per_request = 4;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    // 2 + 2 fills a request exactly; the third batch starts the next one.
+    SendBehindTheGate(exporter, codec, Batches({2, 2, 2}));
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 3U);
+    EXPECT_EQ(sent[1], Repeated(Encoded(), 2));
+    EXPECT_EQ(sent[2], Encoded());
+}
+
+TEST(OtlpExporterTest, Coalescing_ABatchOverTheLimitGoesAloneAndWhole)
+{
+    mtmk::MockOtlpEncoder encoder;
+    encoder.bytes_to_return = Encoded();
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_spans_per_request = 4;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 5, 1}));
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 4U) << "[1] [5] [1]: a batch is never split";
+    EXPECT_EQ(sent[1], Encoded());
+    EXPECT_EQ(sent[2], Encoded());
+    EXPECT_EQ(sent[3], Encoded());
+}
+
+TEST(OtlpExporterTest, Coalescing_TerminalFailureIsOneOutcomeCountedPerBatch)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{
+        .success = false,
+        .retryable = false,
+        .error = mt::Error{.kind = mt::Error::Kind::Protocol, .message = "HTTP 400"},
+    };
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporterConfig cfg;
+    cfg.retry_policy = ZeroDelayRetry(3);
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1}));
+
+    EXPECT_EQ(codec.send_call_count.load(), 2) << "one request, never retried";
+    EXPECT_EQ(sink.batches_sent, 1U) << "the gated batch";
+    EXPECT_EQ(sink.batches_failed, 3U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::NonRetryableFailure), 3U)
+        << "the request's one outcome is counted in batches, as it was before coalescing";
+    EXPECT_EQ(sink.last_error_message, "HTTP 400");
+}
+
+TEST(OtlpExporterTest, Coalescing_RetryResendsTheWholeRequest)
+{
+    mtmk::MockOtlpEncoder encoder;
+    encoder.bytes_to_return = Encoded();
+    GatedCodec codec;
+    codec.scripted_results.push_back(mti::WireResult{.success = false, .retryable = true});
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporterConfig cfg;
+    cfg.retry_policy = ZeroDelayRetry(3);
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1}));
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 3U) << "gated, the request, its one retry";
+    EXPECT_EQ(sent[2], Repeated(Encoded(), 2)) << "the retry re-encodes every batch in the request";
+    EXPECT_EQ(encoder.encode_call_count.load(), 5);
+    EXPECT_EQ(sink.batches_sent, 3U);
+    EXPECT_EQ(sink.batches_failed, 0U);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::RetryableFailureRecovered), 2U);
+}
+
+TEST(OtlpExporterTest, Coalescing_PartialSuccessRejectedCountIsRecordedOncePerRequest)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.scripted_results.push_back(
+        mti::WireResult{.success = true, .partial_success_rejected = 5});
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporter exporter{&encoder, &codec, mte::OtlpExporterConfig{}, &sink};
+
+    SendBehindTheGate(exporter, codec, Batches({2, 2, 2}));
+
+    EXPECT_EQ(codec.send_call_count.load(), 2);
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PartialSuccessRejection), 5U)
+        << "the collector's count is for the request, not for each batch in it";
+    EXPECT_EQ(sink.batches_sent, 4U);
+}
+
+TEST(OtlpExporterTest, ExportGroup_QueuesTheWholeGroupAtOnce_SoItLeavesAsOneRequest)
+{
+    mtmk::MockOtlpEncoder encoder;
+    encoder.bytes_to_return = Encoded();
+    mtmk::FakeWireCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporter exporter{&encoder, &codec, mte::OtlpExporterConfig{}, &sink};
+
+    // No gate: the one lock ExportGroup takes is what keeps the worker from
+    // draining the first batch alone.
+    exporter.ExportGroup(Batches({1, 1, 1}));
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 1U);
+    EXPECT_EQ(sent[0], Repeated(Encoded(), 3));
+    EXPECT_EQ(sink.batches_sent, 3U);
+}
+
+TEST(OtlpExporterTest, ExportGroup_RefusesWhatDoesNotFitAndCountsItAsExportWould)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporterConfig cfg;
+    cfg.max_queue_size = 2;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    // Hold the worker so the queue cannot drain while the group arrives.
+    codec.scripted_results.push_front(mti::WireResult{.success = true});
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+    exporter.ExportGroup(Batches({1, 2, 3}));
+    EXPECT_EQ(DropCount(sink, mt::DropReason::QueueFull), 3U) << "the third batch, in spans";
+    codec.Release();
+    ASSERT_EQ(exporter.ForceFlush(std::chrono::seconds(5)), mt::Status::Completed);
+    ASSERT_EQ(exporter.Shutdown(std::chrono::seconds(5)), mt::Status::Completed);
+
+    exporter.ExportGroup(Batches({4}));
+    EXPECT_EQ(DropCount(sink, mt::DropReason::PostShutdown), 4U);
 }

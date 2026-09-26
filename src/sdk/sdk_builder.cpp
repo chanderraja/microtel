@@ -12,8 +12,11 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/internal/batch_group_exporter.hpp"
+#include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/internal/transport.hpp"
+#include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/resource.hpp"
@@ -30,6 +33,9 @@
 #include "exporter/otlp_log_exporter.hpp"
 #include "exporter/otlp_metric_exporter.hpp"
 #include "sdk/batch_span_processor.hpp"
+#ifdef MICROTEL_WITH_CONCENTRATOR
+#include "sdk/leaf_options.hpp"
+#endif
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/provider_registry.hpp"
 #include "sdk/resource_builder.hpp"
@@ -38,6 +44,9 @@
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
 #include "wire/encoder/otlp_encoder.hpp"
+#ifdef MICROTEL_WITH_CONCENTRATOR
+#include "wire/encoder/otlp_trace_decoder.hpp"
+#endif
 #include "wire/grpc/grpc_wire_codec.hpp"
 #include "wire/http/http_wire_codec.hpp"
 
@@ -86,6 +95,8 @@ struct SdkBuilder::Impl
     /// Unset means the default profile; empty is a validation error, because an
     /// unnamed profile is "default", not "" (ICP 0027 §5).
     std::optional<std::string> profile_name;
+    /// Unset: no receiver, and `GetLeafReceiver` hands out the no-op.
+    std::optional<LeafReceiverOptions> leaf_receiver;
 
     bool consumed = false;
 
@@ -259,6 +270,12 @@ SdkBuilder& SdkBuilder::WithMetricLimits(MetricLimitOptions opts)
 SdkBuilder& SdkBuilder::WithView(ViewConfig view)
 {
     m_impl->views.push_back(std::move(view));
+    return *this;
+}
+
+SdkBuilder& SdkBuilder::WithLeafReceiver(LeafReceiverOptions opts)
+{
+    m_impl->leaf_receiver = std::move(opts);
     return *this;
 }
 
@@ -500,6 +517,10 @@ struct ExporterPack
     std::unique_ptr<internal::IWireCodec> codec;
     std::unique_ptr<internal::IWireCodec> metric_codec;
     std::unique_ptr<internal::IWireCodec> log_codec;
+    /// Borrowed alias of `exporter` seen as a group exporter, for the span
+    /// processor (design §3.6.1). Before `exporter` so one designated
+    /// initializer list can take the alias and then move the owner.
+    internal::IBatchGroupExporter* group_exporter = nullptr;
     std::unique_ptr<internal::IExporter> exporter;
     std::unique_ptr<internal::IMetricExporter> metric_exporter;
     std::unique_ptr<internal::ILogExporter> log_exporter;
@@ -539,9 +560,14 @@ struct ExporterPack
     // and keeps its OTLP-recommended in-class defaults. All three signals share
     // the one policy (issue #222).
     const exporter::RetryPolicyConfig retry_policy{.retry_budget = cfg.timeouts.retry_budget};
+    // A request carries at most one processor batch's worth of spans, so
+    // joining drained batches never makes a request larger than a batch the
+    // processor could have cut (design §3.6.1). Fixed at build time: a later
+    // SetBatchOptions retunes the processor, not this.
     const exporter::OtlpExporterConfig ex_cfg{
         .export_deadline = cfg.timeouts.per_export,
         .retry_policy = retry_policy,
+        .max_spans_per_request = cfg.batch.max_export_batch_size,
     };
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
     // One sink across all three signals: batches_sent / batches_failed are
@@ -563,6 +589,7 @@ struct ExporterPack
         .codec = std::move(codec),
         .metric_codec = std::move(metric_codec),
         .log_codec = std::move(log_codec),
+        .group_exporter = trace_exp.get(),
         .exporter = std::move(trace_exp),
         .metric_exporter = std::move(metric_exp),
         .log_exporter = std::move(log_exp),
@@ -580,18 +607,61 @@ struct ExporterPack
 /// @param cfg borrowed; read for the batch options and the two memory limits
 ///        the processor enforces (`max_record_bytes`, `max_total_queue_bytes`).
 /// @param diag non-owning diagnostics sink.
+/// @param group_exporter @p exporter seen as a group exporter, so each drain
+///        is handed over in one call (design §3.6.1). Non-owning.
 [[nodiscard]] std::unique_ptr<sdk::BatchSpanProcessor> BuildSpanProcessor(
     internal::IExporter* exporter,
     std::shared_ptr<const Resource> resource,
     const config::Config& cfg,
-    internal::IDiagnosticsSink* diag)
+    internal::IDiagnosticsSink* diag,
+    internal::IBatchGroupExporter* group_exporter)
 {
     return std::make_unique<sdk::BatchSpanProcessor>(exporter,
                                                      std::move(resource),
                                                      cfg.batch,
                                                      cfg.memory_limits.max_record_bytes,
                                                      cfg.memory_limits.max_total_queue_bytes,
-                                                     diag);
+                                                     diag,
+                                                     group_exporter);
+}
+
+/// @brief The decoder the leaf receiver owns: the upb one when the
+///        concentrator is compiled in and enabled, else none.
+[[nodiscard]] std::unique_ptr<internal::IOtlpTraceDecoder> MakeLeafDecoder(bool enabled)
+{
+#ifdef MICROTEL_WITH_CONCENTRATOR
+    if (enabled)
+    {
+        return std::make_unique<wire::OtlpTraceDecoder>();
+    }
+#else
+    (void)enabled;
+#endif
+    return nullptr;
+}
+
+/// @brief Check `WithLeafReceiver`'s options, or refuse them in a build
+///        without the concentrator (design §6.2).
+///
+/// `ConfigError::Kind::FeatureNotCompiled` is ICP 0030's, still a draft, so a
+/// build without the option refuses with `InvalidValue` and names the option in
+/// the message. That changes to `FeatureNotCompiled` when ICP 0030 lands.
+[[nodiscard]] Expected<void, ConfigError> CheckLeafReceiver(
+    const std::optional<LeafReceiverOptions>& opts)
+{
+    if (!opts.has_value() || !opts->enabled)
+    {
+        return {};
+    }
+#ifdef MICROTEL_WITH_CONCENTRATOR
+    return sdk::ValidateLeafReceiverOptions(*opts);
+#else
+    return make_unexpected(ConfigError{
+        .kind = ConfigError::Kind::InvalidValue,
+        .field = "concentrator.enabled",
+        .message = "the leaf receiver is not compiled into this build of microtel; rebuild with "
+                   "-DMICROTEL_WITH_CONCENTRATOR=ON"});
+#endif
 }
 
 }  // namespace
@@ -785,6 +855,12 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     ApplyLogLevel(cfg);
     WarnOnRiskyConfig(cfg);
 
+    // --- Step 2b: the leaf receiver (ICP 0034, design §4.3, §6.2) ----------
+    if (auto r = CheckLeafReceiver(m_impl->leaf_receiver); !r)
+    {
+        return make_unexpected(r.error());
+    }
+
     // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
     auto resource_result = sdk::BuildResource(cfg, m_impl->resource_detectors, *profile);
     if (!resource_result)
@@ -816,6 +892,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
     const std::string& profile_name)
 {
     // --- Steps 7–9: encoder + codecs + exporters ----------------------------
+    const bool leaf_receiver_enabled = leaf_receiver.has_value() && leaf_receiver->enabled;
     auto encoder = std::make_unique<wire::OtlpEncoder>();
     // Created before the exporters because they borrow it; ownership moves
     // into the Provider below, which declares it first and so destroys it last.
@@ -824,7 +901,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
         BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
 
     // --- Step 10: processor -------------------------------------------------
-    auto processor = BuildSpanProcessor(exporters.exporter.get(), resource, cfg, diagnostics.get());
+    auto processor = BuildSpanProcessor(
+        exporters.exporter.get(), resource, cfg, diagnostics.get(), exporters.group_exporter);
 
     // --- Step 11: resolve cardinality cap and build view registry ------------
     const std::size_t max_cardinality = ResolveMaxCardinality(metric_limits);
@@ -851,6 +929,8 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
         .log_exporter = std::move(exporters.log_exporter),
         .log_batch_opts = cfg.batch,
         .profile_name = profile_name,
+        .leaf_receiver = std::move(leaf_receiver),
+        .leaf_decoder = MakeLeafDecoder(leaf_receiver_enabled),
     });
 
     // --- Step 12: claim the profile -----------------------------------------

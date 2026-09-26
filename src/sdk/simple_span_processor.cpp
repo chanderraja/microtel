@@ -3,6 +3,7 @@
 
 #include "sdk/simple_span_processor.hpp"
 
+#include <memory>
 #include <new>
 #include <utility>
 #include <vector>
@@ -31,11 +32,15 @@ void SimpleSpanProcessor::OnEnd(SpanRecord&& record, const InstrumentationScope&
     // ICP-gated, so the drop is currently uncounted — see issue #134.)
     try
     {
+        // A leaf span carries its own Resource; every other span has a null
+        // one and belongs to the processor's (design §3.6).
+        std::shared_ptr<const microtel::Resource> resource =
+            record.resource != nullptr ? record.resource : m_resource;
         std::vector<SpanRecord> records;
         records.reserve(1);
         records.push_back(std::move(record));
 
-        BatchHandle batch{std::move(records), m_resource, scope};
+        BatchHandle batch{std::move(records), std::move(resource), scope};
         (void)m_exporter->Export(std::move(batch));
     }
     // Dropping the span IS the documented behaviour (error-model.md §2.2);

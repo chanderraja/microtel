@@ -10,7 +10,7 @@ Test doubles that carry logic, for the cases where a mock isn't enough.
 | `fake_steady_clock.hpp`           | `internal::ISteadyClock`        | Same. |
 | `fake_transport.hpp`              | `internal::ITransport`          | Keeps every `RequestSpec` it receives and serves scripted `TransportResult`s in FIFO order, resolving each `Send` synchronously. |
 | `fake_reactor.hpp`                | `internal::IReactor`            | Tests script event timelines; the fake dispatches them to registered callbacks deterministically. |
-| `fake_wire_codec.hpp`             | `internal::IWireCodec`          | Serves scripted `WireResult`s in FIFO order, so retry-then-succeed and retry-until-exhausted can be driven from a queue. |
+| `fake_wire_codec.hpp`             | `internal::IWireCodec`          | Serves scripted `WireResult`s in FIFO order, so retry-then-succeed and retry-until-exhausted can be driven from a queue, and keeps a copy of every payload so a test can decode what went on the wire. |
 | `fake_diagnostics_sink.hpp`       | `internal::IDiagnosticsSink`    | Stores counters as plain `uint64_t` and exposes them for assertions. |
 | `fake_auth_provider.hpp`          | `internal::IAuthProvider`       | Simulates the TTL cache: tests configure the cache lifetime and the miss/hit sequence. |
 | `fake_resource_detector.hpp`      | `internal::IResourceDetector`   | Returns a configured `Resource`. Trivial, but logically distinct from a mock. |
@@ -21,7 +21,9 @@ Test doubles that carry logic, for the cases where a mock isn't enough.
 | `fake_logger.hpp`                 | `microtel::Logger`              | Captures every emitted `LogRecord` for inspection. |
 | `fake_span.hpp`                   | `microtel::Span`                | Records every mutation (attributes, events, links, statuses, ends) for the otelcpp shim tests. |
 | `fake_tracer.hpp`                 | `microtel::Tracer`              | Records every `StartSpan` (name and options) and hands out a fresh recording `FakeSpan` per call. |
-| `fake_provider.hpp`               | `microtel::Provider`            | Records tracer and meter acquisitions and flush/shutdown timeouts, and returns configured statuses. |
+| `fake_provider.hpp`               | `microtel::Provider`            | Records tracer and meter acquisitions and flush/shutdown timeouts, and returns configured statuses. Hands out a `FakeLeafReceiver`. |
+| `fake_leaf_receiver.hpp`          | `microtel::LeafReceiver`        | The no-op receiver `FakeProvider` returns (ICP 0034): answers `Disabled` and counts calls. |
+| `fake_otlp_trace_decoder.hpp`     | `internal::IOtlpTraceDecoder`   | Serves a canned decode, applies `max_spans` to it, and throws `std::bad_alloc` on a chosen call to drive the receiver's out-of-memory path. |
 | `fake_meter.hpp`                  | `microtel::Meter`               | Records instrument creations, returns recording sync instruments, and captures observable callbacks so tests can drive a collection cycle. |
 
 ## Rules

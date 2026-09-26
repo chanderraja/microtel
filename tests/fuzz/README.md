@@ -22,6 +22,15 @@ makes them a release requirement:
 | `baggage_fuzz.cpp` | The W3C `baggage` header parser, required by clause 3 of the v1.1 ships-when gate ([ICP 0024](../../docs/icps/0024-v1.1-rescope.md)). Besides crash-freedom, it asserts the three grammar limits and that `FromHeader`/`ToHeader` round-trips are stable. |
 | `provider_setters_fuzz.cpp` | The validation surface of the four hot-reload `Provider` setters ([ICP 0026](../../docs/icps/0026-provider-setters.md)), required by clause 2 of the same gate. The input is a program rather than a value: byte 0 picks the provider's shape, and the rest is a stream of opcodes replayed against one live provider, so interleavings get fuzzed along with ranges. It asserts that `InvalidArgument` comes back exactly when the harness independently judges the value bad, that nothing but `Completed`, `InvalidArgument` or `Unsupported` comes back before `Shutdown`, and that `Unsupported` depends on the pipeline and not on history. |
 
+## v1.2 harnesses
+
+Built only with `MICROTEL_WITH_CONCENTRATOR=ON`, which the fuzz jobs set.
+
+| File | Surface |
+|---|---|
+| `leaf_ingest_fuzz.cpp` | The concentrator's ingest path ([`leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md) §7.3, ICP 0031 ship gate 2): byte 0 picks the leaf id, the configured time mode and the unknown-leaf policy; the rest is the payload, fed to `LeafReceiver::Ingest` on a live provider with the real upb decoder. It asserts that an accepted payload's three counts add up to the spans it decodes to, that a rejected one moves exactly one of `leaf_payload_malformed`, `leaf_payload_too_large` and `leaf_unknown` by one, and that no reserved `microtel.leaf.*` key reaches a Resource. Seeds are well-formed leaf payloads plus truncations and single-byte corruptions of each. |
+| `otlp_trace_decoder_fuzz.cpp` | `IOtlpTraceDecoder` alone, bytes 0-2 choosing random `DecodeLimits`, so decoder bugs are not hidden behind the receiver's validation. |
+
 ## Invariants
 
 From `docs/grpc-wire-protocol.md` §7.4, applied to every harness:

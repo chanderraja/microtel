@@ -7,6 +7,8 @@
 #include "microtel/internal/batch.hpp"
 #include "microtel/trace.hpp"
 
+#include "sdk/span_limits.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -21,71 +23,6 @@ namespace microtel::sdk
 {
 namespace
 {
-
-/// @brief Longest prefix of @p s that is at most @p limit bytes and does not
-///        split a UTF-8 code point.
-///
-/// `attribute_value_length_limit` is a **byte** budget (`memory-model.md` §7 is
-/// a memory table, and the value that lands on the wire is bytes). The cut
-/// backs up over UTF-8 continuation bytes because an OTLP attribute is a
-/// proto3 `string`, which must hold valid UTF-8: a cut through a multi-byte
-/// sequence would turn one truncated attribute into a whole batch the
-/// collector refuses to parse. Backing up loses at most three more bytes.
-///
-/// @pre `limit < s.size()` — the caller has already decided to truncate.
-[[nodiscard]] std::size_t Utf8SafePrefix(std::string_view s, std::size_t limit) noexcept
-{
-    constexpr auto kContinuationMask = static_cast<unsigned char>(0xC0U);
-    constexpr auto kContinuationBits = static_cast<unsigned char>(0x80U);
-
-    std::size_t cut = limit;
-    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & kContinuationMask) == kContinuationBits)
-    {
-        --cut;
-    }
-    return cut;
-}
-
-/// @brief Truncate every string in @p value to `limit` bytes.
-///
-/// @return How many strings lost bytes — 0 or 1 for a scalar, one per
-///         oversized element for a string array. Each is one
-///         `AttributeValueTruncated`: each element is a value, and an operator
-///         reading the counter wants the number of values that lost data, not
-///         the number of attributes that contained one.
-///
-/// Only the two string alternatives of `AttributeValue` can exceed a length
-/// budget; bool / int64 / double and their arrays are fixed-width and pass
-/// through untouched. Shrinking a `std::string` in place never allocates, so
-/// this is safe to run inside the `noexcept` hot path.
-[[nodiscard]] std::uint64_t TruncateStrings(AttributeValue& value, std::size_t limit) noexcept
-{
-    if (auto* const s = std::get_if<std::string>(&value); s != nullptr)
-    {
-        if (s->size() <= limit)
-        {
-            return 0;
-        }
-        s->resize(Utf8SafePrefix(*s, limit));
-        return 1;
-    }
-
-    auto* const arr = std::get_if<std::vector<std::string>>(&value);
-    if (arr == nullptr)
-    {
-        return 0;
-    }
-    std::uint64_t truncated = 0;
-    for (auto& element : *arr)
-    {
-        if (element.size() > limit)
-        {
-            element.resize(Utf8SafePrefix(element, limit));
-            ++truncated;
-        }
-    }
-    return truncated;
-}
 
 /// @brief Copy @p kv with its string values clipped to @p limit, counting the
 ///        truncations against @p diag.

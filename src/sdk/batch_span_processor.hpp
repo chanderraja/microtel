@@ -4,6 +4,7 @@
 #pragma once
 
 #include "microtel/internal/batch.hpp"
+#include "microtel/internal/batch_group_exporter.hpp"
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/exporter.hpp"
 #include "microtel/internal/processor.hpp"
@@ -68,9 +69,12 @@ namespace microtel::sdk
 ///   - `ForceFlush` / `Shutdown` (explicit signal).
 ///
 /// On drain, the collected records are grouped by `(Resource,
-/// InstrumentationScope)` into one `BatchHandle` per scope (ICP 0023), each
-/// handed to the exporter, so spans from different tracers never share a
-/// `ScopeSpans` entry on the wire.
+/// InstrumentationScope)` into one `BatchHandle` per group (ICP 0023), so
+/// spans from different tracers never share a `ScopeSpans` entry on the wire.
+/// A record's Resource is its `SpanRecord::resource`, compared by pointer, or
+/// the processor's own when that is null — every in-process span
+/// (`docs/leaf-concentrator-design.md` §3.6). The handles of one drain go to
+/// the group exporter in one call when there is one, else one `Export` each.
 ///
 /// `OnStart` is a no-op (v1 has no enrichment hooks).
 ///
@@ -98,13 +102,20 @@ public:
     ///        it this processor enforces.
     /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
     ///        accounting. Borrowed for the processor's lifetime.
+    /// @param group_exporter non-owning; the same exporter seen through
+    ///        `IBatchGroupExporter`, or `nullptr`. When set, every drain's
+    ///        handles are handed over in one `ExportGroup` call, so a drain
+    ///        that spans several Resources leaves as one request
+    ///        (`docs/leaf-concentrator-design.md` §3.6.1). Must outlive the
+    ///        processor, like @p exporter.
     BatchSpanProcessor(
         internal::IExporter* exporter,
         std::shared_ptr<const Resource> resource,
         BatchOptions opts,
         std::uint32_t max_record_bytes = MemoryLimitOptions{}.max_record_bytes,
         std::uint64_t max_total_queue_bytes = MemoryLimitOptions{}.max_total_queue_bytes,
-        internal::IDiagnosticsSink* diag = nullptr) noexcept;
+        internal::IDiagnosticsSink* diag = nullptr,
+        internal::IBatchGroupExporter* group_exporter = nullptr) noexcept;
 
     ~BatchSpanProcessor() noexcept override;
 
@@ -116,6 +127,19 @@ public:
     void OnStart(microtel::Span& span, const microtel::Context& parent) noexcept override;
     void OnEnd(internal::SpanRecord&& record,
                const internal::InstrumentationScope& scope) noexcept override;
+
+    /// @brief `OnEnd`, reporting whether the record was queued.
+    ///
+    /// The leaf receiver calls this rather than `OnEnd` so it can report the
+    /// spans the processor refused in `IngestResult::spans_dropped`
+    /// (`docs/leaf-concentrator-design.md` §3.5). A refusal is counted exactly
+    /// as `OnEnd` counts it. Under `DropOldest` an accepted record may evict an
+    /// older one; that loss is counted as `QueueFull` but not reported here.
+    ///
+    /// @return `true` if the record is in the queue; `false` if it was dropped
+    ///         (after `Shutdown`, over `max_record_bytes`, or queue full).
+    [[nodiscard]] bool Enqueue(internal::SpanRecord&& record,
+                               const internal::InstrumentationScope& scope) noexcept;
 
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
@@ -204,6 +228,7 @@ private:
     std::uint32_t m_max_record_bytes;
     std::uint64_t m_max_total_queue_bytes;
     internal::IDiagnosticsSink* m_diag;
+    internal::IBatchGroupExporter* m_group_exporter;
 
     std::mutex m_mu;
     std::condition_variable m_cv;

@@ -5,7 +5,14 @@
 # Produces the microtel_encoder static library consumed by the exporter.
 
 add_library(microtel_encoder STATIC
-    otlp_encoder.cpp)
+    otlp_encoder.cpp
+    trace_request_concat.cpp)
+
+# The upb decoder behind the leaf receiver (ICP 0031 Decision 5, design §6.2):
+# the only other upb user in the runtime, and only in a concentrator build.
+if(MICROTEL_WITH_CONCENTRATOR)
+    target_sources(microtel_encoder PRIVATE otlp_trace_decoder.cpp)
+endif()
 
 target_link_libraries(microtel_encoder
     PUBLIC  microtel_headers

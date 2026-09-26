@@ -67,6 +67,12 @@ namespace microtel::sdk
             return "non_finite_value";
         case DropReason::LogAttributeLimit:
             return "log_attribute_limit";
+        case DropReason::LeafPayloadMalformed:
+            return "leaf_payload_malformed";
+        case DropReason::LeafPayloadTooLarge:
+            return "leaf_payload_too_large";
+        case DropReason::LeafUnknown:
+            return "leaf_unknown";
     }
     return "unknown";
 }

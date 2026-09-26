@@ -21,6 +21,8 @@ namespace microtel
 {
 class Meter;
 class Logger;
+/// Defined in `microtel/leaf_receiver.hpp` (ICP 0034).
+class LeafReceiver;
 /// Defined in `microtel/sdk_builder.hpp`, which already includes this header.
 struct BatchOptions;
 }  // namespace microtel
@@ -94,11 +96,23 @@ enum class DropReason : std::uint8_t
     /// the surplus attributes were dropped and `dropped_attributes_count` was
     /// incremented on the record (ICP 0011, `docs/logs-design.md` §5).
     LogAttributeLimit = 23,
+    /// A leaf payload failed to decode or to validate, declared an unsupported
+    /// wire version, or declared a time mode its leaf's config does not allow.
+    /// Counted in **payloads** (ICP 0034, `docs/leaf-concentrator-design.md`
+    /// §3.3).
+    LeafPayloadMalformed = 24,
+    /// A leaf payload exceeded `max_payload_bytes`, `max_spans_per_payload`,
+    /// the decode depth limit or the decode arena cap. Counted in payloads
+    /// (ICP 0034).
+    LeafPayloadTooLarge = 25,
+    /// A leaf payload came from a leaf with no configuration while the receiver
+    /// rejects unknown leaves. Counted in payloads (ICP 0034).
+    LeafUnknown = 26,
 };
 
 /// @brief The number of `DropReason` enumerators. Used to size the counter
 /// array in `HealthSnapshot`.
-inline constexpr std::size_t kDropReasonCount = 24;
+inline constexpr std::size_t kDropReasonCount = 27;
 
 /// @brief Snapshot of exporter health, returned by `Provider::GetExporterHealth`.
 ///
@@ -294,6 +308,18 @@ public:
     /// @threadsafety Thread-safe.
     /// @noexcept
     [[nodiscard]] virtual Status SetLogLevel(LogLevel level) noexcept = 0;
+
+    /// @brief The concentrator's leaf receiver (ICP 0034).
+    ///
+    /// Returns a no-op receiver, whose `Ingest` answers
+    /// `IngestStatus::Disabled`, when the provider was built without
+    /// `SdkBuilder::WithLeafReceiver` or the library without
+    /// `MICROTEL_WITH_CONCENTRATOR` — the way `GetLogger` returns a no-op
+    /// logger. The same receiver is returned on every call. It may outlive the
+    /// provider; after `Shutdown` its `Ingest` answers `IngestStatus::ShutDown`.
+    ///
+    /// @threadsafety Thread-safe.
+    [[nodiscard]] virtual std::shared_ptr<LeafReceiver> GetLeafReceiver() = 0;
 };
 
 // ── Multi-profile (ICP 0027) ───────────────────────────────────────────────

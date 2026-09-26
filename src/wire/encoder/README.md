@@ -7,6 +7,14 @@ metric and log batches into OTLP protobuf bytes with upb, and the `UpbArena`
 wrapper it uses ([`upb_arena.hpp`](upb_arena.hpp)). Built as
 `microtel_encoder`.
 
+`OtlpTraceDecoder` ([`otlp_trace_decoder.hpp`](otlp_trace_decoder.hpp)), the
+upb decoder behind the concentrator's leaf receiver
+([`leaf-concentrator-design.md`](../../../docs/leaf-concentrator-design.md)
+§3.4; ICP 0031 Decision 5 makes this directory the upb codec in both
+directions). Compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`. And
+`ConcatenateTraceRequests` ([`trace_request_concat.hpp`](trace_request_concat.hpp)),
+which joins encoded trace requests into one (§3.6.1); byte-level, no upb.
+
 **This is the only production directory that includes upb headers or
 references upb symbols** (LOCKED — `memory-model.md` §3.1, ICP 0001).
 No upb type appears in any header outside this directory; the `OtlpEncoder`
@@ -29,6 +37,8 @@ C and E could unblock (`docs/development.md` §2).
   `Provider` and shares it across the three exporters.
 - Production of the `EncodedPayload` value type (declared in
   [`include/microtel/internal/encoded_payload.hpp`](../../../include/microtel/internal/encoded_payload.hpp)).
+- `internal::IOtlpTraceDecoder`, as `OtlpTraceDecoder`. Its arena is its own
+  RAII type over a counting `upb_alloc` that caps what one decode may use.
 - The per-call `UpbArena` RAII wrapper. It lives here rather than in
   `src/common/raii/` because nothing outside `src/wire/encoder/` may
   reference it.
@@ -53,6 +63,11 @@ C and E could unblock (`docs/development.md` §2).
 - `tests/unit/wire/otlp_metric_encoder_test.cpp` and
   `otlp_log_encoder_test.cpp`: the same for metrics and logs.
 - `tests/unit/wire/upb_arena_test.cpp`: arena lifetime.
+- `tests/unit/wire/otlp_trace_decoder_test.cpp`: the decoder, round-tripped
+  against the encoder and fed shapes the encoder cannot produce;
+  `tests/fuzz/otlp_trace_decoder_fuzz.cpp` fuzzes it.
+- `tests/unit/wire/trace_request_concat_test.cpp`: concatenated requests decode
+  to the union of their ResourceSpans.
 - [`tests/wire/README.md`](../../../tests/wire/README.md) maps the byte-level
   coverage themes to these tests; there are no fixture files.
 - The CI job `regen-check` runs `ci/scripts/regen-protos.sh` against the pinned
@@ -61,7 +76,8 @@ C and E could unblock (`docs/development.md` §2).
 
 ## Style notes
 
-- **upb arena lifetime is per-`Encode()` call** (LOCKED). The arena is
+- **upb arena lifetime is per-`Encode()` call** (LOCKED), and per-`Decode()`
+  call for the decoder (`memory-model.md` §3.1). The arena is
   constructed at entry and destroyed before `Encode` returns. No arena
   outlives a single call, and no upb pointer survives it.
 - **`EncodedPayload` is a `std::unique_ptr<std::byte[]>` + `size_t`

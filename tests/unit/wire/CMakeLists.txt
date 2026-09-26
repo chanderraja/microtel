@@ -89,3 +89,39 @@ target_include_directories(otlp_log_encoder_test
 target_compile_options(otlp_log_encoder_test PRIVATE
     -include ${MICROTEL_UPB_RENAME_HEADER}
     -Wno-missing-field-initializers)
+
+# v1.2 — ConcatenateTraceRequests (docs/leaf-concentrator-design.md §3.6.1),
+# checked by decoding its output with upb.
+microtel_add_test(
+    NAME    trace_request_concat_test
+    SOURCES trace_request_concat_test.cpp
+    LIBS    microtel_encoder microtel_upb_gen)
+
+target_include_directories(trace_request_concat_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/gen
+        ${CMAKE_SOURCE_DIR}/third_party/upb)
+
+target_compile_options(trace_request_concat_test PRIVATE
+    -include ${MICROTEL_UPB_RENAME_HEADER}
+    -Wno-missing-field-initializers)
+
+# v1.2 — the upb decoder behind the leaf receiver (design §3.4, §3.7). Only in
+# a concentrator build, where the decoder is compiled.
+if(MICROTEL_WITH_CONCENTRATOR)
+    microtel_add_test(
+        NAME    otlp_trace_decoder_test
+        SOURCES otlp_trace_decoder_test.cpp
+        LIBS    microtel_encoder microtel_upb_gen)
+
+    target_include_directories(otlp_trace_decoder_test
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/gen
+            ${CMAKE_SOURCE_DIR}/third_party/upb)
+
+    target_compile_options(otlp_trace_decoder_test PRIVATE
+        -include ${MICROTEL_UPB_RENAME_HEADER}
+        -Wno-missing-field-initializers)
+endif()

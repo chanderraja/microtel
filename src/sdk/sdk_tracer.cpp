@@ -72,13 +72,13 @@ namespace microtel::sdk
 
 SdkTracer::SdkTracer(internal::ISampler* sampler,
                      internal::ISpanProcessor* processor,
-                     std::shared_ptr<const Resource> resource,
+                     std::shared_ptr<const void> owner,
                      internal::InstrumentationScope scope,
                      SpanLimitOptions limits,
                      internal::IDiagnosticsSink* diagnostics) noexcept
     : m_sampler(sampler),
       m_processor(processor),
-      m_resource(std::move(resource)),
+      m_owner(std::move(owner)),
       m_scope(std::move(scope)),
       m_limits(limits),
       m_diagnostics(diagnostics)
@@ -139,7 +139,7 @@ SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
                                            opts.kind,
                                            opts.start_time,
                                            m_processor,
-                                           m_resource,
+                                           m_owner,
                                            m_scope,
                                            m_limits,
                                            m_diagnostics);

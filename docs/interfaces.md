@@ -484,7 +484,7 @@ public:
 
 #### Lifetime
 
-Created by `SdkBuilder::Build()`. Owned by the `Provider`. The sampler **object** is not replaceable: its identity is fixed for the provider's life, because `SdkTracer` caches the borrowed `internal::ISampler*` it was handed at `GetTracer` time and dereferences it on the hot path with no synchronisation — a live swap would be a data race on that pointer and a use-after-free on the pointee. What v1.1's hot-reload path retunes is the **ratio**, in place, through `TrySetRatio` (ICP 0026). Swapping the object gets its own ICP if it is ever wanted.
+Created by `SdkBuilder::Build()`. Owned by the `Provider`'s trace pipeline (`src/sdk/trace_pipeline.hpp`), which the provider shares with every `Tracer` and sampled `Span` it hands out, so the sampler lives until the last of them is destroyed (issue #285). The sampler **object** is not replaceable: its identity is fixed for the provider's life, because `SdkTracer` caches the borrowed `internal::ISampler*` it was handed at `GetTracer` time and dereferences it on the hot path with no synchronisation — a live swap would be a data race on that pointer and a use-after-free on the pointee. What v1.1's hot-reload path retunes is the **ratio**, in place, through `TrySetRatio` (ICP 0026). Swapping the object gets its own ICP if it is ever wanted.
 
 `TrySetRatio` takes a ratio already validated to be in `[0.0, 1.0]` and not NaN — `Provider::SetSamplerRatio` rejects anything else before calling — and returns `true` if this sampler or a delegate it owns applied it. The default body returns `false`, so a sampler with no ratio is never converted into one that has a ratio, and no existing implementation, mock or fake had to change. A composite forwards to its delegates and, on success, regenerates its own `Description` before returning `true`; otherwise a description that embeds a child's ratio goes stale the moment that ratio moves.
 
@@ -547,7 +547,7 @@ public:
 
 #### Lifetime
 
-Created by `SdkBuilder::Build()`. Owned by the `Provider`. `Shutdown` is invoked during `Provider::Shutdown`.
+Created by `SdkBuilder::Build()`. Owned by the `Provider`'s trace pipeline, shared with every `Tracer` and sampled `Span` it hands out, so the processor can outlive the provider and its exporter (issue #285). `Shutdown` is invoked during `Provider::Shutdown`, and the provider's destructor runs it before releasing the pipeline; after `Shutdown` returns, `OnEnd` drops with `post_shutdown` and does not reach the exporter.
 
 #### Threading
 

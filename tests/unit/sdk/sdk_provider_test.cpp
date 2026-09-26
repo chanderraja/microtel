@@ -24,12 +24,17 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace mt = microtel;
 namespace mts = microtel::sdk;
@@ -481,6 +486,159 @@ TEST(SdkProviderTest, ExportedBatchCarriesTheTracerScope)
     ASSERT_EQ(captured->received_batches.size(), std::size_t{1});
     EXPECT_EQ(captured->received_batches[0].Scope().name, "scope.x");
     EXPECT_EQ(captured->received_batches[0].Scope().version, "1.2");
+}
+
+// ---------------------------------------------------------------------------
+// Tracer outlives its Provider — issue #285. `Provider::GetTracer` documents
+// the returned tracer as owned jointly with the provider, valid until both
+// are gone. The provider's destructor shuts the pipeline down, so a tracer
+// used afterwards must drop every span as `PostShutdown` rather than reach
+// into freed provider state.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A provider on the real batching processor, so post-shutdown drops are
+/// counted exactly where production counts them. @p out_diag is the provider's
+/// diagnostics sink; reading it after the provider is gone is valid only
+/// because a live tracer keeps the trace pipeline — sink included — alive,
+/// which is the property under test.
+std::unique_ptr<mts::SdkProvider> MakeBatchingProvider(mts::DiagnosticsCounters** out_diag)
+{
+    auto diagnostics = std::make_unique<mts::DiagnosticsCounters>();
+    *out_diag = diagnostics.get();
+    auto exporter = std::make_unique<mtm::FakeExporter>();
+    auto processor =
+        std::make_unique<mts::BatchSpanProcessor>(exporter.get(),
+                                                  std::make_shared<const mt::Resource>(),
+                                                  mt::BatchOptions{},
+                                                  mt::MemoryLimitOptions{}.max_record_bytes,
+                                                  mt::MemoryLimitOptions{}.max_total_queue_bytes,
+                                                  diagnostics.get());
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::move(diagnostics),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::make_unique<mtm::MockTransport>(),
+        .codec = nullptr,
+        .exporter = std::move(exporter),
+        .batch_span_processor = processor.get(),
+        .processor = std::move(processor),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+    });
+}
+
+std::uint64_t PostShutdownDrops(const mts::DiagnosticsCounters& diag)
+{
+    return DropCount(diag.Snapshot(), mt::DropReason::PostShutdown);
+}
+
+}  // namespace
+
+TEST(SdkProviderTest, TracerOutlivesProvider_SpansAreDroppedAndCounted)
+{
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeBatchingProvider(&diag);
+    const std::shared_ptr<mt::Tracer> tracer = provider->GetTracer("outlives", "1.0");
+
+    provider.reset();
+
+    constexpr int kLateSpans = 3;
+    for (int i = 0; i < kLateSpans; ++i)
+    {
+        auto span = tracer->StartSpan("late");
+        span->SetAttribute("k", std::int64_t{1});
+        span->End();
+    }
+    EXPECT_EQ(PostShutdownDrops(*diag), static_cast<std::uint64_t>(kLateSpans));
+}
+
+TEST(SdkProviderTest, TracerOutlivesProvider_AcrossExplicitShutdown)
+{
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeBatchingProvider(&diag);
+    const std::shared_ptr<mt::Tracer> tracer = provider->GetTracer("outlives", "1.0");
+    // Started while the pipeline is live, ended after the provider is gone:
+    // the span must not borrow anything the provider frees either.
+    auto in_flight = tracer->StartSpan("in-flight");
+
+    ASSERT_EQ(provider->Shutdown(kTimeout), mt::Status::Completed);
+    tracer->StartSpan("after-shutdown")->End();
+    EXPECT_EQ(PostShutdownDrops(*diag), 1U);
+
+    provider.reset();
+    in_flight->End();
+    tracer->StartSpan("after-destruction")->End();
+    EXPECT_EQ(PostShutdownDrops(*diag), 3U);
+}
+
+// A zero-timeout Shutdown returns before the batch worker has exited, so the
+// worker may still be exporting the queued span. The tracer then keeps the
+// processor alive past the exporter; destruction must still wait for the
+// worker before the exporter goes, or it exports into freed memory (ASAN).
+TEST(SdkProviderTest, TracerOutlivesProvider_AfterTimedOutShutdown_WorkerIsJoined)
+{
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeBatchingProvider(&diag);
+    const std::shared_ptr<mt::Tracer> tracer = provider->GetTracer("outlives", "1.0");
+    tracer->StartSpan("queued")->End();
+
+    EXPECT_EQ(provider->Shutdown(std::chrono::milliseconds{0}), mt::Status::TimedOut);
+    provider.reset();
+
+    tracer->StartSpan("late")->End();
+    EXPECT_EQ(PostShutdownDrops(*diag), 1U);
+}
+
+namespace
+{
+
+/// One tracing thread's body: signal once it is tracing, then keep going.
+void TraceInALoop(const std::shared_ptr<mt::Tracer>& tracer, std::atomic<int>& tracing)
+{
+    constexpr int kSpansPerThread = 2000;
+    tracer->StartSpan("first")->End();
+    tracing.fetch_add(1);
+    for (int n = 0; n < kSpansPerThread; ++n)
+    {
+        tracer->StartSpan("hot")->End();
+    }
+}
+
+}  // namespace
+
+// Tracing threads race the provider's destruction, and the last tracer — on
+// one of those threads — frees the pipeline. Meaningful under TSAN and ASAN:
+// nothing may be torn down under a thread still using it.
+TEST(SdkProviderTest, TracersOutliveProvider_ConcurrentDestructionIsSafe)
+{
+    constexpr int kThreads = 8;
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeBatchingProvider(&diag);
+
+    std::atomic<int> tracing{0};
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int i = 0; i < kThreads; ++i)
+    {
+        threads.emplace_back(TraceInALoop, provider->GetTracer("racer"), std::ref(tracing));
+    }
+    // Destroy only once every thread is tracing, so the teardown lands
+    // mid-loop rather than before the threads have started.
+    while (tracing.load() < kThreads)
+    {
+        std::this_thread::yield();
+    }
+    provider.reset();
+    for (auto& thread : threads)
+    {
+        thread.join();
+    }
+    SUCCEED();
 }
 
 // NOLINTEND(misc-const-correctness)

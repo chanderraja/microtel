@@ -120,6 +120,15 @@ public:
     [[nodiscard]] microtel::Status ForceFlush(std::chrono::milliseconds timeout) noexcept override;
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
+    /// @brief Block until the worker thread has exited, without a timeout.
+    ///
+    /// `Shutdown` waits for the worker only up to its timeout. The owner calls
+    /// this after `Shutdown` and before destroying the exporter, because the
+    /// processor itself may outlive the exporter (issue #285). Not
+    /// thread-safe with itself or the destructor: one owner calls it.
+    /// @pre `Shutdown` has been called, or this blocks forever.
+    void JoinWorker() noexcept;
+
     /// @brief Retune the batching knobs while the processor runs (ICP 0026).
     ///
     /// Takes `m_mu`, assigns `m_opts`, notifies the worker. The notify is not

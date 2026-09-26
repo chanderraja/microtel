@@ -54,6 +54,10 @@ Traces:
 
 - `microtel::Tracer` and `microtel::Span` as `SdkTracer` and `SdkSpan`
   ([`sdk_tracer.cpp`](sdk_tracer.cpp), [`sdk_span.cpp`](sdk_span.cpp)).
+  They reach the sampler, span processor and diagnostics sink through raw
+  pointers kept alive by the provider's shared
+  [`TracePipeline`](trace_pipeline.hpp), so a tracer and its spans may
+  outlive the provider and drop as `PostShutdown` (issue #285).
 - The unsampled-`Span` no-op singleton and the out-of-line
   `internal::SpanDeleter::operator()` in [`noop_span.cpp`](noop_span.cpp), per
   [ICP 0003 §3.2](../../docs/icps/0003-m0-deferred-decisions.md#32-unsampled-span-shape--unique_ptrspan-to-no-op-singleton).

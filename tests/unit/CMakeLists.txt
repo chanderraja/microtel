@@ -56,7 +56,9 @@ add_subdirectory(api)
 # v1.1 — the header-only sugar layer (ICP 0028). Mirrors no src/ directory.
 add_subdirectory(sugar)
 
-# M14 L6 — spdlog bridge adapter (only when spdlog is available).
-if(MICROTEL_USE_SPDLOG)
+# Optional adapters: the spdlog bridge (M14 L6), the glog and log4cxx bridges
+# (issue #304) and the opentelemetry-cpp shim. Each test inside is gated on its
+# own option.
+if(MICROTEL_USE_SPDLOG OR MICROTEL_BUILD_GLOG_BRIDGE OR MICROTEL_BUILD_LOG4CXX_BRIDGE)
     add_subdirectory(adapters)
 endif()

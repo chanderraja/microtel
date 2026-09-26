@@ -41,7 +41,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 clang-tidy-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev zlib1g-dev
+            libssl-dev libnghttp2-dev zlib1g-dev \
+            libgoogle-glog-dev liblog4cxx-dev
           sudo update-alternatives --install /usr/bin/clang-tidy \
             clang-tidy /usr/bin/clang-tidy-18 100
       # Every optional tree is enabled here so its TUs land in
@@ -63,6 +64,8 @@ jobs:
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
             -DMICROTEL_BUILD_TESTS=ON \
             -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
+            -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_FUZZ=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
@@ -96,7 +99,8 @@ jobs:
           else
             sudo apt-get install -y clang-18
           fi
-          sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev
+          sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev \
+            libgoogle-glog-dev liblog4cxx-dev
 
       # MICROTEL_BUILD_EXAMPLES is ON for exactly one matrix entry — cxx20 /
       # clang — so examples/ cannot rot against the public API without a PR
@@ -115,6 +119,8 @@ jobs:
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
             -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
+            -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
@@ -138,7 +144,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 cmake ninja-build \
-            libssl-dev libnghttp2-dev zlib1g-dev
+            libssl-dev libnghttp2-dev zlib1g-dev \
+            libgoogle-glog-dev liblog4cxx-dev
       - name: Configure
         env:
           CC:  clang-18
@@ -150,6 +157,8 @@ jobs:
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DMICROTEL_BUILD_HEADER_CHECK=ON \
             -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
+            -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_SANITIZER=${{ matrix.sanitizer }}
       - name: Build
         run: cmake --build build --verbose
@@ -404,7 +413,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
-            libssl-dev libnghttp2-dev zlib1g-dev
+            libssl-dev libnghttp2-dev zlib1g-dev \
+            libgoogle-glog-dev liblog4cxx-dev
       # coverage.sh enforces all three spec §14.2 aggregate floors — ≥ 90% line
       # and ≥ 85% branch on sdk-encoder, ≥ 80% line on transport-exporter — and
       # fails the job on a shortfall.
@@ -414,6 +424,10 @@ jobs:
           CXX:           clang++-18
           LLVM_PROFDATA: llvm-profdata-18
           LLVM_COV:      llvm-cov-21
+          # The glog and log4cxx bridges are header-only under include/microtel/,
+          # so their lines count toward the sdk-encoder group — build them here.
+          COVERAGE_EXTRA_CMAKE_ARGS: >-
+            -DMICROTEL_BUILD_GLOG_BRIDGE=ON -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON
         run: ci/scripts/coverage.sh build
       # The other half of §14.2: every line this PR adds or modifies must be
       # covered by a test in the same PR.

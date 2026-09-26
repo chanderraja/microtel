@@ -210,6 +210,36 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
     target_compile_features(microtel_otelcpp_api INTERFACE cxx_std_20)
 endif()
 
+# glog and log4cxx log bridges (issue #304) — opt-in, header-only.
+#
+# Shaped like the spdlog bridge: an INTERFACE target over one public header in
+# include/microtel/adapters/, compiled inside whichever build links it. Neither
+# is part of the core, neither is installed as a binary or exported (ICP 0020
+# Decision 3), and no libmicrotel_* archive references a glog or log4cxx symbol
+# — ci/scripts/symbol-scan.sh asserts that last part. Both libraries are found
+# on the host rather than fetched: a consumer who wants a bridge already has
+# the library in their build, and the bridge must compile against *that* copy.
+option(MICROTEL_BUILD_GLOG_BRIDGE
+       "Build the glog log bridge (header-only; needs glog >= 0.6 installed)" OFF)
+option(MICROTEL_BUILD_LOG4CXX_BRIDGE
+       "Build the log4cxx log bridge (header-only; needs log4cxx >= 1.1 installed)" OFF)
+
+if(MICROTEL_BUILD_GLOG_BRIDGE)
+    find_package(glog CONFIG REQUIRED)
+    if(glog_VERSION VERSION_LESS 0.6)
+        message(FATAL_ERROR
+                "MICROTEL_BUILD_GLOG_BRIDGE needs glog 0.6 or newer; found ${glog_VERSION}")
+    endif()
+endif()
+
+if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
+    find_package(log4cxx CONFIG REQUIRED)
+    if(log4cxx_VERSION VERSION_LESS 1.1)
+        message(FATAL_ERROR
+                "MICROTEL_BUILD_LOG4CXX_BRIDGE needs log4cxx 1.1 or newer; found ${log4cxx_VERSION}")
+    endif()
+endif()
+
 # Compile-time gate: when ON, insecure = true in config causes init failure.
 # Default OFF (emit runtime warning only). See microtel-spec.md §12.3.
 option(MICROTEL_FORBID_INSECURE_TLS
@@ -258,6 +288,12 @@ endif()
 if(MICROTEL_BUILD_OTELCPP_SHIM)
     add_subdirectory(src/adapters/otelcpp)
 endif()
+if(MICROTEL_BUILD_GLOG_BRIDGE)
+    add_subdirectory(src/adapters/glog)
+endif()
+if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
+    add_subdirectory(src/adapters/log4cxx)
+endif()
 add_subdirectory(tools)
 
 # ---------------------------------------------------------------------------
@@ -283,7 +319,7 @@ target_link_libraries(microtel INTERFACE microtel_sdk)
 
 # The shipped set: the aggregate, the header carrier, and the fourteen static
 # components. `microtel_preflight_lib` is tool-only and is not exported
-# (ICP 0020 "What exists to export"); neither adapter is exported (Decision 3).
+# (ICP 0020 "What exists to export"); no adapter is exported (Decision 3).
 set(MICROTEL_EXPORTED_TARGETS
     microtel
     microtel_headers

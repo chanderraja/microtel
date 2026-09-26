@@ -255,6 +255,8 @@ or export, which is a quick way to check a deployment before it goes live.
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | The programs under [`examples/`](examples/). |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Experimental opentelemetry-cpp API shim, source-only ([ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md)). |
 | `MICROTEL_USE_SPDLOG` | `ON` | spdlog for internal diagnostics. `OFF` uses a minimal stderr logger. |
+| `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Header-only glog log bridge ([`src/adapters/glog/`](src/adapters/glog/README.md)); needs glog 0.6+ installed. |
+| `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Header-only log4cxx log bridge ([`src/adapters/log4cxx/`](src/adapters/log4cxx/README.md)); needs log4cxx 1.1+ installed. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | Makes `tls.insecure = true` a `Build()` error instead of a warning. |
 | `MICROTEL_SANITIZER` | empty | `asan`, `tsan` or `ubsan`. |
 

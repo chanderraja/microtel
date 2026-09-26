@@ -116,6 +116,10 @@
 #                              and exits 0, for local use and for the Sonar
 #                              job, which wants the tracefile rather than a
 #                              second opinion on the floors
+#   COVERAGE_EXTRA_CMAKE_ARGS  extra configure arguments, word-split — CI uses
+#                              it to turn on the optional glog / log4cxx
+#                              bridges, whose headers live under
+#                              include/microtel/ and so are gated here
 #
 # Exit codes:
 #   0  every threshold met (or MICROTEL_COVERAGE_ENFORCE=0)
@@ -261,13 +265,16 @@ echo "coverage: clang $CLANG_MAJOR, $PROFDATA_BIN, $COV_BIN (llvm-cov $COV_MAJOR
 # Build + run
 # ---------------------------------------------------------------------------
 
+# Word-splitting COVERAGE_EXTRA_CMAKE_ARGS is the point: it carries several -D flags.
+# shellcheck disable=SC2086
 cmake -S . -B "$BUILD_DIR" \
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_CXX_STANDARD=20 \
     -DMICROTEL_BUILD_HEADER_CHECK=ON \
     -DMICROTEL_BUILD_TESTS=ON \
-    -DMICROTEL_COVERAGE=ON
+    -DMICROTEL_COVERAGE=ON \
+    ${COVERAGE_EXTRA_CMAKE_ARGS:-}
 
 cmake --build "$BUILD_DIR" -j
 

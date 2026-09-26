@@ -214,6 +214,9 @@ struct TlsServerCtx
 {
     SSL* ssl = nullptr;
     std::atomic<bool> settings_ack_received{false};
+    /// A client request's HEADERS arrived while the server was still waiting
+    /// for its SETTINGS ACK: the client had its ACK and burst in flight together.
+    bool request_seen = false;
 };
 
 ssize_t SrvTlsSend(
@@ -252,6 +255,10 @@ int SrvTlsOnFrameRecv(nghttp2_session* /*s*/, const nghttp2_frame* frame, void* 
     {
         static_cast<TlsServerCtx*>(ud)->settings_ack_received.store(true,
                                                                     std::memory_order_release);
+    }
+    if (frame->hd.type == NGHTTP2_HEADERS)
+    {
+        static_cast<TlsServerCtx*>(ud)->request_seen = true;
     }
     return 0;
 }
@@ -487,6 +494,22 @@ public:
         return true;
     }
 
+    /// True once this server has reset the client's connection. Only the reset
+    /// modes ever set it; every other mode's connection closes cleanly.
+    [[nodiscard]] bool WaitForReset(std::chrono::milliseconds timeout) const
+    {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (!m_reset_sent.load(std::memory_order_acquire))
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                return false;
+            }
+            std::this_thread::sleep_for(kPollInterval);
+        }
+        return true;
+    }
+
     void Stop()
     {
         m_stop.store(true, std::memory_order_release);
@@ -515,15 +538,17 @@ private:
         {
             return;
         }
-        if (RunConnection(client_fd))
+        const bool reset = RunConnection(client_fd);
+        if (reset)
         {
             // Zero linger turns close() into an RST, so the client's in-flight
             // writes fail now rather than whenever the peer's kernel gets round
             // to answering them.
-            const linger reset{.l_onoff = 1, .l_linger = 0};
-            ::setsockopt(client_fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+            const linger zero_linger{.l_onoff = 1, .l_linger = 0};
+            ::setsockopt(client_fd, SOL_SOCKET, SO_LINGER, &zero_linger, sizeof(zero_linger));
         }
         ::close(client_fd);
+        m_reset_sent.store(reset, std::memory_order_release);
     }
 
     /// @return true when the connection must be reset rather than closed.
@@ -552,18 +577,25 @@ private:
         }
 
         SetNonBlocking(fd);
+        bool request_seen = false;
         if (m_alpn == ServerAlpn::H2)
         {
             // A receiver that did not agree to h2 would not run an HTTP/2
             // session either — and the client hangs up as soon as it reads
             // the ALPN answer, so there would be nobody to talk to.
-            RunHttp2(ssl.get(), fd);
+            request_seen = RunHttp2(ssl.get(), fd);
         }
         m_handshake_done.store(true, std::memory_order_release);
 
         if (m_close == ServerClose::ResetOnFirstRequest)
         {
-            return WaitForClientBytes(fd);
+            // The client's burst can land in the same read as its SETTINGS
+            // ACK, and then the SETTINGS loop has already consumed all of it:
+            // a client blocked on its concurrent-stream limit sends nothing
+            // more, so waiting for "the next byte" would wait until Stop and
+            // no reset would ever happen (issue #274). The burst has started
+            // either way, so reset now.
+            return request_seen || WaitForClientBytes(fd);
         }
 
         // Hold the connection open until Stop(): closing straight after the
@@ -599,7 +631,9 @@ private:
         ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     }
 
-    static void RunHttp2(SSL* ssl, int fd)
+    /// Serve the HTTP/2 SETTINGS exchange.
+    /// @return true if a client request arrived during it.
+    static bool RunHttp2(SSL* ssl, int fd)
     {
         TlsServerCtx ctx;
         ctx.ssl = ssl;
@@ -633,6 +667,7 @@ private:
         }
 
         ::nghttp2_session_del(session);
+        return ctx.request_seen;
     }
 
     SslCtxPtr m_ctx;
@@ -642,6 +677,7 @@ private:
     int m_port = 0;
     std::thread m_thread;
     std::atomic<bool> m_handshake_done{false};
+    std::atomic<bool> m_reset_sent{false};
     std::atomic<bool> m_stop{false};
 };
 
@@ -1038,6 +1074,10 @@ TEST(Http2TlsConnectTest, PeerResetsUnderTlsExportBurst_ProcessSurvives)
         handles.push_back(transport->Send(std::move(spec)));
     }
 
+    // The server's half first: without it, a Connected below could mean the
+    // transport missed a reset, or that no reset was ever sent (issue #274).
+    EXPECT_TRUE(server.WaitForReset(kConnectTimeout))
+        << "the server must reset the connection while the export burst is in flight";
     EXPECT_TRUE(
         WaitForState(*transport, microtel::ConnectionState::Reconnecting, std::chrono::seconds(5)))
         << "a peer reset must retire the connection, not the process — state was "

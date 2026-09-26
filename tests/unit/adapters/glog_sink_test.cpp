@@ -44,6 +44,7 @@ constexpr int kGlogFatal = 3;
 constexpr std::uint8_t kSpanSeed = 0x5A;
 constexpr int kVerbosity = 2;
 constexpr int kFakeLine = 42;
+constexpr auto kGlogClockSlack = std::chrono::milliseconds{1};
 
 std::string BodyOf(const mt::LogRecord& rec)
 {
@@ -109,11 +110,13 @@ TEST(GlogSinkTest, StampsTheGlogEventTime)
     auto fake = std::make_shared<mtk::FakeLogger>();
     const mta::GlogSink sink{fake};
 
-    // glog keeps microseconds; compare at that resolution.
-    const auto before =
-        std::chrono::floor<std::chrono::microseconds>(std::chrono::system_clock::now());
+    // glog 0.6 derives its microseconds from a double-precision wall time, so
+    // its stamp can land a microsecond before a system_clock read taken just
+    // ahead of the call. The slack is far below any conversion error this
+    // guards against (a wrong unit or epoch is off by seconds or more).
+    const auto before = std::chrono::system_clock::now() - kGlogClockSlack;
     LOG(INFO) << "timed";
-    const auto after = std::chrono::system_clock::now();
+    const auto after = std::chrono::system_clock::now() + kGlogClockSlack;
 
     ASSERT_EQ(fake->emitted.size(), 1U);
     EXPECT_GE(fake->emitted[0].time, before);

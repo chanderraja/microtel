@@ -324,14 +324,23 @@ void BatchSpanProcessor::ExportBatch(std::vector<QueuedSpan> batch) noexcept
     // one BatchHandle per group — ICP 0023, and design §3.6 for the Resource.
     // A null record Resource is the processor's own; a leaf Resource is
     // compared by pointer, since the leaf receiver shares one object per leaf.
+    //
+    // Two passes, so each group's record vector is allocated once, at its
+    // final size: the first finds every record's group and counts, the second
+    // moves the records. Growing the vectors one record at a time cost a fan-in
+    // drain — ~50 small groups, not one large one — enough reallocations and
+    // record moves that the worker fell behind a fast ingest loop (issue #345).
     struct Group
     {
         const Resource* resource;
         std::shared_ptr<const Resource> owner;
         internal::InstrumentationScope scope;
         std::vector<internal::SpanRecord> records;
+        std::size_t count = 0;
     };
     std::vector<Group> groups;
+    std::vector<std::size_t> group_of;
+    group_of.reserve(batch.size());
     for (auto& item : batch)
     {
         const std::shared_ptr<const Resource>& owner =
@@ -346,11 +355,23 @@ void BatchSpanProcessor::ExportBatch(std::vector<QueuedSpan> batch) noexcept
         if (it == groups.end())
         {
             // The one refcount taken per group, not per record.
-            groups.push_back(Group{
-                .resource = key, .owner = owner, .scope = std::move(item.scope), .records = {}});
+            groups.push_back(Group{.resource = key,
+                                   .owner = owner,
+                                   .scope = std::move(item.scope),
+                                   .records = {},
+                                   .count = 0});
             it = std::prev(groups.end());
         }
-        it->records.push_back(std::move(item.record));
+        ++it->count;
+        group_of.push_back(static_cast<std::size_t>(std::distance(groups.begin(), it)));
+    }
+    for (auto& group : groups)
+    {
+        group.records.reserve(group.count);
+    }
+    for (std::size_t i = 0; i < batch.size(); ++i)
+    {
+        groups[group_of[i]].records.push_back(std::move(batch[i].record));
     }
 
     std::vector<internal::BatchHandle> handles;

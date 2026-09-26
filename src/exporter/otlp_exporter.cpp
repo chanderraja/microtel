@@ -91,7 +91,11 @@ internal::ExportResult OtlpExporter::EnqueueLocked(internal::BatchHandle&& batch
         RecordDropped(DropReason::PostShutdown, span_count);
         return internal::ExportResult::AlreadyShutDown;
     }
-    if (m_queue.size() >= m_config.max_queue_size)
+    // Both bounds: batches, and the spans they carry (issue #345). The span
+    // budget is the one a fan-in drain meets, since it arrives as one small
+    // batch per leaf.
+    if (m_queue.size() >= m_config.max_queue_size ||
+        m_queued_spans + span_count > m_config.max_queued_spans)
     {
         RecordDropped(DropReason::QueueFull, span_count);
         return internal::ExportResult::Dropped;
@@ -99,6 +103,7 @@ internal::ExportResult OtlpExporter::EnqueueLocked(internal::BatchHandle&& batch
     try
     {
         m_queue.push_back(std::move(batch));
+        m_queued_spans += span_count;
         PublishQueueDepth();
     }
     // std::exception, not std::bad_alloc: push_back can also throw
@@ -200,6 +205,8 @@ void OtlpExporter::DrainQueue(std::unique_lock<std::mutex>& lock) noexcept
             batches.push_back(std::move(m_queue.front()));
             m_queue.pop_front();
         }
+        // The whole queue was taken, so the whole budget is free again.
+        m_queued_spans = 0;
         lock.unlock();
         try
         {

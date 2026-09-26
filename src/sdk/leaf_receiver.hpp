@@ -108,6 +108,7 @@ private:
         std::atomic<std::uint64_t> resource_attributes_dropped{0};
         std::atomic<std::uint64_t> leaf_id_conflicts{0};
         std::atomic<std::uint64_t> time_fallbacks{0};
+        std::atomic<std::uint64_t> payloads_post_shutdown{0};
     };
 
     /// The body of `Ingest`; may throw `std::bad_alloc`. Fills @p result as
@@ -121,7 +122,8 @@ private:
                                 Payload& payload,
                                 IngestResult& result);
     /// The leaf's settings, from the table or resolved (§4.3); the resolver
-    /// runs with no lock held.
+    /// runs with no lock held. Null for a leaf `unknown_leaf = Reject`
+    /// refuses: its negative answer goes to `m_unknown`, not the table.
     [[nodiscard]] std::shared_ptr<const LeafSettings> SettingsFor(std::string_view leaf_id,
                                                                   LeafTable::TimePoint now);
     /// The static entry for @p leaf_id with the resolver's answer over it.
@@ -166,7 +168,9 @@ private:
     void CountIdConflict(const IngestRequest& request, const Payload& payload) noexcept;
     /// Count a rejected payload once, against @p reason.
     [[nodiscard]] IngestResult Reject(IngestStatus status, DropReason reason) noexcept;
-    [[nodiscard]] bool IsConfigured(std::string_view leaf_id) const;
+    /// Whether the transport id alone refuses the payload as an unknown
+    /// leaf, before the decode (§4.4).
+    [[nodiscard]] bool RefusedBeforeDecode(const IngestRequest& request, LeafTable::TimePoint now);
     void RecordDrop(DropReason reason, std::uint64_t n) const noexcept;
     void RecordOutOfMemory() noexcept;
 
@@ -176,6 +180,8 @@ private:
     /// without a lock.
     std::unordered_map<std::string, LeafConfig, TransparentStringHash, std::equal_to<>> m_leaves;
     LeafTable m_table;
+    /// Negative settings answers under `unknown_leaf = Reject` (#343).
+    UnknownLeafCache m_unknown;
     Counters m_counters;
     std::atomic<bool> m_shut_down{false};
 };

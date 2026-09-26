@@ -247,6 +247,14 @@ public:
         Decodes(std::move(v));
     }
 
+    /// A second payload from @p id, refused as unknown and counted once more.
+    void ExpectRejectedAgain(mts::SdkLeafReceiver& rx, std::string_view id) const
+    {
+        const auto before = Drops(sink, mt::DropReason::LeafUnknown);
+        EXPECT_EQ(rx.Ingest(Request(id)).status, mt::IngestStatus::UnknownLeaf);
+        EXPECT_EQ(Drops(sink, mt::DropReason::LeafUnknown), before + 1);
+    }
+
     void ExpectRejected(const mt::IngestResult& r,
                         mt::IngestStatus status,
                         mt::DropReason reason) const
@@ -825,14 +833,24 @@ TEST_F(LeafReceiverTest, AllocationFailureIsOutOfMemoryAndNotTooLarge)
 // Shutdown
 // ---------------------------------------------------------------------------
 
-TEST_F(LeafReceiverTest, IngestAfterShutdownCountsOnePostShutdownPerPayload)
+TEST_F(LeafReceiverTest, IngestAfterShutdownCountsPayloadsPostShutdownNotADropReason)
 {
     auto rx = Make();
     Decodes(Payload(Reserved(), {LeafSpan(1, 1), LeafSpan(1, 2), LeafSpan(1, 3)}));
     rx->MarkShutDown();
 
-    ExpectRejected(rx->Ingest(Request()), mt::IngestStatus::ShutDown, mt::DropReason::PostShutdown);
+    const mt::IngestResult r = rx->Ingest(Request());
+    EXPECT_EQ(r.status, mt::IngestStatus::ShutDown);
+    EXPECT_EQ(std::uint64_t{r.spans_accepted} + r.spans_sampled_out + r.spans_dropped, 0U);
     EXPECT_EQ(decoder->decode_call_count, 0) << "the payload is not decoded after shutdown";
+    EXPECT_TRUE(processor.received_spans.empty());
+
+    const mt::LeafReceiverStats stats = rx->Stats();
+    EXPECT_EQ(stats.payloads_post_shutdown, 1U);
+    EXPECT_EQ(stats.payloads_rejected, 0U) << "the two payload counters are disjoint (ICP 0035)";
+    EXPECT_EQ(Drops(sink, mt::DropReason::PostShutdown), 0U)
+        << "post_shutdown counts records only (ICP 0035)";
+    EXPECT_EQ(TotalDrops(sink), 0U);
 }
 
 // ---------------------------------------------------------------------------
@@ -1670,6 +1688,238 @@ TEST_F(LeafReceiverTest, AResolverThatRunsOutOfMemoryIsOutOfMemory)
 
     EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::OutOfMemory);
     EXPECT_EQ(rx->Stats().payloads_out_of_memory, 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Negative resolver answers (issue #343): cached apart from the leaf table
+// ---------------------------------------------------------------------------
+
+/// A resolver that configures only "good" and counts every question.
+mt::LeafConfigResolver OnlyGood(std::shared_ptr<std::atomic<int>> good_calls,
+                                std::shared_ptr<std::atomic<int>> other_calls)
+{
+    return [good_calls = std::move(good_calls), other_calls = std::move(other_calls)](
+               std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        if (id == "good")
+        {
+            ++*good_calls;
+            return mt::LeafConfig{
+                .time_mode = std::nullopt,
+                .resource = {{.key = "service.name", .value = std::string{"good-svc"}}}};
+        }
+        ++*other_calls;
+        return std::nullopt;
+    };
+}
+
+TEST_F(LeafTimeTest, UnknownLeavesRejectedByTheResolverCannotEvictAConfiguredLeaf)
+{
+    options.max_leaves = 4;
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    auto good_calls = std::make_shared<std::atomic<int>>(0);
+    auto other_calls = std::make_shared<std::atomic<int>>(0);
+    options.resolver = OnlyGood(good_calls, other_calls);
+    auto rx = Make();
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "good"), kR - 1000);
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR, 7, "good"), kR - 1000);
+    const auto resource = processor.received_spans.at(0).resource;
+
+    constexpr int kUnknown = 4 * static_cast<int>(mts::kUnknownLeafCacheSize);
+    for (int i = 0; i < kUnknown; ++i)
+    {
+        const std::string id = "unknown-" + std::to_string(i);
+        ASSERT_EQ(rx->Ingest(RequestAt(kR, id)).status, mt::IngestStatus::UnknownLeaf);
+    }
+
+    EXPECT_EQ(rx->Stats().leaves_evicted, 0U);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 1U) << "a rejected leaf takes no leaf-table entry";
+    EXPECT_EQ(BootAnchorAfter(*rx, 1000, kR + 700, 7, "good"), kR - 1000)
+        << "good's two earlier samples survived, so the later, higher one does not move B";
+    EXPECT_EQ(processor.received_spans.at(0).resource, resource)
+        << "good's cached Resource survived";
+    EXPECT_EQ(good_calls->load(), 1) << "good's settings were never re-resolved";
+    EXPECT_EQ(other_calls->load(), kUnknown);
+}
+
+TEST_F(LeafReceiverTest, PayloadDeclaredUnknownLeavesCannotEvictAConfiguredLeaf)
+{
+    options.max_leaves = 1;
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    options.leaves = {{std::string{kLeaf}, mt::LeafConfig{}}};
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        Decodes(Payload(
+            With(Reserved(), {{.key = "device.id", .value = "boiler-" + std::to_string(i)}}),
+            {LeafSpan(1, 1)}));
+        ASSERT_EQ(rx->Ingest(Request("")).status, mt::IngestStatus::UnknownLeaf);
+    }
+
+    EXPECT_EQ(rx->Stats().leaves_evicted, 0U);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 1U);
+}
+
+TEST_F(LeafReceiverTest, ANegativeAnswerIsCachedAndRefusesTheLeafBeforeDecode)
+{
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    auto good_calls = std::make_shared<std::atomic<int>>(0);
+    auto other_calls = std::make_shared<std::atomic<int>>(0);
+    options.resolver = OnlyGood(good_calls, other_calls);
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request("x")).status, mt::IngestStatus::UnknownLeaf);
+    ASSERT_EQ(decoder->decode_call_count, 1) << "the first sighting is decoded and resolved";
+    ExpectRejectedAgain(*rx, "x");
+
+    EXPECT_EQ(decoder->decode_call_count, 1)
+        << "a cached negative answer refuses the leaf before the decode";
+    EXPECT_EQ(other_calls->load(), 1);
+    EXPECT_EQ(rx->Stats().leaves_tracked, 0U);
+}
+
+TEST_F(LeafReceiverTest, ALeafConfiguredLaterIsAcceptedOnceItsNegativeAnswerExpires)
+{
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    bool configured = false;
+    int calls = 0;
+    options.resolver = [&configured, &calls](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        ++calls;
+        if (configured)
+        {
+            return mt::LeafConfig{};
+        }
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf);
+
+    configured = true;
+    steady.Advance(mts::kUnknownLeafTtl);
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf)
+        << "an answer exactly the TTL old is still used";
+    EXPECT_EQ(calls, 1);
+
+    steady.Advance(std::chrono::seconds{1});
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(calls, 2);
+}
+
+TEST_F(LeafReceiverTest, ALeafConfiguredLaterIsAcceptedOnceItsNegativeAnswerIsEvicted)
+{
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    bool configured = false;
+    options.resolver = [&configured](std::string_view id) -> std::optional<mt::LeafConfig>
+    {
+        if (id == kLeaf && configured)
+        {
+            return mt::LeafConfig{};
+        }
+        return std::nullopt;
+    };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf);
+    configured = true;
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::UnknownLeaf) << "still cached";
+
+    for (std::uint32_t i = 0; i < mts::kUnknownLeafCacheSize; ++i)
+    {
+        const std::string id = "other-" + std::to_string(i);
+        ASSERT_EQ(rx->Ingest(Request(id)).status, mt::IngestStatus::UnknownLeaf);
+    }
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted)
+        << "the negative cache filled with newer answers, so kLeaf's went";
+}
+
+TEST_F(LeafReceiverTest, UnderAcceptAnUnknownLeafStillHasItsOwnTableEntry)
+{
+    options.max_leaves = 1;
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    { return std::nullopt; };
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request("a")).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request("b")).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(rx->Stats().leaves_tracked, 1U);
+    EXPECT_EQ(rx->Stats().leaves_evicted, 1U)
+        << "an accepted leaf is a real leaf: its Resource and anchor are cached";
+}
+
+/// One thread's share of the negative-cache race: the configured leaf
+/// between ids no other thread uses, each sent twice.
+void IngestUnknownBurstsFromOneThread(mts::SdkLeafReceiver& rx,
+                                      int thread,
+                                      std::atomic<int>& good_accepted)
+{
+    for (int i = 0; i < kPerThread; ++i)
+    {
+        if (rx.Ingest(Request("good")).status == mt::IngestStatus::Accepted)
+        {
+            ++good_accepted;
+        }
+        const std::string id = "t" + std::to_string(thread) + "-" + std::to_string(i);
+        EXPECT_EQ(rx.Ingest(Request(id)).status, mt::IngestStatus::UnknownLeaf);
+        EXPECT_EQ(rx.Ingest(Request(id)).status, mt::IngestStatus::UnknownLeaf);
+        (void)rx.Stats();
+    }
+}
+
+TEST_F(LeafReceiverTest, ConcurrentUnknownLeavesNeverEvictAConfiguredLeaf)
+{
+    options.max_leaves = 1;
+    options.unknown_leaf = mt::UnknownLeafPolicy::Reject;
+    auto good_calls = std::make_shared<std::atomic<int>>(0);
+    auto other_calls = std::make_shared<std::atomic<int>>(0);
+    options.resolver = OnlyGood(good_calls, other_calls);
+    auto fake = std::make_unique<mtm::FakeOtlpTraceDecoder>();
+    fake->canned.push_back(Payload(Reserved(), {LeafSpan(1, 1)}));
+    mtm::MockExporter exporter;
+    mts::BatchSpanProcessor bsp{&exporter,
+                                std::make_shared<mt::Resource>(),
+                                mt::BatchOptions{},
+                                1U << 20U,
+                                1U << 30U,
+                                &sink};
+    const auto always_on = mt::MakeAlwaysOnSampler();
+    // Real clocks: the fakes are not meant to be read from several threads.
+    mts::SdkLeafReceiver rx{options,
+                            mts::LeafReceiverDeps{.owner = nullptr,
+                                                  .sampler = always_on.Get(),
+                                                  .processor = &bsp,
+                                                  .batch_processor = &bsp,
+                                                  .diagnostics = nullptr,
+                                                  .decoder = std::move(fake),
+                                                  .span_limits = limits}};
+
+    constexpr int kThreads = 8;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    std::atomic<int> good_accepted{0};
+    for (int t = 0; t < kThreads; ++t)
+    {
+        threads.emplace_back([&rx, &good_accepted, t]
+                             { IngestUnknownBurstsFromOneThread(rx, t, good_accepted); });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    EXPECT_EQ(good_accepted.load(), kThreads * kPerThread);
+    EXPECT_EQ(rx.Stats().leaves_evicted, 0U);
+    EXPECT_EQ(rx.Stats().leaves_tracked, 1U);
+    EXPECT_LE(good_calls->load(), kThreads) << "good is resolved only by its first racers";
+    (void)bsp.Shutdown(std::chrono::seconds(5));
 }
 
 // ---------------------------------------------------------------------------

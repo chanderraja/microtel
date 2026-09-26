@@ -82,8 +82,10 @@ struct IngestResult
 ///
 /// Drops of whole payloads are also counted on the Provider's
 /// `HealthSnapshot::drop_counters` (`leaf_payload_malformed`,
-/// `leaf_payload_too_large`, `leaf_unknown`, `post_shutdown`), so they show in
-/// `GetExporterHealth()` whether or not the caller reads `IngestResult`.
+/// `leaf_payload_too_large`, `leaf_unknown`), so they show in
+/// `GetExporterHealth()` whether or not the caller reads `IngestResult`. A
+/// payload that arrives after `Shutdown` is counted only here, in
+/// `payloads_post_shutdown` (ICP 0035).
 struct LeafReceiverStats
 {
     std::uint64_t payloads_accepted = 0;
@@ -95,6 +97,7 @@ struct LeafReceiverStats
     std::uint64_t payloads_out_of_memory = 0;       ///< §3.3
     std::uint64_t resource_attributes_dropped = 0;  ///< over max_leaf_resource_bytes (§4.5)
     std::uint64_t leaf_id_conflicts = 0;            ///< payload declared a different id (§4.4)
+    std::uint64_t payloads_post_shutdown = 0;       ///< Ingest after Shutdown; not decoded
 };
 
 /// @brief What the receiver does with a leaf that has no configuration (§4.4).
@@ -127,6 +130,10 @@ struct LeafConfig
 /// it; the first answer is kept.
 ///
 /// `std::nullopt` means "not configured", which `unknown_leaf` then governs.
+/// Under `UnknownLeafPolicy::Reject` that answer is not kept in the leaf
+/// table, so refused leaves never evict accepted ones; it is remembered
+/// apart for up to 60 s (at most 256 ids), and the leaf is asked about again
+/// after that, so a leaf configured later is accepted.
 /// An answer sits above the leaf's static entry in `leaves`, per key. A
 /// `microtel.leaf.*` key or the `leaf_id_attribute` key in the answer's
 /// Resource is ignored, and keys that would take the configured Resource over

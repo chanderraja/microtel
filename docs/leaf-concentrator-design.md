@@ -881,6 +881,7 @@ struct LeafReceiverStats
     std::uint64_t payloads_out_of_memory = 0;       ///< §3.3
     std::uint64_t resource_attributes_dropped = 0;  ///< over max_leaf_resource_bytes (§4.5)
     std::uint64_t leaf_id_conflicts = 0;   ///< payload declared a different id (§4.4)
+    std::uint64_t payloads_post_shutdown = 0;  ///< Ingest after Shutdown; not decoded (ICP 0035)
 };
 
 class LeafReceiver
@@ -960,7 +961,6 @@ takes the hot-path regime of `error-model.md` §2.2, with one addition:
 |---|---|---|
 | span limits applied to a decoded span (§3.6) | `span_attribute_limit`, `span_event_limit`, `span_link_limit`, `event_attribute_limit`, `link_attribute_limit`, `attribute_value_truncated` | as today |
 | `ISpanProcessor::OnEnd` | `queue_full`, `record_too_large` | records |
-| call after `Shutdown` | `post_shutdown` | **payloads** (the payload is not decoded, so its spans are not counted) |
 
 Three failures happen before there are any records, and no existing reason
 describes them. **ICP:** add three `DropReason` enumerators, with the next
@@ -971,6 +971,10 @@ free values at the time the ICP lands:
 | `leaf_payload_malformed` | the payload fails to decode, fails validation (§3.4), declares an unsupported wire version, or its time mode conflicts with the leaf's config (§5.1) | payloads |
 | `leaf_payload_too_large` | the payload exceeds `max_payload_bytes`, `max_spans_per_payload`, the decode depth limit, or the decode arena cap (§3.7) | payloads |
 | `leaf_unknown` | the leaf is not configured and `unknown_leaf = "reject"` (§4.4) | payloads |
+
+A payload that arrives after `Shutdown` is not decoded, so its spans are not
+known. It is not a `DropReason` — `post_shutdown` counts records only — but
+`LeafReceiverStats::payloads_post_shutdown` ([ICP 0035](icps/0035-leaf-post-shutdown-counter.md)).
 
 These are the first reasons counted in payloads rather than records. That is
 deliberate: a payload that cannot be decoded has no trustworthy span count, and
@@ -1228,6 +1232,15 @@ is recorded once. The throughput bench (§7.9) confirms
 the fan-in — requests per batch stays at one as the number of leaves grows —
 rather than deciding whether to have it.
 
+*Queue bound.* The exporter's queue is budgeted in **spans**
+(`OtlpExporterConfig::max_queued_spans`), not only in `BatchHandle`s: a drain
+is one handle from one leaf but one per leaf from many, so a bound of 256
+handles held 256 full drains for one leaf and about five for a hundred. The
+bench found it (issue #345): with 100 leaves, half the spans were refused as
+`queue_full` while one request was in flight. `SdkBuilder` sets the budget to
+256 × `max_export_batch_size` spans, the most the handle bound ever admitted,
+and raises the handle bound to match so it never binds first.
+
 *Alternative considered:* an `IOtlpEncoder::EncodeMany(std::span<const
 BatchHandle>)` that builds one upb message tree for all handles. It produces
 the same bytes up to field order within the request, but changes a locked
@@ -1424,7 +1437,8 @@ The resolver is for fleets whose per-device table lives in a database or an
 inventory service. It is the answer to "a TOML table with ten thousand
 entries". A resolver that returns `std::nullopt` means "not configured", which
 `unknown_leaf` then governs. *Implemented:* the answer is cached in the leaf's
-table entry, a negative one included, so the resolver runs once per entry; one
+table entry, so the resolver runs once per entry, except that a negative answer
+under `unknown_leaf = reject` is cached apart, for a bounded time (§4.5); one
 that throws a `std::exception` (other than `std::bad_alloc`, which is
 `OutOfMemory`) counts as `std::nullopt`; reserved and `leaf_id_attribute` keys
 in its Resource are ignored, and keys over `max_leaf_resource_bytes` are
@@ -1515,6 +1529,16 @@ when it changes), the boot-relative anchor (§5.4), and a last-seen time.
   eviction; it is counted in `LeafReceiverStats::leaves_evicted`.
 - `leaf_idle_timeout` (default 1 h) evicts entries not seen for that long,
   checked on insert, so an idle concentrator costs no timer thread.
+- *Implemented (#343):* under `unknown_leaf = reject`, a leaf that is refused
+  takes no table entry, so a burst of unknown ids cannot evict the leaves that
+  are accepted and their anchors. The "not configured" answer is kept in a
+  separate cache of 256 ids, each used for at most 60 s from when it was
+  cached, the oldest dropped first when full; a transport id with a cached
+  answer is refused before the decode, as an unknown one is when there is no
+  resolver. A leaf configured in the resolver later is accepted within 60 s,
+  or sooner if its answer is pushed out. Both bounds are fixed, not
+  configurable; losing an answer costs one more resolver call. Under
+  `accept`, an unknown leaf is processed like any other and has its entry.
 - `max_leaf_resource_bytes` (default 2 KiB) bounds one leaf's resolved
   Resource, keys plus values. Leaf-declared attributes that would push past it
   are dropped (lowest precedence first) and counted in
@@ -1993,6 +2017,14 @@ encodes one payload per simulated leaf at start-up with the C leaf and then
 ingests them round-robin, so a sample measures the concentrator, not the leaf.
 Each sample records the export requests the sink received. CPU is not recorded
 separately: the harness has no CPU metric for any profile.
+
+The first run showed 100 and 1,000 leaves losing about half their spans as
+`queue_full`, fixed as issue #345 (the exporter's queue bound, §3.6.1, and the
+processor's per-drain grouping). All four leaf counts now deliver every span.
+What remains is a per-Resource wire cost, not a queue: with ~50 leaves in a
+512-span request, the request is ~13% larger and the Go blackhole sink takes
+~30% longer to decode it (one `Resource` per `ResourceSpans`), so the flush
+after the emit phase is ~25% longer than with one leaf.
 
 ## §8 Follow-up ICPs and document edits
 

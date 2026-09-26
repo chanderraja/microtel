@@ -4,6 +4,14 @@
 # Unit tests for src/transport/ (Track D).
 
 microtel_add_test(
+    NAME    connect_error_test
+    SOURCES connect_error_test.cpp
+    LIBS    microtel_transport)
+
+target_include_directories(connect_error_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+microtel_add_test(
     NAME    epoll_reactor_test
     SOURCES epoll_reactor_test.cpp
     LIBS    microtel_transport)

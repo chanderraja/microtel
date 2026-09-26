@@ -6,6 +6,7 @@
 #include "microtel/error.hpp"
 #include "microtel/internal/transport.hpp"
 
+#include "transport/connect_error.hpp"
 #include "transport/nosignal_io.hpp"
 
 #include <nghttp2/nghttp2.h>
@@ -196,6 +197,16 @@ void SetNoSigPipe(int fd) noexcept
 #endif
 }
 
+/// @return The socket's pending error (`SO_ERROR`), which reading clears: 0
+///         once a non-blocking connect has succeeded, else its errno.
+int PendingSocketError(int fd) noexcept
+{
+    int sock_err = 0;
+    socklen_t sock_err_len = sizeof(sock_err);
+    ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &sock_err, &sock_err_len);
+    return sock_err;
+}
+
 microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
     const std::string& host, const std::string& port, std::chrono::milliseconds timeout)
 {
@@ -212,6 +223,7 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
     const std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)> guard{res, &::freeaddrinfo};
 
     const auto deadline = std::chrono::steady_clock::now() + timeout;
+    int last_errno = 0;
 
     for (const addrinfo* ai = res; ai != nullptr; ai = ai->ai_next)
     {
@@ -238,6 +250,7 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
         }
         if (errno != EINPROGRESS)
         {
+            last_errno = MergeConnectErrno(last_errno, errno);
             continue;
         }
 
@@ -255,18 +268,16 @@ microtel::Expected<common::raii::UniqueFd, microtel::Error> TcpConnect(
             continue;
         }
 
-        int sock_err = 0;
-        socklen_t sock_err_len = sizeof(sock_err);
-        ::getsockopt(fd.Get(), SOL_SOCKET, SO_ERROR, &sock_err, &sock_err_len);
+        const int sock_err = PendingSocketError(fd.Get());
         if (sock_err != 0)
         {
+            last_errno = MergeConnectErrno(last_errno, sock_err);
             continue;
         }
         return fd;
     }
 
-    return microtel::Unexpected<microtel::Error>{
-        {.kind = microtel::Error::Kind::Network, .message = "connection refused"}};
+    return microtel::Unexpected<microtel::Error>{ConnectFailureError(last_errno)};
 }
 
 // ---------------------------------------------------------------------------

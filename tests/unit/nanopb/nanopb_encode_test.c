@@ -308,10 +308,10 @@ static void dump_mismatch(const uint8_t* got, size_t len)
         if (got[i] != k_golden[i])
         {
             (void)fprintf(stderr,
-                    "  first difference at byte %zu: got 0x%02x, want 0x%02x\n",
-                    i,
-                    got[i],
-                    k_golden[i]);
+                          "  first difference at byte %zu: got 0x%02x, want 0x%02x\n",
+                          i,
+                          got[i],
+                          k_golden[i]);
             return;
         }
     }

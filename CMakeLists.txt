@@ -264,6 +264,29 @@ add_subdirectory(third_party/upb)
 # CMake target: microtel_upb_gen. Regen: ci/scripts/regen-protos.sh.
 add_subdirectory(gen)
 
+# The leaf (docs/leaf-concentrator-design.md §2.1). Experimental in v1.2 and
+# never a dependency of microtel::microtel (ICP 0031 Decision 3).
+option(MICROTEL_BUILD_LEAF "Build the microtel leaf C library (experimental)" OFF)
+set(MICROTEL_LEAF_ENCODER "nanopb" CACHE STRING
+    "Encoder backend of the leaf: upb or nanopb")
+set_property(CACHE MICROTEL_LEAF_ENCODER PROPERTY STRINGS upb nanopb)
+if(NOT MICROTEL_LEAF_ENCODER MATCHES "^(upb|nanopb)$")
+    message(FATAL_ERROR
+        "MICROTEL_LEAF_ENCODER must be upb or nanopb, not '${MICROTEL_LEAF_ENCODER}'")
+endif()
+
+# nanopb is built only for a nanopb leaf (ICP 0031 Decision 4).
+# CMake targets: microtel_nanopb (runtime, encoder only), microtel_nanopb_gen.
+if(MICROTEL_BUILD_LEAF AND MICROTEL_LEAF_ENCODER STREQUAL "nanopb")
+    add_subdirectory(third_party/nanopb)
+    add_subdirectory(gen/nanopb)
+endif()
+
+# The leaf library itself, `microtel_leaf`, exported as `microtel::leaf`.
+if(MICROTEL_BUILD_LEAF)
+    add_subdirectory(leaf)
+endif()
+
 # System dependencies: OpenSSL (TLS) and nghttp2 (HTTP/2 transport).
 # Required by src/common/raii/ and src/transport/; also linked by their tests.
 find_package(OpenSSL REQUIRED)
@@ -295,15 +318,6 @@ if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
     add_subdirectory(src/adapters/log4cxx)
 endif()
 add_subdirectory(tools)
-
-# microtel-leaf, the C span encoder for constrained devices (ICP 0031 Decision 3,
-# docs/leaf-concentrator-design.md §2.1). Default OFF. Exported as
-# `microtel::leaf`; never a dependency of `microtel::microtel`. The backend is
-# chosen with MICROTEL_LEAF_ENCODER (leaf/CMakeLists.txt).
-option(MICROTEL_BUILD_LEAF "Build the microtel-leaf C library" OFF)
-if(MICROTEL_BUILD_LEAF)
-    add_subdirectory(leaf)
-endif()
 
 # ---------------------------------------------------------------------------
 # Install rules and the exported target set — issue #19, ICP 0020.
@@ -347,7 +361,7 @@ set(MICROTEL_EXPORTED_TARGETS
     microtel_upb_runtime
     microtel_utf8_range)
 
-if(MICROTEL_BUILD_LEAF)
+if(TARGET microtel_leaf)
     list(APPEND MICROTEL_EXPORTED_TARGETS microtel_leaf)
 endif()
 
@@ -381,7 +395,7 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/microtel
     FILES_MATCHING PATTERN "*.hpp")
 
 # The leaf's one public header, a C header beside the C++ ones.
-if(MICROTEL_BUILD_LEAF)
+if(TARGET microtel_leaf)
     install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/leaf/include/microtel/leaf.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/microtel)
 endif()

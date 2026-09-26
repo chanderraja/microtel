@@ -15,7 +15,8 @@ system and carry their own notices there. [`NOTICE`](NOTICE) names them.
 | [upb](#upb) | BSD-3-Clause | compiled into `libmicrotel_upb_runtime.a` | `third_party/upb/` |
 | [utf8_range](#utf8_range) | MIT | compiled into `libmicrotel_utf8_range.a` | `third_party/utf8_range/` |
 | [tl::expected](#tlexpected) | CC0-1.0 | installed header `include/microtel/vendor/tl/expected.hpp` | `third_party/tl-expected/` |
-| [opentelemetry-proto](#opentelemetry-proto) | Apache-2.0 | schema only; generated accessors compile into `libmicrotel_upb_gen.a` | `proto/` |
+| [opentelemetry-proto](#opentelemetry-proto) | Apache-2.0 | schema only; generated accessors compile into `libmicrotel_upb_gen.a`, and for the leaf into `libmicrotel_nanopb_gen.a` | `proto/` |
+| [nanopb](#nanopb) | zlib | leaf only: compiled into `libmicrotel_nanopb.a` when the leaf is built with `MICROTEL_LEAF_ENCODER=nanopb` | `third_party/nanopb/` |
 
 Per [ICP 0020](docs/icps/0020-install-and-package-config.md) Decision 4, upb and
 utf8_range ship with every globally-visible symbol renamed to a `microtel_`
@@ -300,6 +301,48 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+```
+
+---
+
+## nanopb
+
+zlib License. It asks that altered source be marked as such and that this
+notice stay with source distributions; microtel alters no nanopb source (the
+`microtel_pb_` rename is applied by a force-included header, per
+[ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) Decision 4). nanopb is
+linked only into the leaf artifact, never into `microtel::microtel`.
+
+| Field | Value |
+|---|---|
+| Upstream | https://github.com/nanopb/nanopb |
+| Upstream tag | `nanopb-0.4.9.2` |
+| Upstream commit | `160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f` |
+| Vendored path | [`third_party/nanopb/`](third_party/nanopb/) |
+| License file | [`third_party/nanopb/LICENSE.txt`](third_party/nanopb/LICENSE.txt) |
+| Provenance notes | [`third_party/nanopb/README.md`](third_party/nanopb/README.md) |
+
+```
+Copyright (c) 2011 Petteri Aimonen <jpa at nanopb.mail.kapsi.fi>
+
+This software is provided 'as-is', without any express or 
+implied warranty. In no event will the authors be held liable 
+for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any 
+purpose, including commercial applications, and to alter it and 
+redistribute it freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you 
+   must not claim that you wrote the original software. If you use 
+   this software in a product, an acknowledgment in the product 
+   documentation would be appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and 
+   must not be misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source 
+   distribution.
 ```
 
 ---

@@ -30,13 +30,24 @@ else()
     set(MICROTEL_LEAF_STANDALONE OFF)
 endif()
 
+# In-tree the top-level CMakeLists defines (and validates) this option; the
+# definition here only takes effect standalone. Same default: nanopb (§6.1).
 set(MICROTEL_LEAF_ENCODER "nanopb" CACHE STRING "Leaf encoder backend: upb or nanopb")
 set_property(CACHE MICROTEL_LEAF_ENCODER PROPERTY STRINGS upb nanopb)
 
+# The nanopb backend is not written yet. A nanopb leaf never silently falls
+# back to upb: standalone there is nothing else to build, so it is an error; in
+# the main project the vendored nanopb archives and their tests still build,
+# and microtel_leaf is left out with a warning.
+set(_microtel_leaf_nanopb_msg
+    "MICROTEL_LEAF_ENCODER=nanopb: the nanopb leaf backend is not implemented yet, "
+    "so microtel_leaf is not built. Configure with -DMICROTEL_LEAF_ENCODER=upb.")
 if(MICROTEL_LEAF_ENCODER STREQUAL "nanopb")
-    message(FATAL_ERROR
-        "MICROTEL_LEAF_ENCODER=nanopb is not yet implemented; "
-        "configure with -DMICROTEL_LEAF_ENCODER=upb")
+    if(MICROTEL_LEAF_STANDALONE)
+        message(FATAL_ERROR ${_microtel_leaf_nanopb_msg})
+    endif()
+    message(WARNING ${_microtel_leaf_nanopb_msg})
+    return()
 elseif(NOT MICROTEL_LEAF_ENCODER STREQUAL "upb")
     message(FATAL_ERROR
         "MICROTEL_LEAF_ENCODER='${MICROTEL_LEAF_ENCODER}' invalid; expected upb or nanopb")

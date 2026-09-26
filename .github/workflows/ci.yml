@@ -113,6 +113,9 @@ jobs:
       # It earns its keep: it went green only after fixing basic_trace, which
       # had stopped compiling when microtel::Status grew two enumerators in
       # v1.1 and nothing asked the example to build again.
+      # MICROTEL_LEAF_ENCODER: the gcc cells build the upb leaf and its tests; the
+      # clang cells keep the default nanopb, whose vendored archives and tests
+      # build while the nanopb leaf backend does not exist yet.
       - name: Configure
         run: |
           cmake -S . -B build \
@@ -124,7 +127,7 @@ jobs:
             -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
             -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
             -DMICROTEL_BUILD_LEAF=ON \
-            -DMICROTEL_LEAF_ENCODER=upb \
+            -DMICROTEL_LEAF_ENCODER=${{ matrix.compiler.name == 'gcc' && 'upb' || 'nanopb' }} \
             -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
@@ -202,15 +205,28 @@ jobs:
             -Dprotobuf_WITH_ZLIB=OFF \
             -Dprotobuf_ABSL_PROVIDER=module
           cmake --build build --target protoc-gen-upb protoc-gen-upb_minitable -j$(nproc)
+      # The generator for gen/nanopb/ (the leaf's descriptors), pinned to the
+      # release third_party/nanopb/ vendors and run under the python-protobuf
+      # that matches protoc 29.4. Developer-time only (ICP 0031 Decision 4).
+      - name: Install nanopb generator 0.4.9.2
+        run: |
+          git clone --depth 1 --branch nanopb-0.4.9.2 \
+            https://github.com/nanopb/nanopb.git /tmp/nanopb
+          python3 -m venv /tmp/nanopb-venv
+          /tmp/nanopb-venv/bin/pip install protobuf==5.29.4
       - name: Regenerate proto accessors
         run: |
-          ci/scripts/regen-protos.sh \
+          PATH=/tmp/nanopb-venv/bin:$PATH ci/scripts/regen-protos.sh \
             --protoc     /tmp/protoc-bin/protoc \
             --gen-upb    /tmp/protobuf/build/protoc-gen-upb-29.4.0 \
-            --gen-upb-mt /tmp/protobuf/build/protoc-gen-upb_minitable-29.4.0
+            --gen-upb-mt /tmp/protobuf/build/protoc-gen-upb_minitable-29.4.0 \
+            --nanopb-generator /tmp/nanopb/generator/protoc-gen-nanopb
+      # `git status` as well as `git diff`: a file the generator newly emits is
+      # untracked, and `git diff` does not show it.
       - name: Assert gen/ is up-to-date
         run: |
-          if ! git diff --exit-code gen/; then
+          if ! git diff --exit-code gen/ || [[ -n "$(git status --porcelain gen/)" ]]; then
+            git status --porcelain gen/
             echo ""
             echo "ERROR: gen/ is out of date with proto/."
             echo "Run ci/scripts/regen-protos.sh and commit the result."
@@ -233,11 +249,10 @@ jobs:
         env:
           CC:  clang-18
           CXX: clang++-18
-        # The leaf is built and installed too, so the leaf pass has its archive
-        # to scan (docs/leaf-concentrator-design.md §7.6).
-        run: >-
-          cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF
-          -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb
+        # MICROTEL_BUILD_LEAF=ON also builds the nanopb archives, so the
+        # nanopb passes have something to scan. It adds nothing to the
+        # install tree.
+        run: cmake -S . -B build -G Ninja -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_LEAF=ON
       - name: Build
         run: cmake --build build
       # ICP 0020 Decision 5: "shipped" means the install tree, so the gate
@@ -246,8 +261,10 @@ jobs:
       # correct — it is tool-only and is not installed.
       - name: Install to a staging prefix
         run: cmake --install build --prefix install-tree
-      - name: Assert dependency closure and the vendored-upb prefix
-        run: ci/scripts/symbol-scan.sh --prefix install-tree
+      # --leaf-build: the leaf archives are not installed yet, so they are
+      # scanned from the build tree (ICP 0031 Decision 4).
+      - name: Assert dependency closure and the vendored-upb and nanopb prefixes
+        run: ci/scripts/symbol-scan.sh --prefix install-tree --leaf-build build
 
   # The leaf's standalone build (docs/leaf-concentrator-design.md §2.1): only a
   # C compiler, no CXX language, no nghttp2 / OpenSSL / zlib. This is the form

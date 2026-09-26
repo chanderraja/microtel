@@ -7,6 +7,8 @@
 // the wiring; exhaustive conversion coverage lives in
 // otelcpp_attribute_conversion_test.cpp.
 
+#include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "adapters/otelcpp/span_shim.hpp"
 #include "fakes/fake_span.hpp"
 
@@ -23,6 +25,8 @@
 namespace
 {
 
+using microtel::adapters::otelcpp::GetShimDiagnostics;
+using microtel::adapters::otelcpp::ShimOptions;
 using microtel::adapters::otelcpp::SpanShim;
 namespace otel_trace = opentelemetry::trace;
 namespace otel_common = opentelemetry::common;
@@ -55,6 +59,63 @@ TEST(OtelCppSpanShim, SetAttributeDegradesOverflowingUint64PerIcp0015)
 
     ASSERT_EQ(fake.attributes.size(), 1U);
     EXPECT_EQ(std::get<std::string>(fake.attributes[0].value), "18446744073709551615");
+}
+
+// ── ICP 0033: byte-span attribute value length limit ─────────────────────────
+
+/// 4 hex characters: a 2-byte span fits, a 3-byte span does not.
+constexpr ShimOptions kFourCharLimit{.attribute_value_length_limit = std::uint32_t{4}};
+
+TEST(OtelCppSpanShim, SetAttributeOmitsAByteSpanOverTheLimitAndCountsIt)
+{
+    microtel::testing::FakeSpan fake;
+    SpanShim shim{BorrowHandle(fake), kFourCharLimit};
+    const std::uint8_t fits[] = {0xab, 0xcd};
+    const std::uint8_t over[] = {0xab, 0xcd, 0xef};
+    const auto before = GetShimDiagnostics();
+
+    shim.SetAttribute("fits", opentelemetry::nostd::span<const std::uint8_t>{fits, 2});
+    shim.SetAttribute("over", opentelemetry::nostd::span<const std::uint8_t>{over, 3});
+
+    ASSERT_EQ(fake.attributes.size(), 1U);
+    EXPECT_EQ(fake.attributes[0].key, "fits");
+    EXPECT_EQ(std::get<std::string>(fake.attributes[0].value), "abcd");
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 1U);
+}
+
+TEST(OtelCppSpanShim, AddEventLeavesAnOverLimitByteSpanAttributeOut)
+{
+    microtel::testing::FakeSpan fake;
+    SpanShim shim{BorrowHandle(fake), kFourCharLimit};
+    const std::uint8_t over[] = {0xab, 0xcd, 0xef};
+    const auto before = GetShimDiagnostics();
+
+    shim.AddEvent("checkpoint",
+                  otel_common::SystemTimestamp{std::chrono::system_clock::now()},
+                  {{"code", std::int64_t{7}},
+                   {"blob", opentelemetry::nostd::span<const std::uint8_t>{over, 3}}});
+
+    ASSERT_EQ(fake.events.size(), 1U);
+    ASSERT_EQ(fake.events[0].attributes.size(), 1U);
+    EXPECT_EQ(fake.events[0].attributes[0].key, "code");
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 1U);
+}
+
+TEST(OtelCppSpanShim, DefaultOptionsApplyTheSdkDefaultLimit)
+{
+    // A shim built without options carries ShimOptions{}: 4096 characters,
+    // the SDK's own default, so 2049 bytes are omitted rather than cut.
+    constexpr std::size_t kOverDefault = 2049;
+    microtel::testing::FakeSpan fake;
+    SpanShim shim{BorrowHandle(fake)};
+    const std::vector<std::uint8_t> raw(kOverDefault, 0x11U);
+
+    shim.SetAttribute("blob",
+                      opentelemetry::nostd::span<const std::uint8_t>{raw.data(), raw.size()});
+
+    EXPECT_TRUE(fake.attributes.empty());
 }
 
 TEST(OtelCppSpanShim, AddEventNameOnly)

@@ -1,0 +1,68 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# nanopb generator options for the leaf's OTLP trace descriptors
+# (docs/leaf-concentrator-design.md §2.4). Read by
+# ci/scripts/regen-protos.sh --nanopb-generator; the output is committed
+# under gen/nanopb/.
+#
+# Every string, bytes and repeated field is FT_CALLBACK, so no generated
+# struct carries a fixed-size array and the encode callbacks read straight
+# from the leaf's record buffer. The span ids are the exception: their size
+# is fixed, so they are static. No field is FT_POINTER, so the archive never
+# needs PB_ENABLE_MALLOC.
+#
+# Options later in the file override earlier ones.
+
+# --- common/v1 -------------------------------------------------------------
+opentelemetry.proto.common.v1.AnyValue.string_value           type:FT_CALLBACK
+opentelemetry.proto.common.v1.AnyValue.bytes_value            type:FT_CALLBACK
+opentelemetry.proto.common.v1.ArrayValue.values               type:FT_CALLBACK
+opentelemetry.proto.common.v1.KeyValueList.values             type:FT_CALLBACK
+opentelemetry.proto.common.v1.KeyValue.key                    type:FT_CALLBACK
+opentelemetry.proto.common.v1.InstrumentationScope.name       type:FT_CALLBACK
+opentelemetry.proto.common.v1.InstrumentationScope.version    type:FT_CALLBACK
+opentelemetry.proto.common.v1.InstrumentationScope.attributes type:FT_CALLBACK
+opentelemetry.proto.common.v1.EntityRef.*                     type:FT_CALLBACK
+
+# --- resource/v1 -----------------------------------------------------------
+opentelemetry.proto.resource.v1.Resource.attributes           type:FT_CALLBACK
+opentelemetry.proto.resource.v1.Resource.entity_refs          type:FT_CALLBACK
+
+# --- trace/v1 --------------------------------------------------------------
+opentelemetry.proto.trace.v1.TracesData.resource_spans        type:FT_CALLBACK
+opentelemetry.proto.trace.v1.ResourceSpans.scope_spans        type:FT_CALLBACK
+opentelemetry.proto.trace.v1.ResourceSpans.schema_url         type:FT_CALLBACK
+opentelemetry.proto.trace.v1.ScopeSpans.spans                 type:FT_CALLBACK
+opentelemetry.proto.trace.v1.ScopeSpans.schema_url            type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.trace_state                 type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.name                        type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.attributes                  type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.events                      type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.links                       type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.Event.name                  type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.Event.attributes            type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.Link.trace_state            type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Span.Link.attributes             type:FT_CALLBACK
+opentelemetry.proto.trace.v1.Status.message                   type:FT_CALLBACK
+
+# Span ids: static, since their size is fixed.
+#
+# trace_id and span_id are always set, so fixed_length is safe. nanopb always
+# encodes a proto3 fixed_length bytes field (pb_check_proto3_default_value in
+# pb_encode.c treats it as never default), which is right for a field that is
+# never empty.
+#
+# parent_span_id is empty on a root span and must then be omitted, as upb
+# omits it (§2.3 rule 2). fixed_length would encode eight zero bytes instead,
+# so it is a static bytes array with a size, which nanopb omits when the size
+# is 0.
+opentelemetry.proto.trace.v1.Span.trace_id                    max_size:16 fixed_length:true
+opentelemetry.proto.trace.v1.Span.span_id                     max_size:8 fixed_length:true
+opentelemetry.proto.trace.v1.Span.parent_span_id              max_size:8
+opentelemetry.proto.trace.v1.Span.Link.trace_id               max_size:16 fixed_length:true
+opentelemetry.proto.trace.v1.Span.Link.span_id                max_size:8 fixed_length:true
+
+# --- collector/trace/v1 ----------------------------------------------------
+opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest.resource_spans type:FT_CALLBACK
+opentelemetry.proto.collector.trace.v1.ExportTracePartialSuccess.error_message type:FT_CALLBACK

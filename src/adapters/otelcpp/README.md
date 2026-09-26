@@ -77,19 +77,103 @@ degraded type, and are never dropped or clamped
 If one element of a `uint64_t` array overflows, all elements render as
 strings. microtel's array alternatives cannot hold mixed types, and dropping
 just the offending element would change the array's length, silently breaking
-index correlation with a parallel attribute. Every alternative converts to some
-value, so the shim needs no drop accounting and no diagnostics path for
-attributes. Implementation: [`attribute_conversion.hpp`](attribute_conversion.hpp).
+index correlation with a parallel attribute. The one attribute the shim omits
+is a byte span over the length limit, below. Implementation:
+[`attribute_conversion.hpp`](attribute_conversion.hpp).
+
+## `ShimOptions`: the byte-span length limit
+
+A byte span of n bytes renders as 2n hex characters. The SDK truncates any
+string attribute longer than `SpanLimitOptions::attribute_value_length_limit`,
+and an odd cut of a hex string decodes to a last byte the application never
+set (issue #238). So the shim checks the size first: if 2n would exceed
+`ShimOptions::attribute_value_length_limit`, the attribute is omitted, never
+rendered, and counted
+([ICP 0033](../../../docs/icps/0033-shim-attribute-value-length-limit.md)).
+This applies to span, event and link attributes, log-record attributes and
+metric attributes. The log **body** is not an attribute and is never limited.
+
+`MakeTracerProvider`, `MakeMeterProvider`, `MakeLoggerProvider` and
+`RegisterGlobally` take the options as an optional last argument. The default,
+4096, is the SDK's default. **If you call `SdkBuilder::WithSpanLimits` with a
+different `attribute_value_length_limit`, pass the same value here:**
+
+```cpp
+microtel::adapters::otelcpp::RegisterGlobally(
+    provider, {.attribute_value_length_limit = limits.attribute_value_length_limit});
+```
+
+`std::nullopt` switches the shim limit off (the behaviour before ICP 0033).
+`0` is a real limit: every non-empty byte span is omitted, just as the SDK
+truncates every string to empty at 0.
+
+**When the two limits differ.** Call the shim limit S and the SDK limit L. S
+governs only the hex rendering of byte spans; ordinary strings pass through
+and the SDK truncates them at L, at a UTF-8 boundary, as always.
+
+- No byte span is ever cut by the SDK if and only if 2·⌊S/2⌋ ≤ L. S ≤ L is
+  the practical rule.
+- If 2·⌊S/2⌋ > L, a byte span with L < 2n ≤ S reaches the SDK and is cut to L
+  characters. With L odd that is the #238 corruption; with L even it is a
+  whole-byte prefix that a reader cannot tell from a shorter span.
+- If S < L, byte spans with S < 2n ≤ L are omitted though the SDK would have
+  kept them. Data is lost, never corrupted, and every omission is counted.
+
+This drift rule matters for span, event and link attributes only. The SDK
+enforces no value length on log or metric attributes, so there S is the only
+cap.
+
+**Metrics: an omitted attribute moves the measurement to another series.** On
+a metric the attribute set is the time series' identity. The shim keeps the
+measurement and drops only the oversized attribute, so the measurement lands
+in the series without that key: it can split a series that should aggregate,
+or merge into a different entity's series that genuinely lacks the key. Which
+series it lands in depends on one attribute's byte length. This is preferred
+over dropping the whole measurement (ICP 0033 §5), and every omission is
+counted, but do not put byte spans in metric attributes if you rely on series
+identity.
+
+**Options are fixed per object.** Each provider shim copies its options at
+construction and hands them to every tracer, span, meter, instrument, logger
+and log record it creates; none of them change afterwards. So:
+
+- Several providers built with `Make*Provider` can coexist with different
+  options.
+- Calling `RegisterGlobally` again replaces otel-cpp's globals: the last call
+  wins for anything obtained through the globals after it. A tracer, meter or
+  logger obtained earlier, and everything created from it, keeps the options
+  it was created with. Instrumentation that caches a tracer at startup does
+  not see a later change.
 
 ## Adapter-local diagnostics (L3)
 
-Two metrics-shim events have no degraded form to fall back to, so they are
-counted instead ([ICP 0016](../../../docs/icps/0016-adapter-drop-accounting.md)):
+Events the shim cannot turn into a degraded value are counted instead
+([ICP 0016](../../../docs/icps/0016-adapter-drop-accounting.md),
+[ICP 0033](../../../docs/icps/0033-shim-attribute-value-length-limit.md)):
 
-| Event | Counter |
+| Event | Field |
 |---|---|
 | `uint64_t` measurement (Counter/Histogram) above `INT64_MAX`, omitted | `unrepresentable_measurements_omitted` |
 | An observable-metric callback threw, contained at the shim boundary | `observer_callback_failures` |
+| A byte-span attribute omitted for exceeding `ShimOptions::attribute_value_length_limit` | `oversized_byte_attributes_omitted` |
+| Largest such byte span, in bytes (not hex characters); only ever increases | `largest_omitted_byte_attribute` |
+
+The high-water mark says which fix applies: with shim limit S, a ratio
+2 × `largest_omitted_byte_attribute` / S near 1 means the limit is a little
+low; a ratio of 100 means blobs are being put in attributes.
+
+**The counters are process-wide.** They are function-local statics in a
+header-only library: one set per process, shared by every provider, every
+option set and every `RegisterGlobally` call, and never reset. Two option sets
+in one process add their omissions together, and the high-water mark is the
+largest across both. The counter and the high-water mark are updated
+independently, so a snapshot taken mid-omission can show one and not yet the
+other.
+
+Tests must therefore snapshot `GetShimDiagnostics()` before the action and
+compare after: assert on the difference for the counters, and on
+`after == max(before, n)` for `largest_omitted_byte_attribute`, since a maximum
+cannot be diffed. There is deliberately no reset function.
 
 These counters are local to the shim and read through `GetShimDiagnostics()`;
 they are not part of `microtel::Provider::GetExporterHealth()`. ICP 0016
@@ -140,7 +224,9 @@ target does not exist.
   fails if the target stops exposing `src/` publicly.
 - [`tests/unit/adapters/otelcpp_attribute_conversion_test.cpp`](../../../tests/unit/adapters/otelcpp_attribute_conversion_test.cpp):
   every variant alternative, including the exact rendered strings for the
-  three degraded cases (L2).
+  three degraded cases (L2), and the byte-span limit: exactly at the limit,
+  one byte over, odd limits, `std::nullopt`, 0, and `ConvertKeyValues`
+  leaving omitted values out (ICP 0033).
 - [`tests/unit/adapters/otelcpp_context_conversion_test.cpp`](../../../tests/unit/adapters/otelcpp_context_conversion_test.cpp):
   TraceId / SpanId / SpanContext bridging round-trips (L2).
 - [`tests/unit/adapters/otelcpp_span_shim_test.cpp`](../../../tests/unit/adapters/otelcpp_span_shim_test.cpp):
@@ -163,7 +249,8 @@ target does not exist.
   registration (L4).
 - [`tests/unit/adapters/otelcpp_global_registration_test.cpp`](../../../tests/unit/adapters/otelcpp_global_registration_test.cpp):
   `RegisterGlobally` wires all three signals from one call;
-  `UnregisterGlobally` restores the noop defaults (L5).
+  `UnregisterGlobally` restores the noop defaults (L5); a second
+  `RegisterGlobally` governs only objects obtained after it (ICP 0033 §6).
 - [`tests/integration/otelcpp_shim/wire_conformance_test.cpp`](../../../tests/integration/otelcpp_shim/wire_conformance_test.cpp):
   a real `SdkBuilder`-built `Provider`, real encoder and real HTTP/2 transport
   against an in-process capturing server. It drives traces, metrics and logs

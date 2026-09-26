@@ -18,8 +18,10 @@ Design: [`docs/leaf-concentrator-design.md`](../docs/leaf-concentrator-design.md
 | `src/backend_upb.c` | the upb backend — the only leaf file that includes upb headers |
 | `.clang-tidy` | the C static-analysis profile (§7.8) |
 
-The nanopb backend (`src/backend_nanopb.c`) is not written yet;
-`MICROTEL_LEAF_ENCODER=nanopb` fails at configure time until it is.
+The nanopb backend (`src/backend_nanopb.c`) is not written yet. Until it is,
+`MICROTEL_LEAF_ENCODER=nanopb` (the default) is a configure error in the
+standalone build; in the main project it builds the vendored nanopb archives
+but not `microtel_leaf`, with a configure warning. It never falls back to upb.
 
 ## Building
 

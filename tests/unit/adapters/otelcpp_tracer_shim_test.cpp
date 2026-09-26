@@ -7,6 +7,8 @@
 // provider scope pass-through, current-span inheritance through
 // trace::Scope, and global registration via trace::Provider.
 
+#include "adapters/otelcpp/shim_diagnostics.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "adapters/otelcpp/tracer_shim.hpp"
 #include "fakes/fake_provider.hpp"
 
@@ -37,6 +39,8 @@
 namespace
 {
 
+using microtel::adapters::otelcpp::GetShimDiagnostics;
+using microtel::adapters::otelcpp::ShimOptions;
 using microtel::adapters::otelcpp::TracerProviderShim;
 using microtel::adapters::otelcpp::TracerShim;
 namespace otel_trace = opentelemetry::trace;
@@ -339,6 +343,87 @@ TEST(OtelCppTracerProviderShim, GetTracerReturnsWorkingShim)
     auto span = tracer->StartSpan("s");
 
     EXPECT_EQ(provider->tracer->starts.size(), 1U);
+}
+
+// ── ICP 0033: byte-span attribute value length limit ─────────────────────────
+
+/// 4 hex characters: a 2-byte span fits, a 3-byte span does not.
+constexpr ShimOptions kFourCharLimit{.attribute_value_length_limit = std::uint32_t{4}};
+constexpr std::uint8_t kThreeBytes[] = {0x01, 0x02, 0x03};
+
+[[nodiscard]] opentelemetry::common::AttributeValue ThreeByteSpan()
+{
+    return opentelemetry::nostd::span<const std::uint8_t>{kThreeBytes, 3};
+}
+
+TEST(OtelCppTracerShim, StartSpanLeavesAnOverLimitInitialByteAttributeOut)
+{
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+    TracerShim shim{provider->tracer, provider, kFourCharLimit};
+    const auto before = GetShimDiagnostics();
+
+    auto span = shim.StartSpan("s", {{"code", std::int64_t{7}}, {"blob", ThreeByteSpan()}});
+
+    ASSERT_EQ(provider->tracer->starts.size(), 1U);
+    const auto& attributes = provider->tracer->starts[0].attributes;
+    ASSERT_EQ(attributes.size(), 1U);
+    EXPECT_EQ(attributes[0].key, "code");
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 1U);
+}
+
+TEST(OtelCppTracerShim, LinkKeepsItsContextButLosesAnOverLimitByteAttribute)
+{
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+    TracerShim shim{provider->tracer, provider, kFourCharLimit};
+    const auto before = GetShimDiagnostics();
+
+    const auto linked = MakeOtelContext(0x50);
+    auto span = shim.StartSpan("s",
+                               {},
+                               {{linked, {{"link.kind", "follows"}, {"blob", ThreeByteSpan()}}}},
+                               otel_trace::StartSpanOptions{});
+
+    ASSERT_EQ(provider->tracer->spans.size(), 1U);
+    const auto& fake_span = *provider->tracer->spans[0];
+    ASSERT_EQ(fake_span.links.size(), 1U);
+    EXPECT_EQ(fake_span.links[0].context.trace_id.AsBytes().at(0), 0x50);
+    ASSERT_EQ(fake_span.links[0].attributes.size(), 1U);
+    EXPECT_EQ(fake_span.links[0].attributes[0].key, "link.kind");
+    EXPECT_EQ(GetShimDiagnostics().oversized_byte_attributes_omitted,
+              before.oversized_byte_attributes_omitted + 1U);
+}
+
+TEST(OtelCppTracerShim, ReturnedSpanInheritsTheTracerOptions)
+{
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+    TracerShim shim{provider->tracer, provider, kFourCharLimit};
+
+    auto span = shim.StartSpan("s");
+    span->SetAttribute("blob", ThreeByteSpan());
+
+    ASSERT_EQ(provider->tracer->spans.size(), 1U);
+    EXPECT_TRUE(provider->tracer->spans[0]->attributes.empty());
+}
+
+TEST(OtelCppTracerProviderShim, TwoProvidersWithDifferentOptionsCoexist)
+{
+    // Options are per object (ICP 0033 §6): two provider shims over the same
+    // microtel provider each apply their own limit.
+    auto provider = std::make_shared<microtel::testing::FakeProvider>();
+    TracerProviderShim strict{provider, kFourCharLimit};
+    TracerProviderShim unlimited{provider,
+                                 ShimOptions{.attribute_value_length_limit = std::nullopt}};
+
+    auto strict_span = strict.GetTracer("strict")->StartSpan("s");
+    strict_span->SetAttribute("blob", ThreeByteSpan());
+    auto unlimited_span = unlimited.GetTracer("unlimited")->StartSpan("s");
+    unlimited_span->SetAttribute("blob", ThreeByteSpan());
+
+    ASSERT_EQ(provider->tracer->spans.size(), 2U);
+    EXPECT_TRUE(provider->tracer->spans[0]->attributes.empty());
+    ASSERT_EQ(provider->tracer->spans[1]->attributes.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(provider->tracer->spans[1]->attributes[0].value), "010203");
 }
 
 // ── Global registration ───────────────────────────────────────────────────────

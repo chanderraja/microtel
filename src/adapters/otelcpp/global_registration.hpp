@@ -7,6 +7,7 @@
 
 #include "adapters/otelcpp/logger_shim.hpp"
 #include "adapters/otelcpp/meter_shim.hpp"
+#include "adapters/otelcpp/shim_options.hpp"
 #include "adapters/otelcpp/tracer_shim.hpp"
 
 #include <memory>
@@ -66,12 +67,22 @@ namespace microtel::adapters::otelcpp
 ///       otel-cpp's globals at the same time. See
 ///       [ICP 0027](../../../docs/icps/0027-multi-profile-threading.md) §6.3.
 ///
+/// @note **Calling it again.** Each call builds three new provider shims with
+///       their own copy of @p options and replaces otel-cpp's globals, so the
+///       last call wins for every tracer, meter and logger obtained through
+///       the globals after it. Objects already handed out keep the options
+///       they were created with, for their lifetime (ICP 0033 §6).
+///
 /// @param provider the microtel provider to register. Must be non-null.
-inline void RegisterGlobally(std::shared_ptr<microtel::Provider> provider)
+/// @param options  passed to all three providers (ICP 0033). If you set a
+///                 non-default `SpanLimitOptions::attribute_value_length_limit`,
+///                 pass the same value here.
+inline void RegisterGlobally(std::shared_ptr<microtel::Provider> provider, ShimOptions options = {})
 {
-    opentelemetry::trace::Provider::SetTracerProvider(MakeTracerProvider(provider));
-    opentelemetry::metrics::Provider::SetMeterProvider(MakeMeterProvider(provider));
-    opentelemetry::logs::Provider::SetLoggerProvider(MakeLoggerProvider(std::move(provider)));
+    opentelemetry::trace::Provider::SetTracerProvider(MakeTracerProvider(provider, options));
+    opentelemetry::metrics::Provider::SetMeterProvider(MakeMeterProvider(provider, options));
+    opentelemetry::logs::Provider::SetLoggerProvider(
+        MakeLoggerProvider(std::move(provider), options));
 }
 
 /// @brief Restore otel-cpp's noop providers for all three signals.

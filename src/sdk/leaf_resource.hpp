@@ -44,6 +44,9 @@ struct LeafWireInfo
     std::optional<std::int64_t> dropped_items;
     /// A reserved key this concentrator knows carried a non-integer value.
     bool wrong_type = false;
+    /// Any `microtel.leaf.*` key was present, known or not. A ResourceSpans
+    /// with none is undeclared: a full node's (ICP 0036).
+    bool declared = false;
 };
 
 /// @brief Read the reserved attributes out of a declared Resource.
@@ -52,13 +55,20 @@ struct LeafWireInfo
 /// @brief The time mode a payload declares, if its reserved attributes pass
 ///        §3.4: a supported `microtel.leaf.proto`, a `time_mode` in range, and
 ///        the attributes §5 requires for that mode.
+///
+/// A ResourceSpans with no reserved key at all is admitted provisionally as
+/// `LeafTimeMode::Unix`, which `TimeModeAllowed` then accepts only from a
+/// sender configured `Unix` (ICP 0036, §5.6). `Unix` is never read from the
+/// wire: a declared `time_mode` of 3 is malformed.
 /// @return nullopt when the payload is malformed.
 [[nodiscard]] std::optional<LeafTimeMode> CheckWireInfo(const LeafWireInfo& info) noexcept;
 
 /// @brief Whether a leaf whose config says @p configured may send a payload in
-///        @p declared mode (§5.1). Unset is `auto`: every mode is allowed. A
-///        set mode allows itself and `ConcentratorStamped`, which every mode
-///        degrades to.
+///        @p declared mode (§5.1). Unset is `auto`: every declared mode is
+///        allowed. A set mode allows itself and `ConcentratorStamped`, which
+///        every mode degrades to. An undeclared payload (@p declared `Unix`)
+///        is allowed only when @p configured is `Unix`, never under `auto`
+///        (ICP 0036).
 [[nodiscard]] bool TimeModeAllowed(LeafTimeMode declared,
                                    std::optional<LeafTimeMode> configured) noexcept;
 
@@ -85,7 +95,8 @@ struct LeafResourceLayers
     /// 4. `leaf_id_attribute`; empty to write no id.
     std::string_view id_key;
     std::string_view leaf_id;
-    /// `max_leaf_resource_bytes`.
+    /// `max_leaf_resource_bytes`, or `max_node_resource_bytes` for an entry
+    /// whose effective time mode is `Unix` (ICP 0036).
     std::size_t budget = 0;
 };
 

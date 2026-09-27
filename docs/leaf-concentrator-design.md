@@ -1060,21 +1060,34 @@ leaf.
 **Validation.** After decode, before anything enters the pipeline, the whole
 payload is checked. **Any failure rejects the whole payload** as `Malformed`:
 
-- `microtel.leaf.proto` present and a version this concentrator supports (1).
+- `microtel.leaf.proto` present and a version this concentrator supports (1),
+  or, from a sender configured `unix`, no `microtel.leaf.*` key at all (§5.6).
+  A ResourceSpans with some reserved keys but no `microtel.leaf.proto` is
+  malformed whatever the config.
 - Every span: 16-byte non-zero `trace_id`; 8-byte non-zero `span_id`;
   `parent_span_id` empty or 8 bytes; `kind` in range; `status.code` in range;
   `end_time >= start_time` in the leaf's own clock.
 - The time-mode attributes that §5 requires for the declared mode are present.
 - The payload's time mode is allowed by the leaf's config (§5.1).
+- At least one span in the payload or, from a leaf, a positive
+  `microtel.leaf.dropped_spans` or `dropped_items` ([ICP 0036](icps/0036-custom-export-transport.md)
+  Decision 3). A header-only leaf payload with nothing to report is a sender
+  bug, and so is an empty trace request from a full node. The rule is also
+  what catches most metrics or logs requests handed to `Ingest` by mistake:
+  they share field numbers with a trace request and would otherwise decode to
+  `ResourceSpans` with no spans.
 
 All-or-nothing is simpler to reason about and to fuzz than per-span rejection,
 and a leaf that emits one invalid span has a bug that a partial accept would
 hide. After validation, per-span drops can only come from the pipeline (limits,
 queue), and those are reported per span in `IngestResult`.
 
-A payload without `microtel.leaf.proto` is rejected, so the receiver cannot be
-used as a general OTLP intake. That is outside ICP 0031's scope, and accepting
-it would need a decision on what timestamps mean when no mode is declared.
+A payload without `microtel.leaf.proto` is rejected unless its sender is
+configured `unix`, so the receiver is not a general OTLP intake by default.
+[ICP 0036](icps/0036-custom-export-transport.md) decided what timestamps mean
+when no mode is declared: Unix time, trusted only from a sender the operator
+names as a full node (§5.6). Under `auto` and every other mode an undeclared
+payload is still `Malformed`.
 
 ### 3.5 Threading, copying and backpressure
 
@@ -1353,10 +1366,11 @@ max_payload_bytes     = "64KiB"
 max_spans_per_payload = 512
 max_leaves            = 1024                   # §4.5
 max_leaf_resource_bytes = "2KiB"               # §4.5
+max_node_resource_bytes = "16KiB"              # §4.5, entries whose mode is unix
 leaf_idle_timeout     = "1h"                   # §4.5
 unknown_leaf          = "accept"               # accept | reject   (§4.4)
 leaf_id_attribute     = "device.id"            # "" disables export and fallback (§4.1)
-default_time_mode     = "auto"                 # auto | concentrator_stamped | sync_relative | boot_relative
+default_time_mode     = "auto"                 # auto | concentrator_stamped | sync_relative | boot_relative | unix
 max_sync_age          = "1h"                   # §5.3
 max_clock_skew        = "5m"                   # §5.3
 boot_anchor_window    = "10m"                  # §5.4
@@ -1370,6 +1384,9 @@ time_mode = "boot_relative"
 [concentrator.leaves."can0:0x1a4".resource]
 "service.name" = "burner-controller"
 "host.name"    = "boiler-7"
+
+[concentrator.leaves."192.168.7.20:40001"]     # a full C++ node (§5.6)
+time_mode = "unix"
 ```
 
 The strict unknown-key rule applies to the whole table. Configuring a
@@ -1386,7 +1403,7 @@ because those keys are reserved for the wire contract (§3.8).
 | `MICROTEL_CONCENTRATOR_MAX_PAYLOAD_BYTES` | `max_payload_bytes` |
 | `MICROTEL_CONCENTRATOR_MAX_LEAVES` | `max_leaves` |
 | `MICROTEL_CONCENTRATOR_UNKNOWN_LEAF` | `unknown_leaf` |
-| `MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE` | `default_time_mode` |
+| `MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE` | `default_time_mode` (`unix` included) |
 | `MICROTEL_CONCENTRATOR_RESOURCE_ATTRIBUTES` | `leaf_defaults.resource`, in `OTEL_RESOURCE_ATTRIBUTES` syntax |
 
 Per-leaf settings have no environment form. Leaf ids contain characters that
@@ -1424,6 +1441,7 @@ struct LeafReceiverOptions
     std::vector<KeyValue> leaf_defaults_resource;
     std::vector<std::pair<std::string, LeafConfig>> leaves;
     LeafConfigResolver resolver;
+    std::uint32_t max_node_resource_bytes = 16U * 1024U;  ///< ICP 0036
 };
 
 enum class UnknownLeafPolicy : std::uint8_t
@@ -1441,9 +1459,10 @@ table entry, so the resolver runs once per entry, except that a negative answer
 under `unknown_leaf = reject` is cached apart, for a bounded time (§4.5); one
 that throws a `std::exception` (other than `std::bad_alloc`, which is
 `OutOfMemory`) counts as `std::nullopt`; reserved and `leaf_id_attribute` keys
-in its Resource are ignored, and keys over `max_leaf_resource_bytes` are
-dropped into `resource_attributes_dropped`, since an answer cannot be refused
-at `Build()`.
+in its Resource are ignored, and keys over the entry's budget
+(`max_leaf_resource_bytes`, or `max_node_resource_bytes` when the answer or
+the default makes the leaf `unix`, §4.5) are dropped into
+`resource_attributes_dropped`, since an answer cannot be refused at `Build()`.
 
 **Precedence** is spec §12.1, per setting, and per key within every table
 (#257, `docs/configuration.md` §1):
@@ -1546,10 +1565,27 @@ when it changes), the boot-relative anchor (§5.4), and a last-seen time.
   are not span attributes, and the span itself is kept. An
   over-budget *configured* Resource is a `ConfigError::Kind::InvalidValue` at
   `Build()` time instead, because it is the operator's own setting.
+- `max_node_resource_bytes` (default **16 KiB**,
+  [ICP 0036](icps/0036-custom-export-transport.md)) replaces
+  `max_leaf_resource_bytes` for every entry whose effective time mode (its own
+  `time_mode`, else `default_time_mode`) is `unix`: a full C++ node (§5.6),
+  whose default process and host detectors easily pass 2 KiB. It is a separate
+  setting so that the 2 KiB bound that sizes a large MCU fleet is not raised
+  for everyone. The entry's budget also bounds a resolver's answer for it, and
+  a `unix` leaf's configured Resource is checked against it at `Build()`, as
+  are `leaf_defaults.resource` when `default_time_mode = "unix"`.
+- When resolving an entry's Resource drops attributes for its budget, one
+  `Warn` goes to the `LogSink` naming the leaf id, the number dropped and the
+  setting to raise. That is once per table entry: it recurs only after an
+  eviction or a change in the declared Resource. The counter alone is an
+  aggregate that nobody reads until attributes are already missing.
 - The worst-case table size is about `max_leaves × (max_leaf_resource_bytes +
   boot-anchor samples (256 B, §5.4) + per-entry overhead)`, about 2.8 MiB at
   the defaults. Operators with larger
-  fleets per concentrator raise `max_leaves` knowing the cost.
+  fleets per concentrator raise `max_leaves` knowing the cost. Every `unix`
+  entry costs up to `max_node_resource_bytes` instead; with
+  `default_time_mode = "unix"` the worst case becomes `max_leaves` × 16 KiB,
+  about 16 MiB at the defaults.
 - If the leaf-declared Resource changes between payloads (a firmware update),
   the entry is re-resolved and replaced. Spans already queued keep the old
   Resource pointer, which is correct for them.
@@ -1568,9 +1604,13 @@ numbers are in (`microtel.leaf.time_mode`), because only the leaf knows how it
 encoded them. The leaf's config `time_mode` (or `default_time_mode`) says
 which modes the concentrator accepts from that leaf:
 
-- `auto` (default): accept whatever the payload declares.
+- `auto` (default): accept whatever the payload declares. A payload that
+  declares nothing is `Malformed`.
 - a specific mode: accept that mode, and also `concentrator_stamped`, which is
   the fallback every mode degrades to (§5.3). Anything else is `Malformed`.
+- `unix`, a configuration value only (§5.6): accept a payload that declares no
+  mode at all, and a declared `concentrator_stamped` one. It is the only
+  setting under which an undeclared payload is accepted.
 
 **Timestamp fields.** In concentrator-stamped and boot-relative modes, the
 leaf writes values from its own clock into the OTLP `*_time_unix_nano` fields.
@@ -1694,6 +1734,36 @@ a consistent timeline across many payloads.
 | concentrator-stamped | optional monotonic clock | leaf-clock times, `E` (or neither) | none | send + link latency, per payload |
 | sync-relative | monotonic clock, a wall-time source, `clock_sync` calls | Unix times, `E`, `sync_age` | none | drift since sync |
 | boot-relative | monotonic clock from boot, a per-boot id | since-boot times, `E`, `boot_id` | per-leaf ring of 16 samples | second-best latency in window, drift within window |
+| unix (config only, §5.6) | a clock that holds Unix time (a full C++ node) | Unix times and no `microtel.leaf.*` key | none | the node's own clock error |
+
+### 5.6 Unix: full nodes
+
+[ICP 0036](icps/0036-custom-export-transport.md) lets a full C++ microtel
+`Provider` send its OTLP requests over the application's own link through an
+`ExportTransport`. What arrives is an ordinary `ExportTraceServiceRequest` with
+the node's own Resource and no `microtel.leaf.*` key: the SDK stamps nothing
+leaf-specific, because a custom transport may lead anywhere.
+
+- **Config:** `time_mode = "unix"` for the node's entry, from a resolver, or
+  `default_time_mode = "unix"` for the whole fleet
+  (`LeafTimeMode::Unix = 3`). It never appears on the wire:
+  `microtel.leaf.time_mode` stays 0 to 2, the wire version stays 1, and a
+  declared 3 is `Malformed`.
+- **Accepted:** a payload with no `microtel.leaf.*` key at all, only from a
+  sender whose effective mode is `unix`. Under `auto` or any other mode it is
+  `Malformed`, so the receiver does not become a general OTLP intake by
+  default. A payload that declares a mode is checked as in §5.1: a `unix`
+  sender may still send `concentrator_stamped`, and nothing else. One that
+  carries some reserved keys but not `microtel.leaf.proto` is `Malformed`.
+- **Concentrator computes:** `t' = t`, clamped as in §5.1. Every other check
+  of §3.4 and every limit of §3.7 still applies, and the payload must carry at
+  least one span.
+- **Identity and Resource:** §4.1 and §4.4 unchanged. The transport id wins
+  and is written as `leaf_id_attribute`; with none, the node's own
+  `device.id` is the fallback. The node's Resource is layer 2. Its entry gets
+  `max_node_resource_bytes` as its budget (§4.5).
+- **State:** none. **Error:** the node's own clock; it is trusted because the
+  operator named it.
 
 ---
 
@@ -1836,7 +1906,10 @@ source. Coverage:
 `tests/fuzz/leaf_ingest_fuzz.cpp` drives `LeafReceiver::Ingest` on a Provider
 built with a fake exporter. The first input byte selects the leaf id and the
 configured time mode, and the rest is the payload. Seeds: every golden vector,
-plus truncations and single-byte corruptions of each. It asserts, in addition
+plus truncations and single-byte corruptions of each. ICP 0036 adds a selector
+bit for `default_time_mode = "unix"` and seeds with no leaf header (full-node
+payloads) and header-only leaf payloads, with the invariant that an accepted
+payload carried a span or a leaf drop report. It asserts, in addition
 to the standing invariants in `tests/fuzz/README.md`:
 
 - `spans_accepted + spans_sampled_out + spans_dropped` equals the decoded span

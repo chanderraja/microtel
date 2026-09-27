@@ -331,6 +331,92 @@ TEST(LeafReceiverBuilderTest, AnInvalidTomlValueFailsTheBuild)
     EXPECT_EQ(r.error().kind, mt::ConfigError::Kind::InvalidValue);
     EXPECT_EQ(r.error().field, "concentrator.max_payload_bytes");
 }
+
+namespace
+{
+
+/// A configured Resource of one attribute costing 1 + @p value_bytes.
+std::vector<mt::KeyValue> ResourceOfBytes(std::size_t value_bytes)
+{
+    return {{.key = "k", .value = std::string(value_bytes, 'v')}};
+}
+
+}  // namespace
+
+TEST(LeafReceiverBuilderTest, AUnixLeafsConfiguredResourceIsCheckedAgainstTheNodeBudget)
+{
+    // Built and destroyed in one expression: a live provider keeps its
+    // profile name, and the next Build() would be refused for it.
+    EXPECT_TRUE(BuildWith(mt::LeafReceiverOptions{
+                              .max_leaf_resource_bytes = 64,
+                              .leaves = {{"node",
+                                          mt::LeafConfig{.time_mode = mt::LeafTimeMode::Unix,
+                                                         .resource = ResourceOfBytes(99)}}},
+                              .max_node_resource_bytes = 100})
+                    .has_value())
+        << "over the leaf budget, within the node budget";
+
+    const auto over = BuildWith(
+        mt::LeafReceiverOptions{.max_leaf_resource_bytes = 64,
+                                .leaves = {{"node",
+                                            mt::LeafConfig{.time_mode = mt::LeafTimeMode::Unix,
+                                                           .resource = ResourceOfBytes(100)}}},
+                                .max_node_resource_bytes = 100});
+    ASSERT_FALSE(over.has_value());
+    EXPECT_EQ(over.error().kind, mt::ConfigError::Kind::InvalidValue);
+    EXPECT_EQ(over.error().field, "concentrator.leaves.node.resource");
+    EXPECT_NE(over.error().message.find("max_node_resource_bytes"), std::string::npos)
+        << over.error().message;
+}
+
+TEST(LeafReceiverBuilderTest, AUnixDefaultChecksLeavesWithoutTheirOwnModeAgainstTheNodeBudget)
+{
+    EXPECT_TRUE(BuildWith(mt::LeafReceiverOptions{.max_leaf_resource_bytes = 64,
+                                                  .default_time_mode = mt::LeafTimeMode::Unix,
+                                                  .leaf_defaults_resource = ResourceOfBytes(80),
+                                                  .leaves = {{"node", mt::LeafConfig{}}},
+                                                  .max_node_resource_bytes = 100})
+                    .has_value());
+
+    const auto leaf_override = BuildWith(mt::LeafReceiverOptions{
+        .max_leaf_resource_bytes = 64,
+        .default_time_mode = mt::LeafTimeMode::Unix,
+        .leaves = {{"mcu",
+                    mt::LeafConfig{.time_mode = mt::LeafTimeMode::BootRelative,
+                                   .resource = ResourceOfBytes(80)}}},
+        .max_node_resource_bytes = 100});
+    ASSERT_FALSE(leaf_override.has_value()) << "a leaf's own mode picks its budget";
+    EXPECT_EQ(leaf_override.error().field, "concentrator.leaves.mcu.resource");
+    EXPECT_NE(leaf_override.error().message.find("max_leaf_resource_bytes"), std::string::npos);
+}
+
+TEST(LeafReceiverBuilderTest, TheDefaultsAreCheckedAgainstTheBudgetOfTheDefaultMode)
+{
+    const auto over_leaf = BuildWith(mt::LeafReceiverOptions{
+        .max_leaf_resource_bytes = 64, .leaf_defaults_resource = ResourceOfBytes(80)});
+    ASSERT_FALSE(over_leaf.has_value());
+    EXPECT_EQ(over_leaf.error().field, "concentrator.leaf_defaults.resource");
+
+    const auto over_node =
+        BuildWith(mt::LeafReceiverOptions{.default_time_mode = mt::LeafTimeMode::Unix,
+                                          .leaf_defaults_resource = ResourceOfBytes(120),
+                                          .max_node_resource_bytes = 100});
+    ASSERT_FALSE(over_node.has_value());
+    EXPECT_EQ(over_node.error().field, "concentrator.leaf_defaults.resource");
+    EXPECT_NE(over_node.error().message.find("max_node_resource_bytes"), std::string::npos);
+}
+
+TEST(LeafReceiverBuilderTest, TheFilesUnixLeafAndNodeBudgetReachTheBuild)
+{
+    const TomlFile file{"[concentrator]\nenabled = true\nmax_leaf_resource_bytes = 64\n"
+                        "max_node_resource_bytes = 100\n"
+                        "[concentrator.leaves.\"node\"]\ntime_mode = \"unix\"\n"
+                        "[concentrator.leaves.\"node\".resource]\n\"k\" = \"" +
+                        std::string(120, 'v') + "\"\n"};
+    const auto r = BuildFromFile(file);
+    ASSERT_FALSE(r.has_value());
+    EXPECT_EQ(r.error().field, "concentrator.leaves.node.resource");
+}
 #else
 
 TEST(LeafReceiverBuilderTest, EnablingTheConcentratorFromTheFileFailsTheBuildWhenNotCompiledIn)

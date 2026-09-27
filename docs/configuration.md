@@ -482,6 +482,7 @@ turns it on. In a build without the option, a source that enables it fails
 | `max_spans_per_payload` | `.max_spans_per_payload` | — | 512 |
 | `max_leaves` | `.max_leaves` | `MICROTEL_CONCENTRATOR_MAX_LEAVES` | 1024 |
 | `max_leaf_resource_bytes` | `.max_leaf_resource_bytes` | — | 2 KiB |
+| `max_node_resource_bytes` | `.max_node_resource_bytes` | — | 16 KiB |
 | `leaf_idle_timeout` | `.leaf_idle_timeout` | — | `"1h"` |
 | `unknown_leaf` | `.unknown_leaf` | `MICROTEL_CONCENTRATOR_UNKNOWN_LEAF` | `"accept"` |
 | `leaf_id_attribute` | `.leaf_id_attribute` | — | `"device.id"` |
@@ -499,7 +500,7 @@ enabled           = true
 max_payload_bytes = "64KiB"
 leaf_idle_timeout = "1h"
 unknown_leaf      = "accept"                   # accept | reject
-default_time_mode = "auto"                     # auto | concentrator_stamped | sync_relative | boot_relative
+default_time_mode = "auto"                     # auto | concentrator_stamped | sync_relative | boot_relative | unix
 
 [concentrator.leaf_defaults.resource]
 "deployment.environment" = "prod"
@@ -508,13 +509,16 @@ default_time_mode = "auto"                     # auto | concentrator_stamped | s
 time_mode = "boot_relative"
 [concentrator.leaves."can0:0x1a4".resource]
 "service.name" = "burner-controller"
+
+[concentrator.leaves."192.168.7.20:40001"]     # a full C++ node (ICP 0036)
+time_mode = "unix"
 ```
 
 **Values.** A byte size is an integer number of bytes or a string with a `B`,
 `KiB` or `MiB` suffix (`"64KiB"`); the environment takes the same strings. A
 duration is a string with an `s`, `m` or `h` suffix (`"30s"`, `"5m"`, `"1h"`);
 a bare number is refused, so it can never be read in the wrong unit. A leaf's
-`time_mode` is one of the three modes (not `auto`). Resource values are
+`time_mode` is one of the three wire modes or `unix` (not `auto`). Resource values are
 strings, integers, floats or booleans; quote dotted keys (`"service.name"`),
 since an unquoted one is a nested TOML table and is refused. Unlike the older
 tables, a key present with the wrong type is an error, not skipped.
@@ -535,6 +539,20 @@ tables, a key present with the wrong type is an error, not skipped.
 Per-leaf settings have no environment form: leaf ids hold characters that are
 not valid in variable names.
 
+**Full nodes: `unix` and `max_node_resource_bytes`**
+([ICP 0036](icps/0036-custom-export-transport.md), design §5.6). `unix` is a
+configuration value only, for a sender that is a full C++ microtel node
+exporting through an `ExportTransport`: its payloads carry no leaf header and
+its timestamps are already Unix time. A payload with no `microtel.leaf.*` key
+is accepted only from a sender whose effective mode (its own `time_mode`, else
+`default_time_mode`, including `MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE=unix`)
+is `unix`, and its timestamps are used unchanged; `auto` still refuses it.
+Every leaf-table entry whose effective mode is `unix` gets
+`max_node_resource_bytes` as its Resource budget in place of
+`max_leaf_resource_bytes`; it has no environment variable, like
+`max_leaf_resource_bytes`. When an entry's Resource loses attributes to its
+budget, one `Warn` names the leaf, the count and the setting to raise.
+
 **Validation.** Parse errors name the key: `ConfigError::Kind::InvalidValue`
 for a wrong type or value (field `concentrator.<key>`, or
 `concentrator.leaves.<id>.<key>`), `EnvParseFailure` for a variable (field =
@@ -548,7 +566,7 @@ the variable), and `UnknownKey` anywhere in the table under the default
 | `leaf_idle_timeout`, `max_sync_age`, `max_clock_skew` or `boot_anchor_window` ≤ 0 | `concentrator.<key>` |
 | a leaf id that is empty or over 128 bytes | `concentrator.leaves` |
 | a `microtel.leaf.*` key, or the `leaf_id_attribute` key, in a configured Resource | `concentrator.leaf_defaults.resource` or `concentrator.leaves.<id>.resource` |
-| a configured Resource over `max_leaf_resource_bytes` | the same |
+| a configured Resource over its budget: `max_node_resource_bytes` for a leaf whose effective time mode is `unix` (for `leaf_defaults.resource`, when `default_time_mode` is), else `max_leaf_resource_bytes` | the same |
 
 A resolver's answer cannot be refused at `Build()`: in it, reserved keys and
 the `leaf_id_attribute` key are ignored, and keys over the Resource budget are

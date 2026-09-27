@@ -14,6 +14,7 @@
 #include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/leaf_receiver.hpp"
+#include "microtel/log_sink.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/resource.hpp"
 #include "microtel/sampler.hpp"
@@ -40,6 +41,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <optional>
 #include <stdexcept>
@@ -2036,6 +2038,490 @@ TEST_F(LeafReceiverTest, ConcurrentIngestWithEvictionAnchorsAndTheResolver)
     EXPECT_LE(rx.Stats().leaves_tracked, 2U);
     EXPECT_GT(rx.Stats().leaves_evicted, 0U);
     EXPECT_GE(resolved.load(), 6) << "every leaf was resolved at least once";
+    (void)bsp.Shutdown(std::chrono::seconds(5));
+}
+
+
+// ---------------------------------------------------------------------------
+// Full nodes: undeclared payloads and the unix time mode (ICP 0036)
+// ---------------------------------------------------------------------------
+
+/// A full node's Resource: its own attributes and no `microtel.leaf.*` key.
+std::vector<mt::KeyValue> NodeResource()
+{
+    return {{.key = "service.name", .value = std::string{"node-svc"}},
+            {.key = "host.name", .value = std::string{"board-1"}}};
+}
+
+mt::LeafConfig UnixLeaf()
+{
+    return mt::LeafConfig{.time_mode = mt::LeafTimeMode::Unix, .resource = {}};
+}
+
+/// RAII capture of microtel's internal log lines; safe to call from several
+/// threads, as the receiver may log from any `Ingest` caller.
+class LogLines
+{
+public:
+    LogLines()
+    {
+        mt::SetLogSink(
+            [this](mt::LogLevel level, std::string_view message)
+            {
+                const std::scoped_lock lock{m_mu};
+                m_lines.emplace_back(level, std::string{message});
+            });
+    }
+
+    ~LogLines()
+    {
+        mt::ResetLogSink();
+    }
+
+    LogLines(const LogLines&) = delete;
+    LogLines& operator=(const LogLines&) = delete;
+    LogLines(LogLines&&) = delete;
+    LogLines& operator=(LogLines&&) = delete;
+
+    /// The Warn lines that mention @p needle.
+    [[nodiscard]] std::vector<std::string> Warnings(std::string_view needle) const
+    {
+        const std::scoped_lock lock{m_mu};
+        std::vector<std::string> out;
+        for (const auto& [level, line] : m_lines)
+        {
+            if (level == mt::LogLevel::Warn && line.find(needle) != std::string::npos)
+            {
+                out.push_back(line);
+            }
+        }
+        return out;
+    }
+
+private:
+    mutable std::mutex m_mu;
+    std::vector<std::pair<mt::LogLevel, std::string>> m_lines;
+};
+
+TEST_F(LeafTimeTest, AnUndeclaredPayloadFromAUnixLeafIsAcceptedWithItsTimestampsUnchanged)
+{
+    options.leaves = {{std::string{kLeaf}, UnixLeaf()}};
+    auto rx = Make();
+    Decodes(Payload(NodeResource(), {TimedSpan(kR + 100, kR + 200, kR + 150)}));
+
+    const auto r = rx->Ingest(RequestAt(kR + (5 * kSecond)));
+
+    ASSERT_EQ(r.status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(r.spans_accepted, 1U);
+    const auto& span = processor.received_spans.at(0);
+    EXPECT_EQ(NsOf(span.start_time), kR + 100) << "t' = t: the node's clock is trusted";
+    EXPECT_EQ(NsOf(span.end_time), kR + 200);
+    EXPECT_EQ(NsOf(span.events.at(0).timestamp), kR + 150);
+    EXPECT_EQ(StringAt(*span.resource, "service.name"), "node-svc");
+    EXPECT_EQ(StringAt(*span.resource, "host.name"), "board-1");
+    EXPECT_EQ(StringAt(*span.resource, "device.id"), kLeaf);
+    EXPECT_EQ(rx->Stats().time_fallbacks, 0U);
+    EXPECT_EQ(TotalDrops(sink), 0U);
+}
+
+TEST_F(LeafTimeTest, DefaultTimeModeUnixAcceptsAnUndeclaredPayloadFromAnyLeaf)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    Decodes(Payload(NodeResource(), {TimedSpan(kR, kR + 1, kR)}));
+
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR);
+}
+
+TEST_F(LeafReceiverTest, AnUndeclaredPayloadIsMalformedUnderAutoAndEveryOtherMode)
+{
+    for (const auto mode : {std::optional<mt::LeafTimeMode>{},
+                            std::optional{mt::LeafTimeMode::ConcentratorStamped},
+                            std::optional{mt::LeafTimeMode::SyncRelative},
+                            std::optional{mt::LeafTimeMode::BootRelative}})
+    {
+        sink.drop_counters.fill(0);
+        options.default_time_mode = mode;
+        auto rx = Make();
+        Decodes(Payload(NodeResource(), {LeafSpan(1, 1)}));
+
+        ExpectRejected(rx->Ingest(Request()),
+                       mt::IngestStatus::Malformed,
+                       mt::DropReason::LeafPayloadMalformed);
+    }
+}
+
+TEST_F(LeafReceiverTest, AnUndeclaredPayloadIsMalformedWhenTheLeafOverridesAUnixDefault)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    options.leaves = {
+        {std::string{kLeaf}, mt::LeafConfig{.time_mode = mt::LeafTimeMode::SyncRelative}}};
+    auto rx = Make();
+    Decodes(Payload(NodeResource(), {LeafSpan(1, 1)}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, AResolversUnixModeAdmitsAnUndeclaredPayload)
+{
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig> { return UnixLeaf(); };
+    auto rx = Make();
+    Decodes(Payload(NodeResource(), {LeafSpan(1, 1)}));
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+}
+
+TEST_F(LeafReceiverTest, AFullNodesTransportIdWinsOverItsOwnDeviceId)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    Decodes(Payload(With(NodeResource(), {{.key = "device.id", .value = std::string{"self"}}}),
+                    {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(StringAt(*processor.received_spans.at(0).resource, "device.id"), kLeaf);
+    EXPECT_EQ(rx->Stats().leaf_id_conflicts, 1U);
+
+    ASSERT_EQ(rx->Ingest(Request("")).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(StringAt(*processor.received_spans.at(1).resource, "device.id"), "self")
+        << "with no transport id the node's own device.id is the fallback (§4.1)";
+}
+
+TEST_F(LeafTimeTest, AUnixLeafMayStillSendConcentratorStampedAndNothingElse)
+{
+    options.leaves = {{std::string{kLeaf}, UnixLeaf()}};
+    auto rx = Make();
+
+    Decodes(Payload(TimeReserved(mt::LeafTimeMode::ConcentratorStamped, 1000),
+                    {TimedSpan(100, 200, 150)}));
+    ASSERT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(NsOf(processor.received_spans.at(0).start_time), kR - 900)
+        << "a declared payload is corrected by the mode it declares";
+
+    for (const auto mode : {mt::LeafTimeMode::SyncRelative, mt::LeafTimeMode::BootRelative})
+    {
+        Decodes(Payload(TimeReserved(mode, 1000, 5), {TimedSpan(100, 200, 150)}));
+        EXPECT_EQ(rx->Ingest(RequestAt(kR)).status, mt::IngestStatus::Malformed);
+    }
+}
+
+TEST_F(LeafReceiverTest, TheWireTimeModeThreeIsMalformedEvenUnderUnix)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    auto attrs = Reserved();
+    attrs[1].value = static_cast<std::int64_t>(mt::LeafTimeMode::Unix);
+    Decodes(Payload(attrs, {LeafSpan(1, 1)}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, SomeReservedKeysWithoutTheProtoVersionAreMalformedUnderUnix)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    for (const std::string key : {"microtel.leaf.encode_time", "microtel.leaf.future"})
+    {
+        sink.drop_counters.fill(0);
+        auto rx = Make();
+        Decodes(Payload(With(NodeResource(), {{.key = key, .value = std::int64_t{1}}}),
+                        {LeafSpan(1, 1)}));
+
+        ExpectRejected(rx->Ingest(Request()),
+                       mt::IngestStatus::Malformed,
+                       mt::DropReason::LeafPayloadMalformed);
+    }
+}
+
+TEST_F(LeafReceiverTest, AnUndeclaredPayloadStillPassesEverySpanCheck)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto backwards = LeafSpan(1, 1);
+    backwards.end_time = Ns(50);
+    for (const auto& bad : {LeafSpan(0, 1), LeafSpan(1, 0), backwards})
+    {
+        sink.drop_counters.fill(0);
+        auto rx = Make();
+        Decodes(Payload(NodeResource(), {bad}));
+
+        ExpectRejected(rx->Ingest(Request()),
+                       mt::IngestStatus::Malformed,
+                       mt::DropReason::LeafPayloadMalformed);
+    }
+}
+
+TEST_F(LeafReceiverTest, AnUndeclaredPayloadStillMeetsTheSpanCountLimit)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    options.max_spans_per_payload = 1;
+    auto fake = std::make_unique<mtm::FakeOtlpTraceDecoder>();
+    fake->canned.push_back(Payload(NodeResource(), {LeafSpan(1, 1), LeafSpan(1, 2)}));
+    mts::SdkLeafReceiver rx{options,
+                            mts::LeafReceiverDeps{.owner = nullptr,
+                                                  .sampler = &sampler,
+                                                  .processor = &processor,
+                                                  .batch_processor = nullptr,
+                                                  .diagnostics = &sink,
+                                                  .decoder = std::move(fake),
+                                                  .span_limits = limits}};
+
+    ExpectRejected(
+        rx.Ingest(Request()), mt::IngestStatus::TooLarge, mt::DropReason::LeafPayloadTooLarge);
+}
+
+// ---------------------------------------------------------------------------
+// At least one span (ICP 0036 Decision 3)
+// ---------------------------------------------------------------------------
+
+TEST_F(LeafReceiverTest, AHeaderOnlyLeafPayloadWithNoDropsIsMalformed)
+{
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, AHeaderOnlyLeafPayloadWithZeroOrNegativeDropsIsMalformed)
+{
+    auto rx = Make();
+    Decodes(Payload(With(Reserved(),
+                         {{.key = "microtel.leaf.dropped_spans", .value = std::int64_t{0}},
+                          {.key = "microtel.leaf.dropped_items", .value = std::int64_t{-4}}}),
+                    {}));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, AHeaderOnlyLeafPayloadReportingDropsIsAcceptedAndCounted)
+{
+    auto rx = Make();
+    for (const std::string key : {"microtel.leaf.dropped_spans", "microtel.leaf.dropped_items"})
+    {
+        Decodes(Payload(With(Reserved(), {{.key = key, .value = std::int64_t{3}}}), {}));
+
+        const auto r = rx->Ingest(Request());
+
+        EXPECT_EQ(r.status, mt::IngestStatus::Accepted) << key;
+        EXPECT_EQ(std::uint64_t{r.spans_accepted} + r.spans_sampled_out + r.spans_dropped, 0U);
+    }
+    EXPECT_EQ(rx->Stats().leaf_reported_drops, 6U);
+    EXPECT_EQ(rx->Stats().payloads_accepted, 2U);
+    EXPECT_TRUE(processor.received_spans.empty());
+}
+
+TEST_F(LeafReceiverTest, ALeafPayloadWithNoScopesAndNoDropsIsMalformed)
+{
+    auto rx = Make();
+    mti::DecodedResourceSpans rs;
+    rs.resource = Reserved();
+    Decodes(std::move(rs));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, AnUndeclaredPayloadWithNoSpanIsMalformedUnderUnix)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    std::vector<mti::DecodedResourceSpans> payload;
+    payload.push_back(Payload(NodeResource(), {}));
+    payload.push_back(Payload(NodeResource(), {}, "other-scope"));
+    Decodes(std::move(payload));
+
+    ExpectRejected(
+        rx->Ingest(Request()), mt::IngestStatus::Malformed, mt::DropReason::LeafPayloadMalformed);
+}
+
+TEST_F(LeafReceiverTest, OneSpanAnywhereInThePayloadIsEnough)
+{
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    std::vector<mti::DecodedResourceSpans> payload;
+    payload.push_back(Payload(NodeResource(), {}));
+    payload.push_back(Payload(NodeResource(), {LeafSpan(1, 1)}, "other-scope"));
+    Decodes(std::move(payload));
+
+    EXPECT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+}
+
+// ---------------------------------------------------------------------------
+// The node Resource budget (ICP 0036 Decision 4)
+// ---------------------------------------------------------------------------
+
+// Every entry below is charged "service.name" + "unknown_service" (27) and
+// "device.id" + a 10-byte id (19): 46 bytes before its own attributes. "a" +
+// "1" then costs 2 more and "b" + "22" 3 more.
+std::vector<mt::KeyValue> TwoSmallAttributes()
+{
+    return {{.key = "a", .value = std::string{"1"}}, {.key = "b", .value = std::string{"22"}}};
+}
+
+constexpr std::string_view kNode = "udp:1.2.3.";  // 10 bytes, as kLeaf
+
+TEST_F(LeafReceiverTest, UnixEntriesGetTheNodeBudgetAndOthersTheLeafBudget)
+{
+    options.max_leaf_resource_bytes = 48;
+    options.leaves = {{std::string{kNode}, UnixLeaf()}};
+    auto rx = Make();
+
+    Decodes(Payload(TwoSmallAttributes(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+    const auto& node = *processor.received_spans.at(0).resource;
+    EXPECT_EQ(StringAt(node, "a"), "1");
+    EXPECT_EQ(StringAt(node, "b"), "22") << "max_node_resource_bytes (16 KiB) applies";
+    EXPECT_EQ(rx->Stats().resource_attributes_dropped, 0U);
+
+    Decodes(Payload(With(Reserved(), TwoSmallAttributes()), {LeafSpan(1, 2)}));
+    ASSERT_EQ(rx->Ingest(Request(kLeaf)).status, mt::IngestStatus::Accepted);
+    const auto& leaf = *processor.received_spans.at(1).resource;
+    EXPECT_EQ(StringAt(leaf, "a"), "1");
+    EXPECT_EQ(Find(leaf, "b"), nullptr) << "max_leaf_resource_bytes still applies";
+    EXPECT_EQ(rx->Stats().resource_attributes_dropped, 1U);
+}
+
+TEST_F(LeafReceiverTest, TheNodeBudgetFollowsAUnixDefaultAndADeclaredPayloadFromAUnixLeaf)
+{
+    options.max_leaf_resource_bytes = 48;
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    auto rx = Make();
+    Decodes(Payload(With(Reserved(), TwoSmallAttributes()), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(StringAt(*processor.received_spans.at(0).resource, "b"), "22")
+        << "the budget is the entry's, whatever the payload declares";
+}
+
+TEST_F(LeafReceiverTest, AnEntryOverTheNodeBudgetLogsOneWarnNamingTheLeafAndTheSetting)
+{
+    const LogLines log;
+    options.max_node_resource_bytes = 48;
+    options.leaves = {{std::string{kNode}, UnixLeaf()}};
+    auto rx = Make();
+    Decodes(Payload(TwoSmallAttributes(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(Find(*processor.received_spans.at(0).resource, "b"), nullptr);
+    EXPECT_EQ(rx->Stats().resource_attributes_dropped, 1U);
+    const auto warnings = log.Warnings(kNode);
+    ASSERT_EQ(warnings.size(), 1U) << "once per leaf-table entry, not per payload";
+    EXPECT_NE(warnings[0].find("1 Resource attribute"), std::string::npos) << warnings[0];
+    EXPECT_NE(warnings[0].find("max_node_resource_bytes"), std::string::npos) << warnings[0];
+}
+
+TEST_F(LeafReceiverTest, AnEntryOverTheLeafBudgetNamesMaxLeafResourceBytes)
+{
+    const LogLines log;
+    options.max_leaf_resource_bytes = 48;
+    auto rx = Make();
+    Decodes(Payload(With(Reserved(), TwoSmallAttributes()), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+
+    const auto warnings = log.Warnings(kLeaf);
+    ASSERT_EQ(warnings.size(), 1U);
+    EXPECT_NE(warnings[0].find("max_leaf_resource_bytes"), std::string::npos) << warnings[0];
+}
+
+TEST_F(LeafReceiverTest, TheBudgetWarnRecursAfterAResourceChangeAndNeverWithoutADrop)
+{
+    const LogLines log;
+    options.max_node_resource_bytes = 48;
+    options.leaves = {{std::string{kNode}, UnixLeaf()}};
+    auto rx = Make();
+
+    Decodes(Payload({{.key = "a", .value = std::string{"1"}}}, {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+    EXPECT_TRUE(log.Warnings(kNode).empty()) << "nothing dropped, nothing logged";
+
+    Decodes(Payload(TwoSmallAttributes(), {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+    Decodes(Payload(With(TwoSmallAttributes(), {{.key = "c", .value = std::string{"3"}}}),
+                    {LeafSpan(1, 1)}));
+    ASSERT_EQ(rx->Ingest(Request(kNode)).status, mt::IngestStatus::Accepted);
+
+    EXPECT_EQ(log.Warnings(kNode).size(), 2U) << "each changed Resource is a new resolution";
+}
+
+TEST_F(LeafReceiverTest, AResolverAnswerForAUnixLeafIsMergedUnderTheNodeBudget)
+{
+    options.max_leaf_resource_bytes = 48;
+    options.resolver = [](std::string_view) -> std::optional<mt::LeafConfig>
+    {
+        return mt::LeafConfig{.time_mode = mt::LeafTimeMode::Unix,
+                              .resource = {{.key = "k", .value = std::string{"12345678"}}}};
+    };
+    auto rx = Make();
+    Decodes(Payload(NodeResource(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(StringAt(*processor.received_spans.at(0).resource, "k"), "12345678");
+    EXPECT_EQ(rx->Stats().resource_attributes_dropped, 0U);
+}
+
+constexpr std::array<std::string_view, 3> kNodes{"node-a", "node-b", "node-c"};
+
+void IngestNodesFromOneThread(mts::SdkLeafReceiver& rx, std::atomic<int>& accepted)
+{
+    for (int i = 0; i < kPerThread; ++i)
+    {
+        const std::string_view id = kNodes.at(static_cast<std::size_t>(i) % kNodes.size());
+        if (rx.Ingest(Request(id)).status == mt::IngestStatus::Accepted)
+        {
+            ++accepted;
+        }
+    }
+}
+
+TEST_F(LeafReceiverTest, ConcurrentNodesOverTheBudgetLogOneWarnPerEntry)
+{
+    const LogLines log;
+    options.default_time_mode = mt::LeafTimeMode::Unix;
+    // service.name (12 + 15) + device.id (9 + 6) + "a" + "1" (2) = 44: no room for "b".
+    options.max_node_resource_bytes = 44;
+    auto fake = std::make_unique<mtm::FakeOtlpTraceDecoder>();
+    fake->canned.push_back(Payload(TwoSmallAttributes(), {LeafSpan(1, 1)}));
+    mtm::MockExporter exporter;
+    mts::BatchSpanProcessor bsp{&exporter,
+                                std::make_shared<mt::Resource>(),
+                                mt::BatchOptions{},
+                                1U << 20U,
+                                1U << 30U,
+                                &sink};
+    const auto always_on = mt::MakeAlwaysOnSampler();
+    mts::SdkLeafReceiver rx{options,
+                            mts::LeafReceiverDeps{.owner = nullptr,
+                                                  .sampler = always_on.Get(),
+                                                  .processor = &bsp,
+                                                  .batch_processor = &bsp,
+                                                  .diagnostics = nullptr,
+                                                  .decoder = std::move(fake),
+                                                  .span_limits = limits}};
+
+    constexpr int kThreads = 4;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    std::atomic<int> accepted{0};
+    for (int t = 0; t < kThreads; ++t)
+    {
+        threads.emplace_back([&rx, &accepted] { IngestNodesFromOneThread(rx, accepted); });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+
+    EXPECT_EQ(accepted.load(), kThreads * kPerThread);
+    for (const std::string_view id : kNodes)
+    {
+        EXPECT_EQ(log.Warnings("'" + std::string{id} + "'").size(), 1U) << id;
+    }
     (void)bsp.Shutdown(std::chrono::seconds(5));
 }
 

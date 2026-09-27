@@ -52,6 +52,9 @@ if(MICROTEL_WITH_CONCENTRATOR)
     target_compile_options(leaf_ingest_test PRIVATE
         -include ${MICROTEL_UPB_RENAME_HEADER}
         -Wno-missing-field-initializers)
+    # The leaf's golden vectors, ingested as a leaf would send them (ICP 0036).
+    target_compile_definitions(leaf_ingest_test PRIVATE
+        MICROTEL_LEAF_VECTORS_DIR="${CMAKE_SOURCE_DIR}/tests/leaf/vectors")
 endif()
 
 # Issue #345: the real BatchSpanProcessor feeding the real OtlpExporter from

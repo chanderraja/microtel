@@ -14,8 +14,12 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#include "opentelemetry/proto/collector/logs/v1/logs_service.upb.h"
+#include "opentelemetry/proto/collector/metrics/v1/metrics_service.upb.h"
 #include "opentelemetry/proto/collector/trace/v1/trace_service.upb.h"
 #include "opentelemetry/proto/common/v1/common.upb.h"
+#include "opentelemetry/proto/logs/v1/logs.upb.h"
+#include "opentelemetry/proto/metrics/v1/metrics.upb.h"
 #include "opentelemetry/proto/resource/v1/resource.upb.h"
 #include "opentelemetry/proto/trace/v1/trace.upb.h"
 #include "upb/mem/arena.h"
@@ -44,9 +48,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -102,6 +110,7 @@ struct WireResourceSpans
     std::map<std::string, std::string> string_attrs;
     std::size_t attr_count = 0;
     std::vector<std::string> span_names;
+    std::vector<std::uint64_t> start_times;
 };
 
 std::string View(upb_StringView v)
@@ -131,6 +140,8 @@ WireResourceSpans ReadResourceSpans(const opentelemetry_proto_trace_v1_ResourceS
         for (std::size_t j = 0; j < n_spans; ++j)
         {
             out.span_names.push_back(View(opentelemetry_proto_trace_v1_Span_name(spans[j])));
+            out.start_times.push_back(
+                opentelemetry_proto_trace_v1_Span_start_time_unix_nano(spans[j]));
         }
     }
     return out;
@@ -360,4 +371,209 @@ TEST(LeafIngestIntegrationTest, ProviderWithoutLeafOptionsHandsOutADisabledRecei
     const auto r = receiver->Ingest(mt::IngestRequest{.leaf_id = "a", .payload = payload});
     EXPECT_EQ(r.status, mt::IngestStatus::Disabled);
     EXPECT_EQ(receiver->Stats().payloads_rejected, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Full nodes and empty payloads (ICP 0036)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A Unix time in the right century, as a full node's clock would hold.
+constexpr std::uint64_t kNodeStartNs = 1'700'000'000'000'000'000ULL;
+
+upb_StringView Str(std::string_view s)
+{
+    return upb_StringView_FromDataAndSize(s.data(), s.size());
+}
+
+void AddServiceName(opentelemetry_proto_resource_v1_Resource* resource, upb_Arena* arena)
+{
+    auto* const kv = opentelemetry_proto_resource_v1_Resource_add_attributes(resource, arena);
+    opentelemetry_proto_common_v1_KeyValue_set_key(kv, Str("service.name"));
+    opentelemetry_proto_common_v1_AnyValue_set_string_value(
+        opentelemetry_proto_common_v1_KeyValue_mutable_value(kv, arena), Str("node-svc"));
+}
+
+std::vector<std::byte> Serialized(const char* data, std::size_t size)
+{
+    const auto* const first = reinterpret_cast<const std::byte*>(data);
+    return {first, first + size};
+}
+
+/// An ExportMetricsServiceRequest: one Resource, one scope and, when
+/// @p with_metric, one gauge with one data point.
+std::vector<std::byte> MetricsRequest(bool with_metric)
+{
+    upb_Arena* const arena = upb_Arena_New();
+    auto* const req =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_new(arena);
+    auto* const rm =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_add_resource_metrics(
+            req, arena);
+    AddServiceName(opentelemetry_proto_metrics_v1_ResourceMetrics_mutable_resource(rm, arena),
+                   arena);
+    auto* const sm = opentelemetry_proto_metrics_v1_ResourceMetrics_add_scope_metrics(rm, arena);
+    opentelemetry_proto_common_v1_InstrumentationScope_set_name(
+        opentelemetry_proto_metrics_v1_ScopeMetrics_mutable_scope(sm, arena), Str("node-lib"));
+    if (with_metric)
+    {
+        auto* const metric = opentelemetry_proto_metrics_v1_ScopeMetrics_add_metrics(sm, arena);
+        opentelemetry_proto_metrics_v1_Metric_set_name(metric, Str("cpu.utilization"));
+        auto* const point = opentelemetry_proto_metrics_v1_Gauge_add_data_points(
+            opentelemetry_proto_metrics_v1_Metric_mutable_gauge(metric, arena), arena);
+        opentelemetry_proto_metrics_v1_NumberDataPoint_set_time_unix_nano(point, kNodeStartNs);
+        opentelemetry_proto_metrics_v1_NumberDataPoint_set_as_double(point, 0.5);
+    }
+    std::size_t size = 0;
+    const char* const data =
+        opentelemetry_proto_collector_metrics_v1_ExportMetricsServiceRequest_serialize(
+            req, arena, &size);
+    auto bytes = Serialized(data, size);
+    upb_Arena_Free(arena);
+    return bytes;
+}
+
+/// An ExportLogsServiceRequest: one Resource, one scope and, when
+/// @p with_record, one log record.
+std::vector<std::byte> LogsRequest(bool with_record)
+{
+    upb_Arena* const arena = upb_Arena_New();
+    auto* const req = opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_new(arena);
+    auto* const rl =
+        opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_add_resource_logs(req,
+                                                                                         arena);
+    AddServiceName(opentelemetry_proto_logs_v1_ResourceLogs_mutable_resource(rl, arena), arena);
+    auto* const sl = opentelemetry_proto_logs_v1_ResourceLogs_add_scope_logs(rl, arena);
+    opentelemetry_proto_common_v1_InstrumentationScope_set_name(
+        opentelemetry_proto_logs_v1_ScopeLogs_mutable_scope(sl, arena), Str("node-lib"));
+    if (with_record)
+    {
+        auto* const record = opentelemetry_proto_logs_v1_ScopeLogs_add_log_records(sl, arena);
+        opentelemetry_proto_logs_v1_LogRecord_set_time_unix_nano(record, kNodeStartNs);
+        opentelemetry_proto_common_v1_AnyValue_set_string_value(
+            opentelemetry_proto_logs_v1_LogRecord_mutable_body(record, arena), Str("hello"));
+    }
+    std::size_t size = 0;
+    const char* const data =
+        opentelemetry_proto_collector_logs_v1_ExportLogsServiceRequest_serialize(req, arena, &size);
+    auto bytes = Serialized(data, size);
+    upb_Arena_Free(arena);
+    return bytes;
+}
+
+/// What a full C++ node's exporter hands its ExportTransport: an ordinary
+/// trace request with the node's own Resource and no `microtel.leaf.*` key.
+std::vector<std::byte> NodeRequest(std::string name)
+{
+    auto span = LeafSpan(9, 1, std::move(name));
+    span.start_time = std::chrono::system_clock::time_point{std::chrono::nanoseconds{kNodeStartNs}};
+    span.end_time = span.start_time + std::chrono::milliseconds{3};
+    std::vector<mti::SpanRecord> spans;
+    spans.push_back(std::move(span));
+    const mti::BatchHandle batch{std::move(spans),
+                                 std::make_shared<const mt::Resource>(std::vector<mt::KeyValue>{
+                                     {.key = "service.name", .value = std::string{"node-svc"}},
+                                     {.key = "device.id", .value = std::string{"board-serial-1"}}}),
+                                 mti::InstrumentationScope{.name = "node-lib", .version = "2"}};
+    mt::wire::OtlpEncoder encoder;
+    const auto encoded = encoder.Encode(batch);
+    return {encoded.Bytes().begin(), encoded.Bytes().end()};
+}
+
+std::vector<std::byte> ReadVector(std::string_view name)
+{
+    const std::filesystem::path path =
+        std::filesystem::path{MICROTEL_LEAF_VECTORS_DIR} / (std::string{name} + ".bin");
+    std::ifstream in{path, std::ios::binary};
+    EXPECT_TRUE(in.good()) << "missing golden vector " << path;
+    const std::vector<char> chars{std::istreambuf_iterator<char>{in},
+                                  std::istreambuf_iterator<char>{}};
+    return Serialized(chars.data(), chars.size());
+}
+
+mt::IngestStatus IngestBytes(mt::LeafReceiver& receiver,
+                             std::string_view leaf_id,
+                             const std::vector<std::byte>& bytes)
+{
+    return receiver.Ingest(mt::IngestRequest{.leaf_id = leaf_id, .payload = bytes}).status;
+}
+
+}  // namespace
+
+TEST(LeafIngestIntegrationTest, AFullNodesTraceRequestArrivesWithItsResourceAndTimestamps)
+{
+    constexpr std::string_view kNode = "127.0.0.1:40001";
+    const Concentrator c = MakeConcentrator(mt::LeafReceiverOptions{
+        .leaves = {{std::string{kNode},
+                    mt::LeafConfig{.time_mode = mt::LeafTimeMode::Unix, .resource = {}}}},
+    });
+    const auto receiver = c.provider->GetLeafReceiver();
+
+    ASSERT_EQ(IngestBytes(*receiver, kNode, NodeRequest("node-op")), mt::IngestStatus::Accepted);
+    ASSERT_EQ(IngestBytes(*receiver, "127.0.0.1:40002", NodeRequest("stranger")),
+              mt::IngestStatus::Malformed)
+        << "an undeclared payload under auto is still refused";
+    ASSERT_EQ(c.provider->ForceFlush(kFlushTimeout), mt::Status::Completed);
+
+    const auto sent = c.codec->SentPayloads();
+    ASSERT_EQ(sent.size(), 1U);
+    const auto request = DecodeRequest(sent[0]);
+    ASSERT_EQ(request.size(), 1U);
+    const auto& rs = request[0];
+    EXPECT_EQ(rs.string_attrs.at("service.name"), "node-svc");
+    EXPECT_EQ(rs.string_attrs.at("device.id"), kNode) << "the transport id wins (§4.1)";
+    ASSERT_EQ(rs.span_names.size(), 1U);
+    EXPECT_EQ(rs.span_names[0], "node-op");
+    EXPECT_EQ(rs.start_times.at(0), kNodeStartNs) << "a unix node's timestamps are unchanged";
+}
+
+TEST(LeafIngestIntegrationTest, MetricsAndLogsRequestsHandedToIngestAreMalformed)
+{
+    // Unix everywhere: nothing about the missing leaf header refuses these, so
+    // the span-id check and the at-least-one-span rule must (ICP 0036
+    // Decision 3).
+    const Concentrator c =
+        MakeConcentrator(mt::LeafReceiverOptions{.default_time_mode = mt::LeafTimeMode::Unix});
+    const auto receiver = c.provider->GetLeafReceiver();
+
+    for (const bool with_data : {true, false})
+    {
+        EXPECT_EQ(IngestBytes(*receiver, "node", MetricsRequest(with_data)),
+                  mt::IngestStatus::Malformed)
+            << "metrics, with_data = " << with_data;
+        EXPECT_EQ(IngestBytes(*receiver, "node", LogsRequest(with_data)),
+                  mt::IngestStatus::Malformed)
+            << "logs, with_data = " << with_data;
+    }
+    EXPECT_EQ(c.provider->GetExporterHealth().drop_counters.at(
+                  static_cast<std::size_t>(mt::DropReason::LeafPayloadMalformed)),
+              4U);
+    EXPECT_EQ(receiver->Stats().payloads_accepted, 0U);
+}
+
+TEST(LeafIngestIntegrationTest, TheEmptyBatchGoldenVectorIsMalformedAndTheOthersAreAccepted)
+{
+    const Concentrator c = MakeConcentrator(mt::LeafReceiverOptions{});
+    const auto receiver = c.provider->GetLeafReceiver();
+
+    EXPECT_EQ(IngestBytes(*receiver, "a", ReadVector("empty_batch")), mt::IngestStatus::Malformed)
+        << "a header-only payload with no drops (ICP 0036 Migration)";
+    for (const std::string_view name : {"one_span",
+                                        "max_strings",
+                                        "attribute_types",
+                                        "dropped_counters",
+                                        "events",
+                                        "remote_parent",
+                                        "status",
+                                        "time_boot_relative",
+                                        "time_no_clock",
+                                        "time_sync_relative",
+                                        "time_sync_unsynced",
+                                        "utf8"})
+    {
+        EXPECT_EQ(IngestBytes(*receiver, "a", ReadVector(name)), mt::IngestStatus::Accepted)
+            << name;
+    }
 }

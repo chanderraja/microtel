@@ -352,10 +352,11 @@ template <typename T, typename Parse>
     }
     if (r)
     {
-        r = OverlayParsed("MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE",
-                          ParseDefaultTimeMode,
-                          R"("auto", "concentrator_stamped", "sync_relative" or "boot_relative")",
-                          o.default_time_mode);
+        r = OverlayParsed(
+            "MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE",
+            ParseDefaultTimeMode,
+            R"("auto", "concentrator_stamped", "sync_relative", "boot_relative" or "unix")",
+            o.default_time_mode);
     }
     if (!r)
     {

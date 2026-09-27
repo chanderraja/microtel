@@ -12,6 +12,9 @@
 //   bits 2-3  the time mode configured for the two named leaves:
 //             auto, concentrator-stamped, sync-relative or boot-relative
 //   bit  4    unknown_leaf = reject (the two named leaves are configured)
+//   bit  5    default_time_mode = unix, so an undeclared payload (a full
+//             node's, ICP 0036) is admitted from any leaf the named leaves'
+//             own mode does not constrain
 //
 // Beyond the standing invariants in tests/fuzz/README.md it asserts, for
 // every input:
@@ -23,13 +26,17 @@
 //      exactly one of `leaf_payload_malformed`, `leaf_payload_too_large` and
 //      `leaf_unknown`, by exactly one, and the one that matches its status.
 //   3. No reserved `microtel.leaf.*` key reaches a Resource.
+//   5. An accepted payload decoded to at least one span or reported leaf
+//      drops (ICP 0036 Decision 3).
 //   4. Whenever the payload reached the decoder, the decode arena stayed
 //      within its cap, and the cap was the one design §3.7 sets for
 //      `max_payload_bytes`: 16 x max_payload_bytes + 16 KiB. The decoder
 //      reports each call's arena use through its `ArenaStats` observer.
 //
-// Seeds under corpus/leaf_ingest_fuzz/ are well-formed leaf payloads plus
-// truncations and single-byte corruptions of each.
+// Seeds under corpus/leaf_ingest_fuzz/ are well-formed leaf payloads, full
+// node payloads with no leaf header (selector bit 5 set), a header-only leaf
+// payload with and without drops, plus truncations and single-byte
+// corruptions of each.
 //
 // Repro:
 //   ./build-fuzz/tests/fuzz/leaf_ingest_fuzz <crash_file>
@@ -72,6 +79,7 @@ constexpr unsigned kLeafIdMask = 0x03U;
 constexpr unsigned kModeShift = 2U;
 constexpr unsigned kModeMask = 0x03U;
 constexpr unsigned kRejectBit = 0x10U;
+constexpr unsigned kUnixDefaultBit = 0x20U;
 // Small enough that the fuzzer reaches the size limits.
 constexpr std::uint32_t kMaxPayloadBytes = 4096;
 constexpr std::uint32_t kMaxSpans = 16;
@@ -101,6 +109,10 @@ mt::LeafReceiverOptions OptionsFor(unsigned selector)
     options.max_spans_per_payload = kMaxSpans;
     options.unknown_leaf = (selector & kRejectBit) != 0 ? mt::UnknownLeafPolicy::Reject
                                                         : mt::UnknownLeafPolicy::Accept;
+    if ((selector & kUnixDefaultBit) != 0)
+    {
+        options.default_time_mode = mt::LeafTimeMode::Unix;
+    }
     for (const std::string_view id : {kLeafIds[1], kLeafIds[2]})
     {
         options.leaves.emplace_back(std::string{id},
@@ -146,13 +158,15 @@ void CheckRejected(const mt::IngestResult& r, const mt::HealthSnapshot& health)
 
 void CheckAccepted(const mt::IngestResult& r,
                    std::span<const std::byte> payload,
-                   const mtm::FakeSpanProcessor& processor)
+                   const mtm::FakeSpanProcessor& processor,
+                   const mt::LeafReceiverStats& stats)
 {
     const auto decoded = DecodedSpans(payload);
     Require(decoded.has_value());
     const std::uint64_t counted =
         std::uint64_t{r.spans_accepted} + r.spans_sampled_out + r.spans_dropped;
     Require(counted == decoded.value_or(0));
+    Require(counted > 0 || stats.leaf_reported_drops > 0);
     Require(processor.received_spans.size() == r.spans_accepted);
     for (const auto& span : processor.received_spans)
     {
@@ -210,7 +224,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     {
         case mt::IngestStatus::Accepted:
         case mt::IngestStatus::PartiallyAccepted:
-            CheckAccepted(r, payload, *recorded);
+            CheckAccepted(r, payload, *recorded, receiver->Stats());
             break;
         case mt::IngestStatus::Malformed:
         case mt::IngestStatus::TooLarge:

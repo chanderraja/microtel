@@ -301,9 +301,156 @@ produces byte-for-byte the same payloads. It takes about one and a half times
 the flash on the same target (14.4 KB against 9.3 KB on a Cortex-M4), encodes into an arena (pass `config.scratch` to keep it off the
 heap), and calls `write` once per payload instead of once per field.
 
+## A full C++ node on the same link
+
+Not every device on the link is a microcontroller. The Linux board next to
+the sensors can run the full C++ runtime, with sampling, batching, retries and
+the whole Tracer API, but it may have no route to the collector either.
+`udp_full_node` is that board. It is an ordinary microtel program that exports
+through an `ExportTransport` of its own instead of HTTP/2
+([ICP 0036](../../docs/icps/0036-custom-export-transport.md)). Each encoded
+OTLP request goes to the same concentrator as one UDP datagram, from a fixed
+source port.
+
+It needs neither build option, only a concentrator to send to. Start the
+concentrator, then a leaf and the node:
+
+```bash
+# terminal 1
+./build/examples/microtel_example_leaf_concentrator
+```
+```bash
+# terminal 2
+./build/examples/microtel_example_leaf_udp_leaf &
+./build/examples/microtel_example_leaf_full_node
+```
+
+```
+microtel_example_leaf_full_node [concentrator-port] [source-port] [cycles]
+
+  defaults: 9310 9313 5
+```
+
+### What it prints
+
+```
+$ ./build/examples/microtel_example_leaf_full_node
+full node 127.0.0.1:9313 -> 127.0.0.1:9310 (OTLP over UDP)
+cycle 1: 2 spans
+cycle 2: 2 spans
+cycle 3: 2 spans
+cycle 4: 2 spans
+cycle 5: 2 spans
+ForceFlush: Completed
+batches_sent=1 batches_failed=0
+Shutdown: Completed
+```
+
+```
+$ ./build/examples/microtel_example_leaf_concentrator
+concentrator: UDP 127.0.0.1:9310 -> http://localhost:4317 (OTLP/gRPC)
+config: /path/to/microtel/examples/leaf/microtel.toml
+127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
+127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
+127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
+127.0.0.1:9313  1261 bytes  Accepted  spans_accepted=10
+127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
+127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
+payloads_accepted=6 payloads_rejected=0 leaves_tracked=2 time_fallbacks=0
+ForceFlush: Completed
+batches_sent=2 batches_failed=0
+Shutdown: Completed
+```
+
+The node batched its five cycles, ten spans, into one request, and the
+concentrator took it as one payload from `127.0.0.1:9313`. The leaf and the
+node share the concentrator's leaf table and its export requests.
+
+### The concentrator trusts the node's clock by name
+
+The node's request is an ordinary `ExportTraceServiceRequest` with no
+`microtel.leaf.*` header, so it declares no time mode. The concentrator
+refuses such a payload unless the sender is named with `time_mode = "unix"`,
+which is what `microtel.toml` does for the node's port:
+
+```toml
+[concentrator.leaves."127.0.0.1:9313"]
+time_mode = "unix"
+```
+
+That says the node already holds Unix time, so its timestamps pass through
+unchanged. Without the entry the same datagram comes back `Malformed`.
+`default_time_mode = "unix"` would trust every sender instead.
+
+In the collector, the node keeps its own `service.name`, since its entry sets
+no Resource, and gets the same `device.id` and defaults as any leaf:
+
+```bash
+$ curl -s -G http://localhost:3200/api/search \
+    --data-urlencode 'q={ resource.service.name = "greenhouse-controller" }' | jq -r \
+    '.traces[] | "\(.traceID)  \(.rootServiceName)  \(.rootTraceName)"'
+838b993be5c99cd6f21b5c4254d6b34d  greenhouse-controller  greenhouse.control
+e69bac32d8cb786d192165a709c4e993  greenhouse-controller  greenhouse.control
+...
+$ curl -s http://localhost:3200/api/traces/838b993be5c99cd6f21b5c4254d6b34d | \
+    jq -c '.batches[0].resource.attributes | map({(.key): (.value | to_entries[0].value)}) | add'
+{"deployment.environment":"example","device.id":"127.0.0.1:9313","service.name":"greenhouse-controller"}
+```
+
+### The transport
+
+```cpp
+microtel::SendResult Send(const microtel::ExportRequest& request) override
+{
+    if (m_cancelled.load()) { return Failure(NonRetryable, "cancelled"); }
+    if (request.bytes.size() > kMaxDatagram) { return Failure(NonRetryable, ...); }
+    SetSendTimeout(request.deadline);          // SO_SNDTIMEO, at least 1 ms
+    if (::send(m_socket.Get(), request.bytes.data(), request.bytes.size(), 0) < 0)
+    {
+        return FromErrno(errno);               // EAGAIN, ECONNREFUSED: Retryable
+    }
+    return {.outcome = microtel::SendOutcome::Success};
+}
+
+void Cancel() noexcept override
+{
+    m_cancelled.store(true);
+    (void)::shutdown(m_socket.Get(), SHUT_RDWR);   // wakes a blocked send
+}
+```
+
+Two things every `ExportTransport` has to get right, and the example does both:
+
+- **A `Send` that can block must be bounded.** It gets a deadline: now plus
+  `TimeoutOptions::per_export`, and never later than the shutdown deadline.
+  Here it becomes `SO_SNDTIMEO`, which must never be zero, because zero means
+  "block forever".
+- **`Cancel` must wake a `Send` that is blocked anyway.** `Provider::Shutdown`
+  calls it once if its timeout expires with a `Send` in flight. A `Send` that
+  ignores both would make the Provider's destructor wait forever, which is why
+  `Cancel` is pure virtual.
+
+UDP is fire and forget, so `Success` means the datagram left this host, and
+`HealthSnapshot::connection_state` reads `Connected` for as long as sends
+succeed, not because anything was heard back.
+
+### Three size limits
+
+A request passes three limits: the node's `max_request_bytes`, the
+concentrator's `max_payload_bytes` (64 KiB by default) and the link's frame
+size, which for UDP is 65,507 bytes. The node sets `max_request_bytes` to
+60 KiB, under both, so the exporter stops joining batches before a request
+would be too big for one datagram or for the concentrator. A request between
+the concentrator's limit and the node's is refused as `TooLarge` there, counted
+`leaf_payload_too_large`, and lost. Keep the node's cap at or below the
+concentrator's. A single batch bigger than the cap is still sent whole, with a
+warning. `BatchOptions::max_export_batch_size` is the knob for that case.
+
 ## Exit codes
 
 The concentrator returns `0` on success, `1` if `Build()` fails or the port
 can't be bound, and `2` if `ForceFlush` did not complete. The leaf returns `0`
 on success, `1` if the leaf or its socket can't be set up, `2` for bad
-arguments, and `3` if an encode or a send failed.
+arguments, and `3` if an encode or a send failed. The full node returns `0`
+on success, `1` if its socket can't be set up or `Build()` fails, and `2` if
+`ForceFlush` did not complete or a batch failed.

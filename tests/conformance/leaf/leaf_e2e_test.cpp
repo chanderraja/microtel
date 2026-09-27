@@ -25,12 +25,15 @@
 // pipeline with no processor into its own file exporter, which writes one line
 // per request it receives. One line holding all the leaves is one request.
 
+#include "microtel/export_transport.hpp"
 #include "microtel/leaf.h"
 #include "microtel/leaf_receiver.hpp"
 #include "microtel/protocol.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
+#include "microtel/span.hpp"
 #include "microtel/status.hpp"
+#include "microtel/tracer.hpp"
 
 #include "conformance/support/collector_output.hpp"
 #include "conformance/support/conformance_env.hpp"
@@ -39,11 +42,13 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -51,6 +56,12 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 namespace
 {
@@ -339,6 +350,215 @@ void ExpectContains(const std::string& text, const std::string& fragment)
         << "collector output is missing " << fragment << "\n  in: " << text;
 }
 
+// ---------------------------------------------------------------------------
+// A full C++ node on the link (ICP 0036)
+// ---------------------------------------------------------------------------
+
+/// The full node's leaf id is the UDP source address:port the concentrator
+/// reads it from, and the concentrator's resolver trusts every such id as
+/// holding Unix time; the C leaves' ids above never look like this.
+constexpr std::string_view kNodeIdPrefix = "127.0.0.1:";
+
+// The node's span, at fixed Unix times that must reach the collector as they
+// are: a trusted node's clock is its own (t' = t).
+constexpr std::int64_t kNodeStartNs = kReceivedAtNs - 2'000'000'000 + 123;
+constexpr std::int64_t kNodeEventNs = kNodeStartNs + 1'000;
+constexpr std::int64_t kNodeEndNs = kNodeStartNs + 5'000;
+
+constexpr auto kDatagramWait = std::chrono::seconds(5);
+constexpr std::size_t kMaxDatagram = 65507;
+/// Under one datagram and under the concentrator's max_payload_bytes.
+constexpr std::uint32_t kNodeMaxRequestBytes = 60U * 1024U;
+
+/// Move-only owner of a socket.
+class Socket
+{
+public:
+    explicit Socket(int fd) noexcept : m_fd(fd) {}
+    ~Socket() noexcept
+    {
+        if (m_fd >= 0)
+        {
+            ::close(m_fd);
+        }
+    }
+    Socket(const Socket&) = delete;
+    Socket& operator=(const Socket&) = delete;
+    Socket(Socket&& other) noexcept : m_fd(std::exchange(other.m_fd, -1)) {}
+    Socket& operator=(Socket&&) = delete;
+
+    [[nodiscard]] int Get() const noexcept
+    {
+        return m_fd;
+    }
+
+private:
+    int m_fd = -1;
+};
+
+sockaddr_in LoopbackAddr(std::uint16_t port)
+{
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    return addr;
+}
+
+/// A UDP socket bound to 127.0.0.1 on an ephemeral port, and that port.
+std::pair<Socket, std::uint16_t> BindEphemeral()
+{
+    Socket fd{::socket(AF_INET, SOCK_DGRAM, 0)};
+    const sockaddr_in addr = LoopbackAddr(0);
+    sockaddr_in bound{};
+    socklen_t len = sizeof(bound);
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast) — the sockets API
+    if (fd.Get() < 0 ||
+        ::bind(fd.Get(), reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 ||
+        ::getsockname(fd.Get(), reinterpret_cast<sockaddr*>(&bound), &len) != 0)
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+    {
+        return {Socket{-1}, 0};
+    }
+    return {std::move(fd), ntohs(bound.sin_port)};
+}
+
+/// The node's transport: each request as one datagram on a connected socket,
+/// as examples/leaf/udp_full_node.cpp sends it. A send on loopback does not
+/// block, so Cancel only has to stop later sends.
+class UdpExportTransport final : public microtel::ExportTransport
+{
+public:
+    explicit UdpExportTransport(Socket socket) noexcept : m_socket(std::move(socket)) {}
+
+    [[nodiscard]] microtel::SendResult Send(const microtel::ExportRequest& request) override
+    {
+        const bool sent =
+            !m_cancelled.load() && request.bytes.size() <= kMaxDatagram &&
+            ::send(m_socket.Get(), request.bytes.data(), request.bytes.size(), 0) >= 0;
+        return microtel::SendResult{
+            .outcome = sent ? microtel::SendOutcome::Success : microtel::SendOutcome::NonRetryable,
+            .retry_after = std::nullopt,
+            .rejected = 0,
+            .message = sent ? std::string{} : std::string{"datagram not sent"},
+        };
+    }
+
+    void Cancel() noexcept override
+    {
+        m_cancelled.store(true);
+    }
+
+private:
+    Socket m_socket;
+    std::atomic<bool> m_cancelled{false};
+};
+
+/// One link between a node and the test's concentrator side.
+struct NodeLink
+{
+    Socket rx{-1};        ///< the concentrator's end
+    Socket tx{-1};        ///< the node's end, connected to rx
+    std::string node_id;  ///< "127.0.0.1:<tx port>", what rx sees
+};
+
+NodeLink OpenNodeLink()
+{
+    auto [rx, rx_port] = BindEphemeral();
+    auto [tx, tx_port] = BindEphemeral();
+    const sockaddr_in peer = LoopbackAddr(rx_port);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — the sockets API
+    if (tx.Get() < 0 ||
+        ::connect(tx.Get(), reinterpret_cast<const sockaddr*>(&peer), sizeof(peer)) != 0)
+    {
+        return NodeLink{};
+    }
+    return NodeLink{.rx = std::move(rx),
+                    .tx = std::move(tx),
+                    .node_id = std::string{kNodeIdPrefix} + std::to_string(tx_port)};
+}
+
+/// Receives one datagram on @p rx and ingests it under its source
+/// address:port, as the example concentrator does.
+microtel::IngestResult ReceiveAndIngest(const Socket& rx,
+                                        microtel::LeafReceiver& receiver,
+                                        std::string& from_id)
+{
+    pollfd pfd{.fd = rx.Get(), .events = POLLIN, .revents = 0};
+    const auto wait_ms = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kDatagramWait).count());
+    std::vector<std::byte> buffer(kMaxDatagram);
+    sockaddr_in from{};
+    socklen_t from_len = sizeof(from);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — the sockets API
+    const ssize_t n = ::poll(&pfd, 1, wait_ms) > 0 ? ::recvfrom(rx.Get(),
+                                                                buffer.data(),
+                                                                buffer.size(),
+                                                                0,
+                                                                reinterpret_cast<sockaddr*>(&from),
+                                                                &from_len)
+                                                   : -1;
+    if (n < 0)
+    {
+        ADD_FAILURE() << "no datagram from the full node";
+        return microtel::IngestResult{};
+    }
+    std::array<char, INET_ADDRSTRLEN> host{};
+    ::inet_ntop(AF_INET, &from.sin_addr, host.data(), host.size());
+    from_id = std::string{host.data()} + ":" + std::to_string(ntohs(from.sin_port));
+    return receiver.Ingest(microtel::IngestRequest{
+        .leaf_id = from_id,
+        .payload = std::span<const std::byte>(buffer.data(), static_cast<std::size_t>(n)),
+        .received_at = std::nullopt,
+    });
+}
+
+std::chrono::system_clock::time_point UnixNs(std::int64_t ns)
+{
+    return std::chrono::system_clock::time_point{
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            std::chrono::nanoseconds{ns})};
+}
+
+/// A full node: a C++ Provider exporting over @p link with its own
+/// ExportTransport, under its own profile name beside the concentrator.
+std::shared_ptr<microtel::Provider> BuildNode(NodeLink& link,
+                                              const std::string& profile,
+                                              std::uint32_t max_request_bytes)
+{
+    auto result = microtel::SdkBuilder{}
+                      .WithProfileName(profile)
+                      .WithServiceName("leaf-e2e-full-node")
+                      .WithBatch(microtel::BatchOptions{
+                          .max_queue_size = microtel::BatchOptions{}.max_queue_size,
+                          .max_export_batch_size = microtel::BatchOptions{}.max_export_batch_size,
+                          .schedule_delay = kScheduleDelay,
+                          .drop_policy = microtel::BatchOptions{}.drop_policy,
+                      })
+                      .WithExportTransport(std::make_unique<UdpExportTransport>(std::move(link.tx)),
+                                           microtel::ExportTransportOptions{
+                                               .traces = true,
+                                               .metrics = false,
+                                               .logs = false,
+                                               .max_request_bytes = max_request_bytes,
+                                           })
+                      .Build();
+    EXPECT_TRUE(result.has_value()) << (result ? "" : result.error().message);
+    return result ? *result : nullptr;
+}
+
+/// The node's one span, at the kNode* Unix times.
+void TraceNodeSpan(microtel::Provider& node, const std::string& name)
+{
+    microtel::StartSpanOptions opts;
+    opts.kind = microtel::SpanKind::Server;
+    opts.start_time = UnixNs(kNodeStartNs);
+    auto span = node.GetTracer("node.e2e", "1.0")->StartSpan(name, opts);
+    span->SetAttribute("node.attr", std::string{"node-value"});
+    span->AddEvent("node.event", {}, UnixNs(kNodeEventNs));
+    span->End(UnixNs(kNodeEndNs));
+}
+
 std::size_t CountIn(const std::string& text, const std::string& needle)
 {
     std::size_t count = 0;
@@ -348,6 +568,22 @@ std::size_t CountIn(const std::string& text, const std::string& needle)
         ++count;
     }
     return count;
+}
+
+/// The receiver's options: defaults, plus a resolver that names every
+/// "127.0.0.1:<port>" sender, i.e. the full node, as trusted Unix time.
+microtel::LeafReceiverOptions NodeTrustingOptions()
+{
+    microtel::LeafReceiverOptions opts;
+    opts.resolver = [](std::string_view leaf_id) -> std::optional<microtel::LeafConfig>
+    {
+        if (!leaf_id.starts_with(kNodeIdPrefix))
+        {
+            return std::nullopt;
+        }
+        return microtel::LeafConfig{.time_mode = microtel::LeafTimeMode::Unix, .resource = {}};
+    };
+    return opts;
 }
 
 /// A Provider in the concentrator role, aimed at the collector's leaf receiver.
@@ -374,7 +610,7 @@ protected:
                 .schedule_delay = kScheduleDelay,
                 .drop_policy = microtel::BatchOptions{}.drop_policy,
             })
-            .WithLeafReceiver(microtel::LeafReceiverOptions{});
+            .WithLeafReceiver(NodeTrustingOptions());
         if (http)
         {
             // The HTTP leaf port serves TLS: microtel is HTTP/2-only and the
@@ -633,6 +869,106 @@ TEST_P(LeafE2e, MalformedPayloadRejectedAndCounted)
     EXPECT_EQ(health.drop_counters.at(
                   static_cast<std::size_t>(microtel::DropReason::LeafPayloadMalformed)),
               1U);
+}
+
+// A full C++ node (ICP 0036) sends its spans over UDP with its own
+// ExportTransport. The concentrator, which trusts it as Unix time, takes the
+// datagram under its source address:port. Its span shares the export request
+// with a C leaf's, keeps its own service.name and exact timestamps (t' = t),
+// and carries the transport-derived device.id.
+TEST_P(LeafE2e, FullNodeReachesTheCollectorThroughTheConcentrator)
+{
+    ASSERT_NE(m_receiver, nullptr) << kNoConcentrator;
+    const std::string marker = microtel::testing::UniqueMarker();
+    NodeLink link = OpenNodeLink();
+    ASSERT_GE(link.rx.Get(), 0);
+    const std::string node_id = link.node_id;
+    const auto node = BuildNode(link, marker + ".node", kNodeMaxRequestBytes);
+    ASSERT_NE(node, nullptr);
+
+    TestLeaf leaf(MICROTEL_LEAF_TIME_CONCENTRATOR_STAMPED, "leaf-e2e-sensor", 0);
+    ASSERT_EQ(leaf.InitStatus(), MICROTEL_LEAF_OK);
+    ASSERT_EQ(BuildSpan(leaf, marker + ".leaf-span", 0), MICROTEL_LEAF_OK);
+    EXPECT_EQ(Ingest(*m_receiver, Encode(leaf, marker + ".leaf", kEncodeAt), kReceivedAtNs).status,
+              microtel::IngestStatus::Accepted);
+
+    TraceNodeSpan(*node, marker + ".node-span");
+    ASSERT_EQ(node->ForceFlush(kFlushTimeout), microtel::Status::Completed);
+    EXPECT_EQ(node->GetExporterHealth().batches_sent, 1U);
+    std::string from_id;
+    const microtel::IngestResult r = ReceiveAndIngest(link.rx, *m_receiver, from_id);
+    EXPECT_EQ(from_id, node_id);
+    EXPECT_EQ(r.status, microtel::IngestStatus::Accepted);
+    EXPECT_EQ(r.spans_accepted, 1U);
+    EXPECT_EQ(node->Shutdown(kFlushTimeout), microtel::Status::Completed);
+
+    const std::string line = FlushAndRead(marker + ".node-span");
+    ASSERT_FALSE(line.empty());
+    ExpectContains(line, marker + ".leaf-span");  // one request, leaf and node
+    EXPECT_EQ(line.find("microtel.leaf."), std::string::npos) << line;
+
+    const std::string name_json = R"("name":")" + marker + R"(.node-span")";
+    const std::string span = microtel::testing::EnclosingObject(line, name_json, 1).value_or("");
+    const std::string resource_spans =
+        microtel::testing::EnclosingObject(line, name_json, 3).value_or("");
+    ASSERT_FALSE(resource_spans.empty());
+    ExpectContains(resource_spans, DeviceIdJson(node_id));
+    ExpectContains(resource_spans,
+                   R"({"key":"service.name","value":{"stringValue":"leaf-e2e-full-node"}})");
+    ExpectContains(resource_spans, R"("scope":{"name":"node.e2e","version":"1.0"})");
+    ExpectContains(span, R"("kind":2)");
+    ExpectContains(span, TimeJson("startTimeUnixNano", kNodeStartNs));
+    ExpectContains(span, TimeJson("endTimeUnixNano", kNodeEndNs));
+    ExpectContains(span, TimeJson("timeUnixNano", kNodeEventNs));
+    ExpectContains(span, R"({"key":"node.attr","value":{"stringValue":"node-value"}})");
+}
+
+// The three limits of ICP 0036 disagreeing: a node whose max_request_bytes
+// is above the concentrator's max_payload_bytes sends a request between the
+// two. The concentrator refuses it as TooLarge and counts
+// leaf_payload_too_large, and nothing of it reaches the collector.
+TEST_P(LeafE2e, FullNodeRequestOverThePayloadLimitIsDropped)
+{
+    ASSERT_NE(m_receiver, nullptr) << kNoConcentrator;
+    const std::string marker = microtel::testing::UniqueMarker();
+    // A second concentrator with a small payload limit, beside the fixture's.
+    constexpr std::uint32_t kSmallPayloadLimit = 512;
+    microtel::LeafReceiverOptions small = NodeTrustingOptions();
+    small.max_payload_bytes = kSmallPayloadLimit;
+    microtel::SdkBuilder builder;
+    const std::string endpoint =
+        microtel::testing::GetEnv(kGrpcEndpointEnv).value_or(std::string{});
+    microtel::testing::ConfigureConformanceBuilder(builder, endpoint, microtel::Protocol::Grpc)
+        .WithProfileName(marker + ".small-concentrator")
+        .WithServiceName("microtel-leaf-concentrator")
+        .WithLeafReceiver(small);
+    auto built = builder.Build();
+    ASSERT_TRUE(built.has_value()) << built.error().message;
+    const std::shared_ptr<microtel::Provider> concentrator = std::move(*built);
+    const auto receiver = concentrator->GetLeafReceiver();
+
+    NodeLink link = OpenNodeLink();
+    ASSERT_GE(link.rx.Get(), 0);
+    const auto node = BuildNode(link, marker + ".node", kNodeMaxRequestBytes);
+    ASSERT_NE(node, nullptr);
+    constexpr int kSpans = 8;
+    for (int i = 0; i < kSpans; ++i)
+    {
+        TraceNodeSpan(*node, marker + ".oversized");
+    }
+    ASSERT_EQ(node->ForceFlush(kFlushTimeout), microtel::Status::Completed);
+    std::string from_id;
+    const microtel::IngestResult r = ReceiveAndIngest(link.rx, *receiver, from_id);
+    EXPECT_EQ(r.status, microtel::IngestStatus::TooLarge);
+    EXPECT_EQ(node->Shutdown(kFlushTimeout), microtel::Status::Completed);
+
+    EXPECT_EQ(concentrator->ForceFlush(kFlushTimeout), microtel::Status::Completed);
+    const microtel::HealthSnapshot health = concentrator->GetExporterHealth();
+    EXPECT_EQ(health.drop_counters.at(
+                  static_cast<std::size_t>(microtel::DropReason::LeafPayloadTooLarge)),
+              1U);
+    EXPECT_EQ(concentrator->Shutdown(kFlushTimeout), microtel::Status::Completed);
+    EXPECT_EQ(microtel::testing::CountOccurrences(m_output_file, marker + ".oversized"), 0U);
 }
 
 std::string ProtocolName(const ::testing::TestParamInfo<microtel::Protocol>& info)

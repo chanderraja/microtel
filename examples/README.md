@@ -60,7 +60,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`health_and_backpressure/`](health_and_backpressure/) | Reading `HealthSnapshot`: drop counters and queue depth under load, then a collector that is not there. | Available |
 | [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | Available |
 | [`tls/`](tls/) | TLS, a custom CA and mTLS, and the one configuration in which OTLP/HTTP works. Opt-in overlay. | Available |
-| [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. Needs extra build options; see below. | Available |
+| [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. A full C++ node joins the same link through its own `ExportTransport` (`WithExportTransport`). Needs extra build options; see below. | Available |
 | [`leaf_mqtt/`](leaf_mqtt/) | Experimental. The leaf example over MQTT: a C leaf publishes each payload to `microtel/<device-id>/traces` with coreMQTT, and a C++ concentrator subscribed with libmosquitto takes the leaf id from the topic. Needs the leaf build options and libmosquitto, and brings its own Mosquitto broker as an opt-in overlay. | Available |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 
@@ -84,15 +84,20 @@ cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON \
 cmake --build build
 
 ./build/examples/microtel_example_leaf_concentrator &     # UDP 127.0.0.1:9310 -> :4317
-./build/examples/microtel_example_leaf_udp_leaf           # five payloads, then exits
+./build/examples/microtel_example_leaf_udp_leaf &         # five payloads, then exits
+./build/examples/microtel_example_leaf_full_node          # a C++ node on the same link
 ```
 
 The leaf binary is C, linked against the leaf library alone, so its name
 doesn't follow the `microtel_add_example()` pattern exactly:
 `microtel_example_leaf_udp_leaf` and `microtel_example_leaf_concentrator`.
 The spans show up in Grafana under `greenhouse-north`, the name
-`microtel.toml` gives the leaf on port 9311. [`leaf/README.md`](leaf/README.md)
-walks through a run with two leaves and what the collector receives.
+`microtel.toml` gives the leaf on port 9311. The full node's spans show up
+under `greenhouse-controller`: it is an ordinary C++ Provider that exports with
+`SdkBuilder::WithExportTransport` over UDP instead of HTTP/2, which
+`microtel.toml` allows by naming its port with `time_mode = "unix"`.
+[`leaf/README.md`](leaf/README.md) walks through a run with two leaves, then
+one with the full node, and what the collector receives.
 
 [`leaf_mqtt/`](leaf_mqtt/) is the same pair of programs over MQTT, which
 also needs libmosquitto's development files (`mosquitto-devel` on Fedora,

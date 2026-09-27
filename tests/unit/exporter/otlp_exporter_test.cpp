@@ -1170,3 +1170,184 @@ TEST(OtlpExporterTest, QueueBound_SpanBudgetScalesWithTheProcessorBatch)
     EXPECT_EQ(mte::QueuedSpanBudget(4 * defaults.max_spans_per_request),
               4 * defaults.max_queued_spans);
 }
+
+// ---------------------------------------------------------------------------
+// max_request_bytes (ICP 0036): joining stops at a byte cap too
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Encodes a batch as `kBytesPerSpan` bytes per span, all equal to the span
+/// count, so request sizes and their parts can be told apart.
+class SizedByBatchEncoder final : public mti::IOtlpEncoder
+{
+public:
+    static constexpr std::size_t kBytesPerSpan = 10;
+
+    [[nodiscard]] mti::EncodedPayload Encode(const mti::BatchHandle& batch) override
+    {
+        const std::size_t spans = batch.Spans().size();
+        const std::size_t n = spans * kBytesPerSpan;
+        auto buf = std::make_unique<std::byte[]>(n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            buf[i] = static_cast<std::byte>(spans);
+        }
+        return mti::EncodedPayload{std::move(buf), n};
+    }
+};
+
+std::vector<std::size_t> Sizes(const std::vector<std::vector<std::byte>>& sent)
+{
+    std::vector<std::size_t> out;
+    out.reserve(sent.size());
+    for (const auto& p : sent)
+    {
+        out.push_back(p.size());
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(OtlpExporterTest, RequestBytesCap_StopsAJoinThatWouldCrossIt)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mtmk::FakeDiagnosticsSink sink;
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 25;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg, &sink};
+
+    // 10 + 10 fits; a third would make 30. The handle that would cross the
+    // cap starts the next request.
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1, 1, 1}));
+
+    EXPECT_EQ(Sizes(codec.SentPayloads()), (std::vector<std::size_t>{10, 20, 20, 10}));
+    EXPECT_EQ(sink.batches_sent, 6U) << "still counted per BatchHandle";
+}
+
+TEST(OtlpExporterTest, RequestBytesCap_AtExactlyTheCapStillJoins)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 20;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1}));
+
+    EXPECT_EQ(Sizes(codec.SentPayloads()), (std::vector<std::size_t>{10, 20, 10}));
+}
+
+TEST(OtlpExporterTest, RequestBytesCap_ZeroMeansJoinBySpanCountOnly)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 0;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1, 1, 1}));
+
+    EXPECT_EQ(Sizes(codec.SentPayloads()), (std::vector<std::size_t>{10, 50}));
+}
+
+TEST(OtlpExporterTest, RequestBytesCap_ABatchOverTheCapGoesAloneAndWhole)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 25;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 5, 1}));
+
+    const auto sent = codec.SentPayloads();
+    EXPECT_EQ(Sizes(sent), (std::vector<std::size_t>{10, 10, 50, 10}));
+    EXPECT_EQ(sent[2], std::vector<std::byte>(50, std::byte{5})) << "unchanged, not split";
+}
+
+TEST(OtlpExporterTest, RequestBytesCap_SpanCountStillSplitsBelowTheByteCap)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 1000;
+    cfg.max_spans_per_request = 2;
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 1, 1}));
+
+    EXPECT_EQ(Sizes(codec.SentPayloads()), (std::vector<std::size_t>{10, 20, 10}));
+}
+
+TEST(OtlpExporterTest, RequestBytesCap_ARetryReencodesTheSameGroupByteForByte)
+{
+    SizedByBatchEncoder encoder;
+    GatedCodec codec;
+    // SendBehindTheGate scripts the gated batch's success; then [1,2]
+    // succeeds and [3] fails once.
+    codec.scripted_results.push_back(mti::WireResult{.success = true});
+    codec.scripted_results.push_back(mti::WireResult{.success = false, .retryable = true});
+    codec.default_result = mti::WireResult{.success = true};
+    mte::OtlpExporterConfig cfg;
+    cfg.max_request_bytes = 30;
+    cfg.retry_policy = ZeroDelayRetry(3);
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    SendBehindTheGate(exporter, codec, Batches({1, 2, 3}));
+
+    const auto sent = codec.SentPayloads();
+    ASSERT_EQ(sent.size(), 4U) << "gated, [1,2], [3], the retry of [3]";
+    EXPECT_EQ(sent[2].size(), 30U);
+    EXPECT_EQ(sent[3], sent[2]) << "the retry re-encodes the same group, not a regrouping";
+}
+
+// ---------------------------------------------------------------------------
+// on_shutdown_timeout (ICP 0036 Decision 2)
+// ---------------------------------------------------------------------------
+
+TEST(OtlpExporterTest, ShutdownTimeout_CallsTheHookBeforeJoiningTheWorker)
+{
+    mtmk::MockOtlpEncoder encoder;
+    GatedCodec codec;
+    codec.default_result = mti::WireResult{.success = true};
+    int hook_calls = 0;
+    mte::OtlpExporterConfig cfg;
+    // The hook is what wakes the Send the worker is stuck in; without it the
+    // join below would never return.
+    cfg.on_shutdown_timeout = [&]
+    {
+        ++hook_calls;
+        codec.Release();
+    };
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+
+    EXPECT_EQ(exporter.Shutdown(std::chrono::milliseconds(50)), mt::Status::TimedOut);
+    EXPECT_EQ(hook_calls, 1);
+}
+
+TEST(OtlpExporterTest, ShutdownCompleted_DoesNotCallTheHook)
+{
+    mtmk::MockOtlpEncoder encoder;
+    mtmk::MockWireCodec codec;
+    codec.result_to_return.success = true;
+    int hook_calls = 0;
+    mte::OtlpExporterConfig cfg;
+    cfg.on_shutdown_timeout = [&] { ++hook_calls; };
+    mte::OtlpExporter exporter{&encoder, &codec, cfg};
+
+    (void)exporter.Export(MakeBatch());
+    EXPECT_EQ(exporter.Shutdown(std::chrono::seconds(5)), mt::Status::Completed);
+    EXPECT_EQ(hook_calls, 0);
+}

@@ -32,9 +32,9 @@ OtlpLogExporter::OtlpLogExporter(internal::ILogEncoder* encoder,
                                  internal::ISteadyClock* clock) noexcept
     : m_encoder(encoder),
       m_codec(codec),
-      m_config(config),
+      m_config(std::move(config)),
       m_diag(diag),
-      m_retry(config.retry_policy, diag, clock),
+      m_retry(m_config.retry_policy, diag, clock),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -108,6 +108,11 @@ microtel::Status OtlpLogExporter::Shutdown(std::chrono::milliseconds timeout) no
         std::unique_lock lock{m_mu};
         return m_cv.wait_for(lock, timeout, [this] { return m_flush_done_seq >= m_flush_seq; });
     }();
+    if (!completed && m_config.on_shutdown_timeout)
+    {
+        // Before the join: the worker may be inside a Send only this wakes.
+        m_config.on_shutdown_timeout();
+    }
     if (m_worker.joinable())
     {
         m_worker.join();

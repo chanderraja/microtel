@@ -42,12 +42,19 @@ Track A — Trace SDK.
   ([`leaf-concentrator-design.md`](../../docs/leaf-concentrator-design.md)
   §3.6.1): the batches the worker drains together go out as one request, up
   to `max_spans_per_request` spans, joined by `wire::ConcatenateTraceRequests`.
-  A request is sent, retried and classified once, and its outcome counted once
+  With an application `ExportTransport` a join also stops at
+  `max_request_bytes` encoded bytes (ICP 0036): each batch is encoded once,
+  the drain is grouped on those sizes, and the grouping is fixed, so a retry
+  re-encodes the same group byte for byte. A request is sent, retried and classified once, and its outcome counted once
   per batch in it. `OtlpExporter` also implements
   `internal::IBatchGroupExporter`, so the span processor can hand over a whole
   drain under one lock. The trace queue is bounded in spans
   (`max_queued_spans`) as well as in batches, because a drain from many
   leaves is many small batches (issue #345).
+- `on_shutdown_timeout` on all three exporter configs: called by `Shutdown`,
+  before joining the worker, when its drain wait expires. The SDK uses it to
+  `Cancel` an application `ExportTransport` whose `Send` would otherwise hold
+  the join (ICP 0036 Decision 2).
 - Drop accounting at the export boundary: `retryable_failure_recovered`,
   `retry_budget_exhausted`, `non_retryable_failure`,
   `partial_success_rejection`, and `queue_full` / `post_shutdown` when a batch

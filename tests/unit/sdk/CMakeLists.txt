@@ -205,6 +205,18 @@ microtel_add_test(
     SOURCES sdk_builder_test.cpp
     LIBS    microtel_sdk)
 
+# ICP 0036: SdkBuilder::WithExportTransport through a real Provider.
+microtel_add_test(
+    NAME    export_transport_builder_test
+    SOURCES export_transport_builder_test.cpp
+    LIBS    microtel_sdk)
+target_include_directories(export_transport_builder_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(export_transport_builder_test PRIVATE
+    -Wno-missing-field-initializers)
+
 # Issue #267: SdkBuilder::Build and Provider::SetBatchOptions share one
 # BatchOptions validator — code, TOML and the setter over one table of cases.
 microtel_add_test(

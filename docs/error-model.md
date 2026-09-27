@@ -276,6 +276,22 @@ here while OTLP/HTTP returned `true` for the identical failure).
 
 The `RESOURCE_EXHAUSTED` row is the most important non-obvious entry — it is documented separately in `microtel-spec.md` §7.2 and has acceptance test coverage requirements per the M4 milestone in spec §13.
 
+### 7.3 Application `ExportTransport` (ICP 0036)
+
+A Provider built with `SdkBuilder::WithExportTransport` classifies nothing itself: the application's `ExportTransport::Send` answers with a `SendOutcome`, and `ExportTransportCodec` (`src/wire/custom/`) maps it. Failures carry `Error{Kind::Network, message}`; the transport's `message` becomes `last_error_message`.
+
+| Case | `success` | `retryable` | `retry_after` | Counter |
+|---|---|---|---|---|
+| `Success`, `rejected` = 0 | true | n/a | n/a | (success) |
+| `Success`, `rejected` > 0 | true | **false** (never retried) | n/a | `partial_success_rejection` |
+| `Retryable` | false | true | the transport's `retry_after` if set, else jittered backoff | (counted on retry outcome) |
+| `NonRetryable` | false | false | n/a | `non_retryable_failure` |
+| `Send` throws (any type) | false | false | n/a | `non_retryable_failure`, error kind `InternalFailure` |
+| Encoding came back empty (arena allocation failed) — `Send` not called | false | true | jittered backoff | (counted on retry outcome) |
+| After `Cancel`, or past the shutdown deadline — `Send` not called | false | false | n/a | `non_retryable_failure` |
+
+`connect_failure`, `response_too_large`, `malformed_response`, `decompression_too_large` and `transport_busy` never fire on this path. `batches_sent`, `batches_failed`, `retryable_failure_recovered` and `retry_budget_exhausted` mean what they mean for HTTP.
+
 ---
 
 ## 8. Init-failure taxonomy
@@ -312,6 +328,8 @@ Returns a structured snapshot. The shape is locked in `interfaces.md` against th
 - Current queue depth.
 - Last-error timestamp and last-error short message (capped).
 - Connection state (one of `Disconnected`, `Connecting`, `Connected`, `Reconnecting`, `Closed`).
+
+**With an application `ExportTransport` (ICP 0036)** there is no connection to report, and the state means **"sends are succeeding"**, not "the peer is reachable": `Disconnected` until the first `Success`, `Connected` after one, `Reconnecting` after a failure that follows a success (and `Connected` again after the next success), `Closed` after `Shutdown`. `Connecting` never occurs. On a fire-and-forget link such as UDP, `Connected` says only that requests are leaving this host.
 
 The snapshot is consistent at a moment in time but not transactionally consistent across counters — it is a read of `std::atomic<uint64_t>` values and a borrowed view into the last-error slot.
 

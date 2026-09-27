@@ -56,6 +56,8 @@ Seven, not eight: the producer row is the application's own thread, not one micr
 
 The inventory is the maximum. A `Provider` with no `GetMeter` and no `GetLogger` call has only the trace pipeline's two workers plus the I/O thread: the metrics and logs pipelines are built lazily (`SdkProvider::GetMeter`, `SdkProvider::GetLogger`) and spawn nothing until they are.
 
+**With an application `ExportTransport`** (`SdkBuilder::WithExportTransport`, [ICP 0036](icps/0036-custom-export-transport.md)) there is **no I/O thread**: no `Http2Transport` is built. The metric and log exporter workers exist only for the signals `ExportTransportOptions` enables (traces only by default), so the default custom-transport Provider runs two threads, the span processor's and the trace exporter's. **Application code runs on the exporter workers**: each calls `ExportTransport::Send` for its own signal, so `Send` has up to three concurrent callers, one per enabled signal. `Send` may block until its deadline and stalls only its own signal. If an exporter's `Shutdown` wait expires while a `Send` is in flight, the thread running `Provider::Shutdown` calls `ExportTransport::Cancel` once, before joining that worker; a `Send` that ignores both its deadline and `Cancel` blocks the join, and so the `Provider` destructor, forever.
+
 ### 2.1 Caller thread (any application thread)
 
 **Identity.** Any thread that calls a public microtel API. Plural — many caller threads share the role. The thread is owned by the application; microtel never creates a caller thread.
@@ -488,6 +490,7 @@ These three seams collectively make every cross-thread contract in this document
 | `ScopedContext` | **Thread-confined** — constructed and destroyed on one thread, never shared. Restore is positional: destroy scopes in reverse order of creation (LOCKED — cites `src/api/context.cpp:ScopedContext`) | `@threadsafety Thread-confined` |
 | `ScopedSpan` | **Thread-confined**, for the `ScopedContext` it holds. Ends its span before restoring the context (LOCKED — cites `include/microtel/span.hpp:ScopedSpan`) | `@threadsafety Thread-confined` |
 | `LeafReceiver` | Thread-safe: `Ingest` and `Stats` may be called concurrently from any application thread, and `Ingest` never blocks. It runs on the caller's thread; microtel starts no thread for it ([ICP 0034](icps/0034-leaf-receiver-api.md)) | `@threadsafety Thread-safe` |
+| `ExportTransport` (application-supplied) | **Must be thread-safe when metrics or logs are on**: `Send` is called from one exporter worker per enabled signal (at most three at once), never concurrently for one signal; `Cancel` from the thread running `Provider::Shutdown`, concurrently with `Send` ([ICP 0036](icps/0036-custom-export-transport.md)) | `@threadsafety` in `export_transport.hpp` |
 | `LogSink` (callback) | Caller-supplied; microtel makes no thread-safety assumption beyond "may be called from any internal thread" | documented in `log_sink.hpp` |
 | `microtel::GetProvider` | Thread-safe, **lock-free and allocation-free** — `kMaxProfiles` acquire-loads and at most that many short string compares. Returns a **borrowed** pointer: valid across that provider's `Shutdown`, dangling after its destruction, `nullptr` in a forked child until it re-builds (LOCKED — cites `src/sdk/provider_registry.cpp:FindProvider`) | `@threadsafety Thread-safe` |
 

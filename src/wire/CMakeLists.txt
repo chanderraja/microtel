@@ -34,3 +34,4 @@ target_compile_options(microtel_gzip PRIVATE
 add_subdirectory(encoder)
 add_subdirectory(http)
 add_subdirectory(grpc)
+add_subdirectory(custom)

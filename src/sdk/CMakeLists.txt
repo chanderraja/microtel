@@ -58,6 +58,7 @@ target_link_libraries(microtel_sdk
             microtel_transport
             microtel_http_wire
             microtel_grpc_wire
+            microtel_custom_wire
             microtel_encoder)
 
 target_include_directories(microtel_sdk

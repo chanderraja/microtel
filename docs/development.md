@@ -288,7 +288,7 @@ target_link_libraries(my_app PRIVATE microtel::microtel)
 
 | Path | Contents |
 |---|---|
-| `<libdir>/libmicrotel_*.a` | The fourteen static components. |
+| `<libdir>/libmicrotel_*.a` | The fifteen static components. |
 | `<libdir>/cmake/microtel/` | `microtelConfig.cmake`, `microtelConfigVersion.cmake`, `MicrotelTargets*.cmake`. |
 | `<includedir>/microtel/` | Public headers, plus `internal/` and `adapters/`. |
 | `<includedir>/microtel/vendor/tl/` | The vendored `tl::expected` (ICP 0002). |

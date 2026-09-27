@@ -561,6 +561,27 @@ refused before decoding meanwhile; a leaf added to the resolver's inventory is
 accepted within that time. Refused leaves take no place in the `max_leaves`
 table (design §4.5).
 
+### 3.15 Application export transport (`WithExportTransport`)
+
+`SdkBuilder::WithExportTransport(transport, ExportTransportOptions)` replaces the HTTP/2 exporter with an application-supplied `microtel::ExportTransport` ([ICP 0036](icps/0036-custom-export-transport.md)). It is code-only: there is no TOML key or environment variable.
+
+| `ExportTransportOptions` field | Default | Notes |
+|---|---|---|
+| `traces` | `true` | Off: the sampler is replaced by always-off, so no span is recorded; one `Warn` at `Build()`. |
+| `metrics` | `false` | Off: `GetMeter` returns a no-op meter and no metrics pipeline or worker is built; one `Warn` the first time. |
+| `logs` | `false` | Off: `GetLogger` returns a no-op logger and no logs pipeline or worker is built; one `Warn` the first time. |
+| `max_request_bytes` | `65536` | Cap, in encoded uncompressed bytes, on joining trace batches into one request; `0` for no cap. A single batch above it is sent whole with a rate-limited `Warn`. Keep it at or below the receiver's limit (a concentrator's `max_payload_bytes`) and, to avoid fragmenting, the link's frame size (UDP: under 65,507). |
+
+The other exporter settings have no meaning on this path:
+
+| Setting | Set in code with `WithExportTransport` | Set by the environment or file |
+|---|---|---|
+| endpoint, protocol, headers, TLS, compression (`WithEndpoint`, `WithProtocol`, `WithHeaders`, `WithTls`, `WithCompressionGzip`; `OTEL_EXPORTER_OTLP_*`, `[exporter]`) | `Build()` fails: `ConfigError::Kind::InvalidValue`, `field = "exporter.transport"` | Ignored, with one `Warn` naming them. Not validated either, so a malformed inherited `OTEL_EXPORTER_OTLP_ENDPOINT` does not fail the build. |
+| `WithAuthProvider` | `Build()` fails, as above | — (code-only) |
+| `timeouts.per_export` | Each `Send`'s deadline is now plus this, clamped to the shutdown deadline once `Shutdown` has begun | same |
+| `timeouts.retry_budget`, `flush`, `shutdown` | Apply as for HTTP | same |
+| `timeouts.connect`, `tls_handshake`; `memory_limits.max_response_bytes`, `max_trailer_bytes`, `max_decompressed_bytes` | Unused | Unused |
+
 ---
 
 ## 4. Build-time options

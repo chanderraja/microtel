@@ -6,6 +6,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/export_transport.hpp"
 #include "microtel/internal/resource_detector.hpp"
 #include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
@@ -260,6 +261,45 @@ public:
     /// `InvalidValue` on field `concentrator.enabled` if any source enables the
     /// receiver.
     SdkBuilder& WithLeafReceiver(LeafReceiverOptions opts);
+
+    /// @brief Export through an application-supplied transport instead of
+    ///        microtel's HTTP/2 one (ICP 0036).
+    ///
+    /// The Provider owns @p transport and hands it every encoded OTLP request
+    /// of the signals @p opts enables — traces only by default. No HTTP/2
+    /// transport, reactor or I/O thread is built, and `Provider::Connect()`
+    /// succeeds without doing anything. Retries, the retry budget, batching
+    /// and every health counter work as they do for HTTP; the `SendResult`
+    /// mapping is `docs/error-model.md` §7.3. Read `ExportTransport` before
+    /// implementing one: a `Send` that ignores both its deadline and `Cancel`
+    /// blocks the Provider's destructor forever.
+    ///
+    /// **Settings with no meaning here.** `WithEndpoint`, `WithProtocol`,
+    /// `WithHeaders`, `WithTls`, `WithAuthProvider` and `WithCompressionGzip`
+    /// together with this make `Build()` fail with
+    /// `ConfigError::Kind::InvalidValue` on field `exporter.transport`. The
+    /// same settings from the environment (`OTEL_EXPORTER_OTLP_*`) or the
+    /// `[exporter]` table are ignored, with one `Warn` naming them. Of
+    /// `TimeoutOptions`, `per_export` bounds each `Send` and `retry_budget`,
+    /// `flush` and `shutdown` apply as usual; `connect` and `tls_handshake`
+    /// are unused.
+    ///
+    /// **`HealthSnapshot::connection_state`** means "sends are succeeding",
+    /// not "the peer is reachable": `Disconnected` until the first `Success`,
+    /// `Connected` after one, `Reconnecting` after a failure that follows a
+    /// success, `Closed` after `Shutdown`. On a fire-and-forget link such as
+    /// UDP, `Connected` says only that requests are leaving this host.
+    ///
+    /// **Signals left off** get a no-op `Meter` or `Logger`, and one `Warn` the
+    /// first time; no pipeline or worker is built for them. With `traces`
+    /// off, the sampler is replaced by always-off.
+    ///
+    /// @param transport non-null; ownership moves into the Provider, which
+    ///        destroys it after every exporter worker has been joined. A null
+    ///        transport fails `Build()` with `InvalidValue`.
+    /// @param opts which signals to export, and the request cap.
+    SdkBuilder& WithExportTransport(std::unique_ptr<ExportTransport> transport,
+                                    ExportTransportOptions opts = {});
 
     /// @brief Validate configuration and construct a `Provider`.
     ///

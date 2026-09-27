@@ -21,6 +21,7 @@
 #include "sdk/metric_producer.hpp"
 #include "sdk/noop_leaf_receiver.hpp"
 #include "sdk/noop_logger.hpp"
+#include "sdk/noop_meter.hpp"
 #include "sdk/periodic_exporting_metric_reader.hpp"
 #include "sdk/provider_registry.hpp"
 #include "sdk/sdk_logger.hpp"
@@ -97,6 +98,7 @@ SdkProvider::SdkProvider(SdkProviderArgs args) noexcept
       m_encoder(std::move(args.encoder)),
       m_auth(std::move(args.auth)),
       m_transport(std::move(args.transport)),
+      m_export_channel(std::move(args.export_channel)),
       m_codec(std::move(args.codec)),
       m_metric_codec(std::move(args.metric_codec)),
       m_log_codec(std::move(args.log_codec)),
@@ -167,6 +169,14 @@ void SdkProvider::StopLeafReceiver() noexcept
 #endif
 }
 
+void SdkProvider::WarnSignalOff(std::atomic<bool>& warned, std::string_view message) noexcept
+{
+    if (!warned.exchange(true, std::memory_order_relaxed))
+    {
+        internal::LogImpl(LogLevel::Warn, message);
+    }
+}
+
 std::shared_ptr<microtel::LeafReceiver> SdkProvider::GetLeafReceiver()
 {
     return m_leaf_receiver;
@@ -187,6 +197,12 @@ std::shared_ptr<Tracer> SdkProvider::GetTracer(std::string_view name, std::strin
 
 Expected<void, Error> SdkProvider::Connect()
 {
+    if (m_transport == nullptr)
+    {
+        // An application ExportTransport: there is nothing to connect, and
+        // the link is the application's (ICP 0036 Decision 1).
+        return {};
+    }
     auto result = m_transport->Connect(m_connect_opts);
     if (!result)
     {
@@ -308,6 +324,12 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
     // Set before tearing anything down so a concurrent GetMeter/GetLogger
     // stops building pipeline components (and spawning their threads).
     m_shut_down.store(true, std::memory_order_release);
+    if (m_export_channel != nullptr)
+    {
+        // Every Send from here on gets a deadline no later than this one
+        // (ICP 0036 Decision 2).
+        m_export_channel->BeginShutdown(timeout);
+    }
     // Before the processor: a payload that arrives now is refused whole as
     // ShutDown, not half-enqueued into a processor that is draining.
     StopLeafReceiver();
@@ -336,7 +358,14 @@ Status SdkProvider::Shutdown(std::chrono::milliseconds timeout) noexcept
         status = WorseOf(status, m_log_exporter->Shutdown(timeout));
     }
     status = WorseOf(status, m_exporter->Shutdown(timeout));
-    status = WorseOf(status, m_transport->Close(timeout));
+    if (m_transport != nullptr)
+    {
+        status = WorseOf(status, m_transport->Close(timeout));
+    }
+    if (m_export_channel != nullptr)
+    {
+        m_export_channel->MarkClosed();
+    }
     if (status == Status::TimedOut)
     {
         // One user-visible Shutdown call, one drop — however many of the six
@@ -350,8 +379,11 @@ HealthSnapshot SdkProvider::GetExporterHealth() const noexcept
 {
     HealthSnapshot health = m_trace->diagnostics->Snapshot();
     // Connection state is read live from the transport; the sink's
-    // SetConnectionState channel is wired up in increment 26.
-    health.connection_state = m_transport->GetState();
+    // SetConnectionState channel is wired up in increment 26. With an
+    // application ExportTransport it is the channel's "sends are succeeding"
+    // state (ICP 0036, docs/error-model.md §9.1).
+    health.connection_state =
+        m_transport != nullptr ? m_transport->GetState() : m_export_channel->State();
     return health;
 }
 
@@ -368,6 +400,18 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
     // may be held by a thread that no longer exists, so locking first would
     // deadlock before the flag was ever consulted. GetLogger already does this.
     const bool shut_down = m_shut_down.load(std::memory_order_acquire);
+    if (m_export_channel != nullptr && m_metric_exporter == nullptr)
+    {
+        WarnSignalOff(m_warned_metrics_off,
+                      "export transport: metrics are off in ExportTransportOptions; GetMeter "
+                      "returns a no-op meter");
+        const std::scoped_lock lk{m_meter_mu};
+        if (!m_noop_meter)
+        {
+            m_noop_meter = std::make_shared<NoopMeter>();
+        }
+        return m_noop_meter;
+    }
     const std::scoped_lock lk{m_meter_mu};
     if (!m_metric_producer)
     {
@@ -411,6 +455,12 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     // After Shutdown the pipeline is gone; building a BatchLogRecordProcessor
     // here would spawn a worker thread that nothing joins until destruction,
     // and its records could never be exported anyway (threading-model.md §6.2).
+    if (m_log_exporter == nullptr && m_export_channel != nullptr)
+    {
+        WarnSignalOff(m_warned_logs_off,
+                      "export transport: logs are off in ExportTransportOptions; GetLogger "
+                      "returns a no-op logger");
+    }
     if (m_log_exporter == nullptr || m_shut_down.load(std::memory_order_acquire))
     {
         return m_noop_logger;

@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -96,6 +97,24 @@ namespace
     return std::nullopt;
 }
 
+/// The Resource budget of an entry whose effective time mode is @p mode, and
+/// the setting that sets it (ICP 0036).
+struct Budget
+{
+    std::uint32_t bytes = 0;
+    const char* setting = "";
+};
+
+[[nodiscard]] Budget BudgetFor(const LeafReceiverOptions& o,
+                               std::optional<LeafTimeMode> mode) noexcept
+{
+    if (mode == LeafTimeMode::Unix)
+    {
+        return Budget{.bytes = o.max_node_resource_bytes, .setting = "max_node_resource_bytes"};
+    }
+    return Budget{.bytes = o.max_leaf_resource_bytes, .setting = "max_leaf_resource_bytes"};
+}
+
 [[nodiscard]] std::optional<ConfigError> CheckLeaf(const LeafReceiverOptions& o,
                                                    const std::string& id,
                                                    const LeafConfig& leaf)
@@ -112,9 +131,12 @@ namespace
     }
     const Resource merged =
         Resource::Merge(Resource{o.leaf_defaults_resource}, Resource{leaf.resource});
-    if (Bytes(merged.Attributes()) > o.max_leaf_resource_bytes)
+    const Budget budget =
+        BudgetFor(o, leaf.time_mode.has_value() ? leaf.time_mode : o.default_time_mode);
+    if (Bytes(merged.Attributes()) > budget.bytes)
     {
-        return Invalid(field, "the leaf's configured Resource exceeds max_leaf_resource_bytes");
+        return Invalid(field,
+                       std::string{"the leaf's configured Resource exceeds "} + budget.setting);
     }
     return std::nullopt;
 }
@@ -137,10 +159,13 @@ Expected<void, ConfigError> ValidateLeafReceiverOptions(const LeafReceiverOption
     {
         return make_unexpected(std::move(*err));
     }
-    if (Bytes(options.leaf_defaults_resource) > options.max_leaf_resource_bytes)
+    // Checked against the budget of an entry with no mode of its own; a leaf
+    // with its own mode is checked, defaults included, by CheckLeaf.
+    const Budget budget = BudgetFor(options, options.default_time_mode);
+    if (Bytes(options.leaf_defaults_resource) > budget.bytes)
     {
-        return make_unexpected(
-            Invalid(defaults_field, "leaf_defaults.resource exceeds max_leaf_resource_bytes"));
+        return make_unexpected(Invalid(
+            defaults_field, std::string{"leaf_defaults.resource exceeds "} + budget.setting));
     }
     for (const auto& [id, leaf] : options.leaves)
     {

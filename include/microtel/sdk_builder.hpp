@@ -256,10 +256,11 @@ public:
     /// `Build()` validates the result and fails with
     /// `ConfigError::Kind::InvalidValue` on a bad limit or duration, a reserved
     /// or `leaf_id_attribute` key in a configured Resource, or a configured
-    /// Resource over `max_leaf_resource_bytes`. In a library built without
-    /// `MICROTEL_WITH_CONCENTRATOR` (the default), `Build()` fails with
-    /// `InvalidValue` on field `concentrator.enabled` if any source enables the
-    /// receiver.
+    /// Resource over its budget: `max_node_resource_bytes` for a leaf whose
+    /// effective time mode is `Unix`, else `max_leaf_resource_bytes`. In a
+    /// library built without `MICROTEL_WITH_CONCENTRATOR` (the default),
+    /// `Build()` fails with `InvalidValue` on field `concentrator.enabled` if
+    /// any source enables the receiver.
     SdkBuilder& WithLeafReceiver(LeafReceiverOptions opts);
 
     /// @brief Export through an application-supplied transport instead of

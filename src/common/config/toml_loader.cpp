@@ -609,6 +609,10 @@ constexpr std::string_view kConcentrator = "concentrator";
     }
     if (!err)
     {
+        err = ReadByteSize(at("max_node_resource_bytes"), o.max_node_resource_bytes);
+    }
+    if (!err)
+    {
         err = ReadDuration(at("leaf_idle_timeout"), o.leaf_idle_timeout);
     }
     return err;
@@ -632,7 +636,7 @@ constexpr std::string_view kConcentrator = "concentrator";
         err = ReadEnum(
             at("default_time_mode"),
             ParseDefaultTimeMode,
-            R"(must be "auto", "concentrator_stamped", "sync_relative" or "boot_relative")",
+            R"(must be "auto", "concentrator_stamped", "sync_relative", "boot_relative" or "unix")",
             o.default_time_mode);
     }
     if (!err)
@@ -692,10 +696,11 @@ constexpr std::string_view kConcentrator = "concentrator";
     const auto at = [tbl, &section](std::string_view key)
     { return ConcentratorKey{.table = tbl, .section = section, .key = key}; };
     LeafTimeMode time_mode{};
-    if (auto err = ReadEnum(at("time_mode"),
-                            ParseLeafTimeMode,
-                            R"(must be "concentrator_stamped", "sync_relative" or "boot_relative")",
-                            time_mode))
+    if (auto err = ReadEnum(
+            at("time_mode"),
+            ParseLeafTimeMode,
+            R"(must be "concentrator_stamped", "sync_relative", "boot_relative" or "unix")",
+            time_mode))
     {
         return err;
     }
@@ -748,6 +753,7 @@ constexpr std::string_view kConcentrator = "concentrator";
                                  "max_spans_per_payload",
                                  "max_leaves",
                                  "max_leaf_resource_bytes",
+                                 "max_node_resource_bytes",
                                  "leaf_idle_timeout",
                                  "unknown_leaf",
                                  "leaf_id_attribute",

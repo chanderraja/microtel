@@ -91,6 +91,25 @@ constexpr std::size_t kArenaFloor = std::size_t{16} * 1024U;
     return v.has_value() && *v > 0 ? static_cast<std::uint64_t>(*v) : 0;
 }
 
+/// ICP 0036 Decision 3: a payload carries at least one span or, from a leaf,
+/// a positive `microtel.leaf.dropped_*`, the only report of drops that reset
+/// on encode. An undeclared ResourceSpans has no reserved key, so for a full
+/// node this is "at least one span".
+[[nodiscard]] bool CarriesSpansOrDrops(
+    const std::vector<internal::DecodedResourceSpans>& decoded) noexcept
+{
+    return std::ranges::any_of(
+        decoded,
+        [](const internal::DecodedResourceSpans& rs)
+        {
+            const LeafWireInfo info = ReadWireInfo(rs.resource);
+            return NonNegative(info.dropped_spans) + NonNegative(info.dropped_items) > 0 ||
+                   std::ranges::any_of(rs.scopes,
+                                       [](const internal::DecodedScopeSpans& scope)
+                                       { return !scope.spans.empty(); });
+        });
+}
+
 /// @p d in nanoseconds, saturated rather than overflowing for durations
 /// beyond about 292 years.
 [[nodiscard]] std::int64_t SaturatingNs(std::chrono::seconds d) noexcept
@@ -211,7 +230,8 @@ bool SdkLeafReceiver::Admit(const IngestRequest& request, Payload& payload, Inge
     payload.decoded = std::move(*decoded);
 
     // All or nothing (§3.4): every ResourceSpans must carry a valid wire
-    // header and valid spans, or none of the payload is taken.
+    // header, or none (a full node's, checked against its config by
+    // Identify), and valid spans, or none of the payload is taken.
     payload.modes.reserve(payload.decoded.size());
     for (const auto& rs : payload.decoded)
     {
@@ -222,7 +242,8 @@ bool SdkLeafReceiver::Admit(const IngestRequest& request, Payload& payload, Inge
         }
         payload.modes.push_back(*mode);
     }
-    if (payload.decoded.empty() || payload.modes.size() != payload.decoded.size())
+    if (payload.decoded.empty() || payload.modes.size() != payload.decoded.size() ||
+        !CarriesSpansOrDrops(payload.decoded))
     {
         result = Reject(IngestStatus::Malformed, DropReason::LeafPayloadMalformed);
         return false;
@@ -277,12 +298,26 @@ std::string SdkLeafReceiver::SettleLeafId(const IngestRequest& request,
     return {};
 }
 
+std::optional<LeafTimeMode> SdkLeafReceiver::EffectiveMode(
+    const LeafSettings& settings) const noexcept
+{
+    return settings.time_mode.has_value() ? settings.time_mode : m_options.default_time_mode;
+}
+
+SdkLeafReceiver::Budget SdkLeafReceiver::BudgetFor(const LeafSettings& settings) const noexcept
+{
+    if (EffectiveMode(settings) == LeafTimeMode::Unix)
+    {
+        return Budget{.bytes = m_options.max_node_resource_bytes,
+                      .setting = "max_node_resource_bytes"};
+    }
+    return Budget{.bytes = m_options.max_leaf_resource_bytes, .setting = "max_leaf_resource_bytes"};
+}
+
 bool SdkLeafReceiver::ModesAllowed(const Payload& payload) const noexcept
 {
     // §5.1: the leaf declares, the config constrains.
-    const std::optional<LeafTimeMode> allowed = payload.settings->time_mode.has_value()
-                                                    ? payload.settings->time_mode
-                                                    : m_options.default_time_mode;
+    const std::optional<LeafTimeMode> allowed = EffectiveMode(*payload.settings);
     return std::ranges::all_of(
         payload.modes, [&allowed](LeafTimeMode mode) { return TimeModeAllowed(mode, allowed); });
 }
@@ -364,7 +399,7 @@ LeafSettings SdkLeafReceiver::ResolveSettings(std::string_view leaf_id)
                                   .configured = nullptr,
                                   .id_key = m_options.leaf_id_attribute,
                                   .leaf_id = leaf_id,
-                                  .budget = m_options.max_leaf_resource_bytes,
+                                  .budget = BudgetFor(settings).bytes,
                               });
     m_counters.resource_attributes_dropped.fetch_add(dropped, std::memory_order_relaxed);
     return settings;
@@ -405,17 +440,31 @@ std::shared_ptr<const Resource> SdkLeafReceiver::ResourceFor(const Payload& payl
     }
     // Resolved with no lock held; two threads racing on a new leaf may both
     // get here, and the table keeps the first (§3.5).
+    const Budget budget = BudgetFor(*payload.settings);
     auto resolved = ResolveLeafResource(LeafResourceLayers{
         .defaults = &m_options.leaf_defaults_resource,
         .declared = &declared,
         .configured = &payload.settings->resource,
         .id_key = m_options.leaf_id_attribute,
         .leaf_id = payload.leaf_id,
-        .budget = m_options.max_leaf_resource_bytes,
+        .budget = budget.bytes,
     });
     m_counters.resource_attributes_dropped.fetch_add(resolved.attributes_dropped,
                                                      std::memory_order_relaxed);
-    return m_table.Insert(payload.leaf_id, hash, std::move(resolved.resource), payload.now);
+    const Resource* const mine = resolved.resource.get();
+    auto kept = m_table.Insert(payload.leaf_id, hash, std::move(resolved.resource), payload.now);
+    // One Warn per table entry: only the thread whose Resource the table kept
+    // logs, so a race on a new leaf logs once (ICP 0036).
+    if (resolved.attributes_dropped > 0 && kept.get() == mine)
+    {
+        internal::LogImpl(LogLevel::Warn,
+                          "leaf receiver: leaf '" + payload.leaf_id + "': dropped " +
+                              std::to_string(resolved.attributes_dropped) +
+                              " Resource attribute(s) over the " + std::to_string(budget.bytes) +
+                              "-byte budget; raise " + std::string{budget.setting} +
+                              " to keep them");
+    }
+    return kept;
 }
 
 TimeCorrection SdkLeafReceiver::CorrectionFor(const Payload& payload,
@@ -424,6 +473,11 @@ TimeCorrection SdkLeafReceiver::CorrectionFor(const Payload& payload,
                                               bool& fell_back)
 {
     // CheckWireInfo has made sure each mode's own attributes are present.
+    if (mode == LeafTimeMode::Unix)
+    {
+        // A full node's own clock: t' = t (§5.6), clamped as every mode is.
+        return TimeCorrection{.offset = 0, .fixed = std::nullopt};
+    }
     if (mode == LeafTimeMode::SyncRelative)
     {
         const SyncLimits limits{.max_sync_age = SaturatingNs(m_options.max_sync_age),

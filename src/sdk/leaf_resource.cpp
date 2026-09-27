@@ -250,6 +250,7 @@ LeafWireInfo ReadWireInfo(const std::vector<KeyValue>& resource) noexcept
         {
             continue;
         }
+        info.declared = true;
         auto* const slot = SlotFor(info, kv.key);
         if (slot == nullptr)
         {
@@ -268,6 +269,12 @@ LeafWireInfo ReadWireInfo(const std::vector<KeyValue>& resource) noexcept
 
 std::optional<LeafTimeMode> CheckWireInfo(const LeafWireInfo& info) noexcept
 {
+    if (!info.declared)
+    {
+        // No leaf header: a full node's payload, admitted provisionally and
+        // accepted only from a sender configured unix (ICP 0036).
+        return LeafTimeMode::Unix;
+    }
     if (info.wrong_type || info.proto != kLeafProtoVersion || !info.time_mode.has_value())
     {
         return std::nullopt;
@@ -296,6 +303,10 @@ std::optional<LeafTimeMode> CheckWireInfo(const LeafWireInfo& info) noexcept
 
 bool TimeModeAllowed(LeafTimeMode declared, std::optional<LeafTimeMode> configured) noexcept
 {
+    if (declared == LeafTimeMode::Unix)
+    {
+        return configured == LeafTimeMode::Unix;
+    }
     return !configured.has_value() || declared == *configured ||
            declared == LeafTimeMode::ConcentratorStamped;
 }

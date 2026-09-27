@@ -46,8 +46,8 @@ namespace microtel::config
 [[nodiscard]] std::optional<UnknownLeafPolicy> ParseUnknownLeafPolicy(
     std::string_view text) noexcept;
 
-/// @brief Parse one time mode: `"concentrator_stamped"`, `"sync_relative"` or
-///        `"boot_relative"`.
+/// @brief Parse one time mode: `"concentrator_stamped"`, `"sync_relative"`,
+///        `"boot_relative"` or `"unix"` (a full node, ICP 0036).
 [[nodiscard]] std::optional<LeafTimeMode> ParseLeafTimeMode(std::string_view text) noexcept;
 
 /// @brief Parse `default_time_mode`: `"auto"` (an empty inner optional) or one

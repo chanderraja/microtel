@@ -30,12 +30,20 @@
 namespace microtel
 {
 
-/// @brief The time mode a leaf payload declares (design §5).
+/// @brief The time mode a leaf payload declares (design §5), or, for `Unix`,
+///        the one a sender is configured with.
 enum class LeafTimeMode : std::uint8_t
 {
     ConcentratorStamped = 0,
     SyncRelative = 1,
     BootRelative = 2,
+    /// Configuration only, never on the wire (ICP 0036, design §5.6): the
+    /// sender is a full node whose clock already holds Unix time. A payload
+    /// with no `microtel.leaf.*` key is accepted only from a sender whose
+    /// effective mode is `Unix`, with its timestamps used unchanged. Such a
+    /// sender may still declare `ConcentratorStamped`, and nothing else. Its
+    /// leaf-table entry gets `max_node_resource_bytes` as its Resource budget.
+    Unix = 3,
 };
 
 /// @brief One leaf payload handed to the receiver.
@@ -95,7 +103,7 @@ struct LeafReceiverStats
     std::uint64_t leaf_reported_drops = 0;          ///< sum of microtel.leaf.dropped_* (§1.7)
     std::uint64_t time_fallbacks = 0;               ///< sync-relative payloads re-anchored (§5.3)
     std::uint64_t payloads_out_of_memory = 0;       ///< §3.3
-    std::uint64_t resource_attributes_dropped = 0;  ///< over max_leaf_resource_bytes (§4.5)
+    std::uint64_t resource_attributes_dropped = 0;  ///< over the entry's Resource budget (§4.5)
     std::uint64_t leaf_id_conflicts = 0;            ///< payload declared a different id (§4.4)
     std::uint64_t payloads_post_shutdown = 0;       ///< Ingest after Shutdown; not decoded
 };
@@ -113,7 +121,8 @@ enum class UnknownLeafPolicy : std::uint8_t
 struct LeafConfig
 {
     /// Unset: the receiver's `default_time_mode`. Set: the payload's declared
-    /// mode must be this one or `ConcentratorStamped` (§5.1).
+    /// mode must be this one or `ConcentratorStamped` (§5.1). `Unix` also
+    /// admits a payload that declares no mode at all (ICP 0036).
     std::optional<LeafTimeMode> time_mode;
     /// Merged above the leaf's own Resource and below its id (§4.4).
     std::vector<KeyValue> resource;
@@ -137,7 +146,8 @@ struct LeafConfig
 /// An answer sits above the leaf's static entry in `leaves`, per key. A
 /// `microtel.leaf.*` key or the `leaf_id_attribute` key in the answer's
 /// Resource is ignored, and keys that would take the configured Resource over
-/// `max_leaf_resource_bytes` are dropped and counted in
+/// its budget (`max_leaf_resource_bytes`, or `max_node_resource_bytes` when
+/// the leaf's effective time mode is `Unix`) are dropped and counted in
 /// `LeafReceiverStats::resource_attributes_dropped`. A resolver that throws is
 /// treated as having answered `std::nullopt`.
 ///
@@ -159,7 +169,8 @@ struct LeafReceiverOptions
     std::uint32_t max_spans_per_payload = 512;
     /// Bound on the leaf table; the least recently seen entry is evicted (§4.5).
     std::uint32_t max_leaves = 1024;
-    /// Bound on one leaf's resolved Resource, keys plus values (§4.5).
+    /// Bound on one leaf's resolved Resource, keys plus values (§4.5), for
+    /// every leaf-table entry whose effective time mode is not `Unix`.
     std::uint32_t max_leaf_resource_bytes = 2U * 1024U;
     /// A leaf not seen for longer than this loses its table entry, checked
     /// when an entry is inserted (§4.5). Must be positive.
@@ -187,6 +198,10 @@ struct LeafReceiverOptions
     std::vector<std::pair<std::string, LeafConfig>> leaves;
     /// Optional; consulted for every leaf the table does not hold (§4.3).
     LeafConfigResolver resolver;
+    /// Bound on the resolved Resource of a leaf-table entry whose effective
+    /// time mode is `LeafTimeMode::Unix`, a full node, in place of
+    /// `max_leaf_resource_bytes` (ICP 0036, §4.5).
+    std::uint32_t max_node_resource_bytes = 16U * 1024U;
 };
 
 /// @brief Receives OTLP trace payloads from leaves and feeds their spans into

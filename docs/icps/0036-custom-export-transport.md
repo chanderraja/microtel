@@ -1,6 +1,6 @@
 # ICP 0036: an application-supplied export transport for full-SDK nodes
 
-**Status:** Draft.
+**Status:** Accepted — implemented by #358 (SDK side).
 **Affected interfaces / docs:**
 - `include/microtel/export_transport.hpp` (new public header)
 - `include/microtel/sdk_builder.hpp` (new `WithExportTransport`)

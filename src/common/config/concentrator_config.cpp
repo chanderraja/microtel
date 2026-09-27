@@ -128,6 +128,10 @@ std::optional<LeafTimeMode> ParseLeafTimeMode(std::string_view text) noexcept
     {
         return LeafTimeMode::BootRelative;
     }
+    if (text == "unix")
+    {
+        return LeafTimeMode::Unix;
+    }
     return std::nullopt;
 }
 

@@ -314,6 +314,9 @@ void microtel_leaf_get_counters(const microtel_leaf_t* leaf,
  * are released from the record buffer and the drop counters reset. On
  * MICROTEL_LEAF_ERR_BUFFER_SMALL nothing is consumed and `*written` is the size
  * needed.
+ *
+ * With no span ended and every drop counter zero, the encode is a header only,
+ * which a concentrator rejects as malformed: do not send it.
  */
 microtel_leaf_status_t microtel_leaf_encode(microtel_leaf_t* leaf,
                                             uint8_t* out,

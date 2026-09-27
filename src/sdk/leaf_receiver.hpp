@@ -99,6 +99,11 @@ public:
 
 private:
     struct Payload;
+    struct Budget
+    {
+        std::uint32_t bytes = 0;
+        std::string_view setting;  ///< its `[concentrator]` key, for the log
+    };
     struct Counters
     {
         std::atomic<std::uint64_t> payloads_accepted{0};
@@ -164,6 +169,14 @@ private:
                                            const Payload& payload) const;
     /// Whether every declared time mode is one the leaf's config allows (§5.1).
     [[nodiscard]] bool ModesAllowed(const Payload& payload) const noexcept;
+    /// The leaf's own configured time mode, else `default_time_mode`; unset
+    /// is `auto`.
+    [[nodiscard]] std::optional<LeafTimeMode> EffectiveMode(
+        const LeafSettings& settings) const noexcept;
+    /// A leaf-table entry's Resource budget and the setting that sets it:
+    /// `max_node_resource_bytes` when its effective mode is `Unix`, else
+    /// `max_leaf_resource_bytes` (ICP 0036, §4.5).
+    [[nodiscard]] Budget BudgetFor(const LeafSettings& settings) const noexcept;
     /// Count a payload that declares an id other than the transport's (§4.4).
     void CountIdConflict(const IngestRequest& request, const Payload& payload) noexcept;
     /// Count a rejected payload once, against @p reason.

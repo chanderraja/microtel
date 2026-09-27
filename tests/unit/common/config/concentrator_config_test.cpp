@@ -447,3 +447,74 @@ TEST(ConcentratorMergeTest, TablesMergePerKeyAndLeavesPerId)
     ASSERT_NE(z, nullptr);
     EXPECT_EQ(StringAt(z->resource, "k"), "code");
 }
+
+// ---------------------------------------------------------------------------
+// Full nodes: the unix time mode and max_node_resource_bytes (ICP 0036)
+// ---------------------------------------------------------------------------
+
+TEST(ConcentratorValueTest, UnixIsATimeModeForALeafAndForTheDefault)
+{
+    EXPECT_EQ(mc::ParseLeafTimeMode("unix"), mt::LeafTimeMode::Unix);
+    EXPECT_EQ(mc::ParseDefaultTimeMode("unix"),
+              std::optional<mt::LeafTimeMode>{mt::LeafTimeMode::Unix});
+    EXPECT_FALSE(mc::ParseLeafTimeMode("Unix").has_value());
+    EXPECT_FALSE(mc::ParseLeafTimeMode("3").has_value()) << "a name, never the wire number";
+}
+
+TEST(ConcentratorTomlTest, UnixAndTheNodeBudgetAreRead)
+{
+    const auto cfg = mc::ParseTomlString("[concentrator]\n"
+                                         "default_time_mode = \"unix\"\n"
+                                         "max_node_resource_bytes = \"32KiB\"\n"
+                                         "[concentrator.leaves.\"127.0.0.1:4000\"]\n"
+                                         "time_mode = \"unix\"\n");
+    ASSERT_TRUE(cfg.has_value()) << cfg.error().field << ": " << cfg.error().message;
+    const auto& o = cfg->concentrator;
+    EXPECT_EQ(o.default_time_mode, mt::LeafTimeMode::Unix);
+    EXPECT_EQ(o.max_node_resource_bytes, 32U * 1024U);
+    const auto* const node = LeafAt(o, "127.0.0.1:4000");
+    ASSERT_NE(node, nullptr);
+    EXPECT_EQ(node->time_mode, mt::LeafTimeMode::Unix);
+}
+
+TEST(ConcentratorTomlTest, TheNodeBudgetDefaultsToSixteenKiB)
+{
+    const auto cfg = mc::ParseTomlString("[concentrator]\nenabled = true\n");
+    ASSERT_TRUE(cfg.has_value());
+    EXPECT_EQ(cfg->concentrator.max_node_resource_bytes, 16U * 1024U);
+    EXPECT_EQ(mt::LeafReceiverOptions{}.max_node_resource_bytes, 16U * 1024U);
+}
+
+TEST(ConcentratorTomlTest, ABadNodeBudgetOrUnixSpellingIsInvalidAndNamesTheKey)
+{
+    ExpectInvalid("[concentrator]\nmax_node_resource_bytes = -2\n",
+                  "concentrator.max_node_resource_bytes");
+    ExpectInvalid("[concentrator]\nmax_node_resource_bytes = \"16KB\"\n",
+                  "concentrator.max_node_resource_bytes");
+    ExpectInvalid("[concentrator]\ndefault_time_mode = \"UNIX\"\n",
+                  "concentrator.default_time_mode");
+    ExpectInvalid("[concentrator.leaves.a]\ntime_mode = \"posix\"\n",
+                  "concentrator.leaves.a.time_mode");
+}
+
+TEST(ConcentratorEnvTest, TheDefaultTimeModeVariableAcceptsUnix)
+{
+    mc::Config cfg;
+    const EnvVars env{{"MICROTEL_CONCENTRATOR_DEFAULT_TIME_MODE", "unix"}};
+
+    ASSERT_TRUE(mc::OverlayEnv(cfg).has_value());
+
+    EXPECT_EQ(cfg.concentrator.default_time_mode, mt::LeafTimeMode::Unix);
+}
+
+TEST(ConcentratorMergeTest, TheNodeBudgetComesFromCodeLikeEveryScalar)
+{
+    mt::LeafReceiverOptions base = mc::DefaultConcentratorOptions();
+    base.max_node_resource_bytes = 1024;
+    mt::LeafReceiverOptions code;
+    code.max_node_resource_bytes = 4096;
+
+    mc::MergeLeafReceiverOptions(base, code);
+
+    EXPECT_EQ(base.max_node_resource_bytes, 4096U);
+}

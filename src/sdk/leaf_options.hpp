@@ -24,7 +24,9 @@ namespace microtel::sdk
 /// - the `leaf_id_attribute` key in any configured Resource, which could
 ///   never take effect (§4.4);
 /// - a configured Resource — the defaults, or the defaults merged with one
-///   leaf's own — over `max_leaf_resource_bytes` (§4.5).
+///   leaf's own — over its entry's budget (§4.5): `max_node_resource_bytes`
+///   when the leaf's effective time mode (its own, else `default_time_mode`)
+///   is `Unix`, else `max_leaf_resource_bytes` (ICP 0036).
 ///
 /// Options with `enabled = false` are not checked: nothing is built from them.
 [[nodiscard]] Expected<void, ConfigError> ValidateLeafReceiverOptions(

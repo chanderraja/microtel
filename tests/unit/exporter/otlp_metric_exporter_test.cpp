@@ -21,9 +21,11 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -551,4 +553,84 @@ TEST(OtlpMetricExporterTest, Retry_FirstRetryWaitsForFanOutRetryAfter)
     EXPECT_EQ(codec.send_call_count.load(), 2);
     EXPECT_GE(elapsed, kFanOutRetryAfter) << "the fan-out's retry_after is slept before attempt 1";
     EXPECT_EQ(DropCount(sink, mt::DropReason::RetryableFailureRecovered), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// on_shutdown_timeout (ICP 0036 Decision 2)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A codec whose Send blocks until Release, as a transport ignoring its
+/// deadline would.
+class BlockingCodec final : public mti::IWireCodec
+{
+public:
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
+    [[nodiscard]] mti::WireResult Send(mti::EncodedPayload&& /*payload*/,
+                                       std::chrono::milliseconds /*deadline*/) override
+    {
+        std::unique_lock lock{m_mu};
+        m_entered = true;
+        m_cv.notify_all();
+        m_cv.wait(lock, [this] { return m_released; });
+        return mti::WireResult{.success = true};
+    }
+
+    void WaitUntilEntered()
+    {
+        std::unique_lock lock{m_mu};
+        m_cv.wait(lock, [this] { return m_entered; });
+    }
+
+    void Release()
+    {
+        const std::scoped_lock lock{m_mu};
+        m_released = true;
+        m_cv.notify_all();
+    }
+
+private:
+    std::mutex m_mu;
+    std::condition_variable m_cv;
+    bool m_entered = false;
+    bool m_released = false;
+};
+
+}  // namespace
+
+TEST(OtlpMetricExporterTest, ShutdownTimeout_CallsTheHookBeforeJoiningTheWorker)
+{
+    mtmk::MockMetricEncoder encoder;
+    BlockingCodec codec;
+    int hook_calls = 0;
+    mte::OtlpMetricExporterConfig cfg;
+    cfg.on_shutdown_timeout = [&]
+    {
+        ++hook_calls;
+        codec.Release();
+    };
+    mte::OtlpMetricExporter exporter{&encoder, &codec, cfg};
+
+    ASSERT_EQ(exporter.Export(MakeBatch()), mti::ExportResult::Success);
+    codec.WaitUntilEntered();
+
+    EXPECT_EQ(exporter.Shutdown(std::chrono::milliseconds(50)), mt::Status::TimedOut);
+    EXPECT_EQ(hook_calls, 1);
+}
+
+TEST(OtlpMetricExporterTest, ShutdownCompleted_DoesNotCallTheHook)
+{
+    mtmk::MockMetricEncoder encoder;
+    mtmk::MockWireCodec codec;
+    codec.result_to_return.success = true;
+    int hook_calls = 0;
+    mte::OtlpMetricExporterConfig cfg;
+    cfg.on_shutdown_timeout = [&] { ++hook_calls; };
+    mte::OtlpMetricExporter exporter{&encoder, &codec, cfg};
+
+    (void)exporter.Export(MakeBatch());
+    EXPECT_EQ(exporter.Shutdown(std::chrono::seconds(5)), mt::Status::Completed);
+    EXPECT_EQ(hook_calls, 0);
 }

@@ -30,9 +30,9 @@ OtlpExporter::OtlpExporter(internal::IOtlpEncoder* encoder,
                            internal::ISteadyClock* clock) noexcept
     : m_encoder(encoder),
       m_codec(codec),
-      m_config(config),
+      m_config(std::move(config)),
       m_diag(diag),
-      m_retry(config.retry_policy, diag, clock),
+      m_retry(m_config.retry_policy, diag, clock),
       m_worker([this] { WorkerLoop(); })
 {
 }
@@ -152,6 +152,11 @@ microtel::Status OtlpExporter::Shutdown(std::chrono::milliseconds timeout) noexc
         std::unique_lock lock{m_mu};
         return m_cv.wait_for(lock, timeout, [this] { return m_flush_done_seq >= m_flush_seq; });
     }();
+    if (!completed && m_config.on_shutdown_timeout)
+    {
+        // Before the join: the worker may be inside a Send only this wakes.
+        m_config.on_shutdown_timeout();
+    }
     if (m_worker.joinable())
     {
         m_worker.join();
@@ -237,6 +242,33 @@ internal::EncodedPayload OtlpExporter::EncodeRequest(
     return wire::ConcatenateTraceRequests(std::move(parts));
 }
 
+std::vector<OtlpExporter::RequestRange> OtlpExporter::GroupIntoRequests(
+    const std::vector<internal::BatchHandle>& batches,
+    const std::vector<internal::EncodedPayload>& parts) const
+{
+    std::vector<RequestRange> requests;
+    std::size_t spans_in_request = 0;
+    std::size_t bytes_in_request = 0;
+    for (std::size_t i = 0; i < batches.size(); ++i)
+    {
+        const std::size_t spans = batches[i].Spans().size();
+        const std::size_t bytes = parts.at(i).Size();
+        const bool over_spans = spans_in_request + spans > m_config.max_spans_per_request;
+        const bool over_bytes = m_config.max_request_bytes != 0 &&
+                                bytes_in_request + bytes > m_config.max_request_bytes;
+        if (requests.empty() || over_spans || over_bytes)
+        {
+            requests.push_back(RequestRange{.first = i, .count = 0});
+            spans_in_request = 0;
+            bytes_in_request = 0;
+        }
+        ++requests.back().count;
+        spans_in_request += spans;
+        bytes_in_request += bytes;
+    }
+    return requests;
+}
+
 void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& batches)
 {
     if (batches.empty())
@@ -244,33 +276,32 @@ void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& ba
         return;
     }
 
-    // Split the drained batches into requests: consecutive batches while the
-    // running span count stays within max_spans_per_request. A request holds
-    // at least one batch, so a batch over the limit goes alone and whole.
-    struct Request
+    // Encode each batch once, then split the drain into requests on those
+    // encodings: consecutive batches while the running span count stays
+    // within max_spans_per_request and, when set, the running encoded size
+    // within max_request_bytes (ICP 0036). A request holds at least one
+    // batch, so a batch over either limit goes alone and whole. The grouping
+    // is fixed here for the whole drain, so a retry below re-encodes exactly
+    // the group its first attempt carried.
+    std::vector<internal::EncodedPayload> parts;
+    parts.reserve(batches.size());
+    for (const auto& batch : batches)
     {
-        std::size_t first = 0;
-        std::size_t count = 0;
-    };
-    std::vector<Request> requests;
-    std::size_t spans_in_request = 0;
-    for (std::size_t i = 0; i < batches.size(); ++i)
-    {
-        const std::size_t spans = batches[i].Spans().size();
-        if (requests.empty() || spans_in_request + spans > m_config.max_spans_per_request)
-        {
-            requests.push_back(Request{.first = i, .count = 0});
-            spans_in_request = 0;
-        }
-        ++requests.back().count;
-        spans_in_request += spans;
+        parts.push_back(m_encoder->Encode(batch));
     }
+    const std::vector<RequestRange> requests = GroupIntoRequests(batches, parts);
 
     std::vector<internal::EncodedPayload> payloads;
     payloads.reserve(requests.size());
     for (const auto& request : requests)
     {
-        payloads.push_back(EncodeRequest(batches, request.first, request.count));
+        std::vector<internal::EncodedPayload> group;
+        group.reserve(request.count);
+        for (std::size_t i = request.first; i < request.first + request.count; ++i)
+        {
+            group.push_back(std::move(parts.at(i)));
+        }
+        payloads.push_back(wire::ConcatenateTraceRequests(std::move(group)));
     }
 
     // Fan-out: all requests submitted concurrently; SendAll collapses N
@@ -284,7 +315,7 @@ void OtlpExporter::FanOutAndProcess(const std::vector<internal::BatchHandle>& ba
     // requests throws into DrainQueue's catch rather than reading past the end.
     for (std::size_t i = 0; i < results.size(); ++i)
     {
-        const Request& request = requests.at(i);
+        const RequestRange& request = requests.at(i);
         m_retry.Settle(
             results.at(i),
             [this, &batches, &request]

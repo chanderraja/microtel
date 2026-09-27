@@ -21,3 +21,10 @@ unknown_leaf = "accept"
 [concentrator.leaves."127.0.0.1:9311".resource]
 "service.name" = "greenhouse-north"
 "greenhouse.zone" = "north"
+
+# The full C++ node, udp_full_node (ICP 0036). Its requests carry no
+# microtel.leaf.* header, and the concentrator accepts such a payload only from
+# a sender named here with time_mode = "unix": its clock is trusted and its
+# timestamps pass through unchanged. It keeps its own service.name.
+[concentrator.leaves."127.0.0.1:9313"]
+time_mode = "unix"

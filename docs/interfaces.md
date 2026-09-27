@@ -328,6 +328,8 @@ Created by the `Provider` at `Build()` time. Owned by the `Provider`. Stateless,
 
 Serializes / deserializes the OTLP-over-HTTP/2 wire shape — framing, headers, status interpretation, retry classification — for one of the two wire protocols. Two implementations: HTTP-protobuf (`src/wire/http/`) and gRPC-on-nghttp2 (`src/wire/grpc/`). One interface (LOCKED — ICP 0001 / spec ICP discussion).
 
+A third implementation, `ExportTransportCodec` (`src/wire/custom/`, ICP 0036), carries no HTTP/2 at all: it hands the encoded request to an application-supplied `microtel::ExportTransport` through a Provider-wide `ExportTransportChannel`, one codec per enabled signal, and maps the `SendResult` back (`error-model.md` §7.3). It has no `ITransport`; the rest of this contract — single caller, full classification, `Send` not `noexcept` — holds unchanged.
+
 #### Contract
 
 ```

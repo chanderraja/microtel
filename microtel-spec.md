@@ -963,6 +963,8 @@ A common pattern in embedded deployments is fleets of constrained devices (modem
 
 **Time handling:** three modes (concentrator-stamped, sync-relative, boot-relative), configurable per leaf.
 
+**Full-SDK nodes:** a device that can run the C++ runtime but shares the leaves' link exports through an application-supplied `ExportTransport` (`SdkBuilder::WithExportTransport`), keeping sampling, batching, retries and the Tracer API, and the concentrator accepts its undeclared payloads from senders it is configured to trust as holding Unix time ([ICP 0036](docs/icps/0036-custom-export-transport.md)).
+
 **v1 commitments to keep this option open** are minimal seams only — no public APIs are guaranteed stable until v2 design is accepted:
 
 1. Late Resource enrichment supported in the SDK pipeline (not only at SDK init).

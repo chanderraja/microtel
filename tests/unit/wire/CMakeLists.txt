@@ -5,6 +5,7 @@
 
 add_subdirectory(http)
 add_subdirectory(grpc)
+add_subdirectory(custom)
 
 microtel_add_test(
     NAME    gzip_test

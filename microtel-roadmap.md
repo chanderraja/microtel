@@ -163,6 +163,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 - **Concentrator role** in main microtel: the application hands it leaf payloads through an ingest call; it decodes them, enriches with Resource attributes from config (`device-id → service.*`), runs the standard sampling / batching / export pipeline, and ships to the upstream collector over OTLP/HTTP or OTLP/gRPC. No inbound socket.
 - **Time handling:** three modes — concentrator-stamped, sync-relative, boot-relative — configurable per leaf in the concentrator's config.
 - **Late Resource enrichment** and the **Receiver abstraction** arrive as new public API, marked experimental.
+- **Full-SDK nodes on the leaf link:** `SdkBuilder::WithExportTransport` hands a C++ Provider's encoded OTLP requests to an application-supplied transport instead of HTTP/2 ([ICP 0036](docs/icps/0036-custom-export-transport.md)).
 
 **Anti-goals in v1.2:** no log-side sampling (collector handles it), no structured-log search features (not microtel's job); for the leaf, no RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link (application transport's job).
 

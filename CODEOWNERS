@@ -51,6 +51,9 @@
 # Track C — OTLP/gRPC wire codec (the hardest piece)
 /src/wire/grpc/                         @chanderraja
 
+# Application export transport codec (ICP 0036)
+/src/wire/custom/                       @chanderraja
+
 # Track D — Transport (foundational)
 /src/transport/                         @chanderraja
 

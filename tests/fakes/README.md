@@ -24,6 +24,7 @@ Test doubles that carry logic, for the cases where a mock isn't enough.
 | `fake_provider.hpp`               | `microtel::Provider`            | Records tracer and meter acquisitions and flush/shutdown timeouts, and returns configured statuses. Hands out a `FakeLeafReceiver`. |
 | `fake_leaf_receiver.hpp`          | `microtel::LeafReceiver`        | The no-op receiver `FakeProvider` returns (ICP 0034): answers `Disabled` and counts calls. |
 | `fake_otlp_trace_decoder.hpp`     | `internal::IOtlpTraceDecoder`   | Serves a canned decode, applies `max_spans` to it, and throws `std::bad_alloc` on a chosen call to drive the receiver's out-of-memory path. |
+| `fake_export_transport.hpp`       | `microtel::ExportTransport`     | Serves scripted `SendResult`s in FIFO order and keeps a copy of every request; optionally throws (std or not) or blocks each `Send`, past its deadline, until `Cancel` — the transport `Cancel` exists for (ICP 0036). Thread-safe, since a Provider with metrics and logs on calls it from three workers. |
 | `fake_meter.hpp`                  | `microtel::Meter`               | Records instrument creations, returns recording sync instruments, and captures observable callbacks so tests can drive a collection cycle. |
 
 ## Rules

@@ -118,6 +118,9 @@ compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
 Logs ([`docs/logs-design.md`](../../docs/logs-design.md)):
 
 - `SdkLogger` and `NoopLogger`.
+- [`noop_meter.hpp`](noop_meter.hpp): `NoopMeter`, what `GetMeter` returns when
+  an application `ExportTransport` has metrics off (ICP 0036 Decision 3); the
+  metric-side twin of `NoopLogger`.
 - `internal::ILogRecordProcessor` realisations: `BatchLogRecordProcessor` and
   `SimpleLogRecordProcessor`.
 

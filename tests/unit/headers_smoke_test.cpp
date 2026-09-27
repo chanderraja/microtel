@@ -21,6 +21,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/export_transport.hpp"
 #include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/meter.hpp"

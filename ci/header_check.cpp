@@ -16,6 +16,7 @@
 #include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
 #include "microtel/error.hpp"
+#include "microtel/export_transport.hpp"
 #include "microtel/leaf_receiver.hpp"
 #include "microtel/log_sink.hpp"
 #include "microtel/propagator.hpp"

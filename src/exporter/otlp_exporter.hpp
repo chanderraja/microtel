@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string_view>
 #include <thread>
@@ -72,6 +73,19 @@ struct OtlpExporterConfig
     /// batch larger than this goes as a request of its own. `SdkBuilder` sets
     /// it to `BatchOptions::max_export_batch_size`.
     std::size_t max_spans_per_request = kDefaultMaxSpansPerRequest;
+    /// @brief Most encoded bytes one joined request may carry; 0 for no cap
+    /// (ICP 0036). A join stops before the batch whose encoding would take
+    /// the request past it, and that batch starts the next request. A batch
+    /// whose own encoding exceeds it still goes alone and whole. `SdkBuilder`
+    /// sets it from `ExportTransportOptions::max_request_bytes` for an
+    /// application transport, and leaves it 0 for HTTP and gRPC.
+    std::size_t max_request_bytes = 0;
+    /// @brief Called once from `Shutdown`, on the thread running it, when the
+    /// drain wait expires, before the worker is joined; empty for none. The
+    /// SDK sets it for an application `ExportTransport`, to call its `Cancel`
+    /// and wake a `Send` the worker would otherwise be joined inside
+    /// (ICP 0036 Decision 2). Must not block.
+    std::function<void()> on_shutdown_timeout{};
 };
 
 /// @brief Protocol-agnostic OTLP export pipeline.
@@ -125,9 +139,22 @@ public:
     [[nodiscard]] microtel::Status Shutdown(std::chrono::milliseconds timeout) noexcept override;
 
 private:
+    /// @brief The batches `[first, first + count)` of one drain, sent as one
+    ///        request.
+    struct RequestRange
+    {
+        std::size_t first = 0;
+        std::size_t count = 0;
+    };
+
     void WorkerLoop() noexcept;
     void DrainQueue(std::unique_lock<std::mutex>& lock) noexcept;
     void FanOutAndProcess(const std::vector<internal::BatchHandle>& batches);
+    /// @brief Split one drain into requests by span count and, when set,
+    ///        encoded size. @p parts are the batches' encodings, index for index.
+    [[nodiscard]] std::vector<RequestRange> GroupIntoRequests(
+        const std::vector<internal::BatchHandle>& batches,
+        const std::vector<internal::EncodedPayload>& parts) const;
     /// @brief Queue one batch, or count why not. Caller must hold `m_mu`.
     [[nodiscard]] internal::ExportResult EnqueueLocked(internal::BatchHandle&& batch) noexcept;
     /// @brief Encode the batches `[first, first + count)` of @p batches and

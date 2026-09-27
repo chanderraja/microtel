@@ -25,6 +25,7 @@
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/trace_pipeline.hpp"
 #include "sdk/view_registry.hpp"
+#include "wire/custom/export_transport_codec.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -60,7 +61,12 @@ struct SdkProviderArgs
     std::unique_ptr<DiagnosticsCounters> diagnostics;
     std::unique_ptr<internal::IOtlpEncoder> encoder;
     std::unique_ptr<internal::IAuthProvider> auth;
+    /// @brief The HTTP/2 transport, or null with an application
+    ///        `ExportTransport` (ICP 0036), when `export_channel` is set instead.
     std::unique_ptr<internal::ITransport> transport;
+    /// @brief The application `ExportTransport`'s channel, or null for the
+    ///        HTTP/2 transport. Exactly one of `transport` and this is set.
+    std::unique_ptr<wire::ExportTransportChannel> export_channel;
     std::unique_ptr<internal::IWireCodec> codec;
     std::unique_ptr<internal::IExporter> exporter;
     /// @brief Borrowed, non-owning pointer to `processor` when it is a
@@ -280,6 +286,9 @@ private:
     /// @brief Make the live leaf receiver refuse every later payload. A single
     ///        atomic store, so the fork child handler may call it too.
     void StopLeafReceiver() noexcept;
+    /// @brief One Warn, the first time a signal an application
+    ///        `ExportTransport` left off is asked for (ICP 0036 Decision 3).
+    static void WarnSignalOff(std::atomic<bool>& warned, std::string_view message) noexcept;
 
 public:
 private:
@@ -324,7 +333,13 @@ private:
     std::unique_ptr<internal::IOtlpEncoder> m_encoder;
     std::unique_ptr<internal::IAuthProvider> m_auth;
     // Transport owns the I/O thread; must outlive all codecs and exporters.
+    // Null with an application ExportTransport (ICP 0036).
     std::unique_ptr<internal::ITransport> m_transport;
+    // The application ExportTransport, when there is one. It owns that
+    // transport, which the codecs reach on the exporter workers, so it is
+    // declared before them and destroyed after every worker is joined
+    // (ICP 0036 Decision 2). Null for HTTP/2.
+    std::unique_ptr<wire::ExportTransportChannel> m_export_channel;
     std::unique_ptr<internal::IWireCodec> m_codec;
     // Metric codec must outlive m_metric_exporter (which holds a raw pointer to it).
     std::unique_ptr<internal::IWireCodec> m_metric_codec;
@@ -374,6 +389,12 @@ private:
     std::mutex m_meter_mu;
     std::shared_ptr<MetricProducer> m_metric_producer;
     std::unordered_map<std::string, std::shared_ptr<SdkMeter>> m_meters;
+    // What GetMeter returns when an application ExportTransport has metrics
+    // off (ICP 0036 Decision 3). Built on first need, under m_meter_mu.
+    std::shared_ptr<microtel::Meter> m_noop_meter;
+    // One Warn each, the first time a switched-off signal is asked for.
+    std::atomic<bool> m_warned_metrics_off{false};
+    std::atomic<bool> m_warned_logs_off{false};
 
     // Logs pipeline: m_log_processor is lazily initialised on first GetLogger().
     std::mutex m_logger_mu;

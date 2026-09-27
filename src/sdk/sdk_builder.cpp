@@ -12,6 +12,7 @@
 #include "microtel/attribute.hpp"
 #include "microtel/error.hpp"
 #include "microtel/expected.hpp"
+#include "microtel/export_transport.hpp"
 #include "microtel/internal/batch_group_exporter.hpp"
 #include "microtel/internal/otlp_trace_decoder.hpp"
 #include "microtel/internal/sampler.hpp"
@@ -44,6 +45,7 @@
 #include "sdk/view_registry.hpp"
 #include "transport/epoll_reactor.hpp"
 #include "transport/http2_transport.hpp"
+#include "wire/custom/export_transport_codec.hpp"
 #include "wire/encoder/otlp_encoder.hpp"
 #ifdef MICROTEL_WITH_CONCENTRATOR
 #include "wire/encoder/otlp_trace_decoder.hpp"
@@ -51,6 +53,7 @@
 #include "wire/grpc/grpc_wire_codec.hpp"
 #include "wire/http/http_wire_codec.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -59,6 +62,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -101,10 +105,28 @@ struct SdkBuilder::Impl
     /// `MICROTEL_CONCENTRATOR_*` variables say, disabled by default. Set: merged
     /// over them, code highest (design §4.3).
     std::optional<LeafReceiverOptions> leaf_receiver;
+    /// The application's transport (ICP 0036). Moves into the Provider.
+    std::unique_ptr<ExportTransport> export_transport;
+    /// Set by `WithExportTransport`, even with a null transport: it is what
+    /// marks the build as custom-transport, so a null one is refused rather
+    /// than silently falling back to HTTP.
+    std::optional<ExportTransportOptions> export_transport_opts;
 
     bool consumed = false;
 
-    [[nodiscard]] Expected<config::Config, ConfigError> LoadConfig() const;
+    /// @brief File, environment, code, then validation.
+    /// @param ignored with a custom transport, receives the names of the
+    ///        exporter settings the file or environment set, which were
+    ///        dropped; the caller warns once `logging.level` is applied.
+    [[nodiscard]] Expected<config::Config, ConfigError> LoadConfig(
+        std::vector<std::string_view>& ignored) const;
+    /// @brief Refuse a custom transport that is null or set together with a
+    ///        code-set exporter setting it would silently override (ICP 0036).
+    [[nodiscard]] Expected<void, ConfigError> CheckExportTransport() const;
+    /// @brief Emit the custom-transport warnings and, with traces off, swap
+    ///        in the always-off sampler. Only called with a custom transport.
+    /// @param ignored the settings `LoadConfig` dropped.
+    void PrepareCustomTransport(const std::vector<std::string_view>& ignored);
     void ApplyExporterOverrides(config::Config& cfg) const;
     void ApplyResourceOverrides(config::Config& cfg) const;
 
@@ -118,7 +140,8 @@ struct SdkBuilder::Impl
     /// @param cfg          the resolved configuration.
     /// @param resource     the merged `Resource`; ownership moves in.
     /// @param auth         the auth provider, or nullptr; ownership moves in.
-    /// @param transport    the transport, already constructed; ownership moves in.
+    /// @param transport    the transport, already constructed, or nullptr with an
+    ///                     application `ExportTransport`; ownership moves in.
     /// @param profile_name the profile to register the provider under.
     /// @return the registered provider, or the `ConfigError` that refused it.
     [[nodiscard]] Expected<std::shared_ptr<Provider>, ConfigError> Assemble(
@@ -283,6 +306,14 @@ SdkBuilder& SdkBuilder::WithLeafReceiver(LeafReceiverOptions opts)
     return *this;
 }
 
+SdkBuilder& SdkBuilder::WithExportTransport(std::unique_ptr<ExportTransport> transport,
+                                            ExportTransportOptions opts)
+{
+    m_impl->export_transport = std::move(transport);
+    m_impl->export_transport_opts = opts;
+    return *this;
+}
+
 // ---------------------------------------------------------------------------
 // Build helpers
 // ---------------------------------------------------------------------------
@@ -429,6 +460,18 @@ void WarnOnRiskyConfig(const config::Config& cfg) noexcept
     return std::move(*http2);
 }
 
+/// @brief The HTTP/2 transport, or none with an application `ExportTransport`:
+///        no Http2Transport, no reactor, no I/O thread (ICP 0036 Decision 1).
+[[nodiscard]] Expected<std::unique_ptr<internal::ITransport>, ConfigError> CreateTransportUnless(
+    bool custom_transport)
+{
+    if (custom_transport)
+    {
+        return std::unique_ptr<internal::ITransport>{};
+    }
+    return CreateTransport();
+}
+
 constexpr std::string_view kHttpMetricsPath = "/v1/metrics";
 constexpr std::string_view kGrpcMetricsPath =
     "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
@@ -543,6 +586,37 @@ struct ExporterPack
     // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
+/// @brief The retry policy all three signals share (issue #222).
+///
+/// `retry_budget` is the only retry axis TimeoutOptions exposes; the rest of
+/// RetryPolicyConfig (attempts, backoff shape, jitter) has no config surface
+/// and keeps its OTLP-recommended in-class defaults.
+[[nodiscard]] exporter::RetryPolicyConfig SharedRetryPolicy(const config::Config& cfg)
+{
+    return exporter::RetryPolicyConfig{.retry_budget = cfg.timeouts.retry_budget};
+}
+
+/// @brief The trace exporter's configuration for either transport.
+[[nodiscard]] exporter::OtlpExporterConfig TraceExporterConfig(const config::Config& cfg)
+{
+    // A request carries at most one processor batch's worth of spans, so
+    // joining drained batches never makes a request larger than a batch the
+    // processor could have cut (design §3.6.1). Fixed at build time: a later
+    // SetBatchOptions retunes the processor, not this. The queue is budgeted
+    // in spans, a fixed number of full batches' worth, so a drain split over
+    // many leaves' Resources costs no more of it than one leaf's (issue #345).
+    const std::size_t queued_spans = exporter::QueuedSpanBudget(cfg.batch.max_export_batch_size);
+    return exporter::OtlpExporterConfig{
+        .max_queue_size = queued_spans,
+        .max_queued_spans = queued_spans,
+        .export_deadline = cfg.timeouts.per_export,
+        .retry_policy = SharedRetryPolicy(cfg),
+        .max_spans_per_request = cfg.batch.max_export_batch_size,
+        .max_request_bytes = 0,
+        .on_shutdown_timeout = {},
+    };
+}
+
 [[nodiscard]] ExporterPack BuildExporters(wire::OtlpEncoder* encoder,
                                           internal::ITransport* transport,
                                           internal::IAuthProvider* auth,
@@ -559,25 +633,7 @@ struct ExporterPack
     auto log_codec =
         BuildWireCodec(transport, cfg, ToHeaderFields(cfg.headers), auth, diag, log_path);
 
-    // `retry_budget` is the only retry axis TimeoutOptions exposes; the rest of
-    // RetryPolicyConfig (attempts, backoff shape, jitter) has no config surface
-    // and keeps its OTLP-recommended in-class defaults. All three signals share
-    // the one policy (issue #222).
-    const exporter::RetryPolicyConfig retry_policy{.retry_budget = cfg.timeouts.retry_budget};
-    // A request carries at most one processor batch's worth of spans, so
-    // joining drained batches never makes a request larger than a batch the
-    // processor could have cut (design §3.6.1). Fixed at build time: a later
-    // SetBatchOptions retunes the processor, not this. The queue is budgeted
-    // in spans, a fixed number of full batches' worth, so a drain split over
-    // many leaves' Resources costs no more of it than one leaf's (issue #345).
-    const std::size_t queued_spans = exporter::QueuedSpanBudget(cfg.batch.max_export_batch_size);
-    const exporter::OtlpExporterConfig ex_cfg{
-        .max_queue_size = queued_spans,
-        .max_queued_spans = queued_spans,
-        .export_deadline = cfg.timeouts.per_export,
-        .retry_policy = retry_policy,
-        .max_spans_per_request = cfg.batch.max_export_batch_size,
-    };
+    const exporter::OtlpExporterConfig ex_cfg = TraceExporterConfig(cfg);
     auto trace_exp = std::make_unique<exporter::OtlpExporter>(encoder, codec.get(), ex_cfg, diag);
     // One sink across all three signals: batches_sent / batches_failed are
     // therefore cross-signal aggregates (see docs/error-model.md §3).
@@ -585,13 +641,15 @@ struct ExporterPack
         encoder,
         metric_codec.get(),
         exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export,
-                                           .retry_policy = retry_policy},
+                                           .retry_policy = SharedRetryPolicy(cfg),
+                                           .on_shutdown_timeout = {}},
         diag);
     auto log_exp = std::make_unique<exporter::OtlpLogExporter>(
         encoder,
         log_codec.get(),
         exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export,
-                                        .retry_policy = retry_policy},
+                                        .retry_policy = SharedRetryPolicy(cfg),
+                                        .on_shutdown_timeout = {}},
         diag);
 
     return ExporterPack{
@@ -603,6 +661,59 @@ struct ExporterPack
         .metric_exporter = std::move(metric_exp),
         .log_exporter = std::move(log_exp),
     };
+}
+
+/// @brief The exporters for an application `ExportTransport` (ICP 0036):
+///        one `ExportTransportCodec` per enabled signal over one channel, and
+///        no metric or log exporter, so no worker, for a signal left off.
+///
+/// Every exporter's shutdown hook cancels the channel's in-flight `Send`, so
+/// whichever exporter's wait expires first wakes it.
+///
+/// @param channel borrowed; must outlive every codec and exporter returned.
+[[nodiscard]] ExporterPack BuildCustomExporters(wire::OtlpEncoder* encoder,
+                                                wire::ExportTransportChannel* channel,
+                                                const ExportTransportOptions& opts,
+                                                const config::Config& cfg,
+                                                internal::IDiagnosticsSink* diag)
+{
+    const auto cancel = [channel] { channel->CancelInFlight(); };
+    ExporterPack pack;
+
+    pack.codec = std::make_unique<wire::ExportTransportCodec>(
+        channel, ExportSignal::Traces, opts.max_request_bytes);
+    exporter::OtlpExporterConfig ex_cfg = TraceExporterConfig(cfg);
+    ex_cfg.max_request_bytes = opts.max_request_bytes;
+    ex_cfg.on_shutdown_timeout = cancel;
+    auto trace_exp =
+        std::make_unique<exporter::OtlpExporter>(encoder, pack.codec.get(), ex_cfg, diag);
+    pack.group_exporter = trace_exp.get();
+    pack.exporter = std::move(trace_exp);
+
+    if (opts.metrics)
+    {
+        pack.metric_codec =
+            std::make_unique<wire::ExportTransportCodec>(channel, ExportSignal::Metrics);
+        pack.metric_exporter = std::make_unique<exporter::OtlpMetricExporter>(
+            encoder,
+            pack.metric_codec.get(),
+            exporter::OtlpMetricExporterConfig{.export_deadline = cfg.timeouts.per_export,
+                                               .retry_policy = SharedRetryPolicy(cfg),
+                                               .on_shutdown_timeout = cancel},
+            diag);
+    }
+    if (opts.logs)
+    {
+        pack.log_codec = std::make_unique<wire::ExportTransportCodec>(channel, ExportSignal::Logs);
+        pack.log_exporter = std::make_unique<exporter::OtlpLogExporter>(
+            encoder,
+            pack.log_codec.get(),
+            exporter::OtlpLogExporterConfig{.export_deadline = cfg.timeouts.per_export,
+                                            .retry_policy = SharedRetryPolicy(cfg),
+                                            .on_shutdown_timeout = cancel},
+            diag);
+    }
+    return pack;
 }
 
 /// @brief Build the span processor from the resolved configuration.
@@ -679,7 +790,130 @@ struct ExporterPack
 // Impl — config loading and code overrides
 // ---------------------------------------------------------------------------
 
-Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig() const
+namespace
+{
+
+/// `ConfigError::field` for every custom-transport refusal (ICP 0036).
+constexpr const char* kExportTransportField = "exporter.transport";
+
+/// What `Validate` parses in place of an endpoint with a custom transport. It
+/// is never connected to: no HTTP/2 transport exists to connect with. https,
+/// so that nothing downstream mistakes it for plaintext.
+constexpr std::string_view kCustomTransportPlaceholderEndpoint = "https://localhost:4318";
+
+[[nodiscard]] bool TlsConfigured(const TlsOptions& tls) noexcept
+{
+    return tls.insecure || !tls.ca_bundle.empty() || !tls.client_cert.empty() ||
+           !tls.client_key.empty() || !tls.sni_override.empty();
+}
+
+/// @brief Drop the exporter settings a custom transport gives no meaning to,
+///        as the file and environment left them (ICP 0036 Decision 1).
+/// @return the names of those that were set, for one Warn.
+[[nodiscard]] std::vector<std::string_view> DropExporterSettings(config::Config& cfg)
+{
+    std::vector<std::string_view> ignored;
+    const std::array<std::pair<bool, std::string_view>, 5> checks{{
+        {!cfg.endpoint_url.empty(), "endpoint"},
+        {cfg.protocol_explicit, "protocol"},
+        {!cfg.headers.empty(), "headers"},
+        {cfg.compression_gzip, "compression"},
+        {TlsConfigured(cfg.tls), "tls"},
+    }};
+    for (const auto& [set, name] : checks)
+    {
+        if (set)
+        {
+            ignored.push_back(name);
+        }
+    }
+    const config::Config defaults;
+    cfg.endpoint_url = std::string{kCustomTransportPlaceholderEndpoint};
+    cfg.protocol = defaults.protocol;
+    cfg.protocol_explicit = false;
+    cfg.headers.clear();
+    cfg.compression_gzip = false;
+    cfg.tls = TlsOptions{};
+    return ignored;
+}
+
+/// @brief The warnings a custom-transport build owes, emitted once the log
+///        level is applied: the settings dropped, and a trace signal left off.
+void WarnOnCustomTransport(const std::vector<std::string_view>& ignored,
+                           const ExportTransportOptions& opts)
+{
+    if (!ignored.empty())
+    {
+        std::string names;
+        for (const auto name : ignored)
+        {
+            names += names.empty() ? "" : ", ";
+            names += name;
+        }
+        internal::LogImpl(LogLevel::Warn,
+                          "export transport: exporter settings from the environment or file "
+                          "are ignored with a custom transport: " +
+                              names);
+    }
+    if (!opts.traces)
+    {
+        internal::LogImpl(LogLevel::Warn,
+                          "export transport: traces are off in ExportTransportOptions; the "
+                          "sampler is always-off and no span is recorded");
+    }
+}
+
+}  // namespace
+
+void SdkBuilder::Impl::PrepareCustomTransport(const std::vector<std::string_view>& ignored)
+{
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) — only called when set
+    const ExportTransportOptions& opts = *export_transport_opts;
+    WarnOnCustomTransport(ignored, opts);
+    if (!opts.traces)
+    {
+        sampler = MakeAlwaysOffSampler();
+    }
+}
+
+Expected<void, ConfigError> SdkBuilder::Impl::CheckExportTransport() const
+{
+    if (!export_transport_opts)
+    {
+        return {};
+    }
+    if (export_transport == nullptr)
+    {
+        return make_unexpected(ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                                           .field = kExportTransportField,
+                                           .message = "WithExportTransport needs a non-null "
+                                                      "ExportTransport"});
+    }
+    const std::array<std::pair<bool, std::string_view>, 6> conflicts{{
+        {endpoint.has_value(), "WithEndpoint"},
+        {protocol.has_value(), "WithProtocol"},
+        {headers.has_value(), "WithHeaders"},
+        {tls.has_value(), "WithTls"},
+        {auth_cb.has_value(), "WithAuthProvider"},
+        {compression_gzip.has_value(), "WithCompressionGzip"},
+    }};
+    for (const auto& [set, name] : conflicts)
+    {
+        if (set)
+        {
+            return make_unexpected(ConfigError{
+                .kind = ConfigError::Kind::InvalidValue,
+                .field = kExportTransportField,
+                .message = std::string{name} +
+                           " has no meaning with WithExportTransport, which replaces the "
+                           "HTTP/2 exporter; set one or the other"});
+        }
+    }
+    return {};
+}
+
+Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig(
+    std::vector<std::string_view>& ignored) const
 {
     config::Config cfg;
     if (file_path)
@@ -694,6 +928,13 @@ Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig() const
     if (auto r = config::OverlayEnv(cfg); !r)
     {
         return make_unexpected(r.error());
+    }
+    if (export_transport_opts)
+    {
+        // Before the code layer, which CheckExportTransport has already
+        // guaranteed sets none of these, and before Validate, which would
+        // otherwise reject a malformed endpoint nothing will ever use.
+        ignored = DropExporterSettings(cfg);
     }
     ApplyExporterOverrides(cfg);
     ApplyResourceOverrides(cfg);
@@ -858,15 +1099,30 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         return make_unexpected(profile.error());
     }
 
+    // --- Step 0b: an application transport (ICP 0036) ----------------------
+    if (auto r = m_impl->CheckExportTransport(); !r)
+    {
+        return make_unexpected(r.error());
+    }
+    const bool custom_transport = m_impl->export_transport_opts.has_value();
+
     // --- Steps 1–2: assemble and validate Config (file → env → code) -------
-    auto cfg_result = m_impl->LoadConfig();
+    std::vector<std::string_view> ignored_settings;
+    auto cfg_result = m_impl->LoadConfig(ignored_settings);
     if (!cfg_result)
     {
         return make_unexpected(cfg_result.error());
     }
     const config::Config cfg = std::move(*cfg_result);
     ApplyLogLevel(cfg);
-    WarnOnRiskyConfig(cfg);
+    if (custom_transport)
+    {
+        m_impl->PrepareCustomTransport(ignored_settings);
+    }
+    else
+    {
+        WarnOnRiskyConfig(cfg);
+    }
 
     // --- Step 2b: the leaf receiver (ICP 0034, design §4.3, §6.2) ----------
     if (auto r = CheckLeafReceiver(cfg.concentrator); !r)
@@ -886,7 +1142,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     auto auth = BuildAuthProvider(m_impl->auth_cb, m_impl->auth_cache_ttl);
 
     // --- Steps 5–6: transport -----------------------------------------------
-    auto transport_result = CreateTransport();
+    auto transport_result = CreateTransportUnless(custom_transport);
     if (!transport_result)
     {
         return make_unexpected(transport_result.error());
@@ -910,8 +1166,20 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
     // Created before the exporters because they borrow it; ownership moves
     // into the Provider below, which declares it first and so destroys it last.
     auto diagnostics = std::make_unique<sdk::DiagnosticsCounters>();
-    auto exporters =
-        BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
+    std::unique_ptr<wire::ExportTransportChannel> export_channel;
+    ExporterPack exporters;
+    if (export_transport_opts)
+    {
+        export_channel =
+            std::make_unique<wire::ExportTransportChannel>(std::move(export_transport));
+        exporters = BuildCustomExporters(
+            encoder.get(), export_channel.get(), *export_transport_opts, cfg, diagnostics.get());
+    }
+    else
+    {
+        exporters =
+            BuildExporters(encoder.get(), transport.get(), auth.get(), cfg, diagnostics.get());
+    }
 
     // --- Step 10: processor -------------------------------------------------
     auto processor = BuildSpanProcessor(
@@ -924,6 +1192,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Impl::Assemble(
         .encoder = std::move(encoder),
         .auth = std::move(auth),
         .transport = std::move(transport),
+        .export_channel = std::move(export_channel),
         .codec = std::move(exporters.codec),
         .exporter = std::move(exporters.exporter),
         .batch_span_processor = processor.get(),

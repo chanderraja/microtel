@@ -151,6 +151,8 @@ The decision to keep this as a single interface, including the rule that the cod
 
 The deeper implementation notes for the gRPC codec — state machine, byte-level edge cases, `RetryInfo` decoding — live in `grpc-wire-protocol.md`.
 
+**The application seam — `src/wire/custom/`** ([ICP 0036](icps/0036-custom-export-transport.md)). `SdkBuilder::WithExportTransport` replaces the two codecs and the transport under them with `ExportTransportCodec`, a third `IWireCodec` that adds no framing, headers or compression and hands the uncompressed encoded request to an application-supplied `microtel::ExportTransport` (a UART, a CAN bus, a UDP socket). The encoder, the exporters, the fan-in of `leaf-concentrator-design.md` §3.6.1, the retry engine and every counter above it are unchanged; the codec maps the transport's `SendResult` to a `WireResult` (`error-model.md` §7.3). One `ExportTransportChannel` per Provider owns the application's object, clamps each `Send` deadline to the shutdown deadline, calls `Cancel` when a shutdown wait expires, and keeps the connection state.
+
 ### 3.6 Transport — `src/transport/`
 
 **Owns:** the OpenSSL `SslCtx` and `SslSession`, the nghttp2 session, the socket file descriptor, the I/O loop (epoll on Linux, kqueue on BSD/macOS), the per-endpoint connection state machine (open / connecting / reconnecting / closed), reconnect with backoff and jitter on socket-level failures.
@@ -160,6 +162,8 @@ The deeper implementation notes for the gRPC codec — state machine, byte-level
 **Provides:** `ITransport` — `Connect`, `Send`, `Close`, plus a callback path for `OnResponse`. The interface is the seam where an `nghttp3`-based HTTP/3 transport could drop in for v1.6+; no HTTP/3 work in v1.
 
 **Consumes:** `IReactor` (epoll/kqueue abstraction, present primarily as a test seam), the RAII wrappers in `src/common/raii/` (`Socket`, `SslCtx`, `SslSession`, `Nghttp2Session`).
+
+**Absent with an application `ExportTransport`.** `Build()` constructs no `Http2Transport` and no reactor, so there is no I/O thread, and `Provider::Connect()` succeeds without doing anything. The library still links nghttp2, OpenSSL and zlib; compiling them out belongs to ICP 0030's feature selection ([ICP 0036](icps/0036-custom-export-transport.md) Decision 5).
 
 **Connection policy.** One HTTP/2 connection per `(endpoint, protocol)` tuple by default. Optional experimental coalescing for shared HTTP+gRPC endpoints is gated behind explicit config and a startup preflight; off by default. See `microtel-spec.md` §5.2.
 

@@ -359,7 +359,7 @@ add_library(microtel INTERFACE)
 add_library(microtel::microtel ALIAS microtel)
 target_link_libraries(microtel INTERFACE microtel_sdk)
 
-# The shipped set: the aggregate, the header carrier, and the fourteen static
+# The shipped set: the aggregate, the header carrier, and the fifteen static
 # components. `microtel_preflight_lib` is tool-only and is not exported
 # (ICP 0020 "What exists to export"); no adapter is exported (Decision 3).
 set(MICROTEL_EXPORTED_TARGETS
@@ -375,6 +375,7 @@ set(MICROTEL_EXPORTED_TARGETS
     microtel_gzip
     microtel_http_wire
     microtel_grpc_wire
+    microtel_custom_wire
     microtel_encoder
     microtel_upb_gen
     microtel_upb_runtime

@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string_view>
 #include <thread>
@@ -36,6 +37,12 @@ struct OtlpMetricExporterConfig
     std::chrono::milliseconds export_deadline{std::chrono::seconds(10)};
     /// @brief Retry / backoff policy — the same engine and defaults as traces.
     RetryPolicyConfig retry_policy{};
+    /// @brief Called once from `Shutdown`, on the thread running it, when the
+    /// drain wait expires, before the worker is joined; empty for none. The
+    /// SDK sets it for an application `ExportTransport`, to call its `Cancel`
+    /// and wake a `Send` the worker would otherwise be joined inside
+    /// (ICP 0036 Decision 2). Must not block.
+    std::function<void()> on_shutdown_timeout{};
 };
 
 /// @brief Metrics export pipeline — the metrics analogue of `OtlpExporter`.

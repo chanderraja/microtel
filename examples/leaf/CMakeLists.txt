@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # leaf: a C leaf and a C++ concentrator over UDP (docs/leaf-concentrator-design.md
-# §7.7). Needs -DMICROTEL_BUILD_LEAF=ON for the leaf half and, for the
+# §7.7), and a full C++ node on the same link (ICP 0036). Needs -DMICROTEL_BUILD_LEAF=ON for the leaf half and, for the
 # concentrator half, -DMICROTEL_WITH_CONCENTRATOR=ON; each half is skipped
 # without its option.
 #
@@ -29,6 +29,10 @@ if(TARGET microtel_leaf)
 else()
     message(STATUS "examples/leaf: leaf half skipped (needs -DMICROTEL_BUILD_LEAF=ON)")
 endif()
+
+# The full node is an ordinary microtel program with its own ExportTransport:
+# it needs neither option, only a concentrator to send to.
+microtel_add_example(leaf_full_node SOURCES udp_full_node.cpp)
 
 if(MICROTEL_WITH_CONCENTRATOR)
     microtel_add_example(leaf_concentrator SOURCES udp_concentrator.cpp)

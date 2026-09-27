@@ -1,7 +1,7 @@
 # `tests/conformance/`
 
 End-to-end tests against a real OpenTelemetry Collector: eleven test
-binaries holding 41 tests, plus the two leaf binaries (six tests each) when
+binaries holding 41 tests, plus the two leaf binaries (ten tests each) when
 the leaf and the concentrator are built, none of them disabled. Every test skips
 unless [`ci/scripts/conformance.sh`](../../ci/scripts/conformance.sh)
 has started a collector and exported the environment contract below.
@@ -108,6 +108,8 @@ Built only with `-DMICROTEL_BUILD_LEAF=ON -DMICROTEL_WITH_CONCENTRATOR=ON`.
 | `ManyLeavesShareOneRequest` | eight leaves' spans on **one** line, i.e. one request, with eight `ResourceSpans`; each with its transport id as `device.id`, its own Resource, no `microtel.leaf.*` key, every attribute type, the event and the status, and timestamps corrected exactly (`t + R − E`) |
 | `TimeModesCorrectTimestamps` | concentrator-stamped, sync-relative and boot-relative timestamps to the nanosecond, including a low boot-relative outlier that must not move the anchor |
 | `MalformedPayloadRejectedAndCounted` | a truncated payload returns `Malformed`, counts in `LeafReceiverStats` and `leaf_payload_malformed`, and never reaches the collector; the same leaf's intact payload does |
+| `FullNodeReachesTheCollectorThroughTheConcentrator` | a full C++ node ([ICP 0036](../../docs/icps/0036-custom-export-transport.md)) exporting with `WithExportTransport` over a real loopback UDP socket, ingested under its source `address:port` by a concentrator that trusts it as `unix`: its span shares the line with a C leaf's, keeps its own `service.name`, carries the transport id as `device.id`, and has its timestamps unchanged (`t' = t`) |
+| `FullNodeRequestOverThePayloadLimitIsDropped` | a node whose `max_request_bytes` is above a concentrator's `max_payload_bytes` sends a request between the two: `TooLarge`, one `leaf_payload_too_large`, and nothing at the collector |
 
 These tests read their own receiver, `otlp/leaf` (below), whose pipeline has no
 batch processor, so the collector's output line for a request is exactly that

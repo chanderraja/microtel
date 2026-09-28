@@ -1,12 +1,12 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
 **Companion to:** `microtel-spec.md` (v0.10, the v1 spec)
-**Status:** Draft v0.1. Implementation status updated 2026-09-25 against v1.1.1.
+**Status:** Draft v0.1. Implementation status updated 2026-09-27 against v1.2.0.
 **Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
 
 ---
 
-## Implementation status (as of v1.1.1)
+## Implementation status (as of v1.2.0)
 
 The release themes in §4 were planned as a sequence, but the code did not
 follow it exactly. Metrics, logs, the spdlog log bridge and the otel-cpp shim
@@ -20,8 +20,8 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 | Trace runtime + OTLP exporter | Done | Open bugs only (#271, #223) |
 | v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (v1.4, #297) |
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
-| v1.2 Logs | Mostly done, experimental | collector conformance tests; logs bench profile; logs cookbook |
-| v1.2 Leaf / concentrator | Done, experimental; moved from v2.0 by [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md). C leaf with both backends, concentrator ingest, per-leaf config, the three time modes, and all six ICP ship gates | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
+| v1.2 Logs | Done, supported | Logs cookbook (docs only) |
+| v1.2 Leaf / concentrator | Done, experimental (ICP 0031, ICP 0036) | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
@@ -143,7 +143,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Logs go supported, and the embedded story starts: the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md), renumbered from v1.3 by [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)).
 
-**Status:** mostly done and shipping as experimental. Remaining: collector conformance tests and a logs bench profile.
+**Status:** done, shipped as v1.2.0. Logs are supported (conformance-tested, with retry and three log bridges); the leaf and concentrator ship as experimental with every ICP 0031 ship gate met, plus a full-SDK custom export transport (ICP 0036). Still open: a logs cookbook.
 
 - **OTel Logs API:** Logger, LogRecord, severity levels, attribute schema. *(Done.)*
 - **OTLP/logs export** on both wire protocols. *(Done, with retry since v1.1.1, #222.)*

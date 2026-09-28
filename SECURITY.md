@@ -4,8 +4,9 @@
 
 | Version | Status | Security updates |
 |---|---|---|
-| 1.1.x | current release | ✅ supported |
-| < 1.1 | development snapshots | ❌ unsupported — use 1.1.x |
+| 1.2.x | current release | ✅ supported |
+| 1.1.x | superseded minor | ❌ unsupported — upgrade to 1.2.x |
+| < 1.1 | development snapshots | ❌ unsupported — use 1.2.x |
 
 Only the latest minor of the latest major is supported. The 18-month security
 window in the policy below applies to a previous **major**, which does not

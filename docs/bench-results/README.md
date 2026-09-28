@@ -6,37 +6,35 @@ doesn't produce them. A local `cd bench && ./bench.sh` writes to
 `bench/results/`, which is gitignored, so the README used to link a path that
 only existed for people who had run the harness themselves.
 
-The snapshot was refreshed on 2026-09-25 for the v1.1.1 tag, from a clean
-checkout of the release commit (`683b237`), on the same host as the previous
-snapshot (Ryzen 5 5600G, 12 cores, SMT on, podman 5.8.4, kernel
-7.1.13-200.fc44). Host load was 0.28 at the start. Before committing, the
+The snapshot was refreshed on 2026-09-27 for the v1.2.0 tag, from a clean
+checkout of the release candidate (`6c2fe10`, which the release commit changes
+only in version literals and docs), on the same host as the previous snapshot
+(Ryzen 5 5600G, 12 cores, `performance` governor, SMT on, podman 5.8.4, kernel
+7.1.13-200.fc44). Host load was 0.15 at the start. Before committing, the
 environment block was diffed against the previous snapshot as
-[`RELEASING.md`](../../RELEASING.md) §5 requires.
+[`RELEASING.md`](../../RELEASING.md) §5 requires, and every identity field
+matched, governor included, so the deltas below are like for like.
 
 ## Changes since the previous snapshot
 
-**One identity field changed: the CPU governor is `performance`, where the
-v1.1.0 snapshot used `powersave`.** Every other field matches (CPU model, core
-count, SMT, kernel, container engine). A governor change moves numbers for code
-that hasn't changed, so don't read the deltas below as microtel getting faster
-or slower. Compare SUTs within this run instead: they all ran under the same
-governor, minutes apart.
+Throughput is within this host's spread: microtel +2.6% (1,540,963 spans/sec),
+microtel-grpc −5.1%, and the unchanged otelcpp SUTs −5.6% (gRPC) and −4.2%
+(HTTP). StartSpan p50 is 217 ns for microtel against 832 ns for otelcpp-gRPC,
+a 3.8× ratio.
 
-Against v1.1.0, the unchanged otelcpp SUTs moved −3.7% (gRPC) and −2.0% (HTTP)
-in spans/sec; microtel moved +2.5% (HTTP) and +0.8% (gRPC). All of it is inside
-this host's run-to-run spread. StartSpan p50 is 236 ns for microtel against
-812 ns for otelcpp-gRPC, a 3.4× ratio (3.5× in the previous snapshot, within
-the same spread).
+**The benchmark binary size row is not comparable with the previous
+snapshot.** Every SUT's binary grew, the unchanged otelcpp ones included
+(otelcpp-gRPC 38.5 → 43.1 MB, otelcpp-HTTP 16.8 → 19.3 MB), because the
+benchmark app itself gained two workloads in v1.2: the logs workload
+([#305](https://github.com/chanderraja/microtel/issues/305)), which links each
+library's logs SDK, and the leaf fan-in workload (#344). The comparison within
+this run still holds: otelcpp-gRPC is 2.5× the size of microtel. microtel's own
+library size is measured separately; see [`leaf-footprint.md`](leaf-footprint.md)
+for the leaf and the Cortex-M figures.
 
-The microtel binary grew from **15,359,952 to 15,952,688 bytes (+3.9%)**
-because of v1.1.1 code: the shared retry engine for all three signals, per-key
-merging of table-valued settings, and the resolved-Resource log line, which
-brings in `std::format`. The unchanged otelcpp-gRPC binary is byte-identical
-across the rebuild.
-
-The other two profiles in the same session: `realistic-request` shows 100%
+The other two profiles from the same session: `realistic-request` shows 100%
 delivery for both SUTs, and `compression` shows 342.2 B/span uncompressed
-against 39.2 gzip'd (8.7×), both unchanged from v1.1.0.
+against 39.1 gzip'd (8.7×), both unchanged.
 
 ## Files
 
@@ -53,7 +51,7 @@ against 39.2 gzip'd (8.7×), both unchanged from v1.1.0.
 |---|---|
 | Profile | `hot-loop-traces` — 10 000 spans/sample, 10 samples, 1 000 warmup spans, blackhole sink |
 | SUTs | `microtel`, `microtel-grpc`, `otelcpp-grpc`, `otelcpp-http` |
-| Generated | 2026-09-25 (release commit `683b237`) |
+| Generated | 2026-09-27 (release candidate `6c2fe10`) |
 | Host | AMD Ryzen 5 5600G, 12 physical cores, Fedora, podman 5.8.4 |
 
 The run carries one warning, left in `results.md` and `results.json`: SMT

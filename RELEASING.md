@@ -23,7 +23,7 @@ commit:
 | [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionMajor` / `kVersionMinor` / `kVersionPatch` | public API |
 | [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export (spec §7.2) |
 | [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version (spec §6.4) |
-| [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `microtel_leaf_upb_test` (`LeafVersionTest`) fails when they disagree with `version.hpp` |
+| [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
 
 Two of those six have a history worth knowing:
 
@@ -47,14 +47,14 @@ check costs one CI job and changes nothing about what ships.
 ### Why `master` has no `-dev` suffix
 
 Between releases, `master` stays at the version that was last released — today,
-`1.1.0`. It is **not** bumped to `1.2.0-dev` or similar.
+`1.2.0`. It is **not** bumped to `1.3.0-dev` or similar.
 
 The reason is that the version is not only metadata: it goes out on the wire.
 `kUserAgent` becomes the gRPC `user-agent` header on every export, and `kVersion`
 becomes the `microtel.version` span attribute that preflight writes. A `-dev`
 suffix on `master` would mean every span exported from a `master` build — every
 developer run, every CI run, every downstream consumer pinning a commit rather
-than a tag — arrives at the collector labelled `microtel-cpp/1.2.0-dev`.
+than a tag — arrives at the collector labelled `microtel-cpp/1.3.0-dev`.
 Collector-side rules that match on the user-agent would see a version that was
 never released, and operators reading `microtel.version` in their traces would
 see a version they cannot look up.
@@ -251,6 +251,7 @@ not self-index.
 [ ] include/microtel/version.hpp  kVersionMajor / kVersionMinor / kVersionPatch
 [ ] src/wire/grpc/grpc_wire_codec.cpp  kUserAgent
 [ ] tools/preflight/preflight.cpp  kVersion
+[ ] leaf/include/microtel/leaf.h  MICROTEL_LEAF_VERSION_MAJOR / _MINOR / _PATCH
 [ ] ci/scripts/version-drift-check.sh passes locally
 [ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)

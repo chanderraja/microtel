@@ -12,6 +12,7 @@
 #   include/microtel/version.hpp      kVersionMajor/Minor/Patch   (public API)
 #   src/wire/grpc/grpc_wire_codec.cpp kUserAgent                  (on the wire)
 #   tools/preflight/preflight.cpp     kVersion                    (on the wire)
+#   leaf/include/microtel/leaf.h      MICROTEL_LEAF_VERSION_*     (leaf C API)
 #
 # This is a CHECK, not a generator. Deriving version.hpp from PROJECT_VERSION at
 # configure time was considered and rejected: it would make a public header a
@@ -56,9 +57,17 @@ readonly SED_VERSION_PATCH='/constexpr/ s/.*kVersionPatch[[:space:]]*=[[:space:]
 readonly SED_GRPC_USER_AGENT='/constexpr/ s/.*kUserAgent[[:space:]]*=[[:space:]]*"microtel-cpp\/\([^"]*\)".*/\1/p'
 readonly SED_PREFLIGHT_VERSION='/constexpr/ s/.*kVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p'
 
+# The leaf's C header spells the release as three `#define`s (leaf.h documents
+# them as equal to the microtel release). Addressed to the `#define` lines so
+# the MICROTEL_LEAF_VERSION_PACK() use below them cannot match.
+readonly SED_LEAF_MAJOR='/#define MICROTEL_LEAF_VERSION_MAJOR / s/.*MICROTEL_LEAF_VERSION_MAJOR[[:space:]]*\([0-9][0-9]*\)u.*/\1/p'
+readonly SED_LEAF_MINOR='/#define MICROTEL_LEAF_VERSION_MINOR / s/.*MICROTEL_LEAF_VERSION_MINOR[[:space:]]*\([0-9][0-9]*\)u.*/\1/p'
+readonly SED_LEAF_PATCH='/#define MICROTEL_LEAF_VERSION_PATCH / s/.*MICROTEL_LEAF_VERSION_PATCH[[:space:]]*\([0-9][0-9]*\)u.*/\1/p'
+
 readonly PATH_VERSION_HPP='include/microtel/version.hpp'
 readonly PATH_GRPC_CODEC='src/wire/grpc/grpc_wire_codec.cpp'
 readonly PATH_PREFLIGHT='tools/preflight/preflight.cpp'
+readonly PATH_LEAF_HEADER='leaf/include/microtel/leaf.h'
 
 # ---------------------------------------------------------------------------
 # Extraction
@@ -192,6 +201,23 @@ check_component_triple()
     report "$PATH_VERSION_HPP" "$major.$minor.$patch" "$expected" "kVersionMajor/Minor/Patch"
 }
 
+# check_leaf_triple <root> <expected>
+#
+# The leaf C header's MICROTEL_LEAF_VERSION_MAJOR/MINOR/PATCH. It shipped in
+# v1.2 without being listed here, and would have gone out still reading 1.1.1.
+check_leaf_triple()
+{
+    local root="$1"
+    local expected="$2"
+    local major minor patch
+
+    major="$(extract_one "$root/$PATH_LEAF_HEADER" "$SED_LEAF_MAJOR" "MICROTEL_LEAF_VERSION_MAJOR")" || return 2
+    minor="$(extract_one "$root/$PATH_LEAF_HEADER" "$SED_LEAF_MINOR" "MICROTEL_LEAF_VERSION_MINOR")" || return 2
+    patch="$(extract_one "$root/$PATH_LEAF_HEADER" "$SED_LEAF_PATCH" "MICROTEL_LEAF_VERSION_PATCH")" || return 2
+
+    report "$PATH_LEAF_HEADER" "$major.$minor.$patch" "$expected" "MICROTEL_LEAF_VERSION_*"
+}
+
 # ---------------------------------------------------------------------------
 # The gate
 # ---------------------------------------------------------------------------
@@ -215,6 +241,7 @@ run_check()
         "$expected" "gRPC user-agent (also static_assert'd)" || return 2
     check_literal "$root" "$PATH_PREFLIGHT" "$SED_PREFLIGHT_VERSION" \
         "$expected" "preflight microtel.version attribute" || return 2
+    check_leaf_triple "$root" "$expected" || return 2
 
     if [[ "$FAILURES" -ne 0 ]]; then
         cat >&2 <<EOF
@@ -237,7 +264,7 @@ EOF
 # Self-test
 # ---------------------------------------------------------------------------
 
-# write_fixture <dir> <cmake ver> <hpp string ver> <hpp triple> <ua ver> <preflight ver>
+# write_fixture <dir> <cmake ver> <hpp string ver> <hpp triple> <ua ver> <preflight ver> [leaf triple]
 #
 # A minimal tree with the same shape as the repository. `<hpp triple>` is spelled
 # as "MAJOR MINOR PATCH" so the triple can be drifted independently of
@@ -250,11 +277,16 @@ write_fixture()
     local triple="$4"
     local ua_ver="$5"
     local preflight_ver="$6"
+    local leaf_triple="${7:-$triple}"
+    # shellcheck disable=SC2086
+    set -- $leaf_triple
+    local leaf_major="$1" leaf_minor="$2" leaf_patch="$3"
     # shellcheck disable=SC2086
     set -- $triple
     local major="$1" minor="$2" patch="$3"
 
-    mkdir -p "$dir/include/microtel" "$dir/src/wire/grpc" "$dir/tools/preflight"
+    mkdir -p "$dir/include/microtel" "$dir/src/wire/grpc" "$dir/tools/preflight" \
+        "$dir/leaf/include/microtel"
 
     cat > "$dir/CMakeLists.txt" <<EOF
 cmake_minimum_required(VERSION 3.20)
@@ -281,6 +313,14 @@ EOF
     cat > "$dir/tools/preflight/preflight.cpp" <<EOF
 constexpr std::string_view kVersion = "$preflight_ver";
 EOF
+
+    {
+        printf '#define MICROTEL_LEAF_VERSION_MAJOR %su\n' "$leaf_major"
+        printf '#define MICROTEL_LEAF_VERSION_MINOR %su\n' "$leaf_minor"
+        printf '#define MICROTEL_LEAF_VERSION_PATCH %su\n' "$leaf_patch"
+        printf '#define MICROTEL_LEAF_VERSION MICROTEL_LEAF_VERSION_PACK(MICROTEL_LEAF_VERSION_MAJOR, \\\n'
+        printf '    MICROTEL_LEAF_VERSION_MINOR, MICROTEL_LEAF_VERSION_PATCH)\n'
+    } > "$dir/leaf/include/microtel/leaf.h"
 }
 
 # expect_status <expected> <description> <fixture dir>
@@ -316,7 +356,7 @@ self_test()
     local failed=0
 
     write_fixture "$tmp/coherent" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
-    expect_status 0 "all five literals agree" "$tmp/coherent" || failed=1
+    expect_status 0 "all six literals agree" "$tmp/coherent" || failed=1
 
     write_fixture "$tmp/cmake-drift" "1.2.4" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
     expect_status 1 "CMake bumped, headers left behind" "$tmp/cmake-drift" || failed=1
@@ -332,6 +372,9 @@ self_test()
 
     write_fixture "$tmp/preflight-drift" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.0.0"
     expect_status 1 "preflight microtel.version left at an old version" "$tmp/preflight-drift" || failed=1
+
+    write_fixture "$tmp/leaf-drift" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3" "1 1 1"
+    expect_status 1 "leaf C header left at an old version" "$tmp/leaf-drift" || failed=1
 
     write_fixture "$tmp/missing" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
     : > "$tmp/missing/include/microtel/version.hpp"

@@ -32,6 +32,12 @@ microtel_add_test(
     LIBS    microtel_common)
 target_include_directories(log_sink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# kVersionString against kVersionMajor/Minor/Patch (both in the public
+# include/microtel/version.hpp). Header-only.
+microtel_add_test(
+    NAME    version_test
+    SOURCES version_test.cpp)
+
 # M3 — Track A unit tests. Mirrors src/sdk/.
 add_subdirectory(sdk)
 

@@ -40,7 +40,7 @@ requires an [ICP](docs/icps/).
 
 ## Status
 
-The current release is **v1.1.1**, and the project follows SemVer.
+The current release is **v1.2.0**, and the project follows SemVer.
 [SECURITY.md](SECURITY.md) lists which versions get fixes.
 
 | Area | Status |
@@ -48,8 +48,9 @@ The current release is **v1.1.1**, and the project follows SemVer.
 | Traces | Supported. `Tracer` and `Span`; `StartAsCurrentSpan` with a thread-local context; W3C `traceparent`, `tracestate` and `baggage` inject/extract; head samplers (always on/off, trace-ID ratio, parent-based) and composable rule chains; batch span processor; process and host resource detectors; `HealthSnapshot` drop and queue counters. |
 | Operations | Supported since v1.1. Runtime setters on `Provider` (`SetBatchOptions`, `SetSamplerRatio`, `SetMetricInterval`, `SetLogLevel`); several named providers in one process via `GetProvider(name)`; static headers and a `WithAuthProvider` callback; TLS, custom CA and mTLS; gzip; the `microtel::sugar` convenience layer. |
 | Metrics | Implemented but experimental: all seven instruments, periodic reader, temporality, cardinality limits, views and exemplars. Scheduled to become supported in v1.3. Until then there is no compatibility guarantee and no conformance coverage. |
-| Logs | Implemented but experimental. Scheduled for v1.2, with the same caveat. |
-| Leaf / concentrator | Experimental and off by default. `microtel-leaf` is a C11 library for devices too small for the runtime: it builds spans in memory the caller owns and encodes OTLP payloads, with a nanopb backend for Cortex-M (about 9.5 KB of flash, no heap) or upb for Linux-class boards. The application carries the bytes over its own link to a microtel process built with `-DMICROTEL_WITH_CONCENTRATOR=ON`, whose `LeafReceiver` gives each device its own Resource, corrects its timestamps and exports many devices' spans in one request. See [`examples/leaf/`](examples/leaf/). The C API may change in any 1.x minor. |
+| Logs | Supported since v1.2: `Logger` and `LogRecord`, OTLP export over both protocols with retry, automatic trace/span correlation, conformance-tested against the collector, and bridges for spdlog, glog and log4cxx. |
+| Leaf / concentrator | Experimental and off by default. `microtel-leaf` is a C11 library for devices too small for the runtime: it builds spans in memory the caller owns and encodes OTLP payloads, with a nanopb backend for Cortex-M (about 9.5 KB of flash, no heap) or upb for Linux-class boards. The application carries the bytes over its own link to a microtel process built with `-DMICROTEL_WITH_CONCENTRATOR=ON`, whose `LeafReceiver` gives each device its own Resource, corrects its timestamps and exports many devices' spans in one request. See [`examples/leaf/`](examples/leaf/) (UDP) and [`examples/leaf_mqtt/`](examples/leaf_mqtt/) (MQTT). The C API may change in any 1.x minor. |
+| Custom export transport | Experimental. `SdkBuilder::WithExportTransport` sends a full C++ Provider's OTLP requests through your own link (UART, CAN, UDP, MQTT…) instead of HTTP/2, for example to a concentrator. See [ICP 0036](docs/icps/0036-custom-export-transport.md). |
 | opentelemetry-cpp API shim | Experimental, source-only and off by default. Routes existing `opentelemetry-cpp` API call sites to microtel; see [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md). |
 
 Not supported: plaintext OTLP/HTTP to an HTTP/1.1-only receiver (see
@@ -274,13 +275,13 @@ governor, SMT on). The numbers come from the committed snapshot in
 
 | Metric | microtel (HTTP) | microtel (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
 |---|---|---|---|---|
-| StartSpan p50 | **236 ns** | **211 ns** | 812 ns | 795 ns |
-| StartSpan p95 | **488 ns** | **462 ns** | 3 272 ns | 2 321 ns |
-| Spans / sec | **1 502 498** | 1 298 996 | 757 843 | 846 353 |
-| Flush p50 | 2.7 ms | 4.2 ms | 2.0 ms | 1.9 ms |
-| Delivery rate | **100%** | **100%** | 94.2% | 97.9% |
+| StartSpan p50 | **217 ns** | **218 ns** | 832 ns | 804 ns |
+| StartSpan p95 | **478 ns** | **474 ns** | 3 246 ns | 2 738 ns |
+| Spans / sec | **1 540 963** | 1 232 937 | 715 498 | 810 803 |
+| Flush p50 | 2.7 ms | 4.3 ms | 2.0 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 95.2% | 97.0% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
-| Benchmark binary size | **16.0 MB** | **16.0 MB** | 38.5 MB | 16.8 MB |
+| Benchmark binary size | **17.5 MB** | **17.5 MB** | 43.1 MB | 19.3 MB |
 
 The methodology is in [docs/bench-spec.md](docs/bench-spec.md), and
 [plots.html](docs/bench-results/plots.html) has interactive plots and the raw

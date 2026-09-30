@@ -23,63 +23,9 @@ This document covers v1 only. Forward-looking architecture (control plane, metri
 
 ## 2. Layered structure
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│             Application (C++; Python optional)                  │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              OpenTelemetry Trace API (v1)                       │   include/microtel/
-│        Tracer · Span · Context · W3C Propagators                │   src/api/        (Track A)
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     SDK (minimal, v1)                           │
-│  Resource · AlwaysOn / AlwaysOff / TraceIdRatio / ParentBased   │   src/sdk/        (Track A)
-│  BatchSpanProcessor · ForceFlush · Shutdown                     │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│               Exporter (protocol-agnostic)                      │   src/exporter/   (Track A)
-│      Batching · retry orchestration · drop accounting           │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       OTLP Wire Encoder                         │
-│      upb (vendored, pinned) + OTel .proto definitions           │   src/wire/encoder/ (Track F)
-│           C accessors wrapped behind a thin C++ API             │
-└─────────────────────────────────────────────────────────────────┘
-                                │ EncodedPayload (bytes)
-                                ▼
-                     ┌──────────────────────┐
-                     │     IWireCodec       │   one interface, two implementations
-                     └──────────────────────┘
-                  ▲                           ▲
-                  │                           │
-┌─────────────────────────┐   ┌─────────────────────────────────┐
-│  OTLP/HTTP Codec        │   │  OTLP/gRPC Codec                │
-│  - application/         │   │  - 5-byte length-prefix framing │
-│    x-protobuf           │   │  - :path: /<svc>/<method>       │
-│  - POST /v1/traces      │   │  - te: trailers                 │   src/wire/http/  (B)
-│  - Retry-After          │   │  - parses grpc-status / RetryInfo│   src/wire/grpc/  (C)
-└──────────┬──────────────┘   └─────────────────┬───────────────┘
-           │                                    │
-           └──────────────┬─────────────────────┘
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Transport: HTTP/2 (nghttp2)                    │
-│       One connection per endpoint/protocol tuple (default)      │   src/transport/  (Track D)
-│           TLS via OpenSSL · epoll / kqueue I/O loop             │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                      OTel Collector (any)
-                or any OTLP-compatible backend
-```
+<p align="center">
+  <img alt="Layered structure, top to bottom: Application; OpenTelemetry Trace API (src/api/); SDK (src/sdk/); protocol-agnostic Exporter (src/exporter/); OTLP Wire Encoder on upb (src/wire/encoder/), which hands an EncodedPayload to IWireCodec, implemented by the OTLP/HTTP codec (src/wire/http/) and the OTLP/gRPC codec (src/wire/grpc/); both feed the HTTP/2 transport on nghttp2 (src/transport/), which sends to an OTel Collector or any OTLP-compatible backend." src="images/architecture-layers.svg" width="820">
+</p>
 
 Common services (logging, errors, limits, RAII wrappers, config, diagnostics, clocks) are in `src/common/` and consumed by every layer.
 

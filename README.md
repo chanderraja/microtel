@@ -21,10 +21,43 @@ opentelemetry-cpp flushes somewhat faster. See [Performance](#performance)
 for the numbers and method.
 
 It also traces devices too small to run any OpenTelemetry SDK. **microtel-leaf**
-is a C11 library that emits OTLP spans from a microcontroller in about 9.3 KB
-of flash with no heap, and a microtel **concentrator** on a nearby gateway
-exports them to your collector. See
+is a C11 library that emits OTLP spans from a microcontroller. On a Cortex-M4
+it adds about 9.3 KB of flash to the firmware image and needs 512 bytes of RAM
+you allocate, about 3.4 KB of stack at its deepest call, and no heap. A
+microtel **concentrator** on a nearby gateway exports the spans to your
+collector. See
 [Leaf and concentrator](#leaf-and-concentrator-tracing-for-microcontrollers).
+
+## Try it in five minutes
+
+Both paths export to a local collector, Tempo and Grafana stack (Docker or
+Podman) and end with a trace at <http://localhost:3000>. Tests are off, so the
+build compiles only what the examples need.
+
+**C++ tracing:**
+
+```bash
+examples/stack/up.sh
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_EXAMPLES=ON
+cmake --build build -j"$(nproc)"
+./build/examples/microtel_example_basic_trace     # prints the trace ID
+```
+
+**A leaf device and its gateway:**
+
+```bash
+examples/stack/up.sh
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_EXAMPLES=ON \
+      -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_WITH_CONCENTRATOR=ON
+cmake --build build -j"$(nproc)"
+./build/examples/microtel_example_leaf_concentrator &   # the gateway, UDP :9310
+./build/examples/microtel_example_leaf_udp_leaf         # a leaf; sends five payloads
+```
+
+You'll need a C++20 compiler, CMake 3.20+ and the OpenSSL, nghttp2 and zlib
+development packages ([Getting started](#getting-started) has the install
+lines). [`examples/`](examples/) explains each program and what to look for
+in Grafana.
 
 ## Why it exists
 

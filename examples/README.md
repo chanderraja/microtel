@@ -14,9 +14,10 @@ Three commands take you from a clean checkout to a trace on screen:
 # 1. Start the collector + Tempo + Grafana stack (docker or podman, either).
 examples/stack/up.sh
 
-# 2. Build the examples. They are gated behind MICROTEL_BUILD_EXAMPLES=ON.
-cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON
-cmake --build build
+# 2. Build the examples. They are gated behind MICROTEL_BUILD_EXAMPLES=ON;
+#    tests off skips fetching GoogleTest and building the test suite.
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_EXAMPLES=ON
+cmake --build build -j"$(nproc)"
 
 # 3. Run one. It prints the trace ID it emitted.
 ./build/examples/microtel_example_basic_trace
@@ -66,8 +67,11 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 
 The planned set mirrors the v1.1 public surface; issue
 [#279](https://github.com/chanderraja/microtel/issues/279) is the epic.
-Metrics and logs examples will follow when those signals get conformance
-coverage in v1.3 and v1.2 respectively (see [`microtel-roadmap.md`](../microtel-roadmap.md)).
+Logs are supported since v1.2 but have no example here yet; the log bridges
+have their own READMEs ([spdlog](../src/adapters/spdlog/README.md),
+[glog](../src/adapters/glog/README.md), [log4cxx](../src/adapters/log4cxx/README.md)).
+A metrics example will follow when metrics get conformance coverage in v1.3
+(see [`microtel-roadmap.md`](../microtel-roadmap.md)).
 
 ### The leaf example
 

@@ -13,6 +13,13 @@ processor and resources, plus an OTLP exporter. Both OTLP protocols run over a
 single nghttp2 HTTP/2 transport. The gRPC side is a small unary-RPC layer on
 that transport, so picking gRPC over HTTP costs nothing extra in binary size.
 
+In the project's benchmark against opentelemetry-cpp on the same host,
+microtel starts a span about **4× faster** at the median (about 6× at p95),
+sustains roughly **twice the span throughput**, and its benchmark binary is
+about **2.5× smaller** than one using opentelemetry-cpp's OTLP/gRPC exporter.
+opentelemetry-cpp flushes somewhat faster. See [Performance](#performance)
+for the numbers and method.
+
 It also traces devices too small to run any OpenTelemetry SDK. **microtel-leaf**
 is a C11 library that emits OTLP spans from a microcontroller in about 9.3 KB
 of flash with no heap, and a microtel **concentrator** on a nearby gateway

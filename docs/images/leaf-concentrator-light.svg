@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340" width="960" height="340" role="img" aria-label="Devices running microtel-leaf send OTLP payload bytes over their own link to a gateway running a microtel Provider with LeafReceiver, which exports to an OpenTelemetry backend">
+<g font-family="'Virgil','Comic Neue','Comic Sans MS','Segoe Print','Bradley Hand','Chalkboard SE',cursive">
+  <polygon points="44.9,51.9 296.9,51.4 296.2,233.2 43.3,234.0" fill="#fff4d6"/>
+  <path d="M41.5 53.8 Q169.2 54.7 297.6 52.7" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M41.8 53.1 Q170.9 53.8 299.4 55.4" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M297.5 49.5 Q295.8 141.3 297.1 236.3" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M295.4 52.0 Q295.8 144.1 295.0 237.3" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M299.2 232.6 Q171.2 232.5 41.6 233.1" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M298.4 234.3 Q171.9 234.7 42.9 233.4" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M45.2 237.2 Q46.6 143.8 46.1 52.2" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M47.5 235.8 Q45.1 143.8 45.7 51.8" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <polygon points="35.2,63.0 289.6,62.4 290.3,240.9 39.2,242.6" fill="#fff4d6"/>
+  <path d="M35.3 61.9 Q163.6 63.4 292.1 63.4" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M33.6 62.6 Q163.9 62.2 291.5 63.6" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M287.6 59.5 Q285.6 150.5 286.5 244.9" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M286.6 59.9 Q286.2 153.7 286.8 244.2" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M289.7 241.8 Q163.8 244.1 35.2 243.2" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M290.3 241.7 Q164.4 240.9 34.5 243.2" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M37.0 244.1 Q37.4 150.5 37.1 59.0" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M36.4 244.7 Q39.0 152.8 37.6 59.2" fill="none" stroke="#57606a" stroke-width="1.4" stroke-linecap="round"/>
+  <polygon points="30.1,70.7 281.1,67.3 282.4,251.7 32.2,251.8" fill="#fff4d6"/>
+  <path d="M26.7 69.7 Q152.3 68.1 281.7 70.4" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M26.1 68.9 Q152.1 67.2 282.5 68.6" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M278.7 66.6 Q279.1 158.8 278.5 254.2" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M279.2 66.5 Q280.9 161.3 279.6 251.8" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M282.9 249.9 Q153.6 248.3 25.7 248.7" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M284.1 248.9 Q154.9 248.6 25.5 251.4" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M30.1 251.5 Q31.7 160.9 30.1 68.5" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M29.2 252.6 Q29.2 161.4 28.9 67.9" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <text x="155" y="100" fill="#1f2328" font-size="19" font-weight="bold" font-style="normal" text-anchor="middle">Device firmware</text>
+  <text x="155" y="132" fill="#b45309" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel-leaf (C11)</text>
+  <text x="155" y="160" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">no heap · no threads · no I/O</text>
+  <text x="155" y="186" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">builds spans, encodes</text>
+  <text x="155" y="208" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">OTLP payload bytes</text>
+  <text x="155" y="235" fill="#57606a" font-size="13" font-weight="normal" font-style="italic" text-anchor="middle">~9.3 KB flash on Cortex-M4</text>
+  <text x="155" y="285" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">× N devices</text>
+  <text x="155" y="307" fill="#57606a" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">Cortex-M, small Linux boards</text>
+  <path d="M291.5 159.1 Q343.8 161.7 393.0 161.6" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M293.0 160.8 Q341.4 158.3 391.1 160.1" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M390.5 159.3 Q386.4 155.7 378.2 152.6" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M393.4 161.6 Q385.7 155.4 380.5 151.6" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M391.0 159.1 Q386.7 164.1 379.4 169.3" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M392.5 161.0 Q386.9 166.0 377.7 168.5" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="342" y="142" fill="#1f2328" font-size="15" font-weight="bold" font-style="normal" text-anchor="middle">your link</text>
+  <text x="342" y="186" fill="#57606a" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">UART · CAN</text>
+  <text x="342" y="204" fill="#57606a" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">BLE · UDP</text>
+  <text x="342" y="222" fill="#57606a" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">MQTT …</text>
+  <polygon points="403.5,39.9 680.1,41.7 681.0,281.8 404.8,279.4" fill="#dbeafe"/>
+  <path d="M398.7 41.4 Q540.6 38.7 685.7 38.9" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M400.3 41.0 Q544.2 41.7 683.9 41.0" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M681.5 37.2 Q683.2 160.0 680.8 281.4" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M682.1 38.4 Q683.4 160.0 681.8 284.2" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M684.2 279.3 Q540.1 279.5 398.2 280.3" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M683.8 281.3 Q541.5 282.4 398.5 279.9" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M401.7 284.3 Q402.0 158.6 402.0 37.1" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M401.8 282.0 Q399.7 159.9 400.4 38.0" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <text x="542" y="70" fill="#1f2328" font-size="19" font-weight="bold" font-style="normal" text-anchor="middle">Gateway (Linux)</text>
+  <polygon points="423.4,86.3 661.0,86.1 662.3,149.7 419.6,148.4" fill="#ffffff"/>
+  <path d="M418.2 85.3 Q542.3 86.8 665.9 86.0" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M420.3 85.8 Q542.9 86.8 665.4 86.0" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M661.8 83.1 Q662.8 119.4 661.9 152.4" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M663.4 82.2 Q664.3 115.7 662.2 152.4" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M663.8 147.8 Q538.8 148.2 417.6 147.2" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M665.9 149.3 Q542.6 147.4 417.9 148.7" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M423.2 152.5 Q421.7 118.4 421.1 84.4" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M423.6 152.1 Q422.3 116.7 420.9 82.8" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="542" y="110" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">your receive loop</text>
+  <text x="542" y="136" fill="#b45309" font-size="16" font-weight="bold" font-style="normal" text-anchor="middle">→ LeafReceiver::Ingest</text>
+  <text x="542" y="178" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel Provider</text>
+  <text x="542" y="204" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">per-device Resource</text>
+  <text x="542" y="226" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">clock correction</text>
+  <text x="542" y="248" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">sample · batch · retry · export</text>
+  <text x="542" y="307" fill="#57606a" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">microtel opens no socket: the link is yours</text>
+  <path d="M693.0 159.4 Q734.1 158.7 774.7 158.5" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M692.5 159.5 Q731.5 161.9 774.4 160.0" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M774.9 161.5 Q765.3 157.6 759.7 151.2" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M773.3 158.8 Q768.4 155.0 760.8 153.3" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M772.9 161.3 Q765.2 163.0 761.2 168.6" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M774.6 159.8 Q767.7 165.9 759.6 169.4" fill="none" stroke="#1f2328" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="734" y="142" fill="#1f2328" font-size="15" font-weight="bold" font-style="normal" text-anchor="middle">OTLP</text>
+  <text x="734" y="186" fill="#57606a" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">gRPC / HTTP</text>
+  <polygon points="783.5,97.1 933.4,97.2 935.7,224.0 786.3,227.6" fill="#dcfce7"/>
+  <path d="M782.3 93.8 Q859.0 92.5 939.1 94.2" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M781.6 94.0 Q861.1 93.3 938.4 94.4" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M936.0 91.0 Q934.7 156.6 935.5 226.5" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M936.7 92.2 Q937.8 158.3 935.0 227.9" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M940.0 224.8 Q861.0 225.5 783.0 226.1" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M939.6 226.5 Q862.0 226.9 782.5 226.1" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M785.7 227.5 Q783.2 160.2 784.6 90.8" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M785.2 226.9 Q786.6 160.8 784.7 93.1" fill="none" stroke="#1f2328" stroke-width="2.0" stroke-linecap="round"/>
+  <text x="861" y="130" fill="#1f2328" font-size="19" font-weight="bold" font-style="normal" text-anchor="middle">Backend</text>
+  <text x="861" y="162" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">OTel Collector</text>
+  <text x="861" y="186" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">Tempo, Jaeger,</text>
+  <text x="861" y="208" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">…</text>
+</g>
+</svg>

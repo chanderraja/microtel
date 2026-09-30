@@ -58,16 +58,12 @@ OpenTelemetry SDK. It has kilobytes of RAM, no heap, no threads, no TLS and
 often no IP route to a collector, so its work never shows up in the traces of
 the system around it. microtel splits the job in two:
 
-```
-  Cortex-M / small Linux boards              Gateway (Linux)                    Backend
- ┌──────────────────────────┐          ┌─────────────────────────────┐      ┌───────────────┐
- │ firmware + microtel-leaf │  UART,   │ your receive loop           │      │ OTel          │
- │  (C11, no heap, no I/O)  ├─ CAN, ──►│   └─► LeafReceiver::Ingest  │ OTLP │ Collector,    │
- │  builds spans, encodes   │  BLE,    │ microtel Provider           ├─────►│ Tempo, Jaeger,│
- │  OTLP payload bytes      │  UDP,    │  per-device Resource, clock │ gRPC │ ...           │
- └──────────────────────────┘  MQTT…   │  correction, batch, export  │ HTTP └───────────────┘
-            × N devices                └─────────────────────────────┘
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/leaf-concentrator-dark.svg">
+    <img alt="Devices running microtel-leaf send OTLP payload bytes over their own link (UART, CAN, BLE, UDP, MQTT) to a gateway, where LeafReceiver::Ingest feeds a microtel Provider that adds a per-device Resource, corrects clocks, and batches and exports over OTLP gRPC or HTTP to a collector or backend." src="docs/images/leaf-concentrator-light.svg" width="860">
+  </picture>
+</p>
 
 - **The leaf** builds spans in memory the caller owns and encodes them as a
   standard OTLP `ExportTraceServiceRequest`. It starts no thread, does no I/O

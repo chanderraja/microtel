@@ -163,7 +163,7 @@ The current release is **v1.2.0**, and the project follows SemVer.
 | Logs | Supported since v1.2: `Logger` and `LogRecord`, OTLP export over both protocols with retry, automatic trace/span correlation, conformance-tested against the collector, and bridges for spdlog, glog and log4cxx. |
 | Leaf / concentrator | New in v1.2, experimental and off by default. A C11 leaf library for microcontrollers (about 9.3 KB of flash, no heap) and a `LeafReceiver` that turns a microtel process into a gateway for them; see [Leaf and concentrator](#leaf-and-concentrator-tracing-for-microcontrollers). Traces only. The C API may change in any 1.x minor. |
 | Custom export transport | Experimental. `SdkBuilder::WithExportTransport` sends a full C++ Provider's OTLP requests through your own link (UART, CAN, UDP, MQTT…) instead of HTTP/2, for example to a concentrator. See [ICP 0036](docs/icps/0036-custom-export-transport.md). |
-| opentelemetry-cpp API shim | Experimental, source-only and off by default. Routes existing `opentelemetry-cpp` API call sites to microtel; see [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md). |
+| opentelemetry-cpp API shim | Experimental, source-only and off by default. Routes existing `opentelemetry-cpp` API call sites to microtel for a documented subset of the API; **not yet a drop-in replacement** (see [How you use it](#how-you-use-it) and [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md)). |
 
 Not supported: plaintext OTLP/HTTP to an HTTP/1.1-only receiver (see
 [Protocols and endpoints](#protocols-and-endpoints)), HTTP proxies, TLS below
@@ -182,12 +182,38 @@ walks through it.
   <img alt="Using microtel's C++ API: configuration feeds SdkBuilder, which builds a Provider once at startup; your code gets tracers, meters and loggers from it and records spans, metrics and logs on the hot path without blocking; microtel's background threads batch, encode and send them over OTLP gRPC or HTTP to a collector." src="docs/images/usage-cpp-api.svg" width="860">
 </p>
 
-**Existing opentelemetry-cpp code: the shim.** Keep every
-`opentelemetry-cpp` API call site as it is, change one startup file to build a
-microtel `Provider` and call `RegisterGlobally`, and drop opentelemetry-cpp's
-SDK and exporters from the link. The shim is experimental;
-[migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md) has the steps
-and the supported subset.
+**Existing opentelemetry-cpp code: the shim (experimental).** Call sites that
+stay within the shim's supported subset of the `opentelemetry-cpp` API keep
+working unchanged. You change one startup file to build a microtel `Provider`
+and call `RegisterGlobally`, change your build to link the shim instead of
+opentelemetry-cpp's SDK and exporters, and the gRPC, protobuf and abseil
+dependencies leave your link.
+
+> [!WARNING]
+> **The shim is not yet a drop-in replacement for opentelemetry-cpp.** It
+> covers traces, metrics and logs against the opentelemetry-cpp API (v1.28,
+> ABI v1), but:
+>
+> - **Not available:** synchronous gauges (`CreateInt64Gauge` /
+>   `CreateDoubleGauge`) and `Span::AddLink()` after start (both ABI v2),
+>   bound instruments (`Counter::Bind()`), opentelemetry-cpp's YAML
+>   configuration file, and per-signal `OTEL_EXPORTER_OTLP_<SIGNAL>_*`
+>   variables (ignored).
+> - **Converted or dropped:** a `uint64` attribute above `INT64_MAX` becomes
+>   a decimal string and a `uint64` measurement above it is dropped; byte-array
+>   attributes become hex strings; `schema_url` on `GetTracer` and `GetLogger`,
+>   logger attributes and numeric log event ids are dropped.
+> - **Behaves differently:** closing a tracer shuts down the whole provider,
+>   and a plaintext `http://…:4318` endpoint won't work because microtel
+>   speaks only HTTP/2.
+> - **Build:** every target that includes an `opentelemetry/` header must link
+>   `microtel_otelcpp_shim` so it is compiled with the same opentelemetry-cpp
+>   ABI settings; a mismatch shows up as link errors, not a clear message.
+>
+> It is tested end to end against the wire, but not yet against real-world
+> applications; that and a frozen API surface are the gates for beta.
+> [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md) lists every
+> difference with the test behind it.
 
 <p align="center">
   <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="docs/images/usage-otelcpp-shim.svg" width="860">

@@ -59,10 +59,7 @@ often no IP route to a collector, so its work never shows up in the traces of
 the system around it. microtel splits the job in two:
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/leaf-concentrator-dark.svg">
-    <img alt="Devices running microtel-leaf send OTLP payload bytes over their own link (UART, CAN, BLE, UDP, MQTT) to a gateway, where LeafReceiver::Ingest feeds a microtel Provider that adds a per-device Resource, corrects clocks, and batches and exports over OTLP gRPC or HTTP to a collector or backend." src="docs/images/leaf-concentrator-light.svg" width="860">
-  </picture>
+  <img alt="Devices running microtel-leaf send OTLP payload bytes over their own link (UART, CAN, BLE, UDP, MQTT) to a gateway, where LeafReceiver::Ingest feeds a microtel Provider that adds a per-device Resource, corrects clocks, and batches and exports over OTLP gRPC or HTTP to a collector or backend." src="docs/images/leaf-concentrator.svg" width="860">
 </p>
 
 - **The leaf** builds spans in memory the caller owns and encodes them as a

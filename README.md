@@ -13,6 +13,19 @@ processor and resources, plus an OTLP exporter. Both OTLP protocols run over a
 single nghttp2 HTTP/2 transport. The gRPC side is a small unary-RPC layer on
 that transport, so picking gRPC over HTTP costs nothing extra in binary size.
 
+In the project's benchmark against opentelemetry-cpp on the same host,
+microtel starts a span about **4× faster** at the median (about 6× at p95),
+sustains roughly **twice the span throughput**, and its benchmark binary is
+about **2.5× smaller** than one using opentelemetry-cpp's OTLP/gRPC exporter.
+opentelemetry-cpp flushes somewhat faster. See [Performance](#performance)
+for the numbers and method.
+
+It also traces devices too small to run any OpenTelemetry SDK. **microtel-leaf**
+is a C11 library that emits OTLP spans from a microcontroller in about 9.3 KB
+of flash with no heap, and a microtel **concentrator** on a nearby gateway
+exports them to your collector. See
+[Leaf and concentrator](#leaf-and-concentrator-tracing-for-microcontrollers).
+
 ## Why it exists
 
 `opentelemetry-cpp` with the OTLP/gRPC exporter brings in gRPC, abseil,
@@ -38,6 +51,105 @@ A CI symbol scan fails any PR whose shipped archives define or reference an
 `absl::`, `grpc` or `google::protobuf::` symbol. Adding a runtime dependency
 requires an [ICP](docs/icps/).
 
+## Leaf and concentrator: tracing for microcontrollers
+
+A sensor node, a motor controller or a BLE tag usually can't run an
+OpenTelemetry SDK. It has kilobytes of RAM, no heap, no threads, no TLS and
+often no IP route to a collector, so its work never shows up in the traces of
+the system around it. microtel splits the job in two:
+
+<p align="center">
+  <img alt="Devices running microtel-leaf send OTLP payload bytes over their own link (UART, CAN, BLE, UDP, MQTT) to a gateway, where LeafReceiver::Ingest feeds a microtel Provider that adds a per-device Resource, corrects clocks, and batches and exports over OTLP gRPC or HTTP to a collector or backend." src="docs/images/leaf-concentrator.svg" width="860">
+</p>
+
+- **The leaf** builds spans in memory the caller owns and encodes them as a
+  standard OTLP `ExportTraceServiceRequest`. It starts no thread, does no I/O
+  and never allocates: your firmware sends the bytes over whatever link it
+  already has.
+- **The concentrator** is an ordinary microtel `Provider` built with
+  `-DMICROTEL_WITH_CONCENTRATOR=ON`. Its `LeafReceiver` takes the bytes you
+  read from that link, validates them, gives each device its own Resource
+  (`device.id` is the transport id you pass in, which the payload can't
+  override), converts device clocks to Unix time, and sends spans from every
+  device through the normal sampling, batching and retry pipeline, many
+  devices per export request.
+- microtel opens no socket for any of this. The link is whatever your devices
+  already speak.
+
+Footprint of a minimal trace-only leaf (one span, one attribute, streamed),
+from [docs/bench-results/leaf-footprint.md](docs/bench-results/leaf-footprint.md),
+which CI measures on every PR:
+
+| | nanopb backend (default) | upb backend |
+|---|---|---|
+| Flash, Cortex-M4 / Cortex-M0+ | **9.3 KB / 9.5 KB** | 14.4 KB / 14.6 KB |
+| Leaf static RAM on Cortex-M | **0 bytes** | 65 bytes |
+| Caller-owned RAM | **512 bytes** (256 state + 256 record buffer) | 2.5 KB (adds 2 KiB encode scratch) |
+| Worst-case stack, encode, Cortex-M4 | 3.4 KB | 2.9 KB |
+| Heap | never (CI rejects any `malloc` reference) | only without `config.scratch` |
+| Good fit for | microcontrollers | Linux-class boards |
+
+Both backends produce byte-identical payloads, which CI checks against golden
+vectors and a differential fuzzer. The leaf's tests run bare-metal on Cortex-M0+
+and Cortex-M4 under QEMU, and under aarch64 and 32-bit x86 Linux.
+
+On the device, in C:
+
+```c
+static microtel_leaf_t g_leaf;        /* 256 bytes of opaque state */
+static uint8_t g_records[256];        /* spans live here until encoded */
+
+microtel_leaf_init(&g_leaf, sizeof g_leaf, &config, g_records, sizeof g_records);
+
+microtel_leaf_span_t span;
+microtel_leaf_span_start(&g_leaf, &span, "sensor.read", 11, MICROTEL_LEAF_SPAN_KIND_CLIENT, NULL);
+microtel_leaf_span_set_attribute(&g_leaf, span, &reading);
+microtel_leaf_span_end(&g_leaf, span);
+
+microtel_leaf_encode(&g_leaf, frame, sizeof frame, &written);  /* or stream with encode_to */
+uart_send(frame, written);                                     /* your link, not ours */
+```
+
+On the gateway, in C++:
+
+```cpp
+auto provider = *microtel::SdkBuilder{}
+                     .FromFile("microtel.toml")   // [concentrator] enabled = true
+                     .WithEndpoint("http://collector:4317")
+                     .WithProtocol(microtel::Protocol::Grpc)
+                     .Build();
+const auto receiver = provider->GetLeafReceiver();
+
+// For each frame read from the link:
+const microtel::IngestResult result = receiver->Ingest({
+    .leaf_id = "can0:0x1a4",                        // becomes device.id
+    .payload = frame_bytes,
+    .received_at = std::chrono::system_clock::now(),
+});
+```
+
+Per-device settings live in the concentrator's config: a `service.name` per
+device, Resource keys every device should carry, an allow-list of known
+devices, and each device's time mode. A leaf's clock usually doesn't know the
+time of day, so it can send timestamps stamped relative to the moment of
+encoding, relative to the last clock sync, or relative to boot, and the
+concentrator converts them. A Linux board next to the sensors can also run the
+full C++ SDK and export through `SdkBuilder::WithExportTransport` onto the
+same link and concentrator.
+
+To see it working, [`examples/leaf/`](examples/leaf/) runs devices and a
+concentrator over UDP into the bundled collector, Tempo and Grafana stack, and
+[`examples/leaf_mqtt/`](examples/leaf_mqtt/) does the same over MQTT with
+coreMQTT on the device side. The leaf builds on its own with just a C11
+cross-compiler (`cmake -S leaf -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-none-eabi.cmake`);
+[`leaf/README.md`](leaf/README.md) covers the build, and
+[docs/leaf-concentrator-design.md](docs/leaf-concentrator-design.md) the design.
+
+**The leaf and concentrator are experimental in v1.2:** traces only, off by
+default, and the C API may change in any 1.x minor. The roadmap stabilises the
+API in v2.0 and adds reference ports for STM32 HAL, Zephyr and FreeRTOS in
+v2.1.
+
 ## Status
 
 The current release is **v1.2.0**, and the project follows SemVer.
@@ -49,7 +161,7 @@ The current release is **v1.2.0**, and the project follows SemVer.
 | Operations | Supported since v1.1. Runtime setters on `Provider` (`SetBatchOptions`, `SetSamplerRatio`, `SetMetricInterval`, `SetLogLevel`); several named providers in one process via `GetProvider(name)`; static headers and a `WithAuthProvider` callback; TLS, custom CA and mTLS; gzip; the `microtel::sugar` convenience layer. |
 | Metrics | Implemented but experimental: all seven instruments, periodic reader, temporality, cardinality limits, views and exemplars. Scheduled to become supported in v1.3. Until then there is no compatibility guarantee and no conformance coverage. |
 | Logs | Supported since v1.2: `Logger` and `LogRecord`, OTLP export over both protocols with retry, automatic trace/span correlation, conformance-tested against the collector, and bridges for spdlog, glog and log4cxx. |
-| Leaf / concentrator | Experimental and off by default. `microtel-leaf` is a C11 library for devices too small for the runtime: it builds spans in memory the caller owns and encodes OTLP payloads, with a nanopb backend for Cortex-M (about 9.5 KB of flash, no heap) or upb for Linux-class boards. The application carries the bytes over its own link to a microtel process built with `-DMICROTEL_WITH_CONCENTRATOR=ON`, whose `LeafReceiver` gives each device its own Resource, corrects its timestamps and exports many devices' spans in one request. See [`examples/leaf/`](examples/leaf/) (UDP) and [`examples/leaf_mqtt/`](examples/leaf_mqtt/) (MQTT). The C API may change in any 1.x minor. |
+| Leaf / concentrator | New in v1.2, experimental and off by default. A C11 leaf library for microcontrollers (about 9.3 KB of flash, no heap) and a `LeafReceiver` that turns a microtel process into a gateway for them; see [Leaf and concentrator](#leaf-and-concentrator-tracing-for-microcontrollers). Traces only. The C API may change in any 1.x minor. |
 | Custom export transport | Experimental. `SdkBuilder::WithExportTransport` sends a full C++ Provider's OTLP requests through your own link (UART, CAN, UDP, MQTT…) instead of HTTP/2, for example to a concentrator. See [ICP 0036](docs/icps/0036-custom-export-transport.md). |
 | opentelemetry-cpp API shim | Experimental, source-only and off by default. Routes existing `opentelemetry-cpp` API call sites to microtel; see [migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md). |
 
@@ -185,8 +297,8 @@ latency->Record(4.2, attrs);
 
 ## Examples
 
-[`examples/`](examples/) has eleven runnable programs and a collector, Tempo
-and Grafana stack that runs under Docker or Podman:
+[`examples/`](examples/) has runnable programs and a collector, Tempo and
+Grafana stack that runs under Docker or Podman:
 
 ```bash
 examples/stack/up.sh
@@ -207,6 +319,8 @@ cmake -S . -B build -DMICROTEL_BUILD_EXAMPLES=ON && cmake --build build
 | [`health_and_backpressure`](examples/health_and_backpressure/) | `HealthSnapshot` under load and with the collector down |
 | [`auth_bearer`](examples/auth_bearer/) | Static headers and `WithAuthProvider` |
 | [`tls`](examples/tls/) | TLS, custom CA, mTLS, and OTLP/HTTP over TLS |
+| [`leaf`](examples/leaf/) | Experimental. C leaves and a full C++ node sending OTLP over UDP to a concentrator, which exports every device's spans together. Needs the leaf build options |
+| [`leaf_mqtt`](examples/leaf_mqtt/) | Experimental. The same over MQTT: coreMQTT on the device, libmosquitto on the concentrator, the leaf id taken from the topic |
 
 ## Protocols and endpoints
 
@@ -255,6 +369,9 @@ or export, which is a quick way to check a deployment before it goes live.
 |---|---|---|
 | `MICROTEL_BUILD_TESTS` | `ON` | Test tree (fetches GoogleTest). Set `OFF` for install-only or cross builds. |
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | The programs under [`examples/`](examples/). |
+| `MICROTEL_BUILD_LEAF` | `OFF` | Experimental C11 leaf library, exported as `microtel::leaf` ([`leaf/`](leaf/README.md)). It also builds on its own with `cmake -S leaf`. |
+| `MICROTEL_LEAF_ENCODER` | `nanopb` | Leaf encoder backend: `nanopb` (microcontrollers, no heap) or `upb` (Linux-class boards). Same bytes either way. |
+| `MICROTEL_WITH_CONCENTRATOR` | `OFF` | Experimental `LeafReceiver`, which makes a Provider a concentrator for leaves. Off by default because it parses untrusted bytes and links upb's decoder. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Experimental opentelemetry-cpp API shim, source-only ([ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md)). |
 | `MICROTEL_USE_SPDLOG` | `ON` | spdlog for internal diagnostics. `OFF` uses a minimal stderr logger. |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Header-only glog log bridge ([`src/adapters/glog/`](src/adapters/glog/README.md)); needs glog 0.6+ installed. |
@@ -294,20 +411,25 @@ cd bench && ./bench.sh              # hot-loop-traces profile
 ./bench.sh --flamegraph             # adds per-SUT SVG flame graphs
 ```
 
+The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
+[docs/bench-results/leaf-footprint.md](docs/bench-results/leaf-footprint.md).
+
 ## Documentation
 
 For users: [configuration](docs/configuration.md),
 [compatibility matrix](docs/compatibility-matrix.md),
 [interop matrix](docs/interop-matrix.md) (tested collectors and backends),
 [auth callback recipes](docs/auth-callback-recipes.md) (OAuth2 and AWS SigV4),
-[migrating from opentelemetry-cpp](docs/migration-from-otel-cpp.md), and the
+[migrating from opentelemetry-cpp](docs/migration-from-otel-cpp.md), the
+[leaf library](leaf/README.md) and [leaf footprint](docs/bench-results/leaf-footprint.md), and the
 [error](docs/error-model.md), [threading](docs/threading-model.md) and
 [memory](docs/memory-model.md) models.
 
 For contributors: the [specification](microtel-spec.md), the
 [roadmap](microtel-roadmap.md), [architecture](docs/architecture.md), the
 locked [interface contracts](docs/interfaces.md),
-[metrics design](docs/metrics-design.md), the [ICPs](docs/icps/) that record
+[metrics design](docs/metrics-design.md),
+[leaf / concentrator design](docs/leaf-concentrator-design.md), the [ICPs](docs/icps/) that record
 design decisions, and the rest of [docs/](docs/) (coding standards, sequence
 diagrams).
 

@@ -17,7 +17,7 @@ This document is the architectural entry point for microtel. It establishes the 
 
 The audience is contributors and AI agents picking up an implementation track from M2 onward. A reader who finishes this document should know what to read next for the track they own — not have implementation answers, but know where the answers live.
 
-This document covers v1 only. Forward-looking architecture (control plane, metrics, logs, HTTP/3, leaf/concentrator) is in `microtel-roadmap.md`.
+This document covers v1 only. Forward-looking architecture (control plane, metrics, logs, HTTP/3) is in `microtel-roadmap.md`. The leaf and concentrator, which trace microcontrollers too small for the runtime and shipped experimental in v1.2, are designed in `leaf-concentrator-design.md`.
 
 ---
 

@@ -29,6 +29,10 @@ constructed at startup).
 
 ## Quick start
 
+<p align="center">
+  <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="images/usage-otelcpp-shim.svg" width="860">
+</p>
+
 ```cpp
 // startup.cpp — the only file that changes.
 #include "adapters/otelcpp/global_registration.hpp"

@@ -170,6 +170,29 @@ Not supported: plaintext OTLP/HTTP to an HTTP/1.1-only receiver (see
 1.2, and Windows. The [compatibility matrix](docs/compatibility-matrix.md) has
 the full list, and [microtel-roadmap.md](microtel-roadmap.md) has what's next.
 
+## How you use it
+
+**New code: the microtel C++ API.** Build a `Provider` once at startup from
+code, environment and an optional TOML file, then get tracers, meters and
+loggers from it. Recording is `noexcept` and never waits on the network;
+microtel's own threads batch, encode and send. [Getting started](#getting-started)
+walks through it.
+
+<p align="center">
+  <img alt="Using microtel's C++ API: configuration feeds SdkBuilder, which builds a Provider once at startup; your code gets tracers, meters and loggers from it and records spans, metrics and logs on the hot path without blocking; microtel's background threads batch, encode and send them over OTLP gRPC or HTTP to a collector." src="docs/images/usage-cpp-api.svg" width="860">
+</p>
+
+**Existing opentelemetry-cpp code: the shim.** Keep every
+`opentelemetry-cpp` API call site as it is, change one startup file to build a
+microtel `Provider` and call `RegisterGlobally`, and drop opentelemetry-cpp's
+SDK and exporters from the link. The shim is experimental;
+[migration-from-otel-cpp.md](docs/migration-from-otel-cpp.md) has the steps
+and the supported subset.
+
+<p align="center">
+  <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="docs/images/usage-otelcpp-shim.svg" width="860">
+</p>
+
 ## Getting started
 
 microtel runs on Linux only (the I/O thread uses `epoll`); CI builds it as

@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 990 560" width="990" height="560" role="img" aria-label="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so, within the supported subset of the API, the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked.">
+<g font-family="'Avenir Next','Segoe UI Variable','Segoe UI',Inter,'Helvetica Neue',Helvetica,Arial,sans-serif">
+  <polygon points="44.4,46.8 345.9,44.7 344.9,224.3 46.5,220.1" fill="#fff4d6"/>
+  <path d="M41.5 46.4 Q194.4 46.7 347.0 47.5" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M42.4 46.4 Q194.4 43.9 346.4 45.4" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M344.3 43.8 Q345.9 135.2 343.8 226.1" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M344.6 41.8 Q342.6 132.9 342.6 226.5" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M348.3 222.8 Q192.9 221.1 39.8 221.4" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M345.4 222.1 Q191.5 220.2 40.4 221.7" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M42.5 226.2 Q42.0 133.1 44.8 43.2" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M42.8 224.4 Q41.4 132.0 42.6 42.3" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <polygon points="37.9,52.7 336.8,52.1 337.2,230.7 35.8,226.4" fill="#fff4d6"/>
+  <path d="M33.9 52.6 Q189.1 50.0 340.9 51.8" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M34.1 52.8 Q187.7 52.1 339.4 54.2" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M337.0 50.4 Q336.7 141.5 335.5 230.7" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M336.9 49.8 Q338.6 142.5 337.0 231.2" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M339.9 227.5 Q186.0 227.0 33.7 230.0" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M339.0 229.7 Q187.2 230.1 34.4 228.3" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M38.5 233.1 Q39.5 143.6 36.8 51.0" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M37.8 232.3 Q38.0 142.7 37.0 51.1" fill="none" stroke="#768390" stroke-width="1.4" stroke-linecap="round"/>
+  <polygon points="28.4,57.6 328.6,60.5 330.4,234.2 28.1,238.7" fill="#fff4d6"/>
+  <path d="M25.6 61.4 Q181.9 61.6 333.9 60.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M25.4 61.4 Q180.5 59.8 332.7 61.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M328.5 55.5 Q328.5 146.0 330.9 239.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M329.6 58.0 Q332.2 150.2 330.8 240.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M334.1 234.5 Q180.3 235.0 25.4 237.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M331.8 235.5 Q178.9 234.4 26.5 236.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M28.7 238.0 Q28.4 145.3 28.8 55.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M31.0 239.1 Q29.2 146.2 29.9 57.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="180.0" y="90" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">Your instrumented code</text>
+  <text x="180.0" y="116" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">unchanged, within the</text>
+  <text x="180.0" y="136" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">supported API subset</text>
+  <text x="180.0" y="156" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">tracer-&gt;StartSpan(…)</text>
+  <text x="180.0" y="175" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">meter-&gt;CreateUInt64Counter(…)</text>
+  <text x="180.0" y="194" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">logger-&gt;EmitLogRecord(…)</text>
+  <path d="M336.7 147.5 Q367.3 148.8 399.6 147.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M336.4 147.8 Q369.0 146.4 399.6 147.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M398.5 146.9 Q392.8 152.7 390.4 154.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M400.5 149.5 Q392.4 151.5 388.4 155.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M400.9 148.1 Q397.0 142.6 389.8 140.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M400.4 147.0 Q393.9 146.1 388.0 142.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="369" y="132" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">calls</text>
+  <polygon points="408.7,71.4 662.4,70.8 658.4,227.0 412.7,227.8" fill="#f6f8fa"/>
+  <path d="M406.8 69.7 Q532.8 69.0 661.7 70.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M405.5 68.9 Q532.6 69.1 662.6 69.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M660.8 65.7 Q661.6 149.2 658.8 229.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M660.2 65.7 Q662.5 148.3 661.2 230.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M662.6 226.3 Q535.2 227.0 407.9 227.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M662.4 226.1 Q534.6 227.5 407.1 225.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M409.2 228.2 Q408.4 149.6 409.4 68.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M411.4 230.2 Q411.0 149.5 411.0 66.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="535.0" y="100" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">opentelemetry-cpp API</text>
+  <text x="535.0" y="126" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">header-only, v1.28</text>
+  <text x="535.0" y="146" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">global providers:</text>
+  <text x="535.0" y="166" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">GetTracerProvider()</text>
+  <text x="535.0" y="185" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">GetMeterProvider() …</text>
+  <path d="M667.2 148.3 Q698.5 147.2 731.2 149.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M666.5 147.4 Q699.7 148.0 730.2 147.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M730.4 149.0 Q723.7 151.2 718.4 155.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M728.8 148.9 Q725.4 149.2 720.2 153.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M729.7 147.4 Q725.0 143.6 720.2 141.0" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M729.2 147.2 Q723.6 144.5 717.5 139.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="699" y="132" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">resolve to</text>
+  <polygon points="741.0,58.6 962.9,57.5 959.6,235.0 738.1,238.8" fill="#ede9fe"/>
+  <path d="M737.7 58.8 Q849.3 59.0 962.0 61.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M736.3 59.4 Q850.2 57.5 963.3 59.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M960.1 57.3 Q961.7 149.4 959.4 240.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M959.7 55.9 Q958.6 147.3 960.4 238.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M962.0 236.4 Q850.5 234.1 737.8 234.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M962.5 236.7 Q851.6 235.4 738.5 235.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M741.4 238.0 Q741.2 147.9 740.5 55.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M741.3 239.8 Q741.3 148.9 740.2 56.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="850.0" y="90" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel shim</text>
+  <text x="850.0" y="116" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">source-only adapter:</text>
+  <text x="850.0" y="136" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">tracer, meter, logger,</text>
+  <text x="850.0" y="156" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">attribute &amp; context shims</text>
+  <text x="850.0" y="176" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">-DMICROTEL_BUILD_</text>
+  <text x="850.0" y="195" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">OTELCPP_SHIM=ON</text>
+  <polygon points="410.7,297.3 661.5,298.6 660.7,448.3 411.4,445.3" fill="#fff4d6"/>
+  <path d="M408.0 295.6 Q537.8 298.2 664.1 297.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M407.6 296.0 Q536.7 295.6 662.3 296.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M659.1 293.8 Q658.6 369.2 661.3 448.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M660.2 294.1 Q657.7 370.7 659.2 449.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M663.1 446.8 Q534.4 446.2 407.0 446.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M663.1 444.4 Q535.2 443.6 406.0 445.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M409.2 450.6 Q411.1 372.6 410.5 292.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M411.0 449.2 Q410.4 370.0 410.4 291.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="535.0" y="326" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">startup.cpp</text>
+  <text x="535.0" y="352" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">the one source change,</text>
+  <text x="535.0" y="372" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">plus linking the shim</text>
+  <text x="535.0" y="392" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">SdkBuilder{}…Build()</text>
+  <text x="535.0" y="411" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">RegisterGlobally(*provider)</text>
+  <path d="M539.2 293.6 Q538.5 262.6 541.2 233.1" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M538.9 292.5 Q538.0 263.5 541.3 234.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M539.0 233.9 Q543.1 241.5 548.2 246.6" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M540.0 232.7 Q544.4 240.3 546.5 246.1" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M541.6 233.6 Q539.6 241.5 533.9 246.1" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M541.2 233.5 Q535.3 238.6 532.8 245.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="552" y="272" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="start">installs</text>
+  <path d="M849.6 243.1 Q848.5 266.8 849.0 294.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M851.0 245.4 Q848.2 268.8 849.1 294.6" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M848.9 294.5 Q846.9 290.3 843.4 283.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M851.2 294.3 Q848.3 289.5 842.3 281.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M850.5 295.4 Q852.7 288.7 857.8 282.6" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M851.3 295.2 Q853.0 290.1 855.2 281.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <polygon points="742.3,302.0 957.4,298.2 961.6,409.6 738.9,412.8" fill="#dbeafe"/>
+  <path d="M735.5 300.0 Q851.5 299.3 964.2 300.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M737.2 301.5 Q851.7 299.2 961.8 299.8" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M960.9 297.8 Q961.3 354.6 959.2 414.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M961.6 298.2 Q962.0 355.2 959.9 411.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M963.8 408.7 Q851.4 408.4 736.9 411.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M962.5 409.9 Q851.6 408.5 736.9 411.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M740.4 411.8 Q742.5 356.3 741.2 297.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M741.4 411.9 Q739.8 356.1 738.6 297.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="850.0" y="330" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel Provider</text>
+  <text x="850.0" y="356" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">batch · retry</text>
+  <text x="850.0" y="376" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">upb encode · nghttp2</text>
+  <path d="M849.8 417.7 Q850.3 458.2 850.7 499.6" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M850.6 416.6 Q851.0 460.2 849.9 500.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M849.6 501.5 Q847.0 494.4 843.9 488.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M850.5 498.5 Q845.3 491.7 844.5 488.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M849.5 499.2 Q855.5 492.9 857.9 488.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M849.5 501.4 Q852.0 494.0 857.9 490.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="838" y="466" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="end">OTLP gRPC / HTTP</text>
+  <text x="850" y="528" fill="#768390" font-size="15" font-weight="bold" font-style="normal" text-anchor="middle">Collector or any OTLP backend</text>
+  <polygon points="31.2,299.0 327.6,297.6 328.9,448.9 31.0,452.9" fill="#f6f8fa"/>
+  <path d="M25.9 300.9 Q181.8 302.9 333.3 301.2" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M25.8 300.8 Q177.8 301.3 333.9 299.6" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M330.4 297.8 Q328.6 377.7 330.8 453.8" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M331.5 296.5 Q330.9 374.7 330.9 454.4" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M333.3 450.9 Q182.0 450.2 26.7 450.6" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M334.3 448.8 Q180.4 449.0 27.3 451.1" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M29.3 452.6 Q28.3 375.1 29.6 296.7" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M29.1 452.2 Q28.5 373.9 29.9 298.3" fill="none" stroke="#768390" stroke-width="1.8" stroke-linecap="round"/>
+  <text x="180" y="330" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">no longer linked</text>
+  <text x="180" y="360" fill="#57606a" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">opentelemetry-cpp SDK + OTLP exporters</text>
+  <text x="180" y="382" fill="#57606a" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">gRPC · protobuf · abseil · libcurl</text>
+  <path d="M56.9 390.3 Q178.5 369.5 302.8 347.5" fill="none" stroke="#cf222e" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M55.2 347.0 Q180.7 369.6 303.6 390.4" fill="none" stroke="#cf222e" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="180" y="428" fill="#57606a" font-size="13" font-weight="normal" font-style="italic" text-anchor="middle">(rule 13, checked by CI)</text>
+  <text x="30" y="486" fill="#768390" font-size="13" font-weight="normal" font-style="italic" text-anchor="start">Every target that includes an opentelemetry/ header links microtel_otelcpp_shim,</text>
+  <text x="30" y="504" fill="#768390" font-size="13" font-weight="normal" font-style="italic" text-anchor="start">so it builds with the same OPENTELEMETRY_STL_VERSION=2020 and ABI v1.</text>
+</g>
+</svg>

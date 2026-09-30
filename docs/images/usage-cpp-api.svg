@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 990 500" width="990" height="500" role="img" aria-label="Using microtel's C++ API: configuration feeds SdkBuilder, which builds a Provider once at startup; your code gets tracers, meters and loggers from it and records spans, metrics and logs on the hot path without blocking; microtel's background threads batch, encode and send them over OTLP gRPC or HTTP to a collector.">
+<g font-family="'Avenir Next','Segoe UI Variable','Segoe UI',Inter,'Helvetica Neue',Helvetica,Arial,sans-serif">
+  <polygon points="28.0,53.1 220.8,51.9 218.3,87.8 31.8,86.1" fill="#f6f8fa"/>
+  <path d="M27.0 51.2 Q124.6 49.5 221.4 51.6" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M27.9 51.1 Q127.2 51.9 222.1 50.5" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M221.2 49.4 Q219.8 67.2 218.5 88.5" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M221.4 48.6 Q218.5 71.2 218.9 90.0" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M222.9 86.2 Q123.3 84.0 26.5 86.0" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M224.2 85.2 Q128.1 86.8 27.9 85.1" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M30.8 89.8 Q28.9 69.7 30.3 49.7" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M31.0 88.0 Q30.8 68.5 31.4 50.2" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="125" y="74" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">code: .With…()</text>
+  <polygon points="29.7,97.3 223.0,97.3 217.2,129.6 31.3,135.0" fill="#f6f8fa"/>
+  <path d="M27.0 98.0 Q123.9 98.9 223.2 98.8" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M27.2 98.4 Q123.9 99.5 222.0 96.9" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M219.5 95.3 Q217.5 115.9 219.4 133.7" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M220.9 94.6 Q222.5 117.1 220.6 135.6" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M222.7 133.6 Q127.3 132.9 28.5 132.3" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M222.6 131.2 Q123.5 132.4 28.2 130.9" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M30.9 134.9 Q29.9 113.3 31.1 93.6" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M29.7 133.9 Q30.9 116.3 28.6 94.5" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="125" y="120" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">env: OTEL_*</text>
+  <polygon points="31.5,143.9 218.5,146.8 220.2,179.4 27.2,176.3" fill="#f6f8fa"/>
+  <path d="M28.1 144.9 Q125.8 145.0 224.2 144.3" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M28.1 143.4 Q126.8 141.2 223.1 143.3" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M220.6 142.5 Q220.2 163.4 218.5 181.3" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M220.3 140.2 Q221.8 159.7 219.7 182.5" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M221.7 176.7 Q122.0 178.9 25.5 177.8" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M223.5 176.8 Q125.3 175.9 27.1 177.4" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M28.9 180.0 Q29.5 158.8 29.6 141.7" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M30.7 182.2 Q28.6 161.9 30.9 141.9" fill="none" stroke="#768390" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="125" y="166" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">file: microtel.toml</text>
+  <text x="125" y="34" fill="#768390" font-size="14" font-weight="bold" font-style="normal" text-anchor="middle">configuration</text>
+  <path d="M226.6 118.8 Q256.7 119.6 289.0 118.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M227.4 116.5 Q260.3 116.1 289.6 117.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M290.0 118.2 Q285.6 120.9 280.4 123.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M290.8 119.5 Q284.6 122.7 278.3 125.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M288.6 119.0 Q283.7 117.0 280.4 110.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M288.7 116.6 Q284.3 114.2 277.6 112.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <polygon points="300.7,47.1 570.9,49.7 570.1,185.3 299.4,184.4" fill="#fff4d6"/>
+  <path d="M295.6 49.8 Q435.3 51.2 572.2 50.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M296.9 49.2 Q435.3 51.6 572.6 50.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M568.7 46.9 Q571.0 119.5 570.0 189.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M570.4 47.8 Q571.3 119.8 570.5 190.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M572.2 187.3 Q435.8 188.9 296.6 186.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M574.6 184.4 Q435.0 183.3 296.4 185.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M300.2 187.7 Q300.8 117.9 299.4 48.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M298.7 190.5 Q299.0 118.9 300.7 46.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="314" y="72" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">① startup, once</text>
+  <text x="435.0" y="94" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">SdkBuilder</text>
+  <text x="435.0" y="120" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">validates everything up front</text>
+  <text x="435.0" y="140" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">.Build()</text>
+  <text x="435.0" y="159" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">→ Expected&lt;Provider, Error&gt;</text>
+  <path d="M578.6 117.2 Q608.9 118.9 641.4 117.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M576.9 118.6 Q607.0 117.9 639.0 118.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M641.4 117.9 Q634.1 120.1 628.7 125.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M639.6 117.3 Q631.7 123.1 627.9 126.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M641.4 118.7 Q632.4 115.4 627.4 111.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M640.6 117.2 Q632.2 113.4 627.3 111.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <polygon points="649.7,42.4 949.2,37.8 951.8,197.9 650.2,193.3" fill="#dbeafe"/>
+  <path d="M646.0 39.7 Q800.9 40.9 953.2 39.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M648.4 41.2 Q798.1 42.5 951.5 40.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M950.8 37.8 Q951.3 118.2 949.0 197.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M950.4 36.9 Q949.7 117.0 951.0 198.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M952.4 196.4 Q798.4 195.6 648.2 194.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M953.6 195.0 Q797.9 194.8 646.3 194.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M650.6 199.5 Q651.6 117.8 648.9 35.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M649.7 199.6 Q648.4 119.8 650.7 37.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="664" y="62" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">②</text>
+  <text x="800.0" y="84" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">Provider</text>
+  <text x="800.0" y="110" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">GetTracer() · GetMeter()</text>
+  <text x="800.0" y="129" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">GetLogger()</text>
+  <text x="800.0" y="148" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">GetExporterHealth()</text>
+  <text x="800.0" y="167" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">ForceFlush() · Shutdown()</text>
+  <path d="M759.1 202.5 Q544.9 233.9 329.5 268.1" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M760.7 204.0 Q546.1 238.3 328.9 269.1" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M330.6 267.1 Q335.9 265.8 340.9 260.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M331.5 267.6 Q337.7 262.2 341.4 261.0" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M329.5 268.4 Q336.6 269.6 342.3 273.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M331.4 268.1 Q339.5 270.4 343.2 272.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="585" y="258" fill="#768390" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">tracers, meters, loggers</text>
+  <polygon points="31.7,273.4 362.3,271.2 357.5,441.4 28.1,442.2" fill="#fff4d6"/>
+  <path d="M28.0 271.6 Q194.6 271.4 361.8 270.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M25.5 272.5 Q195.7 271.7 362.1 270.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M361.3 269.0 Q359.7 357.2 358.8 444.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M360.9 269.8 Q360.4 356.5 360.5 444.2" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M363.0 441.2 Q193.0 443.0 27.1 441.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M363.3 443.0 Q197.7 442.3 27.8 442.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M29.7 443.4 Q30.4 358.5 30.5 269.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M29.0 444.1 Q29.8 355.1 30.7 270.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="44" y="294" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">③ hot path</text>
+  <text x="195.0" y="316" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">Your code, any thread</text>
+  <text x="195.0" y="342" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span = tracer-&gt;StartSpan("GET /cart")</text>
+  <text x="195.0" y="361" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span-&gt;SetAttribute(…)</text>
+  <text x="195.0" y="380" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">counter-&gt;Add(1, attrs)</text>
+  <text x="195.0" y="399" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">logger-&gt;Emit(record)</text>
+  <text x="195" y="470" fill="#768390" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">noexcept · never waits on the network</text>
+  <path d="M367.6 357.0 Q398.3 357.0 430.0 355.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M368.3 356.6 Q399.2 355.6 431.2 356.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M430.9 356.9 Q427.1 361.1 420.3 361.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M428.6 355.4 Q425.5 357.5 419.3 361.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M430.6 355.3 Q424.3 352.7 418.0 348.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M429.1 356.6 Q423.2 351.8 418.4 349.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="399" y="340" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">queue</text>
+  <polygon points="437.8,269.3 741.2,271.5 737.7,444.3 440.9,439.1" fill="#dcfce7"/>
+  <path d="M437.7 272.3 Q592.3 271.6 742.8 272.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M437.4 272.4 Q591.1 272.6 742.6 271.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M739.9 269.0 Q737.4 358.1 739.1 445.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M739.9 268.1 Q738.2 356.6 740.3 445.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M741.9 443.0 Q587.9 440.2 436.4 441.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M742.0 440.9 Q588.5 440.3 437.4 443.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M440.1 443.8 Q438.6 357.7 439.7 269.8" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M440.1 443.7 Q437.9 355.2 439.2 269.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="454" y="294" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">④</text>
+  <text x="590.0" y="316" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel background threads</text>
+  <text x="590.0" y="342" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">batch · sample · retry</text>
+  <text x="590.0" y="362" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">OTLP encode (upb)</text>
+  <text x="590.0" y="382" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">HTTP/2 + TLS (nghttp2)</text>
+  <path d="M748.2 357.0 Q777.0 355.9 810.1 356.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M747.4 357.3 Q776.4 357.1 809.5 356.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M811.3 356.9 Q807.1 357.5 799.2 361.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M811.5 356.9 Q804.1 359.2 799.6 362.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M810.5 356.5 Q802.6 352.4 798.6 350.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M808.7 355.4 Q802.7 351.9 799.9 350.0" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="779" y="340" fill="#768390" font-size="14" font-weight="bold" font-style="normal" text-anchor="middle">OTLP</text>
+  <text x="779" y="380" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">gRPC /</text>
+  <text x="779" y="396" fill="#768390" font-size="13" font-weight="normal" font-style="normal" text-anchor="middle">HTTP</text>
+  <polygon points="817.7,307.0 959.7,304.4 959.2,408.2 819.6,407.1" fill="#ffffff"/>
+  <path d="M817.4 305.9 Q889.0 305.7 963.2 305.6" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M816.4 305.5 Q888.9 305.1 962.0 307.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M958.5 302.1 Q960.6 354.1 961.2 408.5" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M960.5 302.8 Q960.1 355.0 960.8 409.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M963.3 407.1 Q889.7 408.2 817.6 405.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M964.1 404.9 Q891.6 407.9 817.6 406.9" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M821.2 408.2 Q820.9 357.4 821.6 302.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M818.9 408.7 Q818.6 356.8 820.4 302.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="890" y="346" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">Collector</text>
+  <text x="890" y="370" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">or any OTLP</text>
+  <text x="890" y="388" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">backend</text>
+</g>
+</svg>

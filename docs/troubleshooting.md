@@ -92,8 +92,8 @@ Source: `src/common/config/config_validator.cpp` (`ParseEndpointUrl`,
 - **If a malformed `OTEL_EXPORTER_OTLP_ENDPOINT`** is the cause **→** expect the
   same `EndpointMalformed` errors on field `exporter.endpoint`, not an
   `EnvParseFailure`: `src/common/config/env_resolver.cpp` copies the variable
-  verbatim and `Validate` is what rejects it. ([error-model.md](error-model.md)
-  §8 lists this case as `EnvParseFailure`; the code above is what runs.)
+  verbatim and `Validate` is what rejects it ([error-model.md](error-model.md)
+  §8).
 - **If you see** `gRPC endpoint URLs must not include a path`
   (`ProtocolMismatch`, field `exporter.endpoint`) **→** drop the path. A
   gRPC endpoint is `https://collector:4317`; `/v1/traces` belongs to OTLP/HTTP
@@ -112,9 +112,7 @@ Source: `src/common/config/config_validator.cpp` (`ValidateTlsMaterial`,
 
 - **If you see** `CA bundle not readable: <path>`, `client cert not readable:
   <path>` or `client key not readable: <path>` (`TlsMaterialUnreadable`, field
-  `tls.ca_bundle` / `tls.client_cert` / `tls.client_key`; the `exporter.tls.*`
-  examples in [error-model.md](error-model.md) §8 use the spelling that
-  [configuration.md](configuration.md) §3.5 corrects) **→** the path is not
+  `tls.ca_bundle` / `tls.client_cert` / `tls.client_key`) **→** the path is not
   a readable regular file for this process. Check the path, its permissions,
   and that a container actually mounts it.
 - **If you see** `client_cert is set but client_key is missing` or
@@ -535,13 +533,12 @@ The leaf-over-MQTT example has its own
 `microtel-preflight --preflight={connect|export} [config.toml]` resolves the
 configuration as the SDK does (file, then environment), then connects
 (`connect`) or connects and exports one span named `microtel.preflight`
-(`export`). The installed binary is `microtel-preflight`, which is what
-[error-model.md](error-model.md) §8 means by `microtel --preflight=…`. Source:
+(`export`). Source:
 `tools/preflight/preflight.cpp`, `tools/preflight/preflight.hpp`.
 
 | Exit | stdout / stderr | Means | Do |
 |---|---|---|---|
-| 0 | `connect OK` / `export OK` | it works | nothing |
+| 0 | `connect OK` / `export OK` | `connect`: the connection succeeded. `export`: `ForceFlush` returned `Completed`, which means the queue drained, **not** that the collector accepted the span; preflight does not check `batches_failed` | for `export`, confirm the span arrived at the collector, or check `GetExporterHealth()` in your own program (see [No traces arrive](#no-traces-arrive-reading-getexporterhealth)) |
 | 1 | `Usage: ...` or `error: expected --preflight={connect|export}, got: <arg>` or `error: unknown preflight mode '<mode>' ...` | bad arguments | fix the command line |
 | 2 | `error: configuration failed: <message>` | `Build()` failed | look the message up under [`Build()` returns an error](#sdkbuilderbuild-returns-an-error) |
 | 3 | `error: connect failed: <message>` | `Connect()` failed | look the message up under [`Provider::Connect()` fails](#providerconnect-fails) |

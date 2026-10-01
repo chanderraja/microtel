@@ -304,16 +304,18 @@ A Provider built with `SdkBuilder::WithExportTransport` classifies nothing itsel
 | TOML syntax error | `FileParseFailure` | (empty) |
 | Endpoint URL malformed | `EndpointMalformed` | `exporter.endpoint` |
 | Endpoint scheme conflicts with explicit `protocol` | `ProtocolMismatch` | `exporter.protocol` |
-| TLS CA bundle missing or unreadable | `TlsMaterialUnreadable` | `exporter.tls.ca_bundle` |
-| Client cert / key path unreadable | `TlsMaterialUnreadable` | `exporter.tls.client_cert` |
+| TLS CA bundle missing or unreadable | `TlsMaterialUnreadable` | `tls.ca_bundle` |
+| Client cert / key path unreadable | `TlsMaterialUnreadable` | `tls.client_cert` |
 | `insecure=true` while compiled with `MICROTEL_FORBID_INSECURE_TLS=ON` | `InsecureDisallowed` | `tls.insecure` |
-| Out-of-range numeric value (negative timeout, etc.) | `InvalidValue` | `exporter.timeouts.per_export` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` malformed | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Incoherent batch options (zero queue size, batch larger than the queue, zero schedule delay) | `InvalidValue` | `sdk.max_export_batch_size` |
+| An environment variable that does not parse (e.g. `OTEL_EXPORTER_OTLP_TIMEOUT` not integer milliseconds) | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_TIMEOUT` |
 | Second call to `SdkBuilder::Build()` | `BuildAlreadyConsumed` | (empty) |
 
 The exact `message` text each of these produces, and what to do about it, is collected in [`troubleshooting.md`](troubleshooting.md#sdkbuilderbuild-returns-an-error); this table stays the normative mapping.
 
-**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by `microtel --preflight=connect` / `--preflight=export` (spec §6.4) — never as a side effect of constructing a `Provider`.
+An endpoint is validated after the sources are merged, so a malformed `OTEL_EXPORTER_OTLP_ENDPOINT` is reported like any other malformed endpoint: `EndpointMalformed` on field `exporter.endpoint`. Timeout values (`[timeouts]`, `OTEL_EXPORTER_OTLP_TIMEOUT`) are parsed but not range-checked in this release.
+
+**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by the `microtel-preflight` tool, `--preflight=connect` / `--preflight=export` (spec §6.4) — never as a side effect of constructing a `Provider`.
 
 ---
 

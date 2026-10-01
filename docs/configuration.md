@@ -610,30 +610,14 @@ The other exporter settings have no meaning on this path:
 
 ## 4. Build-time options
 
-Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.)
+Distinct from runtime configuration: build options are set with CMake at compile
+time, never appear in `microtel.toml`, and have no environment-variable
+equivalents. They are properties of the binary, not of the runtime
+configuration. (Spec §9.2.)
 
-| CMake option | Default | Effect |
-|---|---|---|
-| `MICROTEL_USE_SPDLOG` | `ON` | When `OFF`, microtel uses a minimal stderr logger instead of spdlog. Sink injection still works. |
-| `MICROTEL_USE_SYSTEM_DEPS` | `OFF` | When `ON`, toml++, spdlog (if `MICROTEL_USE_SPDLOG`) and GoogleTest (if `MICROTEL_BUILD_TESTS`) come from `find_package(… CONFIG REQUIRED)` instead of FetchContent, so configure needs no network. toml++ is compiled header-only either way; the installed package never needs a toml++ library. |
-| `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | When `ON`, a configuration with `tls.insecure = true` fails `Build()` with `ConfigError::Kind::InsecureDisallowed`. Default builds warn instead. See §3.5. |
-| `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp adapter (ICP 0014). |
-| `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests. Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |
-| `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Builds the header-only log4cxx log bridge and its tests. Needs log4cxx 1.1 or later installed (`find_package(log4cxx)`). |
-| `MICROTEL_WITH_CONCENTRATOR` | `OFF` | Compiles the concentrator's leaf receiver (experimental; §3.14). When `OFF`, `Provider::GetLeafReceiver()` returns a receiver that answers `Disabled`, and a configuration that enables it fails `Build()`. |
-| `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree. Set `OFF` for cross-compilation. |
-| `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Builds the header compile check that includes every public and internal header. |
-| `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the standalone API examples under `examples/`. |
-| `MICROTEL_BUILD_BENCH` | `OFF` | Builds the benchmark harness under `bench/` (needs Podman/Docker). |
-| `MICROTEL_BUILD_FUZZ` | `OFF` | Builds the libFuzzer harnesses (clang only). |
-| `MICROTEL_COVERAGE` | `OFF` | Builds instrumented for coverage: clang source-based (`-fprofile-instr-generate -fcoverage-mapping`), which is what `ci/scripts/coverage.sh` gates on, or gcov `--coverage` under gcc. |
-| `MICROTEL_SANITIZER` | *(empty)* | One of `asan`, `tsan`, `ubsan`. A cache string, not a boolean option. |
-
-Correction (#196): `MICROTEL_BUILD_PYTHON` does not exist — there is no Python
-extension in the tree — and the shim option is named
-`MICROTEL_BUILD_OTELCPP_SHIM`, not `MICROTEL_BUILD_COMPAT_SHIMS`.
-
-Build-time options never appear in `microtel.toml` and have no environment-variable equivalents. They are properties of the binary, not of the runtime configuration.
+Every option, with its default, is in [build-options.md](build-options.md).
+The two that change runtime behaviour described in this document are
+`MICROTEL_FORBID_INSECURE_TLS` (§3.5) and `MICROTEL_WITH_CONCENTRATOR` (§3.14).
 
 ---
 

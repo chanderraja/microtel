@@ -45,9 +45,16 @@ batch shows up only as `batches_failed`, a drop counter and
 `last_error_message`. The [health_and_backpressure example](../examples/health_and_backpressure/)
 shows how to print a snapshot.
 
+**If you cannot tell** whether the problem is your build, your
+instrumentation or the collector **→** run
+[`examples/console_trace`](../examples/console_trace/README.md). It exports
+through an application `ExportTransport` that prints each span to stdout, so
+it needs no collector, no container and no network. If spans print there, the
+library and the pipeline work and the problem is on the network side.
+
 **If you set** `MICROTEL_LOG_LEVEL=debug` (or `trace`) expecting more output
 **→** you will not get any. microtel has no `debug` or `trace` log call sites;
-apart from one `info` line at `Build()` (`resolved resource (<n> attributes): ...`,
+apart from one `info` line at `Build()` (`resolved resource (profile "<name>", <n> attributes): ...`,
 `src/sdk/resource_builder.cpp`), everything it logs is `warn`. Lowering the
 level changes nothing else; raising it to `error` silences the warnings in this
 page. Level semantics: [configuration.md](configuration.md) §3.11.

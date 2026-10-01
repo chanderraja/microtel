@@ -34,7 +34,7 @@ function(microtel_add_conformance_test)
     target_include_directories(${MT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/tests)
     target_compile_options(${MT_NAME} PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
     # The timeout is per-binary and covers a flush plus a 15 s poll of the
     # collector's output file; a hung export must fail the job, not stall it.

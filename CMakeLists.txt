@@ -61,6 +61,12 @@ add_library(microtel_sugar INTERFACE)
 target_link_libraries(microtel_sugar INTERFACE microtel_headers)
 target_compile_features(microtel_sugar INTERFACE cxx_std_20)
 
+# option(MICROTEL_WARNINGS_AS_ERRORS ... ON) and ${MICROTEL_WERROR}, which
+# every target below puts after its -W flags. ON (the default) keeps -Werror;
+# packagers turn it OFF. The module, not this file, holds the option so the
+# standalone leaf and leaf-target projects share the one definition.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MicrotelWarnings.cmake)
+
 # M0 header compile check.
 #
 # Verifies every public and internal header compiles standalone with -Werror.
@@ -72,7 +78,7 @@ if(MICROTEL_BUILD_HEADER_CHECK)
     add_executable(microtel_header_check ci/header_check.cpp)
     target_link_libraries(microtel_header_check PRIVATE microtel_headers)
     target_compile_options(microtel_header_check PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 endif()
 
 # Sanitizer build helper. MICROTEL_SANITIZER ∈ { '', asan, tsan, ubsan }.

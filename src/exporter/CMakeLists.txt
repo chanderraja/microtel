@@ -23,4 +23,4 @@ target_include_directories(microtel_exporter
 target_compile_features(microtel_exporter PUBLIC cxx_std_20)
 
 target_compile_options(microtel_exporter PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

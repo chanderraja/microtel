@@ -51,12 +51,33 @@
 #
 # The build-dir form is kept for local use, where scanning without installing
 # first is the quicker loop.
+#
+#         ci/scripts/symbol-scan.sh --instrumented <build-dir>
+#
+# --instrumented is for a coverage or sanitizer build tree, and is how the
+# `symbol_scan_build_tree` ctest (tests/CMakeLists.txt) runs the gate there.
+# Instrumentation defines globals of its own in every object (`__covrec_*`,
+# `___asan_globals_registered`), which the leaf pass would report as leaf
+# globals without the microtel_leaf_ prefix. The flag skips the leaf pass only;
+# every other pass runs, and none of their patterns can match an
+# instrumentation symbol. Instrumented trees are never shipped, so the leaf
+# pass loses nothing: it still runs on every uninstrumented scan.
 
 set -euo pipefail
 
 NM="${NM:-nm}"
 
 LEAF_BUILD=""
+INSTRUMENTED=0
+
+if [[ "${1:-}" == "--instrumented" ]]; then
+    INSTRUMENTED=1
+    shift
+    if [[ -z "${1:-}" || "${1:-}" == --* ]]; then
+        echo "symbol-scan: --instrumented requires a build directory" >&2
+        exit 2
+    fi
+fi
 
 if [[ "${1:-}" == "--prefix" ]]; then
     SCAN_MODE="prefix"
@@ -318,6 +339,9 @@ done
 leaf_present=0
 nanopb_leaf=0
 for artifact in "${ARTIFACTS[@]}"; do
+    if [[ $INSTRUMENTED -eq 1 ]]; then
+        break
+    fi
     if [[ "$(basename "$artifact")" == "$LEAF_ARCHIVE_NAME" ]]; then
         leaf_present=1
         if symbols_of "$artifact" -A -g --defined-only | grep -qx "$NANOPB_LEAF_MARKER"; then
@@ -415,6 +439,9 @@ echo "symbol-scan: clean — no gRPC, abseil, or protobuf-cpp symbols"
 echo "symbol-scan: clean — no unprefixed vendored upb/utf8_range symbols"
 echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"
 echo "symbol-scan: clean — no nanopb outside the leaf, none unprefixed inside it"
+if [[ $INSTRUMENTED -eq 1 ]]; then
+    echo "symbol-scan: leaf pass skipped — instrumented build tree"
+fi
 if [[ $leaf_present -eq 1 ]]; then
     echo "symbol-scan: clean — leaf closure has no C++ runtime; leaf globals are prefixed"
 fi

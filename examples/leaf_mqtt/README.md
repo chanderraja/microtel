@@ -455,6 +455,6 @@ closure is unchanged, and neither is distributed with microtel.
 ## Exit codes
 
 The concentrator returns `0` on success, `1` if `Build()` fails or the MQTT
-client can't be started, and `2` if `ForceFlush` did not complete. The leaf
-returns `0` on success, `1` if the leaf can't be set up or the broker can't be
+client can't be started, and `2` if `ForceFlush` did not complete or a batch
+failed. The leaf returns `0` on success, `1` if the leaf can't be set up or the broker can't be
 reached, `2` for bad arguments, and `3` if an encode or a publish failed.

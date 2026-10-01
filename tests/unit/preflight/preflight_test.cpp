@@ -217,3 +217,43 @@ TEST(PreflightSpanIdentityTest, VersionMatchesTheLibraryVersion)
     ClearIdentityEnv();
     EXPECT_EQ(tools::ResolveSpanIdentity("").version, microtel::kVersionString);
 }
+
+// ---------------------------------------------------------------------------
+// Export verdict — ForceFlush's Completed means the queue drained, not that
+// the collector accepted the batch. A rejected batch still drains.
+// ---------------------------------------------------------------------------
+
+TEST(PreflightReportExportTest, CompletedFlushWithNoFailedBatch_ReportsOk)
+{
+    std::ostringstream out;
+    std::ostringstream err;
+    microtel::HealthSnapshot health;
+    health.batches_sent = 1;
+    EXPECT_EQ(tools::ReportExport(microtel::Status::Completed, health, out, err), tools::kExitOk);
+    EXPECT_EQ(out.str(), "export OK\n");
+    EXPECT_TRUE(err.str().empty());
+}
+
+TEST(PreflightReportExportTest, CompletedFlushWithFailedBatch_ReportsRuntimeErrorWithLastError)
+{
+    std::ostringstream out;
+    std::ostringstream err;
+    microtel::HealthSnapshot health;
+    health.batches_failed = 1;
+    health.last_error_message = "UNIMPLEMENTED (12): unknown service";
+    EXPECT_EQ(tools::ReportExport(microtel::Status::Completed, health, out, err),
+              tools::kExitRuntime);
+    EXPECT_EQ(out.str().find("export OK"), std::string::npos);
+    EXPECT_EQ(err.str().rfind("error: ", 0), 0U);
+    EXPECT_NE(err.str().find("UNIMPLEMENTED (12): unknown service"), std::string::npos);
+}
+
+TEST(PreflightReportExportTest, TimedOutFlush_ReportsRuntimeError)
+{
+    std::ostringstream out;
+    std::ostringstream err;
+    EXPECT_EQ(tools::ReportExport(microtel::Status::TimedOut, microtel::HealthSnapshot{}, out, err),
+              tools::kExitRuntime);
+    EXPECT_TRUE(out.str().empty());
+    EXPECT_FALSE(err.str().empty());
+}

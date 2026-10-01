@@ -203,7 +203,8 @@ microtel::Expected<std::shared_ptr<microtel::Provider>, microtel::ConfigError> B
         .Build();
 }
 
-/// @brief Flush, report health, shut down. True if the flush completed.
+/// @brief Flush, report health, shut down. True if the flush completed with
+///        no failed batch.
 bool Finish(microtel::Provider& provider)
 {
     const microtel::Status flush = provider.ForceFlush(kFlushTimeout);
@@ -220,7 +221,9 @@ bool Finish(microtel::Provider& provider)
         std::cout << "  last_error: " << health.last_error_message << '\n';
     }
 
-    return flush == microtel::Status::Completed;
+    // Completed only means the queues drained; a batch the collector rejected
+    // still counts as drained. Success needs no failed batch as well.
+    return flush == microtel::Status::Completed && health.batches_failed == 0;
 }
 
 /// @brief Phase 1 — the first-match chain.

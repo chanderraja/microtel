@@ -327,7 +327,10 @@ int FlushAndReport(microtel::Provider& provider, const microtel::LeafReceiver& r
     std::cout << "Shutdown: " << StatusName(provider.Shutdown(kShutdownTimeout)) << '\n';
     std::cout << "\nview it: http://localhost:3000  (TraceQL: { resource.service.name =~ "
                  "\"greenhouse-.*\" })\n";
-    return flush == microtel::Status::Completed ? 0 : 2;
+    // Completed only means the queues drained; a batch the collector rejected
+    // still counts as drained. Success needs no failed batch as well.
+    const bool delivered = flush == microtel::Status::Completed && health.batches_failed == 0;
+    return delivered ? 0 : 2;
 }
 
 }  // namespace

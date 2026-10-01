@@ -155,7 +155,8 @@ const char* Found(std::string_view name) noexcept
     return (microtel::GetProvider(name) != nullptr) ? "live" : "nullptr";
 }
 
-/// @brief Flush, report health, shut down. True if the flush completed.
+/// @brief Flush, report health, shut down. True if the flush completed with
+///        no failed batch.
 bool Finish(microtel::Provider& provider, const char* label)
 {
     const microtel::Status flush = provider.ForceFlush(kFlushTimeout);
@@ -172,7 +173,9 @@ bool Finish(microtel::Provider& provider, const char* label)
         std::cout << "  " << label << ": last_error: " << health.last_error_message << '\n';
     }
 
-    return flush == microtel::Status::Completed;
+    // Completed only means the queues drained; a batch the collector rejected
+    // still counts as drained. Success needs no failed batch as well.
+    return flush == microtel::Status::Completed && health.batches_failed == 0;
 }
 
 }  // namespace

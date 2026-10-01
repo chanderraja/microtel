@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "microtel/provider.hpp"
+#include "microtel/status.hpp"
+
 #include <iosfwd>
 #include <string>
 #include <string_view>
@@ -64,7 +67,23 @@ struct SpanIdentity
 inline constexpr int kExitOk = 0;
 inline constexpr int kExitUsage = 1;    ///< bad argument / missing flag
 inline constexpr int kExitConfig = 2;   ///< configuration validation failure
-inline constexpr int kExitRuntime = 3;  ///< connect or export network failure
+inline constexpr int kExitRuntime = 3;  ///< connect failed, or export failed or was rejected
+
+/// @brief Turn an export run's flush status and exporter health into the
+///        `--preflight=export` verdict, printed to @p out or @p err.
+///
+/// The seam between the run and its verdict, so a unit test can hand it a
+/// rejected batch without a collector that rejects one.
+///
+/// @param flush   what `Provider::ForceFlush()` returned.
+/// @param health  `Provider::GetExporterHealth()`, read after the flush.
+/// @param out     receives `export OK` on success.
+/// @param err     receives the `error: ...` line on failure.
+/// @return `kExitOk` or `kExitRuntime`.
+[[nodiscard]] int ReportExport(microtel::Status flush,
+                               const microtel::HealthSnapshot& health,
+                               std::ostream& out,
+                               std::ostream& err);
 
 /// @brief Run the preflight check. Returns a process exit code.
 ///
@@ -73,7 +92,8 @@ inline constexpr int kExitRuntime = 3;  ///< connect or export network failure
 ///
 /// - **connect**: calls `Provider::Connect()` and prints the outcome.
 /// - **export**: calls `Provider::Connect()`, sends one synthetic span, calls
-///   `Provider::ForceFlush()`, and prints the outcome.
+///   `Provider::ForceFlush()`, and prints the outcome (see `ReportExport`):
+///   OK only if the flush completed and no batch failed.
 ///
 /// @param argc  argument count (same as `main`'s argc).
 /// @param argv  argument vector (same as `main`'s argv).

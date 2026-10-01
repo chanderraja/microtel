@@ -368,8 +368,11 @@ int main()
     }  // The span ends here and the batch processor exports it in the background.
 
     const microtel::Status flushed = provider->ForceFlush(std::chrono::seconds{5});
+    // Completed means the queue drained; a batch the collector rejected also drains.
+    const bool delivered =
+        flushed == microtel::Status::Completed && provider->GetExporterHealth().batches_failed == 0;
     const microtel::Status shut = provider->Shutdown(std::chrono::seconds{5});
-    return (flushed == microtel::Status::Completed && shut == microtel::Status::Completed) ? 0 : 2;
+    return (delivered && shut == microtel::Status::Completed) ? 0 : 2;
 }
 ```
 
@@ -378,7 +381,10 @@ The API does not throw. `StartSpan`, `SetAttribute`, `AddEvent` and `End` are
 `Provider::GetExporterHealth()`. Initialization returns `microtel::Expected`
 (`std::expected` on C++23, a vendored `tl::expected` on C++20), and
 `ForceFlush`/`Shutdown` return a `microtel::Status` of `Completed`,
-`TimedOut`, `AlreadyShutDown` or `Failed`.
+`TimedOut`, `AlreadyShutDown` or `Failed`. `Completed` is not a delivery
+receipt: it means the queue drained, which is also true when the collector
+rejected a batch. `GetExporterHealth().batches_failed` and
+`last_error_message` say whether one was rejected.
 
 Nothing touches the network until the first export. Call
 `provider->Connect()` if you want a bad endpoint reported at startup. A span
@@ -475,6 +481,8 @@ has every setting with its TOML key and default.
 `microtel-preflight --preflight={connect|export} [config.toml]` resolves a
 configuration the same way the SDK does and then attempts a real connection
 or export, which is a quick way to check a deployment before it goes live.
+`--preflight=export` exits 0 only if the span was exported and the collector
+accepted it; a rejected batch exits 3 with the collector's error.
 
 ## Build options
 

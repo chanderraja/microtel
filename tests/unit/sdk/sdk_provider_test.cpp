@@ -15,6 +15,7 @@
 #include "microtel/tracer.hpp"
 
 #include "fakes/fake_exporter.hpp"
+#include "helpers/thread_ids.hpp"
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_log_exporter.hpp"
 #include "mocks/mock_metric_exporter.hpp"
@@ -28,10 +29,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <functional>
 #include <memory>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -373,28 +372,8 @@ TEST(SdkProviderTest, Shutdown_TransportStillClosesWhenProcessorTimedOut)
 // PeriodicExportingMetricReader or a BatchLogRecordProcessor -- and spawn its
 // thread -- after Shutdown() returned. threading-model.md §6.2 says no further
 // records are accepted after Shutdown; the new thread was also joined only at
-// destruction. Thread count is the assertion because the thread is the bug.
+// destruction. Threads started is the assertion because the thread is the bug.
 // ---------------------------------------------------------------------------
-
-// Live threads in this process, via /proc. Cheap and Linux-only, which matches
-// the project's target platform.
-namespace
-{
-[[nodiscard]] int LiveThreadCount()
-{
-    std::ifstream status{"/proc/self/status"};
-    std::string line;
-    while (std::getline(status, line))
-    {
-        constexpr std::string_view kPrefix = "Threads:";
-        if (std::string_view{line}.starts_with(kPrefix))
-        {
-            return std::stoi(line.substr(kPrefix.size()));
-        }
-    }
-    return -1;
-}
-}  // namespace
 
 TEST(SdkProviderTest, GetLoggerAfterShutdown_SpawnsNoThread)
 {
@@ -405,10 +384,10 @@ TEST(SdkProviderTest, GetLoggerAfterShutdown_SpawnsNoThread)
 
     ASSERT_EQ(provider->Shutdown(std::chrono::milliseconds(50)), mt::Status::Completed);
 
-    const int before = LiveThreadCount();
-    ASSERT_GT(before, 0);
+    const auto before = mtm::ThreadIds();
+    ASSERT_FALSE(before.empty());
     auto logger = provider->GetLogger("after", "1.0");
-    EXPECT_EQ(LiveThreadCount(), before);
+    EXPECT_EQ(mtm::ThreadsStartedSince(before), 0U);
     EXPECT_NE(logger, nullptr);
 }
 
@@ -421,10 +400,10 @@ TEST(SdkProviderTest, GetMeterAfterShutdown_SpawnsNoThread)
 
     ASSERT_EQ(provider->Shutdown(std::chrono::milliseconds(50)), mt::Status::Completed);
 
-    const int before = LiveThreadCount();
-    ASSERT_GT(before, 0);
+    const auto before = mtm::ThreadIds();
+    ASSERT_FALSE(before.empty());
     auto meter = provider->GetMeter("after", "1.0");
-    EXPECT_EQ(LiveThreadCount(), before);
+    EXPECT_EQ(mtm::ThreadsStartedSince(before), 0U);
     EXPECT_NE(meter, nullptr);
 }
 
@@ -436,11 +415,11 @@ TEST(SdkProviderTest, GetLoggerBeforeShutdown_StillBuildsThePipeline)
     mtm::MockTransport* transport = nullptr;
     auto provider = MakeProviderWithLogExporter(&proc, &exp, &transport);
 
-    const int before = LiveThreadCount();
+    const auto before = mtm::ThreadIds();
     auto logger = provider->GetLogger("before", "1.0");
     EXPECT_NE(logger, nullptr);
     // The processor's worker thread is expected here.
-    EXPECT_GT(LiveThreadCount(), before);
+    EXPECT_GT(mtm::ThreadsStartedSince(before), 0U);
 }
 
 // ---------------------------------------------------------------------------

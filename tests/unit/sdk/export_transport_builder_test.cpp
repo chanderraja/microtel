@@ -18,6 +18,7 @@
 #include "microtel/tracer.hpp"
 
 #include "fakes/fake_export_transport.hpp"
+#include "helpers/thread_ids.hpp"
 #include "mocks/mock_export_transport.hpp"
 #include "sdk/noop_logger.hpp"
 #include "sdk/noop_meter.hpp"
@@ -30,11 +31,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -142,28 +141,6 @@ std::size_t CountOf(const std::vector<mtt::FakeExportTransport::Recorded>& sent,
         std::ranges::count_if(sent, [signal](const auto& r) { return r.signal == signal; }));
 }
 
-/// The ids of this process's threads, from /proc/self/task.
-std::set<std::string> ThreadIds()
-{
-    std::set<std::string> ids;
-    for (const auto& entry : std::filesystem::directory_iterator{"/proc/self/task"})
-    {
-        ids.insert(entry.path().filename().string());
-    }
-    return ids;
-}
-
-/// Threads started since @p before was taken. Counts ids, not entries: a
-/// thread joined just before, by an earlier test or a provider's reset, can
-/// still be listed for a moment after the join and vanish mid-measurement,
-/// which made a difference of two counts flaky.
-std::size_t ThreadsStartedSince(const std::set<std::string>& before)
-{
-    const auto now = ThreadIds();
-    return static_cast<std::size_t>(
-        std::ranges::count_if(now, [&before](const auto& id) { return !before.contains(id); }));
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -200,16 +177,16 @@ TEST(ExportTransportBuilderTest, NoHttp2TransportIsBuilt_ThreeFewerThreadsThanTh
 {
     // The HTTP default starts an I/O thread and the metric and log exporter
     // workers; a traces-only custom transport starts none of them.
-    const auto before_http = ThreadIds();
+    const auto before_http = mtt::ThreadIds();
     auto http = mt::SdkBuilder().WithEndpoint("https://localhost:4318").Build();
     ASSERT_TRUE(http.has_value());
-    const std::size_t http_threads = ThreadsStartedSince(before_http);
+    const std::size_t http_threads = mtt::ThreadsStartedSince(before_http);
     http->reset();
 
-    const auto before_custom = ThreadIds();
+    const auto before_custom = mtt::ThreadIds();
     const auto custom = BuildWith(std::make_unique<mtt::MockExportTransport>());
     ASSERT_NE(custom, nullptr);
-    const std::size_t custom_threads = ThreadsStartedSince(before_custom);
+    const std::size_t custom_threads = mtt::ThreadsStartedSince(before_custom);
 
     EXPECT_EQ(http_threads - custom_threads, 3U);
 }

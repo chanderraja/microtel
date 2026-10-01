@@ -28,7 +28,7 @@ function(microtel_add_integration_test)
         ${CMAKE_SOURCE_DIR}/tests
         ${CMAKE_SOURCE_DIR}/src)
     target_compile_options(${MT_NAME} PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
     set_tests_properties(${MT_NAME} PROPERTIES LABELS "integration")
 endfunction()

@@ -13,7 +13,7 @@ target_include_directories(microtel_otlp_response PRIVATE ${CMAKE_SOURCE_DIR}/sr
 target_compile_features(microtel_otlp_response PUBLIC cxx_std_20)
 
 target_compile_options(microtel_otlp_response PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 # gzip request compression, shared by the HTTP and gRPC codecs.
 add_library(microtel_gzip STATIC gzip.cpp)
@@ -29,7 +29,7 @@ target_compile_features(microtel_gzip PUBLIC cxx_std_20)
 target_compile_definitions(microtel_gzip PRIVATE ZLIB_CONST)
 
 target_compile_options(microtel_gzip PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 add_subdirectory(encoder)
 add_subdirectory(http)

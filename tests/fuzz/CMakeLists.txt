@@ -35,7 +35,7 @@ function(microtel_add_fuzz_target)
     target_compile_options(${MF_NAME} PRIVATE
         -fsanitize=fuzzer,address,undefined
         -fno-omit-frame-pointer
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
     target_link_options(${MF_NAME} PRIVATE
         -fsanitize=fuzzer,address,undefined)

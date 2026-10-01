@@ -13,6 +13,6 @@ set_target_properties(nanopb_encode_test PROPERTIES
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF)
 target_compile_options(nanopb_encode_test PRIVATE
-    -pedantic-errors -Wall -Wextra -Werror)
+    -pedantic-errors -Wall -Wextra ${MICROTEL_WERROR})
 add_test(NAME nanopb_encode_test COMMAND nanopb_encode_test)
 set_tests_properties(nanopb_encode_test PROPERTIES LABELS "unit")

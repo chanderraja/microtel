@@ -43,7 +43,7 @@ function(microtel_add_example name)
     add_executable(${target} ${arg_SOURCES})
     target_link_libraries(${target} PRIVATE microtel_sdk)
     target_compile_features(${target} PRIVATE cxx_std_20)
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     set_target_properties(${target} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
 endfunction()

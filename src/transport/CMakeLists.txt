@@ -25,4 +25,4 @@ target_include_directories(microtel_transport
 
 target_compile_features(microtel_transport PUBLIC cxx_std_20)
 target_compile_options(microtel_transport PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

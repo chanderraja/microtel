@@ -70,7 +70,7 @@
   <text x="542" y="204" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">per-device Resource</text>
   <text x="542" y="226" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">clock correction</text>
   <text x="542" y="248" fill="#1f2328" font-size="15" font-weight="normal" font-style="normal" text-anchor="middle">sample · batch · retry · export</text>
-  <text x="542" y="307" fill="#768390" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">microtel opens no socket: the link is yours</text>
+  <text x="542" y="307" fill="#768390" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">no leaf-facing socket: that link is yours</text>
   <path d="M693.0 159.4 Q734.1 158.7 774.7 158.5" fill="none" stroke="#768390" stroke-width="2.6" stroke-linecap="round"/>
   <path d="M692.5 159.5 Q731.5 161.9 774.4 160.0" fill="none" stroke="#768390" stroke-width="2.6" stroke-linecap="round"/>
   <path d="M774.9 161.5 Q765.3 157.6 759.7 151.2" fill="none" stroke="#768390" stroke-width="2.6" stroke-linecap="round"/>

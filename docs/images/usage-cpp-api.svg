@@ -37,20 +37,21 @@
   <path d="M290.8 119.5 Q284.6 122.7 278.3 125.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M288.6 119.0 Q283.7 117.0 280.4 110.7" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M288.7 116.6 Q284.3 114.2 277.6 112.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
-  <polygon points="300.7,47.1 570.9,49.7 570.1,185.3 299.4,184.4" fill="#fff4d6"/>
-  <path d="M295.6 49.8 Q435.3 51.2 572.2 50.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M296.9 49.2 Q435.3 51.6 572.6 50.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M568.7 46.9 Q571.0 119.5 570.0 189.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M570.4 47.8 Q571.3 119.8 570.5 190.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M572.2 187.3 Q435.8 188.9 296.6 186.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M574.6 184.4 Q435.0 183.3 296.4 185.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M300.2 187.7 Q300.8 117.9 299.4 48.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M298.7 190.5 Q299.0 118.9 300.7 46.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
-  <text x="314" y="72" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">① startup, once</text>
-  <text x="435.0" y="94" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">SdkBuilder</text>
-  <text x="435.0" y="120" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">validates everything up front</text>
-  <text x="435.0" y="140" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">.Build()</text>
-  <text x="435.0" y="159" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">→ Expected&lt;Provider, Error&gt;</text>
+  <polygon points="300.7,37.1 570.9,39.7 570.1,195.3 299.4,194.4" fill="#fff4d6"/>
+  <path d="M295.6 39.8 Q435.3 41.2 572.2 40.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M296.9 39.2 Q435.3 41.6 572.6 40.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M568.7 36.9 Q571.0 119.5 570.0 199.7" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M570.4 37.8 Q571.3 119.8 570.5 200.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M572.2 197.3 Q435.8 198.9 296.6 196.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M574.6 194.4 Q435.0 193.3 296.4 195.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M300.2 197.7 Q300.8 117.9 299.4 38.4" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M298.7 200.5 Q299.0 118.9 300.7 36.1" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="314" y="62" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">① startup, once</text>
+  <text x="435.0" y="84" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">SdkBuilder</text>
+  <text x="435.0" y="110" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">validates config (not the network)</text>
+  <text x="435.0" y="130" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">.Build() →</text>
+  <text x="435.0" y="149" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">Expected&lt;shared_ptr&lt;Provider&gt;,</text>
+  <text x="435.0" y="168" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">ConfigError&gt;</text>
   <path d="M578.6 117.2 Q608.9 118.9 641.4 117.4" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M576.9 118.6 Q607.0 117.9 639.0 118.3" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M641.4 117.9 Q634.1 120.1 628.7 125.2" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
@@ -90,10 +91,11 @@
   <path d="M29.0 444.1 Q29.8 355.1 30.7 270.0" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
   <text x="44" y="294" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">③ hot path</text>
   <text x="195.0" y="316" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">Your code, any thread</text>
-  <text x="195.0" y="342" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span = tracer-&gt;StartSpan("GET /cart")</text>
-  <text x="195.0" y="361" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span-&gt;SetAttribute(…)</text>
-  <text x="195.0" y="380" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">counter-&gt;Add(1, attrs)</text>
-  <text x="195.0" y="399" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">logger-&gt;Emit(record)</text>
+  <text x="195.0" y="342" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">sampled here, in StartSpan</text>
+  <text x="195.0" y="362" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span = tracer-&gt;StartSpan("GET /cart")</text>
+  <text x="195.0" y="381" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">span-&gt;SetAttribute(…)</text>
+  <text x="195.0" y="400" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">counter-&gt;Add(1, attrs)</text>
+  <text x="195.0" y="419" fill="#1f2328" font-size="13" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">logger-&gt;Emit(record)</text>
   <text x="195" y="470" fill="#768390" font-size="14" font-weight="normal" font-style="italic" text-anchor="middle">noexcept · never waits on the network</text>
   <path d="M367.6 357.0 Q398.3 357.0 430.0 355.9" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M368.3 356.6 Q399.2 355.6 431.2 356.8" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>
@@ -113,7 +115,7 @@
   <path d="M440.1 443.7 Q437.9 355.2 439.2 269.3" fill="none" stroke="#768390" stroke-width="2.2" stroke-linecap="round"/>
   <text x="454" y="294" fill="#b45309" font-size="13" font-weight="bold" font-style="normal" text-anchor="start">④</text>
   <text x="590.0" y="316" fill="#1f2328" font-size="17" font-weight="bold" font-style="normal" text-anchor="middle">microtel background threads</text>
-  <text x="590.0" y="342" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">batch · sample · retry</text>
+  <text x="590.0" y="342" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">batch · retry</text>
   <text x="590.0" y="362" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">OTLP encode (upb)</text>
   <text x="590.0" y="382" fill="#1f2328" font-size="14" font-weight="normal" font-style="normal" text-anchor="middle">HTTP/2 + TLS (nghttp2)</text>
   <path d="M748.2 357.0 Q777.0 355.9 810.1 356.5" fill="none" stroke="#768390" stroke-width="2.4" stroke-linecap="round"/>

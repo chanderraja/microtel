@@ -139,7 +139,21 @@ endif()
 # their own logger (per docs/error-model.md §9.3).
 option(MICROTEL_USE_SPDLOG "Use spdlog for internal diagnostic logs" ON)
 
-if(MICROTEL_USE_SPDLOG)
+# Where toml++, spdlog and GoogleTest come from. OFF (the default) downloads
+# pinned versions with FetchContent at configure time. ON resolves each with
+# find_package(... CONFIG REQUIRED) and never touches the network, which is
+# what a package manager (vcpkg, Conan, a distro build) needs: they build
+# offline and supply their own copies. Plain find_package / FetchContent
+# branches rather than FetchContent's FIND_PACKAGE_ARGS, which needs CMake
+# 3.24; microtel's minimum is 3.20.
+option(MICROTEL_USE_SYSTEM_DEPS
+       "Find toml++, spdlog and GoogleTest with find_package instead of FetchContent" OFF)
+
+if(MICROTEL_USE_SPDLOG AND MICROTEL_USE_SYSTEM_DEPS)
+    # Only the header-only bridge (src/adapters/spdlog) and its tests use it;
+    # no installed archive references spdlog, whichever way it was found.
+    find_package(spdlog CONFIG REQUIRED)
+elseif(MICROTEL_USE_SPDLOG)
     include(FetchContent)
     FetchContent_Declare(
         spdlog
@@ -155,17 +169,45 @@ if(MICROTEL_USE_SPDLOG)
 endif()
 
 # toml++ — TOML config file parser (M6-A, ICP 0004).
-# Header-only; linked PRIVATE into microtel_config only.
-# Runtime closure is unchanged: zero shared-library symbols added.
-include(FetchContent)
-FetchContent_Declare(
-    tomlplusplus
-    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
-    GIT_TAG        v3.4.0
-    GIT_SHALLOW    TRUE
-)
-set(TOMLPLUSPLUS_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(tomlplusplus)
+# Linked PRIVATE into microtel_config only, and always compiled header-only,
+# so the runtime closure is unchanged (CLAUDE.md rule 12): the toml++ code
+# microtel uses is absorbed into libmicrotel_config.a and no installed archive
+# has an undefined toml:: reference. symbol-scan.sh checks that.
+if(MICROTEL_USE_SYSTEM_DEPS)
+    find_package(tomlplusplus CONFIG REQUIRED)
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        tomlplusplus
+        GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+        GIT_TAG        v3.4.0
+        GIT_SHALLOW    TRUE
+    )
+    set(TOMLPLUSPLUS_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(tomlplusplus)
+endif()
+
+# microtel takes only toml++'s include directories, never the
+# tomlplusplus::tomlplusplus target itself. A packaged toml++ can be a
+# compiled library whose target forces TOML_HEADER_ONLY=0 on its users
+# (vcpkg's adds -DTOML_HEADER_ONLY=0 to INTERFACE_COMPILE_OPTIONS); linking
+# it would leave libmicrotel_config.a with undefined toml:: symbols that the
+# installed package does not resolve. Not installed: the only user wraps it
+# in $<BUILD_INTERFACE:>. SYSTEM, as both upstream targets already are (an
+# imported target's includes, and toml++'s warning guard when it is not the
+# top-level project): third-party headers must not trip this project's
+# warnings.
+get_target_property(_microtel_toml_includes tomlplusplus::tomlplusplus
+                    INTERFACE_INCLUDE_DIRECTORIES)
+if(NOT _microtel_toml_includes)
+    message(FATAL_ERROR
+            "tomlplusplus::tomlplusplus has no INTERFACE_INCLUDE_DIRECTORIES; "
+            "microtel needs toml++'s headers to compile it header-only.")
+endif()
+add_library(microtel_tomlplusplus INTERFACE)
+target_include_directories(microtel_tomlplusplus SYSTEM INTERFACE ${_microtel_toml_includes})
+target_compile_definitions(microtel_tomlplusplus INTERFACE TOML_HEADER_ONLY=1)
+unset(_microtel_toml_includes)
 
 # opentelemetry-cpp API-adapter shim (M17, ICP 0014) — opt-in, source-only.
 #
@@ -531,19 +573,24 @@ endif()
 if(MICROTEL_BUILD_TESTS)
     enable_testing()
 
-    # GoogleTest via FetchContent — pinned to a stable tag. No system
-    # dependency required. Test-only; not part of the runtime closure
-    # in microtel-spec.md §9.1.
-    include(FetchContent)
-    FetchContent_Declare(
-        googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG        v1.17.0
-        GIT_SHALLOW    TRUE
-    )
-    # Don't install gtest as part of microtel's install target.
-    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
+    # GoogleTest via FetchContent — pinned to a stable tag — or, under
+    # MICROTEL_USE_SYSTEM_DEPS, the installed package (GTestConfig.cmake
+    # provides the same GTest::gtest and GTest::gtest_main targets).
+    # Test-only; not part of the runtime closure in microtel-spec.md §9.1.
+    if(MICROTEL_USE_SYSTEM_DEPS)
+        find_package(GTest CONFIG REQUIRED)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        v1.17.0
+            GIT_SHALLOW    TRUE
+        )
+        # Don't install gtest as part of microtel's install target.
+        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+    endif()
 
     add_subdirectory(tests)
 endif()

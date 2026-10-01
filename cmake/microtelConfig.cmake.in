@@ -54,8 +54,10 @@ if(NOT TARGET PkgConfig::NGHTTP2)
 endif()
 
 # spdlog is deliberately absent from this list even when microtel_WITH_SPDLOG
-# is TRUE. It is FetchContent'd with SPDLOG_INSTALL=OFF, so it is not part of
-# this package, and no installed archive references a spdlog symbol — the
+# is TRUE. It is FetchContent'd with SPDLOG_INSTALL=OFF (or, under
+# MICROTEL_USE_SYSTEM_DEPS, found but never linked by a shipped target), so it
+# is not part of this package, and no installed archive references a spdlog
+# symbol — the
 # option currently selects a compile-time route that has not landed. Requiring
 # it here would fail find_package for a dependency nothing needs. See
 # src/common/CMakeLists.txt and issue #190.

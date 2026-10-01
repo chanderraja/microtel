@@ -281,9 +281,12 @@ cmake --build build -j"$(nproc)"
 cmake --install build --prefix "$HOME/.local/microtel"
 ```
 
-Configuring fetches toml++ (header-only) and spdlog (unless
-`-DMICROTEL_USE_SPDLOG=OFF`), plus GoogleTest when tests are on. None of them
-end up in the installed package's link closure. The install puts the headers,
+Configuring fetches toml++ and spdlog (unless `-DMICROTEL_USE_SPDLOG=OFF`),
+plus GoogleTest when tests are on. To use installed copies instead and build
+offline, as a package manager does, add `-DMICROTEL_USE_SYSTEM_DEPS=ON`.
+None of them end up in the installed package's link closure: toml++ is
+always compiled header-only into microtel, even when the installed toml++ is
+a library. The install puts the headers,
 the static archives, the CMake package and the `microtel-preflight` tool under
 the prefix. For a system-wide install, use a prefix such as `/opt/microtel`
 and run that last command with `sudo`.
@@ -474,6 +477,7 @@ or export, which is a quick way to check a deployment before it goes live.
 | `MICROTEL_WITH_CONCENTRATOR` | `OFF` | Experimental `LeafReceiver`, which makes a Provider a concentrator for leaves. Off by default because it parses untrusted bytes and links upb's decoder. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Experimental opentelemetry-cpp API shim, source-only ([ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md)). |
 | `MICROTEL_USE_SPDLOG` | `ON` | spdlog for internal diagnostics. `OFF` uses a minimal stderr logger. |
+| `MICROTEL_USE_SYSTEM_DEPS` | `OFF` | Find toml++, spdlog and GoogleTest with `find_package(… CONFIG)` instead of downloading them, for offline and package-manager builds. toml++ is still compiled header-only, so the installed package does not depend on it. |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Header-only glog log bridge ([`src/adapters/glog/`](src/adapters/glog/README.md)); needs glog 0.6+ installed. |
 | `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Header-only log4cxx log bridge ([`src/adapters/log4cxx/`](src/adapters/log4cxx/README.md)); needs log4cxx 1.1+ installed. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | Makes `tls.insecure = true` a `Build()` error instead of a warning. |

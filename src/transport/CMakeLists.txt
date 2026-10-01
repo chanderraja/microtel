@@ -13,6 +13,11 @@ target_link_libraries(microtel_transport
     PUBLIC  microtel_headers
     PRIVATE microtel_common
             OpenSSL::SSL
+            # The transport calls libcrypto directly (BIO_*, X509_*). FindOpenSSL
+            # makes OpenSSL::SSL pull libcrypto in, but OpenSSL's own CMake config
+            # (preferred by Conan, and by CMAKE_FIND_PACKAGE_PREFER_CONFIG) does
+            # not for shared builds, and the link then fails.
+            OpenSSL::Crypto
             PkgConfig::NGHTTP2)
 
 target_include_directories(microtel_transport

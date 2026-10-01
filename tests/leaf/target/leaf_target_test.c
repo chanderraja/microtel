@@ -514,29 +514,30 @@ static microtel_leaf_span_t g_step_span;
 static size_t g_step_written;
 static volatile uint8_t g_link_register;
 
-/* Set by note_callee_frame(). */
-static volatile uintptr_t g_callee_frame;
-
-/* Stores in g_callee_frame the address of a local in a frame one call below
- * the caller's: where the measured function's frame will start. Stored, not
- * returned: the address outlives the frame on purpose, and returning a
- * local's address is what -Wreturn-stack-address rejects. */
-__attribute__((noinline)) static void note_callee_frame(void)
+/* Stores in *frame the address of a local in a frame one call below the
+ * caller's: where the measured function's frame will start. Stored through
+ * the caller's pointer, not returned: the address outlives the frame on
+ * purpose, and returning a local's address is what -Wreturn-stack-address
+ * rejects. Into a local of the caller's rather than a global: a new global
+ * shifts .bss, and the Cortex-M0+ figures move with it. */
+__attribute__((noinline)) static void callee_frame(volatile uintptr_t* frame)
 {
     volatile uint32_t local = 0;
-    g_callee_frame = (uintptr_t)&local;
+    *frame = (uintptr_t)&local;
 }
 
 /* Paints the stack below the next call's frame, runs `step`, and returns how
- * far down it wrote. Under-reads by at most the few bytes of note_callee_frame's
+ * far down it wrote. Under-reads by at most the few bytes of callee_frame's
  * frame above its local. */
 __attribute__((noinline)) static size_t stack_used_by(step_fn step)
 {
-    note_callee_frame();
-    const uintptr_t top = g_callee_frame & ~(uintptr_t)(WORD_BYTES - 1);
-    const uintptr_t floor =
-        (leaf_target_stack_floor(top) + WORD_BYTES - 1u) & ~(uintptr_t)(WORD_BYTES - 1);
+    volatile uintptr_t frame = 0;
+    uintptr_t top;
+    uintptr_t floor;
     uintptr_t p;
+    callee_frame(&frame);
+    top = frame & ~(uintptr_t)(WORD_BYTES - 1);
+    floor = (leaf_target_stack_floor(top) + WORD_BYTES - 1u) & ~(uintptr_t)(WORD_BYTES - 1);
     for (p = floor; p < top; p += WORD_BYTES)
     {
         *(volatile uint32_t*)p = PAINT_WORD;

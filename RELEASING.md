@@ -25,6 +25,10 @@ commit:
 | [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version (spec §6.4) |
 | [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
 
+The README names the release in two prose places that no check reads: the
+Status section ("The current release is …") and the `git clone --branch` tag in
+Getting started. Update both in the same commit.
+
 Two of those six have a history worth knowing:
 
 - The gRPC user-agent read `microtel-cpp/0.1.0` for several milestones while

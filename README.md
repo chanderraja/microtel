@@ -32,7 +32,11 @@ collector. See
 
 Both paths export to a local collector, Tempo and Grafana stack (Docker or
 Podman) and end with a trace at <http://localhost:3000>. Tests are off, so the
-build compiles only what the examples need.
+build compiles only what the examples need. Start from a checkout:
+
+```bash
+git clone https://github.com/chanderraja/microtel.git && cd microtel
+```
 
 **C++ tracing:**
 
@@ -249,7 +253,7 @@ dependencies leave your link.
 > difference with the test behind it.
 
 <p align="center">
-  <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="docs/images/usage-otelcpp-shim.svg" width="860">
+  <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so, within the supported subset of the API, the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="docs/images/usage-otelcpp-shim.svg" width="860">
 </p>
 
 ## Getting started
@@ -266,19 +270,26 @@ sudo apt-get install -y cmake ninja-build pkg-config libssl-dev libnghttp2-dev z
 sudo dnf install -y cmake ninja-build pkgconf-pkg-config openssl-devel libnghttp2-devel zlib-devel
 ```
 
-Configuring fetches toml++ (header-only), spdlog (unless
-`-DMICROTEL_USE_SPDLOG=OFF`) and, when tests are enabled, GoogleTest. None of
-them end up in the installed package's link closure. Build and install:
+Get the latest release, then build and install it under your home directory,
+which needs no `sudo`:
 
 ```bash
+git clone --branch v1.2.0 https://github.com/chanderraja/microtel.git
+cd microtel
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMICROTEL_BUILD_TESTS=OFF
 cmake --build build -j"$(nproc)"
-cmake --install build --prefix /opt/microtel
+cmake --install build --prefix "$HOME/.local/microtel"
 ```
 
-That installs the headers, the static archives, the CMake package and the
-`microtel-preflight` tool. Consume it with `find_package`, adding
-`-DCMAKE_PREFIX_PATH=/opt/microtel` if the prefix isn't on CMake's search path:
+Configuring fetches toml++ (header-only) and spdlog (unless
+`-DMICROTEL_USE_SPDLOG=OFF`), plus GoogleTest when tests are on. None of them
+end up in the installed package's link closure. The install puts the headers,
+the static archives, the CMake package and the `microtel-preflight` tool under
+the prefix. For a system-wide install, use a prefix such as `/opt/microtel`
+and run that last command with `sudo`.
+
+Then, in your application's directory, a `CMakeLists.txt` that finds the
+installed package:
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
@@ -291,6 +302,13 @@ add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE microtel::microtel)
 ```
 
+Point CMake at the install prefix when you configure:
+
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$HOME/.local/microtel"
+cmake --build build
+```
+
 Link against `microtel::microtel` only. The per-layer targets
 (`microtel::sdk`, `microtel::transport` and so on) are exported because a
 static link needs them, but they can change without notice
@@ -299,7 +317,7 @@ also needs zlib, OpenSSL and libnghttp2; `find_package(microtel)` locates
 them (nghttp2 through pkg-config) as private dependencies, so they add no
 include paths or definitions to your targets.
 
-A minimal program that sends one span to a local collector:
+A minimal `main.cpp` that sends one span to a local collector:
 
 ```cpp
 #include <microtel/provider.hpp>

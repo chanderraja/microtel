@@ -17,6 +17,15 @@ on:
   pull_request:
     branches: [master]
 
+# One run per ref. A new push to a pull request cancels that PR's run in
+# progress, and a new merge to master cancels master's: every master commit
+# includes the ones before it, so only the newest run needs to finish. Matches
+# sonarqube.yml. Without this, each merge queued a full run and superseded runs
+# held the 20 concurrent job slots for hours.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # Retries and network timeouts for every apt-get call, so a stalled mirror
   # fails over in seconds instead of holding the job until its timeout.

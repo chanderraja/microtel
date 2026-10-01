@@ -17,16 +17,53 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  # Retries and network timeouts for every apt-get call, so a stalled mirror
+  # fails over in seconds instead of holding the job until its timeout.
+  APT_OPTS: >-
+    -o Acquire::Retries=3
+    -o Acquire::http::Timeout=30
+    -o Acquire::https::Timeout=30
+
 jobs:
+  # Docs-only PRs skip the heavy jobs below (ci/scripts/classify-change.sh).
+  # Their required checks still report: a job skipped by its `if` counts as
+  # passing, and the matrix jobs run with every step skipped, so each
+  # per-matrix check name still appears. If this job fails, `code` is empty,
+  # nothing equals 'false', and every job runs in full. Pushes to master
+  # always run everything.
+  changes:
+    runs-on: ubuntu-latest
+    name: changes
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify the change
+        id: classify
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ci/scripts/classify-change.sh \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}"
+          else
+            ci/scripts/classify-change.sh
+          fi
   format-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: clang-format
     steps:
       - uses: actions/checkout@v4
       - name: Install clang-format
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-18
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-format-18
           sudo update-alternatives --install /usr/bin/clang-format \
             clang-format /usr/bin/clang-format-18 100
       - name: Run format-check
@@ -34,13 +71,17 @@ jobs:
 
   tidy-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: clang-tidy
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 clang-tidy-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 clang-tidy-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev \
             libgoogle-glog-dev liblog4cxx-dev
           sudo update-alternatives --install /usr/bin/clang-tidy \
@@ -77,6 +118,9 @@ jobs:
 
   compile:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,16 +137,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code != 'false'
 
       - name: Install toolchain
+        timeout-minutes: 20
+        if: needs.changes.outputs.code != 'false'
         run: |
-          sudo apt-get update
+          sudo apt-get $APT_OPTS update
           if [[ "${{ matrix.compiler.name }}" == "gcc" ]]; then
-            sudo apt-get install -y g++-13
+            sudo apt-get $APT_OPTS install -y g++-13
           else
-            sudo apt-get install -y clang-18
+            sudo apt-get $APT_OPTS install -y clang-18
           fi
-          sudo apt-get install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev \
+          sudo apt-get $APT_OPTS install -y cmake ninja-build libssl-dev libnghttp2-dev zlib1g-dev \
             libgoogle-glog-dev liblog4cxx-dev libmosquitto-dev
 
       # libmosquitto-dev is for examples/leaf_mqtt, whose concentrator links
@@ -124,6 +171,7 @@ jobs:
       # default nanopb one. Either way the test tree builds and runs the leaf
       # tests against both backends (docs/leaf-concentrator-design.md §7.1).
       - name: Configure
+        if: needs.changes.outputs.code != 'false'
         run: |
           cmake -S . -B build \
             -G Ninja \
@@ -139,13 +187,18 @@ jobs:
             -DMICROTEL_BUILD_EXAMPLES=${{ (matrix.std == 20 && matrix.compiler.name == 'clang') && 'ON' || 'OFF' }}
 
       - name: Build
+        if: needs.changes.outputs.code != 'false'
         run: cmake --build build --verbose
 
       - name: Test
+        if: needs.changes.outputs.code != 'false'
         run: ctest --test-dir build --output-on-failure
 
   sanitizers:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -155,13 +208,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code != 'false'
       - name: Install toolchain
+        timeout-minutes: 20
+        if: needs.changes.outputs.code != 'false'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev \
             libgoogle-glog-dev liblog4cxx-dev
       - name: Configure
+        if: needs.changes.outputs.code != 'false'
         env:
           CC:  clang-18
           CXX: clang++-18
@@ -179,8 +236,10 @@ jobs:
             -DMICROTEL_WITH_CONCENTRATOR=ON \
             -DMICROTEL_SANITIZER=${{ matrix.sanitizer }}
       - name: Build
+        if: needs.changes.outputs.code != 'false'
         run: cmake --build build --verbose
       - name: Test
+        if: needs.changes.outputs.code != 'false'
         env:
           ASAN_OPTIONS:  detect_leaks=1:strict_string_checks=1:detect_stack_use_after_return=1
           TSAN_OPTIONS:  halt_on_error=1
@@ -189,13 +248,17 @@ jobs:
 
   regen-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: regen-check
     steps:
       - uses: actions/checkout@v4
       - name: Install protoc v29.4 + build plugins
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ git
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y cmake ninja-build g++ git
           # Download pre-built protoc v29.4 binary
           curl -sL https://github.com/protocolbuffers/protobuf/releases/download/v29.4/protoc-29.4-linux-x86_64.zip \
                -o /tmp/protoc.zip
@@ -244,13 +307,17 @@ jobs:
 
   symbol-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: symbol-scan
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
       # Tests off: the gate asserts the closure of what actually ships, so it
       # must not see gtest/gmock or any other test-only input.
@@ -282,6 +349,9 @@ jobs:
   # symbol-scan gate, leaf pass included (for nanopb, the no-heap check).
   leaf-standalone:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -289,25 +359,33 @@ jobs:
     name: leaf-standalone / ${{ matrix.encoder }}
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code != 'false'
       - name: Install toolchain
+        timeout-minutes: 20
+        if: needs.changes.outputs.code != 'false'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc cmake ninja-build binutils
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y gcc cmake ninja-build binutils
       - name: Configure (C only)
+        if: needs.changes.outputs.code != 'false'
         env:
           CC: gcc
         run: cmake -S leaf -B build-leaf -G Ninja -DMICROTEL_LEAF_ENCODER=${{ matrix.encoder }}
       - name: Assert no C++ toolchain was configured
+        if: needs.changes.outputs.code != 'false'
         run: |
           if grep -q '^CMAKE_CXX_COMPILER:' build-leaf/CMakeCache.txt; then
             echo "leaf-standalone: the standalone leaf build enabled CXX" >&2
             exit 1
           fi
       - name: Build
+        if: needs.changes.outputs.code != 'false'
         run: cmake --build build-leaf
       - name: Install to a staging prefix
+        if: needs.changes.outputs.code != 'false'
         run: cmake --install build-leaf --prefix leaf-install
       - name: Assert the leaf's dependency closure
+        if: needs.changes.outputs.code != 'false'
         run: ci/scripts/symbol-scan.sh --prefix leaf-install
 
   # Leaf footprint and closure (docs/leaf-concentrator-design.md §7.6, ICP 0031
@@ -322,6 +400,9 @@ jobs:
   # the stack analysis or the closure scan (target nm; nanopb: no heap) fails.
   leaf-footprint:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -334,11 +415,15 @@ jobs:
     name: leaf-footprint / ${{ matrix.target }} / ${{ matrix.encoder }}
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code != 'false'
       - name: Install toolchain
+        timeout-minutes: 20
+        if: needs.changes.outputs.code != 'false'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build python3 ${{ matrix.packages }}
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y cmake ninja-build python3 ${{ matrix.packages }}
       - name: Measure and scan
+        if: needs.changes.outputs.code != 'false'
         run: ci/scripts/leaf-footprint.sh ${{ matrix.target }} ${{ matrix.encoder }}
 
   # The leaf's tests on other targets (issue #351, ci/scripts/leaf-target.sh):
@@ -350,6 +435,9 @@ jobs:
   # stack each public entry point used, to the job summary.
   leaf-target:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -361,22 +449,30 @@ jobs:
     name: leaf-target / ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code != 'false'
       - name: Install toolchain
+        timeout-minutes: 20
+        if: needs.changes.outputs.code != 'false'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ${{ matrix.packages }}
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y cmake ninja-build ${{ matrix.packages }}
       - name: Build and run
+        if: needs.changes.outputs.code != 'false'
         run: ci/scripts/leaf-target.sh ${{ matrix.target }}
 
   consumer-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: consumer-smoke
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
       # Tests off, matching the symbol-scan job: the gate consumes the shipped
       # configuration, and building the test tree would only slow it down.
@@ -401,15 +497,58 @@ jobs:
       - name: Install, build the consumer project against it, and run it
         run: ci/scripts/consumer-smoke.sh build
 
+  # MICROTEL_USE_SYSTEM_DEPS=ON (#378): toml++, spdlog and GoogleTest from the
+  # distribution instead of FetchContent, configured fully offline, as a
+  # package manager builds it. Ubuntu's libtomlplusplus-dev is a *compiled*
+  # toml++ (libtomlplusplus.so + CMake config), so CONSUMER_TOML=1 runs
+  # tests/consumer_toml too: an application that links compiled toml++ and
+  # microtel (which compiles toml++ header-only) in one process.
+  system-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    name: system-deps
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and system dependencies
+        timeout-minutes: 20
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build pkg-config \
+            libssl-dev libnghttp2-dev zlib1g-dev \
+            libtomlplusplus-dev libspdlog-dev libgtest-dev
+      - name: Configure (system dependencies, fully offline)
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DMICROTEL_USE_SYSTEM_DEPS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+            -DMICROTEL_BUILD_TESTS=ON
+          test ! -d build/_deps
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Install, build both consumers against it, and run them
+        env:
+          CONSUMER_TOML: "1"
+        run: ci/scripts/consumer-smoke.sh build
+
   corpus-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: corpus-check
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
       # libFuzzer is clang-only, hence plain `clang` rather than the clang-18
       # used elsewhere: -fsanitize=fuzzer must match the driver that links it.
@@ -434,13 +573,17 @@ jobs:
 
   otelcpp-shim:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: otelcpp-shim
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
       # Opt-in build (M17, ICP 0014). Fetches only opentelemetry-cpp's
       # header-only API; its SDK and exporters are never configured.
@@ -469,15 +612,18 @@ jobs:
 
   conformance:
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: conformance
     # Pulling the collector image dominates; the tests themselves are seconds.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
       - name: Configure
         env:
@@ -506,6 +652,9 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: coverage
     steps:
       # Full history: the diff-coverage step below needs origin/master to
@@ -548,9 +697,10 @@ jobs:
                "http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-21.list
       - name: Install toolchain
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev \
             libgoogle-glog-dev liblog4cxx-dev
       # coverage.sh enforces all three spec §14.2 aggregate floors — ≥ 90% line

@@ -34,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -141,15 +142,26 @@ std::size_t CountOf(const std::vector<mtt::FakeExportTransport::Recorded>& sent,
         std::ranges::count_if(sent, [signal](const auto& r) { return r.signal == signal; }));
 }
 
-std::size_t ThreadCount()
+/// The ids of this process's threads, from /proc/self/task.
+std::set<std::string> ThreadIds()
 {
-    std::size_t n = 0;
-    for ([[maybe_unused]] const auto& entry :
-         std::filesystem::directory_iterator{"/proc/self/task"})
+    std::set<std::string> ids;
+    for (const auto& entry : std::filesystem::directory_iterator{"/proc/self/task"})
     {
-        ++n;
+        ids.insert(entry.path().filename().string());
     }
-    return n;
+    return ids;
+}
+
+/// Threads started since @p before was taken. Counts ids, not entries: a
+/// thread joined just before, by an earlier test or a provider's reset, can
+/// still be listed for a moment after the join and vanish mid-measurement,
+/// which made a difference of two counts flaky.
+std::size_t ThreadsStartedSince(const std::set<std::string>& before)
+{
+    const auto now = ThreadIds();
+    return static_cast<std::size_t>(
+        std::ranges::count_if(now, [&before](const auto& id) { return !before.contains(id); }));
 }
 
 }  // namespace
@@ -188,16 +200,16 @@ TEST(ExportTransportBuilderTest, NoHttp2TransportIsBuilt_ThreeFewerThreadsThanTh
 {
     // The HTTP default starts an I/O thread and the metric and log exporter
     // workers; a traces-only custom transport starts none of them.
-    const std::size_t before_http = ThreadCount();
+    const auto before_http = ThreadIds();
     auto http = mt::SdkBuilder().WithEndpoint("https://localhost:4318").Build();
     ASSERT_TRUE(http.has_value());
-    const std::size_t http_threads = ThreadCount() - before_http;
+    const std::size_t http_threads = ThreadsStartedSince(before_http);
     http->reset();
 
-    const std::size_t before_custom = ThreadCount();
+    const auto before_custom = ThreadIds();
     const auto custom = BuildWith(std::make_unique<mtt::MockExportTransport>());
     ASSERT_NE(custom, nullptr);
-    const std::size_t custom_threads = ThreadCount() - before_custom;
+    const std::size_t custom_threads = ThreadsStartedSince(before_custom);
 
     EXPECT_EQ(http_threads - custom_threads, 3U);
 }
@@ -333,6 +345,18 @@ std::vector<std::vector<std::byte>> AttemptsOfOneRetriedRequest(
     return attempts;
 }
 
+/// @p attempts is one request per scope, and the first request, which failed,
+/// is retried. The two scopes reach the exporter in two `Export` calls, so its
+/// worker may send both before the retry or retry the first before it sees the
+/// second: the order is not asserted, only that the retry repeats the first
+/// attempt byte for byte and the other request differs.
+void ExpectTheFirstRequestRetriedByteForByte(const std::vector<std::vector<std::byte>>& attempts)
+{
+    ASSERT_EQ(attempts.size(), 3U) << "two requests and the retry of the first";
+    EXPECT_EQ(std::ranges::count(attempts, attempts[0]), 2)
+        << "the first attempt and its byte-identical retry; the other request differs";
+}
+
 }  // namespace
 
 TEST(ExportTransportBuilderTest, Retry_MetricRequestIsByteIdentical)
@@ -344,11 +368,7 @@ TEST(ExportTransportBuilderTest, Retry_MetricRequestIsByteIdentical)
             p.GetMeter("m")->CreateCounter<std::int64_t>("a")->Add(7, {});
             p.GetMeter("m2")->CreateCounter<double>("b")->Add(1.5, {});
         });
-    // One request per scope: the fan-out sends both, then the first, which
-    // failed, is retried.
-    ASSERT_EQ(attempts.size(), 3U) << "two requests, then the retry of the first";
-    EXPECT_EQ(attempts[2], attempts[0]);
-    EXPECT_NE(attempts[1], attempts[0]);
+    ExpectTheFirstRequestRetriedByteForByte(attempts);
 }
 
 TEST(ExportTransportBuilderTest, Retry_LogRequestIsByteIdentical)
@@ -359,11 +379,7 @@ TEST(ExportTransportBuilderTest, Retry_LogRequestIsByteIdentical)
                                                           p.GetLogger("l")->Emit(mt::LogRecord{});
                                                           p.GetLogger("l2")->Emit(mt::LogRecord{});
                                                       });
-    // One request per scope: the fan-out sends both, then the first, which
-    // failed, is retried.
-    ASSERT_EQ(attempts.size(), 3U) << "two requests, then the retry of the first";
-    EXPECT_EQ(attempts[2], attempts[0]);
-    EXPECT_NE(attempts[1], attempts[0]);
+    ExpectTheFirstRequestRetriedByteForByte(attempts);
 }
 
 // ---------------------------------------------------------------------------

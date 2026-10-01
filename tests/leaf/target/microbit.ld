@@ -13,6 +13,9 @@ MEMORY
 }
 
 HEAP_BYTES = 0;
-MIN_STACK_BYTES = 2048;
+/* The deepest entry point, the encode, needs 3,552 bytes by the static call
+ * graph (docs/bench-results/leaf-footprint.md), and the runner's own frames
+ * sit above it; the runner fails if a test reaches the bottom of the stack. */
+MIN_STACK_BYTES = 4608;
 
 INCLUDE cortex_m.ld

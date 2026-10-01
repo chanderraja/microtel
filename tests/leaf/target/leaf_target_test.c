@@ -44,7 +44,10 @@ enum
     DECIMAL_BUFFER = 24,
     DECIMAL_BASE = 10,
     SPAN_FLOOD_LIMIT = 64,
-    WORD_BYTES = 4
+    WORD_BYTES = 4,
+    /* The bottom of the painted stack that must stay untouched for a stack
+     * figure to count as measured. */
+    STACK_GUARD_BYTES = 256
 };
 
 #define CLOCK_START 1000000u
@@ -518,18 +521,36 @@ static volatile uint8_t g_link_register;
  * caller's: where the measured function's frame will start. Stored through
  * the caller's pointer, not returned: the address outlives the frame on
  * purpose, and returning a local's address is what -Wreturn-stack-address
- * rejects. Into a local of the caller's rather than a global: a new global
- * shifts .bss, and the Cortex-M0+ figures move with it. */
+ * rejects. */
 __attribute__((noinline)) static void callee_frame(volatile uintptr_t* frame)
 {
     volatile uint32_t local = 0;
     *frame = (uintptr_t)&local;
 }
 
+/* The bottom of the region painted below `top`, word-aligned: the bottom of
+ * the stack region on bare metal, of a window below `top` in a process. */
+static uintptr_t paint_floor(uintptr_t top)
+{
+    return (leaf_target_stack_floor(top) + WORD_BYTES - 1u) & ~(uintptr_t)(WORD_BYTES - 1);
+}
+
+/* Whether a run whose lowest write was at `lowest` left the bottom
+ * STACK_GUARD_BYTES of the region painted from `floor` untouched. If not, the
+ * stack reached the bottom of the painted region, or ran past it: a figure
+ * taken from it is the region's size, not a measurement, and on bare metal
+ * the stack may have run into .bss. */
+static int guard_intact(uintptr_t floor, uintptr_t lowest)
+{
+    return lowest - floor >= STACK_GUARD_BYTES;
+}
+
 /* Paints the stack below the next call's frame, runs `step`, and returns how
- * far down it wrote. Under-reads by at most the few bytes of callee_frame's
- * frame above its local. */
-__attribute__((noinline)) static size_t stack_used_by(step_fn step)
+ * far down it wrote; *fits is 0 if it wrote into the guard band. Under-reads
+ * by at most the few bytes of callee_frame's frame above its local. The
+ * painting and the scan are inline: a call of their own would write into the
+ * painted region. */
+__attribute__((noinline)) static size_t stack_used_by(step_fn step, int* fits)
 {
     volatile uintptr_t frame = 0;
     uintptr_t top;
@@ -537,7 +558,7 @@ __attribute__((noinline)) static size_t stack_used_by(step_fn step)
     uintptr_t p;
     callee_frame(&frame);
     top = frame & ~(uintptr_t)(WORD_BYTES - 1);
-    floor = (leaf_target_stack_floor(top) + WORD_BYTES - 1u) & ~(uintptr_t)(WORD_BYTES - 1);
+    floor = paint_floor(top);
     for (p = floor; p < top; p += WORD_BYTES)
     {
         *(volatile uint32_t*)p = PAINT_WORD;
@@ -546,7 +567,39 @@ __attribute__((noinline)) static size_t stack_used_by(step_fn step)
     for (p = floor; p < top && *(volatile uint32_t*)p == PAINT_WORD; p += WORD_BYTES)
     {
     }
+    *fits = guard_intact(floor, p);
     return (size_t)(top - p);
+}
+
+/* The stack region painted before the tests and checked after them. */
+static uintptr_t g_run_floor;
+static uintptr_t g_run_top;
+
+/* Paints everything below main's callees, so that check_run_stack can tell
+ * whether any test, not only a measured call, ran out of stack. */
+__attribute__((noinline)) static void paint_run_stack(void)
+{
+    volatile uintptr_t frame = 0;
+    uintptr_t p;
+    callee_frame(&frame);
+    g_run_top = frame & ~(uintptr_t)(WORD_BYTES - 1);
+    g_run_floor = paint_floor(g_run_top);
+    for (p = g_run_floor; p < g_run_top; p += WORD_BYTES)
+    {
+        *(volatile uint32_t*)p = PAINT_WORD;
+    }
+}
+
+/* Called from main, as paint_run_stack was: its own frame is above the
+ * painted region. */
+__attribute__((noinline)) static void check_run_stack(void)
+{
+    uintptr_t p;
+    for (p = g_run_floor; p < g_run_top && *(volatile uint32_t*)p == PAINT_WORD; p += WORD_BYTES)
+    {
+    }
+    check(guard_intact(g_run_floor, p),
+          "stack: the tests reached the bottom of the stack region (give the board more stack)");
 }
 
 /* The size probe (examples/leaf/size_probe.c): one span, one int64 attribute. */
@@ -602,8 +655,12 @@ static void step_nothing(void)
 
 static size_t measure(const char* entry, step_fn step)
 {
-    const size_t used = stack_used_by(step);
+    int fits = 0;
+    const size_t used = stack_used_by(step, &fits);
     check(g_step_status == MICROTEL_LEAF_OK, entry);
+    check(fits,
+          "stack: the next figure reached the bottom of the painted region, so it is a cap, "
+          "not a measurement (give the board more stack)");
     leaf_target_puts("stack ");
     leaf_target_puts(entry);
     leaf_target_puts(" ");
@@ -668,6 +725,9 @@ int main(void)
     provoke_alignment_fault();
     return 1;
 #endif
+#ifdef LEAF_TARGET_MEASURE_STACK
+    paint_run_stack();
+#endif
     test_init_guards();
     test_golden_vectors();
     test_unaligned_buffers();
@@ -676,6 +736,7 @@ int main(void)
     test_exhaustion_recovers();
     test_handles();
 #ifdef LEAF_TARGET_MEASURE_STACK
+    check_run_stack();
     measure_stack();
 #endif
     put_unsigned(g_checks);

@@ -25,6 +25,16 @@
 #      global, or a generated nanopb descriptor, under its upstream name. They
 #      ship renamed by third_party/nanopb/microtel_pb_rename.h.
 #
+# and one toml++ pass:
+#
+#   6. UNDEFINED TOML — no artifact has an undefined toml:: reference. microtel
+#      compiles toml++ header-only (TOML_HEADER_ONLY=1) whether it was fetched
+#      or found with MICROTEL_USE_SYSTEM_DEPS, so the toml++ code it uses is
+#      inside libmicrotel_config.a. An undefined reference means the build
+#      used a compiled toml++ that the installed package does not carry, and
+#      an installed consumer fails to link. Defined (weak) toml:: symbols are
+#      expected: they are the header-only inline functions.
+#
 # This is the mechanical backing for CLAUDE.md rule 13 ("No gRPC library, no
 # abseil, no protobuf-cpp runtime. Ever.") and for spec §3's dependency-closure
 # claim. The claim is the project's whole reason to exist, so it is tested
@@ -155,6 +165,9 @@ NANOPB_ANY_PATTERN="^((microtel_)?_?pb_|${NANOPB_DESCRIPTOR})"
 # comment has the recipe) rather than widening this pattern.
 UNPREFIXED_NANOPB_PATTERN="^(_?pb_|${NANOPB_DESCRIPTOR})"
 
+# Pass 6: toml++ symbols, demangled and anchored, undefined only.
+TOML_PATTERN='^toml::'
+
 # Leaf archives, by basename. Only these may carry nanopb.
 LEAF_ARCHIVE_PATTERN='^libmicrotel_(leaf|nanopb)[A-Za-z0-9_]*\.a$'
 
@@ -283,6 +296,7 @@ bridge_violations=0
 nanopb_outside_leaf_violations=0
 nanopb_unprefixed_violations=0
 leaf_violations=0
+toml_violations=0
 
 for artifact in "${ARTIFACTS[@]}"; do
     hits=$(symbols_of "$artifact" -A -C | grep -E "$FORBIDDEN_PATTERN" | sort -u || true)
@@ -308,6 +322,13 @@ for artifact in "${ARTIFACTS[@]}"; do
         echo "symbol-scan: LOG BRIDGE dependency symbols in $artifact" >&2
         echo "$hits" | sed 's/^/    /' >&2
         bridge_violations=$((bridge_violations + 1))
+    fi
+
+    hits=$(symbols_of "$artifact" -A -C -u | grep -E "$TOML_PATTERN" | sort -u || true)
+    if [[ -n "$hits" ]]; then
+        echo "symbol-scan: UNDEFINED toml++ symbols in $artifact" >&2
+        echo "$hits" | sed 's/^/    /' >&2
+        toml_violations=$((toml_violations + 1))
     fi
 
     # Globals only, as for upb: a file-local nanopb helper is not a collision.
@@ -428,9 +449,16 @@ if [[ $nanopb_unprefixed_violations -ne 0 ]]; then
     echo "symbol-scan: regeneration recipe in third_party/nanopb/microtel_pb_rename.h." >&2
 fi
 
+if [[ $toml_violations -ne 0 ]]; then
+    echo >&2
+    echo "symbol-scan: $toml_violations artifact(s) reference toml++ symbols they do not" >&2
+    echo "symbol-scan: define. microtel compiles toml++ header-only; see the toml++ block" >&2
+    echo "symbol-scan: in the root CMakeLists.txt and CLAUDE.md rule 12." >&2
+fi
+
 total_violations=$((forbidden_violations + unprefixed_violations + bridge_violations))
 total_violations=$((total_violations + nanopb_outside_leaf_violations + nanopb_unprefixed_violations))
-total_violations=$((total_violations + leaf_violations))
+total_violations=$((total_violations + leaf_violations + toml_violations))
 if [[ $total_violations -ne 0 ]]; then
     exit 1
 fi
@@ -439,6 +467,7 @@ echo "symbol-scan: clean — no gRPC, abseil, or protobuf-cpp symbols"
 echo "symbol-scan: clean — no unprefixed vendored upb/utf8_range symbols"
 echo "symbol-scan: clean — no glog, gflags or log4cxx symbols"
 echo "symbol-scan: clean — no nanopb outside the leaf, none unprefixed inside it"
+echo "symbol-scan: clean — no undefined toml++ symbols"
 if [[ $INSTRUMENTED -eq 1 ]]; then
     echo "symbol-scan: leaf pass skipped — instrumented build tree"
 fi

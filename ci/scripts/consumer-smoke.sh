@@ -29,6 +29,13 @@
 #   prefix     install prefix to stage into (default: a scratch directory,
 #              removed on exit along with the consumer build beside it)
 #
+# With CONSUMER_TOML=1 in the environment it also builds and runs
+# tests/consumer_toml, which links the installed microtel *and* a compiled
+# toml++ (found through CMAKE_PREFIX_PATH, e.g. vcpkg's tomlplusplus) and
+# parses TOML through both in one process. microtel compiles toml++
+# header-only, so this is the check that the two copies coexist. Off by
+# default: it needs a toml++ library that a stock runner does not have.
+#
 # The consumer's own build directory is `<prefix>.consumer-build`, wiped at the
 # start of every run so a configure is never served from cache. An existing
 # prefix is *not* cleaned — pass a fresh one, or none, when what you want to
@@ -49,7 +56,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CONSUMER_SRC="${REPO_ROOT}/tests/consumer"
 SYMBOL_SCAN="${REPO_ROOT}/ci/scripts/symbol-scan.sh"
 
+CONSUMER_TOML_SRC="${REPO_ROOT}/tests/consumer_toml"
+CONSUMER_TOML="${CONSUMER_TOML:-0}"
+
 readonly BINARY_NAME="microtel_consumer_smoke"
+readonly TOML_BINARY_NAME="microtel_consumer_toml"
 
 # ---------------------------------------------------------------------------
 # Preconditions
@@ -86,12 +97,13 @@ fi
 mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"
 CONSUMER_BUILD="${PREFIX}.consumer-build"
+CONSUMER_TOML_BUILD="${PREFIX}.consumer-toml-build"
 
 cleanup()
 {
     local status=$?
     if [[ $OWN_PREFIX -eq 1 ]]; then
-        rm -rf "$PREFIX" "$CONSUMER_BUILD"
+        rm -rf "$PREFIX" "$CONSUMER_BUILD" "$CONSUMER_TOML_BUILD"
     fi
     return $status
 }
@@ -178,6 +190,38 @@ set -e
 if [[ $rc -ne 0 ]]; then
     echo "consumer-smoke: FAIL — the consumer binary exited $rc" >&2
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Optional: the same install next to a compiled toml++ (CONSUMER_TOML=1)
+# ---------------------------------------------------------------------------
+
+if [[ "$CONSUMER_TOML" == "1" ]]; then
+    rm -rf "$CONSUMER_TOML_BUILD"
+
+    if ! cmake -S "$CONSUMER_TOML_SRC" -B "$CONSUMER_TOML_BUILD" "${GENERATOR_ARGS[@]}" \
+        -Dmicrotel_DIR="$CONFIG_DIR"; then
+        echo "consumer-smoke: FAIL — tests/consumer_toml did not configure" >&2
+        echo "consumer-smoke: it needs a compiled toml++ on CMAKE_PREFIX_PATH." >&2
+        exit 1
+    fi
+
+    if ! cmake --build "$CONSUMER_TOML_BUILD"; then
+        echo "consumer-smoke: FAIL — tests/consumer_toml did not build" >&2
+        exit 1
+    fi
+
+    TOML_BINARY="${CONSUMER_TOML_BUILD}/${TOML_BINARY_NAME}"
+    if [[ ! -x "$TOML_BINARY" ]]; then
+        echo "consumer-smoke: FAIL — '$TOML_BINARY_NAME' not found under $CONSUMER_TOML_BUILD" >&2
+        exit 1
+    fi
+
+    echo "consumer-smoke: running $TOML_BINARY"
+    if ! "$TOML_BINARY"; then
+        echo "consumer-smoke: FAIL — microtel and a compiled toml++ do not coexist" >&2
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------------

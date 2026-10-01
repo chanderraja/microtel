@@ -357,3 +357,17 @@ ci/scripts/consumer-smoke.sh build /tmp/mt    # or keep the prefix to poke at
 
 CI runs it as the `consumer-smoke` job. Run it locally before changing an
 install rule, an exported target, or anything in `cmake/microtelConfig.cmake.in`.
+
+**toml++ is compiled header-only, in both dependency modes.** Under
+`MICROTEL_USE_SYSTEM_DEPS=ON` the installed toml++ may be a library whose
+target forces `TOML_HEADER_ONLY=0` (vcpkg's does), so `microtel_config` takes
+only its include directories and sets `TOML_HEADER_ONLY=1` itself.
+`symbol-scan.sh` fails on any undefined `toml::` reference in a shipped
+archive. [`tests/consumer_toml/`](../tests/consumer_toml/) links the installed
+package next to such a compiled toml++ and parses through both;
+`CONSUMER_TOML=1` adds it to the smoke run:
+
+```bash
+CONSUMER_TOML=1 CMAKE_PREFIX_PATH=<vcpkg>/installed/x64-linux \
+    ci/scripts/consumer-smoke.sh build
+```

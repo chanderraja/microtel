@@ -615,6 +615,7 @@ Distinct from runtime configuration. Set via CMake at compile time. (Spec §9.2.
 | CMake option | Default | Effect |
 |---|---|---|
 | `MICROTEL_USE_SPDLOG` | `ON` | When `OFF`, microtel uses a minimal stderr logger instead of spdlog. Sink injection still works. |
+| `MICROTEL_USE_SYSTEM_DEPS` | `OFF` | When `ON`, toml++, spdlog (if `MICROTEL_USE_SPDLOG`) and GoogleTest (if `MICROTEL_BUILD_TESTS`) come from `find_package(… CONFIG REQUIRED)` instead of FetchContent, so configure needs no network. toml++ is compiled header-only either way; the installed package never needs a toml++ library. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | When `ON`, a configuration with `tls.insecure = true` fails `Build()` with `ConfigError::Kind::InsecureDisallowed`. Default builds warn instead. See §3.5. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp adapter (ICP 0014). |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests. Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |

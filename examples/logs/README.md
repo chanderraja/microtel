@@ -170,7 +170,22 @@ batches_sent=0 batches_failed=0 queue_depth=1
 Shutdown: Completed
 ```
 
-The program exits with status 2. To see records with no collector at all,
+The program exits with status 2. It exits 0 only when `ForceFlush` returns
+`Completed` **and** `batches_failed` is 0: `Completed` means the queues
+drained, which is also true when the collector rejected a batch. Against a
+collector with no logs pipeline (traces only), the flush completes but the
+log batch fails, and the program exits 2:
+
+```
+checkout trace_id: 265ebef56577cf9604222301d9e7db51
+checkout span_id:  0149ecd5cd283332
+ForceFlush: Completed
+batches_sent=1 batches_failed=1 queue_depth=0
+last_error: UNIMPLEMENTED (12): unknown service opentelemetry.proto.collector.logs.v1.LogsService
+Shutdown: Completed
+```
+
+To see records with no collector at all,
 [`console_trace`](../console_trace/) shows the pattern: an `ExportTransport`
 of the application's own that prints what it is handed. For logs, enable
 `ExportTransportOptions::logs` and decode an `ExportLogsServiceRequest`.

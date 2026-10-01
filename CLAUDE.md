@@ -114,12 +114,12 @@ CI runs clang-tidy with a SonarQube-aligned ruleset; full list in `docs/coding-s
 
 ## Build & test
 
-(Commands locked in by M2; this section is a placeholder until then.)
+There are no CMake presets. Configure, build and test from a checkout:
 
 ```bash
-cmake --preset Release
-cmake --build build/Release
-ctest --test-dir build/Release
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=ON
+cmake --build build -j"$(nproc)"
+ctest --test-dir build --output-on-failure
 ```
 
 CI configuration lives in `ci/`. PRs run: build matrix (Linux x86_64, ARM64), all test categories (unit / integration / conformance / wire / fuzz), sanitizers (asan / tsan / ubsan), clang-tidy, clang-format, aggregate coverage, diff coverage, test-presence check, SonarQube Cloud (OSS tier).

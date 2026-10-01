@@ -31,6 +31,10 @@ Resolved precedence, **highest to lowest** (LOCKED — spec §12.1):
 unknown_keys = "error"   # error (default) | warn | ignore
 ```
 
+Under `"warn"`, `Build()` logs one Warn line per unknown key, naming its dotted path, and succeeds:
+`[microtel warn] unknown configuration key "exporter.endpiont" ignored ([config] unknown_keys = "warn")`.
+Under `"ignore"` the key is skipped silently. Either way the key has no effect. (Through v1.2.0, `"warn"` logged nothing and so behaved exactly like `"ignore"`.)
+
 ---
 
 ## 2. Sources
@@ -446,7 +450,8 @@ describes the built one.
 |---|---|---|---|---|
 | `config.unknown_keys` | — | — | — | `error` |
 
-Values: `error` (default), `warn`, `ignore`. Correction (#196): there is no
+Values: `error` (default), `warn`, `ignore`. `warn` logs one Warn line per
+unknown key at `Build()` (see §1); `ignore` logs nothing. Correction (#196): there is no
 `WithUnknownKeysPolicy` setter — the policy is TOML-only, which follows from
 what it governs (it is parsed first, out of `[config]`, to establish the mode
 every later section's unknown-key check runs under).

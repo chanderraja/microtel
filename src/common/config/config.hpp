@@ -81,6 +81,14 @@ struct Config
 {
     UnknownKeyMode unknown_key_mode{UnknownKeyMode::Error};
 
+    /// @brief Dotted paths of the unknown TOML keys skipped under
+    ///        `UnknownKeyMode::Warn`, in the order the loader met them.
+    ///
+    /// The loader cannot log — `Build()` has not yet applied `logging.level`
+    /// when the file is parsed — so it records them here and `Build()` logs
+    /// one Warn line per entry. Empty under `Error` and `Ignore`.
+    std::vector<std::string> unknown_keys_warned;
+
     // Endpoint / transport
     std::string endpoint_url;  ///< raw URL string (validated and parsed)
     ParsedEndpoint endpoint;   ///< parsed URL components (filled by Validate)

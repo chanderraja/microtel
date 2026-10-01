@@ -54,7 +54,7 @@ network. It isn't published, so it can't collide with the collector's port.
 | File | What it is |
 |---|---|
 | `compose.yaml` | the three services, pinned, with the portability constraints commented inline |
-| `collector-config.yaml` | receive OTLP on 4317/4318, batch, export to Tempo, log a line per batch; and on 4319, log each request in full, unbatched, and export it to Tempo |
+| `collector-config.yaml` | receive OTLP on 4317/4318, batch, export to Tempo, log a line per batch; on 4319, log each request in full, unbatched, and export it to Tempo; and log every log record received on 4317/4318 in full (there is no log store; see [`examples/logs`](../logs/README.md)) |
 | `tempo.yaml` | single-binary Tempo, tuned so a trace becomes searchable in about ten seconds instead of Tempo's default of several minutes |
 | `grafana/provisioning/` | the Tempo datasource (uid `tempo`) and the dashboard provider |
 | `grafana/dashboards/` | the starter dashboard: one TraceQL `{}` table |

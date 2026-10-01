@@ -54,6 +54,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 |---|---|---|
 | [`basic_trace/`](basic_trace/) | The smallest end-to-end flow: build a provider, emit one request trace, flush, read exporter health, shut down. | Available |
 | [`console_trace/`](console_trace/) | No collector needed. The same request trace, exported through an example-local `ExportTransport` that prints the spans to stdout. | Available |
+| [`logs/`](logs/) | Log records with severity, body and attributes from `GetLogger`, and automatic trace correlation: records written inside a current span carry its trace and span IDs. The stack's collector prints them. | Available |
 | [`sugar_tour/`](sugar_tour/) | The `microtel::sugar` convenience layer (`MICROTEL_TRACE_FUNCTION`, `mt::Span`, `mt::Traced`, `mt::RecordException`, `mt::AttrKey`) in one order pipeline. | Available |
 | [`context_propagation/`](context_propagation/) | `StartAsCurrentSpan` and the thread-local context slot: implicit parenting with no arguments passed, and what does *not* cross a thread boundary. | Available |
 | [`distributed_handoff/`](distributed_handoff/) | Two binaries. W3C `traceparent` / `tracestate` / `baggage` inject and extract across a process boundary, joined into one trace. | Available |
@@ -70,8 +71,8 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 
 The planned set mirrors the v1.1 public surface; issue
 [#279](https://github.com/chanderraja/microtel/issues/279) is the epic.
-Logs are supported since v1.2 but have no example here yet; the log bridges
-have their own READMEs ([spdlog](../src/adapters/spdlog/README.md),
+Logs, supported since v1.2, are in [`logs/`](logs/); the log bridges have
+their own READMEs ([spdlog](../src/adapters/spdlog/README.md),
 [glog](../src/adapters/glog/README.md), [log4cxx](../src/adapters/log4cxx/README.md)).
 A metrics example will follow when metrics get conformance coverage in v1.3
 (see [`microtel-roadmap.md`](../microtel-roadmap.md)).

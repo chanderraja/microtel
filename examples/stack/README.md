@@ -41,6 +41,7 @@ new tag.
 |---|---|---|
 | `4317` | collector, OTLP/gRPC | every example; this is the default endpoint |
 | `4318` | collector, OTLP/HTTP | nothing here today. It is plaintext, so microtel cannot reach it; see [the h2c note](#why-grpc-and-not-http) |
+| `4319` | collector, OTLP/gRPC with no batching | [`examples/leaf`](../leaf/README.md#one-request-many-devices)'s fan-in check: each request is logged as it arrived, then forwarded to Tempo |
 | `13133` | collector `health_check` | `up.sh` readiness polling |
 | `3200` | Tempo HTTP API | Grafana's datasource, and the verification `curl` below |
 | `3000` | Grafana | you |
@@ -53,7 +54,7 @@ network. It isn't published, so it can't collide with the collector's port.
 | File | What it is |
 |---|---|
 | `compose.yaml` | the three services, pinned, with the portability constraints commented inline |
-| `collector-config.yaml` | receive OTLP on 4317/4318, batch, export to Tempo, log a line per batch |
+| `collector-config.yaml` | receive OTLP on 4317/4318, batch, export to Tempo, log a line per batch; and on 4319, log each request in full, unbatched, and export it to Tempo |
 | `tempo.yaml` | single-binary Tempo, tuned so a trace becomes searchable in about ten seconds instead of Tempo's default of several minutes |
 | `grafana/provisioning/` | the Tempo datasource (uid `tempo`) and the dashboard provider |
 | `grafana/dashboards/` | the starter dashboard: one TraceQL `{}` table |

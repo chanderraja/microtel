@@ -61,7 +61,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`health_and_backpressure/`](health_and_backpressure/) | Reading `HealthSnapshot`: drop counters and queue depth under load, then a collector that is not there. | Available |
 | [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | Available |
 | [`tls/`](tls/) | TLS, a custom CA and mTLS, and the one configuration in which OTLP/HTTP works. Opt-in overlay. | Available |
-| [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. A full C++ node joins the same link through its own `ExportTransport` (`WithExportTransport`). Needs extra build options; see below. | Available |
+| [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. A full C++ node joins the same link through its own `ExportTransport` (`WithExportTransport`), and can command the leaf so one trace spans both devices. Needs extra build options; see below. | Available |
 | [`leaf_mqtt/`](leaf_mqtt/) | Experimental. The leaf example over MQTT: a C leaf publishes each payload to `microtel/<device-id>/traces` with coreMQTT, and a C++ concentrator subscribed with libmosquitto takes the leaf id from the topic. Needs the leaf build options and libmosquitto, and brings its own Mosquitto broker as an opt-in overlay. | Available |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 
@@ -102,6 +102,27 @@ under `greenhouse-controller`: it is an ordinary C++ Provider that exports with
 `microtel.toml` allows by naming its port with `time_mode = "unix"`.
 [`leaf/README.md`](leaf/README.md) walks through a run with two leaves, then
 one with the full node, and what the collector receives.
+
+The same programs also show one trace crossing devices. Given a leaf port, the
+full node plays the greenhouse controller and sends the leaf a command carrying
+its span's W3C `traceparent`; started with `command`, the leaf makes its failed
+`sensor.read` a child of that span:
+
+```bash
+./build/examples/microtel_example_leaf_concentrator http://localhost:4319 &
+./build/examples/microtel_example_leaf_udp_leaf stamped 9310 9311 3 command &
+./build/examples/microtel_example_leaf_udp_leaf boot 9310 9312 3 &
+sleep 1
+./build/examples/microtel_example_leaf_full_node 9310 9313 3 9311
+wait                                # the concentrator flushes and exits
+examples/leaf/fan-in-check.sh       # which devices each export request carried
+```
+
+Tempo then shows `greenhouse.control` from `greenhouse-controller` with the
+leaf's `sensor.read` from `greenhouse-north` under it, status `ERROR`. Port
+4319 is the stack collector's unbatched receiver, which logs every request as
+it arrived, so `fan-in-check.sh` can show several devices' `ResourceSpans` in
+one request. See [A fault, traced across devices](leaf/README.md#a-fault-traced-across-devices).
 
 [`leaf_mqtt/`](leaf_mqtt/) is the same pair of programs over MQTT, which
 also needs libmosquitto's development files (`mosquitto-devel` on Fedora,

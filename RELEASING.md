@@ -158,8 +158,9 @@ Tag names are `vX.Y.Z`. Early development tags carried a milestone suffix
 **This one belongs in the release PR**, unlike the two in §6.
 
 [`docs/bench-results/`](docs/bench-results/) (`results.json`, `results.md`,
-`plots.html`, `README.md`) is the committed run that the benchmark table in the
-root [`README.md`](README.md) is read off. It is documentation, not a gate — the
+`plots.html`, `README.md`) is the committed run that the benchmark summary
+table in that directory's `README.md`, and the performance claims in the root
+[`README.md`](README.md), are read off. It is documentation, not a gate — the
 gate is the separate `bench/baseline/results.json` in §6 — but the root README
 quotes it, so the two must agree, and a release is when they are made to agree.
 
@@ -185,9 +186,10 @@ quotes it, so the two must agree, and a release is when they are made to agree.
 3. Copy `results.json`, `results.md` and `plots.html` over
    `docs/bench-results/`, and update that directory's `README.md` provenance
    block (date, host, profile, warnings) to describe the new run.
-4. Update the benchmark table in the root `README.md` to match. Every number in
-   it must be readable off the snapshot — **and re-derive the ratio claims
-   underneath it rather than carrying the old ones forward.** v1.1.0's p50 ratio
+4. Update the summary table in `docs/bench-results/README.md` and the
+   performance claims in the root `README.md` to match. Every number in
+   them must be readable off the snapshot — **and re-derive the ratio claims
+   rather than carrying the old ones forward.** v1.1.0's p50 ratio
    went 4.0× → 3.5× purely because percentiles stopped being bucket midpoints on
    both sides; a stale ratio would have read as a regression.
 
@@ -263,7 +265,7 @@ not self-index.
 [ ] SECURITY.md supported-versions row
 [ ] docs/bench-results/ refreshed from a run on the snapshot's own host
 [ ] environment block diffed against the outgoing snapshot (see #277)
-[ ] root README table agrees, and its ratio claims were re-derived
+[ ] bench-results summary table and root README agree, and the ratio claims were re-derived
 [ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed

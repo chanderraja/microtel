@@ -10,6 +10,7 @@ start; come here for the detail.
 |---|---|
 | [troubleshooting.md](troubleshooting.md) | If you see an error, warning, counter or exit code: what it means and what to do. |
 | [configuration.md](configuration.md) | Every setting: `SdkBuilder` setter, environment variable and `microtel.toml` key, and which wins. |
+| [build-options.md](build-options.md) | The CMake options for building and packaging microtel, with defaults. |
 | [compatibility-matrix.md](compatibility-matrix.md) | What microtel supports, the test that proves each item, and what does not work. |
 | [interop-matrix.md](interop-matrix.md) | The pinned Collector and backend versions the conformance gates test against. |
 | [auth-callback-recipes.md](auth-callback-recipes.md) | OAuth2 and AWS SigV4 recipes over `SdkBuilder::WithAuthProvider`. |
@@ -17,7 +18,7 @@ start; come here for the detail.
 | [error-model.md](error-model.md) | How failures surface: init errors, drop counters, retry classification, diagnostics. |
 | [threading-model.md](threading-model.md) | Which threads microtel runs, what they own, and what is safe to call from where. |
 | [memory-model.md](memory-model.md) | Resource ownership and byte budgets, and what happens when one is exceeded. |
-| [bench-results/README.md](bench-results/README.md) | The committed benchmark snapshot behind the numbers in the root README ([results](bench-results/results.md), [plots](bench-results/plots.html), [raw JSON](bench-results/results.json)). |
+| [bench-results/README.md](bench-results/README.md) | The benchmark summary table, and the committed snapshot behind it and the root README's performance claims ([results](bench-results/results.md), [plots](bench-results/plots.html), [raw JSON](bench-results/results.json)). |
 
 The runnable programs are in [`examples/`](../examples/README.md), and the
 public headers in [`include/microtel/`](../include/microtel/).

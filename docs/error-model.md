@@ -304,14 +304,18 @@ A Provider built with `SdkBuilder::WithExportTransport` classifies nothing itsel
 | TOML syntax error | `FileParseFailure` | (empty) |
 | Endpoint URL malformed | `EndpointMalformed` | `exporter.endpoint` |
 | Endpoint scheme conflicts with explicit `protocol` | `ProtocolMismatch` | `exporter.protocol` |
-| TLS CA bundle missing or unreadable | `TlsMaterialUnreadable` | `exporter.tls.ca_bundle` |
-| Client cert / key path unreadable | `TlsMaterialUnreadable` | `exporter.tls.client_cert` |
+| TLS CA bundle missing or unreadable | `TlsMaterialUnreadable` | `tls.ca_bundle` |
+| Client cert / key path unreadable | `TlsMaterialUnreadable` | `tls.client_cert` |
 | `insecure=true` while compiled with `MICROTEL_FORBID_INSECURE_TLS=ON` | `InsecureDisallowed` | `tls.insecure` |
-| Out-of-range numeric value (negative timeout, etc.) | `InvalidValue` | `exporter.timeouts.per_export` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` malformed | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Incoherent batch options (zero queue size, batch larger than the queue, zero schedule delay) | `InvalidValue` | `sdk.max_export_batch_size` |
+| An environment variable that does not parse (e.g. `OTEL_EXPORTER_OTLP_TIMEOUT` not integer milliseconds) | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_TIMEOUT` |
 | Second call to `SdkBuilder::Build()` | `BuildAlreadyConsumed` | (empty) |
 
-**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by `microtel --preflight=connect` / `--preflight=export` (spec §6.4) — never as a side effect of constructing a `Provider`.
+The exact `message` text each of these produces, and what to do about it, is collected in [`troubleshooting.md`](troubleshooting.md#sdkbuilderbuild-returns-an-error); this table stays the normative mapping.
+
+An endpoint is validated after the sources are merged, so a malformed `OTEL_EXPORTER_OTLP_ENDPOINT` is reported like any other malformed endpoint: `EndpointMalformed` on field `exporter.endpoint`. Timeout values (`[timeouts]`, `OTEL_EXPORTER_OTLP_TIMEOUT`) are parsed but not range-checked in this release.
+
+**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by the `microtel-preflight` tool, `--preflight=connect` / `--preflight=export` (spec §6.4) — never as a side effect of constructing a `Provider`.
 
 ---
 
@@ -334,6 +338,8 @@ Returns a structured snapshot. The shape is locked in `interfaces.md` against th
 The snapshot is consistent at a moment in time but not transactionally consistent across counters — it is a read of `std::atomic<uint64_t>` values and a borrowed view into the last-error slot.
 
 **One sink serves all three signals.** `SdkBuilder` hands the same `IDiagnosticsSink` to the trace, metric and log pipelines, so every counter here — `batches_sent` and `batches_failed` included — is a **cross-signal aggregate**. A failed metric export and a failed trace export both increment `batches_failed`; the snapshot does not say which signal lost a batch. Per-signal breakdown would need one counter set per signal, which is an ICP against `HealthSnapshot`. `last_error_message` is likewise last-writer-wins across signals.
+
+For what to do when a counter moves or `last_error_message` is set, see [`troubleshooting.md`](troubleshooting.md#no-traces-arrive-reading-getexporterhealth).
 
 ### 9.2 Internal diagnostic log
 

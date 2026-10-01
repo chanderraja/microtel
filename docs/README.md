@@ -8,6 +8,7 @@ start; come here for the detail.
 
 | Document | What it is for |
 |---|---|
+| [troubleshooting.md](troubleshooting.md) | If you see an error, warning, counter or exit code: what it means and what to do. |
 | [configuration.md](configuration.md) | Every setting: `SdkBuilder` setter, environment variable and `microtel.toml` key, and which wins. |
 | [compatibility-matrix.md](compatibility-matrix.md) | What microtel supports, the test that proves each item, and what does not work. |
 | [interop-matrix.md](interop-matrix.md) | The pinned Collector and backend versions the conformance gates test against. |

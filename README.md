@@ -516,7 +516,10 @@ The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
 
 ## Documentation
 
-For users: [configuration](docs/configuration.md),
+**[Full documentation index](docs/README.md)**: every document, grouped into
+using microtel, microcontrollers (the leaf), and contributing and design.
+
+Highlights for users: [configuration](docs/configuration.md),
 [compatibility matrix](docs/compatibility-matrix.md),
 [interop matrix](docs/interop-matrix.md) (tested collectors and backends),
 [auth callback recipes](docs/auth-callback-recipes.md) (OAuth2 and AWS SigV4),
@@ -525,12 +528,12 @@ For users: [configuration](docs/configuration.md),
 [error](docs/error-model.md), [threading](docs/threading-model.md) and
 [memory](docs/memory-model.md) models.
 
-For contributors: the [specification](microtel-spec.md), the
+Highlights for contributors: the [specification](microtel-spec.md), the
 [roadmap](microtel-roadmap.md), [architecture](docs/architecture.md), the
 locked [interface contracts](docs/interfaces.md),
 [metrics design](docs/metrics-design.md),
 [leaf / concentrator design](docs/leaf-concentrator-design.md), the [ICPs](docs/icps/) that record
-design decisions, and the rest of [docs/](docs/) (coding standards, sequence
+design decisions, and the rest of [docs/](docs/README.md) (coding standards, sequence
 diagrams).
 
 ## Contributing

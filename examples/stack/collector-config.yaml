@@ -64,6 +64,11 @@ exporters:
   debug/requests:
     verbosity: detailed
 
+  # Every field of every log record, trace and span IDs included, for
+  # examples/logs. `normal` prints only body and attributes, no severity or IDs.
+  debug/logs:
+    verbosity: detailed
+
 service:
   extensions: [health_check]
   pipelines:
@@ -76,3 +81,10 @@ service:
     traces/requests:
       receivers: [otlp/requests]
       exporters: [otlp/tempo, debug/requests]
+    # For examples/logs. The stack has no log store, so log records go to the
+    # collector's own output and nowhere else: `compose logs otel-collector`
+    # shows each record's body, severity, attributes and trace/span IDs.
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug/logs]

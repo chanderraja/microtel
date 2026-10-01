@@ -299,6 +299,57 @@ unknown_field = "oops"
     EXPECT_TRUE(result.has_value());
 }
 
+// "warn" collects every unknown key as a dotted path, in every table the
+// loader checks, for Build() to log; nothing else collects them.
+TEST(ParseTomlStringTest, UnknownKeys_InWarnMode_AreCollectedAsDottedPaths)
+{
+    const std::string toml = R"toml(
+[config]
+unknown_keys = "warn"
+typo_one = 1
+
+[exporter]
+endpoint = "https://host:4317"
+endpiont = "a"
+protocl  = "b"
+
+[concentrator]
+enabled = true
+
+[concentrator.leaf_defaults]
+resorce = {}
+
+[concentrator.leaves.lamp]
+time_mod = "unix"
+
+[bogus]
+x = 1
+)toml";
+    const auto result = mc::ParseTomlString(toml);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const std::vector<std::string> expected{"config.typo_one",
+                                            "bogus",
+                                            "exporter.endpiont",
+                                            "exporter.protocl",
+                                            "concentrator.leaf_defaults.resorce",
+                                            "concentrator.leaves.lamp.time_mod"};
+    EXPECT_EQ(result->unknown_keys_warned, expected);
+}
+
+TEST(ParseTomlStringTest, UnknownKeys_InIgnoreMode_AreNotCollected)
+{
+    const std::string toml = R"toml(
+[config]
+unknown_keys = "ignore"
+
+[exporter]
+endpiont = "a"
+)toml";
+    const auto result = mc::ParseTomlString(toml);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_TRUE(result->unknown_keys_warned.empty());
+}
+
 TEST(ParseTomlStringTest, UnknownKey_InIgnoreMode_Succeeds)
 {
     const std::string toml = R"toml(

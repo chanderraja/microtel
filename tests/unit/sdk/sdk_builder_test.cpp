@@ -24,12 +24,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
+
+#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Build — validation / consumed guard
@@ -529,11 +534,24 @@ public:
     /// @brief How many Info lines contain every one of `needles`.
     [[nodiscard]] std::size_t InfoCount(std::initializer_list<std::string_view> needles) const
     {
+        return Count(microtel::LogLevel::Info, needles);
+    }
+
+    /// @brief How many Warn lines contain every one of `needles` (all, if none).
+    [[nodiscard]] std::size_t WarnCount(std::initializer_list<std::string_view> needles = {}) const
+    {
+        return Count(microtel::LogLevel::Warn, needles);
+    }
+
+private:
+    [[nodiscard]] std::size_t Count(microtel::LogLevel level,
+                                    std::initializer_list<std::string_view> needles) const
+    {
         return static_cast<std::size_t>(std::ranges::count_if(
             m_entries,
-            [needles](const auto& entry)
+            [level, needles](const auto& entry)
             {
-                return entry.first == microtel::LogLevel::Info &&
+                return entry.first == level &&
                        std::ranges::all_of(
                            needles,
                            [&entry](std::string_view needle)
@@ -541,7 +559,6 @@ public:
             }));
     }
 
-private:
     std::vector<std::pair<microtel::LogLevel, std::string>> m_entries;
 };
 
@@ -650,6 +667,89 @@ TEST(SdkBuilderTest, Build_VerifiedTls_DoesNotWarnAboutInsecure)
 
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(capture.WarnedAbout(kInsecureNeedle));
+}
+
+// ---------------------------------------------------------------------------
+// [config] unknown_keys = "warn" | "ignore"
+//
+// "warn" promises one Warn line per unknown key and a successful Build();
+// "ignore" promises silence. Before the fix "warn" was silent too.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Writes a `microtel.toml` with the given body, and removes it on destruction.
+class UnknownKeysToml
+{
+public:
+    UnknownKeysToml(std::string_view tag, std::string_view body)
+        : m_path(std::filesystem::temp_directory_path() /
+                 ("microtel_unknown_keys_" + std::string{tag} + "_" + std::to_string(::getpid()) +
+                  ".toml"))
+    {
+        std::ofstream f{m_path};
+        f << body;
+    }
+
+    ~UnknownKeysToml()
+    {
+        std::error_code ec;
+        std::filesystem::remove(m_path, ec);
+    }
+
+    UnknownKeysToml(const UnknownKeysToml&) = delete;
+    UnknownKeysToml& operator=(const UnknownKeysToml&) = delete;
+    UnknownKeysToml(UnknownKeysToml&&) = delete;
+    UnknownKeysToml& operator=(UnknownKeysToml&&) = delete;
+
+    [[nodiscard]] const std::filesystem::path& Path() const
+    {
+        return m_path;
+    }
+
+private:
+    std::filesystem::path m_path;
+};
+
+/// Three unknown keys at three depths: a section key, a nested key, a section.
+constexpr std::string_view kThreeUnknownKeys = R"toml(
+[exporter]
+endpoint = "https://localhost:4318"
+endpiont = "https://typo:4318"
+
+[sdk]
+max_queue_szie = 10
+
+[bogus]
+x = 1
+)toml";
+
+}  // namespace
+
+TEST(SdkBuilderTest, Build_UnknownKeysWarn_LogsOneWarnPerKeyAndSucceeds)
+{
+    const UnknownKeysToml file{
+        "warn", "[config]\nunknown_keys = \"warn\"\n" + std::string{kThreeUnknownKeys}};
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder().FromFile(file.Path()).Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(capture.WarnCount(), 3U);
+    EXPECT_EQ(capture.WarnCount({"unknown configuration key", "\"exporter.endpiont\""}), 1U);
+    EXPECT_EQ(capture.WarnCount({"unknown configuration key", "\"sdk.max_queue_szie\""}), 1U);
+    EXPECT_EQ(capture.WarnCount({"unknown configuration key", "\"bogus\""}), 1U);
+}
+
+TEST(SdkBuilderTest, Build_UnknownKeysIgnore_LogsNothingAndSucceeds)
+{
+    const UnknownKeysToml file{
+        "ignore", "[config]\nunknown_keys = \"ignore\"\n" + std::string{kThreeUnknownKeys}};
+    const LogCapture capture;
+    const auto result = microtel::SdkBuilder().FromFile(file.Path()).Build();
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_EQ(capture.WarnCount(), 0U);
 }
 
 // ---------------------------------------------------------------------------

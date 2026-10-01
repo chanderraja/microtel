@@ -338,6 +338,23 @@ void ApplyLogLevel(const config::Config& cfg) noexcept
     (void)internal::SetMinLogLevel(cfg.log_level);
 }
 
+/// @brief Log one Warn line per unknown `microtel.toml` key the loader skipped
+///        under `[config] unknown_keys = "warn"`.
+///
+/// The loader only collects them (`Config::unknown_keys_warned`): it runs
+/// before `ApplyLogLevel`, so logging from there would ignore `logging.level`.
+///
+/// @param cfg Borrowed; read only.
+void WarnOnUnknownKeys(const config::Config& cfg)
+{
+    for (const std::string& key : cfg.unknown_keys_warned)
+    {
+        internal::LogImpl(LogLevel::Warn,
+                          R"(unknown configuration key ")" + key +
+                              R"msg(" ignored ([config] unknown_keys = "warn"))msg");
+    }
+}
+
 /// @brief Emit the warnings for configurations that are legal but very likely
 ///        wrong.
 ///
@@ -1115,6 +1132,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
     }
     const config::Config cfg = std::move(*cfg_result);
     ApplyLogLevel(cfg);
+    WarnOnUnknownKeys(cfg);
     if (custom_transport)
     {
         m_impl->PrepareCustomTransport(ignored_settings);

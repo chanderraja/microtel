@@ -141,10 +141,14 @@ section parsers).
   **→** a typo, or a key in the wrong table. Common ones: TLS keys under
   `[exporter]` (they belong in `[tls]`), batch keys under `[batch]` (they
   belong in `[sdk]`). Look the key up in [configuration.md](configuration.md)
-  §3. Setting `config.unknown_keys = "ignore"` or `"warn"` stops the failure,
-  but note that in this release `"warn"` accepts the key **without logging
-  anything** (`CheckUnknown` returns no error on the warn path and no caller
-  logs it), so it is effectively the same as `"ignore"`.
+  §3. Setting `config.unknown_keys = "warn"` stops the failure and logs one
+  line per unknown key at `Build()`; `"ignore"` accepts them silently. (Through
+  v1.2.0, `"warn"` logged nothing.)
+- **If you see** `[microtel warn] unknown configuration key "<section.key>"
+  ignored ([config] unknown_keys = "warn")` **→** the same typo or misplaced key
+  as above, accepted because `unknown_keys = "warn"`. Fix the key; the setting
+  it was meant to change has its default. Source: `src/sdk/sdk_builder.cpp`
+  (`WarnOnUnknownKeys`).
 - **If you see** a value message such as `must be "http" or "grpc"`,
   `must be "newest" or "oldest"`, `must be "trace", "debug", "info", "warn" or
   "error"` or `must be "error", "warn", or "ignore"` (`InvalidValue`, with the

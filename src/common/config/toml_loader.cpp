@@ -48,42 +48,47 @@ constexpr std::string_view kValIgnore = "ignore";
 // Unknown-key helpers
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] std::string FindUnknownKey(const toml::table& tbl,
-                                         std::initializer_list<std::string_view> known)
+/// @brief How a table's unknown keys are treated, and where "warn" records them.
+struct UnknownKeyPolicy
 {
-    for (const auto& [key, val] : tbl)
-    {
-        const auto* const it = std::ranges::find(known, std::string_view{key});
-        if (it == known.end())
-        {
-            return std::string{key};
-        }
-    }
-    return {};
+    UnknownKeyMode mode{UnknownKeyMode::Error};
+    std::vector<std::string>* warned{nullptr};  ///< non-owning; required under Warn
+};
+
+[[nodiscard]] UnknownKeyPolicy PolicyOf(Config& cfg)
+{
+    return UnknownKeyPolicy{.mode = cfg.unknown_key_mode, .warned = &cfg.unknown_keys_warned};
 }
 
+/// @brief Error on the first unknown key under `Error`; under `Warn`, append
+///        every unknown key's dotted path to `policy.warned` for `Build()` to
+///        log; under `Ignore`, do nothing.
 [[nodiscard]] std::optional<ConfigError> CheckUnknown(const toml::table& tbl,
                                                       std::string_view section,
                                                       std::initializer_list<std::string_view> known,
-                                                      UnknownKeyMode mode)
+                                                      const UnknownKeyPolicy& policy)
 {
-    if (mode == UnknownKeyMode::Ignore)
+    if (policy.mode == UnknownKeyMode::Ignore)
     {
         return std::nullopt;
     }
-    const std::string key = FindUnknownKey(tbl, known);
-    if (key.empty())
+    for (const auto& [key, val] : tbl)
     {
-        return std::nullopt;
+        if (std::ranges::find(known, std::string_view{key}) != known.end())
+        {
+            continue;
+        }
+        std::string field = section.empty() ? std::string{key.str()}
+                                            : (std::string{section} + "." + std::string{key.str()});
+        if (policy.mode != UnknownKeyMode::Warn)
+        {
+            return ConfigError{.kind = ConfigError::Kind::UnknownKey,
+                               .field = field,
+                               .message = "Unknown configuration key: " + field};
+        }
+        policy.warned->push_back(std::move(field));
     }
-    if (mode == UnknownKeyMode::Warn)
-    {
-        return std::nullopt;  // warn path: caller logs; no error returned
-    }
-    const std::string field = section.empty() ? key : (std::string{section} + "." + key);
-    return ConfigError{.kind = ConfigError::Kind::UnknownKey,
-                       .field = field,
-                       .message = "Unknown configuration key: " + field};
+    return std::nullopt;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +124,7 @@ constexpr std::string_view kValIgnore = "ignore";
                                .message = R"(must be "error", "warn", or "ignore")"};
         }
     }
-    return CheckUnknown(*sec, "config", {"unknown_keys"}, cfg.unknown_key_mode);
+    return CheckUnknown(*sec, "config", {"unknown_keys"}, PolicyOf(cfg));
 }
 
 [[nodiscard]] std::optional<ConfigError> ParseExporterSection(const toml::table& root, Config& cfg)
@@ -129,10 +134,8 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(*sec,
-                                "exporter",
-                                {"endpoint", "protocol", "compression", "headers"},
-                                cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(
+            *sec, "exporter", {"endpoint", "protocol", "compression", "headers"}, PolicyOf(cfg)))
     {
         return err;
     }
@@ -195,7 +198,7 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(*sec, "service", {"name", "version"}, cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(*sec, "service", {"name", "version"}, PolicyOf(cfg)))
     {
         return err;
     }
@@ -239,7 +242,7 @@ constexpr std::string_view kValIgnore = "ignore";
             CheckUnknown(*sec,
                          "tls",
                          {"insecure", "ca_bundle", "client_cert", "client_key", "sni_override"},
-                         cfg.unknown_key_mode))
+                         PolicyOf(cfg)))
     {
         return err;
     }
@@ -280,7 +283,7 @@ constexpr std::string_view kValIgnore = "ignore";
                                  "schedule_delay_ms",
                                  "drop_policy",
                                  "resource_detectors_strict"},
-                                cfg.unknown_key_mode))
+                                PolicyOf(cfg)))
     {
         return err;
     }
@@ -331,7 +334,7 @@ constexpr std::string_view kValIgnore = "ignore";
     {
         return std::nullopt;
     }
-    if (auto err = CheckUnknown(*sec, "logging", {"level"}, cfg.unknown_key_mode))
+    if (auto err = CheckUnknown(*sec, "logging", {"level"}, PolicyOf(cfg)))
     {
         return err;
     }
@@ -362,7 +365,7 @@ constexpr std::string_view kValIgnore = "ignore";
             *sec,
             "timeouts",
             {"connect_ms", "tls_ms", "per_export_ms", "retry_budget_ms", "flush_ms", "shutdown_ms"},
-            cfg.unknown_key_mode))
+            PolicyOf(cfg)))
     {
         return err;
     }
@@ -656,7 +659,7 @@ constexpr std::string_view kConcentrator = "concentrator";
 
 [[nodiscard]] std::optional<ConfigError> ReadLeafDefaults(const toml::table& sec,
                                                           LeafReceiverOptions& o,
-                                                          UnknownKeyMode mode)
+                                                          const UnknownKeyPolicy& policy)
 {
     const toml::node* const node = sec.get("leaf_defaults");
     if (node == nullptr)
@@ -669,7 +672,7 @@ constexpr std::string_view kConcentrator = "concentrator";
         return InvalidAt(kConcentrator, "leaf_defaults", "must be a table");
     }
     constexpr std::string_view kSection = "concentrator.leaf_defaults";
-    if (auto err = CheckUnknown(*tbl, kSection, {"resource"}, mode))
+    if (auto err = CheckUnknown(*tbl, kSection, {"resource"}, policy))
     {
         return err;
     }
@@ -680,7 +683,7 @@ constexpr std::string_view kConcentrator = "concentrator";
 [[nodiscard]] std::optional<ConfigError> ReadLeaf(const toml::node& node,
                                                   const std::string& section,
                                                   LeafConfig& leaf,
-                                                  UnknownKeyMode mode)
+                                                  const UnknownKeyPolicy& policy)
 {
     const auto* const tbl = node.as_table();
     if (tbl == nullptr)
@@ -689,7 +692,7 @@ constexpr std::string_view kConcentrator = "concentrator";
                            .field = section,
                            .message = section + ": must be a table"};
     }
-    if (auto err = CheckUnknown(*tbl, section, {"time_mode", "resource"}, mode))
+    if (auto err = CheckUnknown(*tbl, section, {"time_mode", "resource"}, policy))
     {
         return err;
     }
@@ -713,7 +716,7 @@ constexpr std::string_view kConcentrator = "concentrator";
 
 [[nodiscard]] std::optional<ConfigError> ReadLeaves(const toml::table& sec,
                                                     LeafReceiverOptions& o,
-                                                    UnknownKeyMode mode)
+                                                    const UnknownKeyPolicy& policy)
 {
     const toml::node* const node = sec.get("leaves");
     if (node == nullptr)
@@ -729,7 +732,7 @@ constexpr std::string_view kConcentrator = "concentrator";
     {
         LeafConfig leaf;
         const std::string section = "concentrator.leaves." + std::string{id.str()};
-        if (auto err = ReadLeaf(value, section, leaf, mode))
+        if (auto err = ReadLeaf(value, section, leaf, policy))
         {
             return err;
         }
@@ -763,7 +766,7 @@ constexpr std::string_view kConcentrator = "concentrator";
                                  "boot_anchor_window",
                                  "leaf_defaults",
                                  "leaves"},
-                                cfg.unknown_key_mode))
+                                PolicyOf(cfg)))
     {
         return err;
     }
@@ -775,11 +778,11 @@ constexpr std::string_view kConcentrator = "concentrator";
     {
         return err;
     }
-    if (auto err = ReadLeafDefaults(*sec, cfg.concentrator, cfg.unknown_key_mode))
+    if (auto err = ReadLeafDefaults(*sec, cfg.concentrator, PolicyOf(cfg)))
     {
         return err;
     }
-    return ReadLeaves(*sec, cfg.concentrator, cfg.unknown_key_mode);
+    return ReadLeaves(*sec, cfg.concentrator, PolicyOf(cfg));
 }
 
 /// Shared core: parse a pre-built toml::table into a Config.
@@ -804,7 +807,7 @@ constexpr std::string_view kConcentrator = "concentrator";
                                  "timeouts",
                                  "logging",
                                  "concentrator"},
-                                cfg.unknown_key_mode))
+                                PolicyOf(cfg)))
     {
         return microtel::make_unexpected(*err);
     }

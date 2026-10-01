@@ -538,11 +538,12 @@ configuration as the SDK does (file, then environment), then connects
 
 | Exit | stdout / stderr | Means | Do |
 |---|---|---|---|
-| 0 | `connect OK` / `export OK` | `connect`: the connection succeeded. `export`: `ForceFlush` returned `Completed`, which means the queue drained, **not** that the collector accepted the span; preflight does not check `batches_failed` | for `export`, confirm the span arrived at the collector, or check `GetExporterHealth()` in your own program (see [No traces arrive](#no-traces-arrive-reading-getexporterhealth)) |
+| 0 | `connect OK` / `export OK` | `connect`: the connection succeeded. `export`: the span was exported with no failed batch: `ForceFlush` returned `Completed` and `batches_failed` is 0 | nothing; the collector accepted the span. What it then does with it (its pipelines, processors, sampling) is the collector's business |
 | 1 | `Usage: ...` or `error: expected --preflight={connect|export}, got: <arg>` or `error: unknown preflight mode '<mode>' ...` | bad arguments | fix the command line |
 | 2 | `error: configuration failed: <message>` | `Build()` failed | look the message up under [`Build()` returns an error](#sdkbuilderbuild-returns-an-error) |
 | 3 | `error: connect failed: <message>` | `Connect()` failed | look the message up under [`Provider::Connect()` fails](#providerconnect-fails) |
 | 3 | `error: export timed out or failed` | connected, but `ForceFlush` (10 s) did not return `Completed` | the export path: see [No traces arrive](#no-traces-arrive-reading-getexporterhealth) |
+| 3 | `error: export failed: the collector did not accept the batch: <last_error_message>` | `ForceFlush` returned `Completed`, but the batch failed (`batches_failed` > 0): the collector rejected it, or it was lost after retries | look the message up under [`batches_failed` and `last_error_message`](#batches_failed-and-last_error_message); `UNIMPLEMENTED (12): unknown service opentelemetry.proto.collector.trace.v1.TraceService` means the collector has no traces pipeline on that receiver |
 
 Remember that environment variables override the file: an exported
 `OTEL_EXPORTER_OTLP_ENDPOINT` in your shell wins over the file you pass.

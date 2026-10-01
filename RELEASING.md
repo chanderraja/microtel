@@ -151,6 +151,21 @@ gh release create vX.Y.Z --title "microtel vX.Y.Z" --notes "…"
 Tag names are `vX.Y.Z`. Early development tags carried a milestone suffix
 (`v0.2.0-m2`); new tags don't.
 
+### Update the vcpkg overlay port
+
+Once the tag exists, update
+[`packaging/vcpkg/ports/microtel/`](packaging/vcpkg/ports/microtel/README.md) in
+a follow-up PR. Set `version` in `vcpkg.json` to the new release. In
+`portfile.cmake`, set `REF` to `"v${VERSION}"` and set `SHA512` to the hash of
+the tag's archive:
+
+```bash
+curl -sL https://github.com/chanderraja/microtel/archive/vX.Y.Z.tar.gz | sha512sum
+```
+
+Then install it once with `vcpkg install microtel --overlay-ports=packaging/vcpkg/ports`
+to check that the hash matches and the port builds.
+
 ---
 
 ## 5. Refresh the published benchmark snapshot — in the release PR
@@ -270,6 +285,7 @@ not self-index.
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
 [ ] gh release created
+[ ] packaging/vcpkg/ports/microtel: version, REF and SHA512 updated (own PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)
 ```

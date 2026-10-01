@@ -4,6 +4,14 @@
 submitted upstream. No build, library or ICP file was changed. Every change
 listed below is a recommendation.
 
+**Update:** an overlay port is now available at
+[`packaging/vcpkg/ports/microtel/`](../packaging/vcpkg/ports/microtel/README.md),
+which answers §7 question 6 for vcpkg. It builds with `MICROTEL_USE_SYSTEM_DEPS`
+(§5 item 2, which compiles toml++ header-only and so settles §5 item 1 without
+a new dependency), `MICROTEL_WARNINGS_AS_ERRORS=OFF` (§5 item 3), and the
+`OpenSSL::Crypto` link (§5 item 4). It offers `leaf` and `concentrator` as
+opt-in features. The curated-registry blockers in §3.3 still apply.
+
 ## 1. Summary and recommendation
 
 Both package managers can carry microtel. Each needs one small upstream fix

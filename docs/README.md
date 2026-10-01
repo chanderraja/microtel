@@ -18,6 +18,7 @@ start; come here for the detail.
 | [error-model.md](error-model.md) | How failures surface: init errors, drop counters, retry classification, diagnostics. |
 | [threading-model.md](threading-model.md) | Which threads microtel runs, what they own, and what is safe to call from where. |
 | [memory-model.md](memory-model.md) | Resource ownership and byte budgets, and what happens when one is exceeded. |
+| [vcpkg overlay port](../packaging/vcpkg/ports/microtel/README.md) | Installing microtel with vcpkg from the repository's own overlay port. |
 | [bench-results/README.md](bench-results/README.md) | The benchmark summary table, and the committed snapshot behind it and the root README's performance claims ([results](bench-results/results.md), [plots](bench-results/plots.html), [raw JSON](bench-results/results.json)). |
 
 The runnable programs are in [`examples/`](../examples/README.md), and the
@@ -53,6 +54,7 @@ below.
 | [development.md](development.md) | Which track owns which source directory. |
 | [repository-layout.md](repository-layout.md) | Map of the tree, build options, and where a new file goes. |
 | [ci-architecture.md](ci-architecture.md) | The CI jobs and what each one gates. |
+| [packaging-research.md](packaging-research.md) | What packaging microtel for vcpkg and Conan takes, and what blocks the public registries. |
 | [branch-protection.md](branch-protection.md) | GitHub branch-protection and repository settings. |
 | [bench-spec.md](bench-spec.md) | Specification of the benchmark harness in [`bench/`](../bench/README.md). |
 | [icps/README.md](icps/README.md) | Interface Change Proposals: the process, and the index of every accepted change. |

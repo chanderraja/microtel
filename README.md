@@ -541,6 +541,9 @@ The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
 **[Full documentation index](docs/README.md)**: every document, grouped into
 using microtel, microcontrollers (the leaf), and contributing and design.
 
+**[Troubleshooting](docs/troubleshooting.md)**: an error message, warning,
+health counter or exit code, and what to do about it.
+
 Highlights for users: [configuration](docs/configuration.md),
 [compatibility matrix](docs/compatibility-matrix.md),
 [interop matrix](docs/interop-matrix.md) (tested collectors and backends),

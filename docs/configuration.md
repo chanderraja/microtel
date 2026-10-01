@@ -2,6 +2,7 @@
 
 **Status:** M0 deliverable. Documents precedence rules and per-setting resolution.
 **Companion:** `microtel-spec.md` §12 (canonical for setting names and semantics), `error-model.md` §8 (init-failure taxonomy).
+**Troubleshooting:** for the message each `Build()` failure prints and what to change, see [`troubleshooting.md`](troubleshooting.md).
 **Maintenance:** the precedence rules in §1 are stable; the per-setting tables in §3 are appended to as new settings land in M3+. New settings without a row here are a documentation bug.
 **Last verified against source:** the v1.0 release cut — every setter name below checked against [`include/microtel/sdk_builder.hpp`](../include/microtel/sdk_builder.hpp), every TOML key against [`src/common/config/toml_loader.cpp`](../src/common/config/toml_loader.cpp), and every environment variable against [`src/common/config/env_resolver.cpp`](../src/common/config/env_resolver.cpp) (issues #194, #196). Sections that describe an *intended* surface rather than a built one now say so explicitly.
 

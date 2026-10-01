@@ -53,7 +53,9 @@
 // fails the build if any escape this list, so the list is enforced rather than
 // trusted. To rebuild it:
 //
-//   cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF
+//   cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DMICROTEL_BUILD_TESTS=OFF
+//     -DMICROTEL_WITH_CONCENTRATOR=ON -DMICROTEL_BUILD_LEAF=ON
+//     -DMICROTEL_LEAF_ENCODER=upb
 //   cmake --build build
 //   find build -type f -name 'libmicrotel_*.a' -print0 |
 //     xargs -0 nm -A -C -g 2>/dev/null |
@@ -70,9 +72,19 @@
 // and paste the output over the block below. The recipe reads a *renamed*
 // build: it strips the `microtel_` prefix before sorting, so it round-trips
 // the current list and picks up anything new in the same pass — there is no
-// need to disable the rename first. Build without `-DCMAKE_BUILD_TYPE` (or in
-// Debug): at `-O2` the compiler inlines away the `UPB_INLINE` functions, and
-// the list comes out short. The two `sed` normalizations handle nm's rendering
+// need to disable the rename first.
+//
+// Both halves of the configure line are load-bearing. Debug: at `-O2` the
+// compiler inlines away the `UPB_INLINE` functions, and the list comes out
+// short. Leaving `CMAKE_BUILD_TYPE` empty is NOT Debug — spdlog's
+// FetchContent force-sets it to Release in the cache. The upb-touching
+// options: every option that compiles more upb-using code can add globals
+// (the concentrator's decoder alone uses three inline helpers nothing else
+// does), so the recipe turns all of them on. The `symbol_scan_build_tree`
+// ctest (tests/CMakeLists.txt) runs the gate against every tested build,
+// Debug coverage included, so a short list fails there.
+//
+// The two `sed` normalizations handle nm's rendering
 // of a vague-linkage function-local static (`f()::x` — the enclosing function
 // is what gets renamed).
 //
@@ -206,6 +218,7 @@
 #define upb_ByteSize microtel_upb_ByteSize
 #define upb_Decode microtel_upb_Decode
 #define upb_DecodeLengthPrefixed microtel_upb_DecodeLengthPrefixed
+#define upb_DecodeOptions_MaxDepth microtel_upb_DecodeOptions_MaxDepth
 #define upb_DecodeStatus_String microtel_upb_DecodeStatus_String
 #define upb_Encode microtel_upb_Encode
 #define upb_EncodeLengthPrefixed microtel_upb_EncodeLengthPrefixed
@@ -255,6 +268,7 @@
 #define upb_Message_SetMapEntry microtel_upb_Message_SetMapEntry
 #define upb_Message_ShallowClone microtel_upb_Message_ShallowClone
 #define upb_Message_ShallowCopy microtel_upb_Message_ShallowCopy
+#define upb_Message_WhichOneofFieldNumber microtel_upb_Message_WhichOneofFieldNumber
 #define upb_MiniTableEnum_Build microtel_upb_MiniTableEnum_Build
 #define upb_MiniTableField_HasPresence microtel_upb_MiniTableField_HasPresence
 #define upb_MiniTableField_IsArray microtel_upb_MiniTableField_IsArray
@@ -295,6 +309,7 @@
 #define upb_Status_VAppendErrorFormat microtel_upb_Status_VAppendErrorFormat
 #define upb_Status_VSetErrorFormat microtel_upb_Status_VSetErrorFormat
 #define upb_StringView_FromDataAndSize microtel_upb_StringView_FromDataAndSize
+#define upb_StringView_FromString microtel_upb_StringView_FromString
 #define upb_StringView_IsEqual microtel_upb_StringView_IsEqual
 #define upb_alloc_global microtel_upb_alloc_global
 #define upb_inttable_compact microtel_upb_inttable_compact

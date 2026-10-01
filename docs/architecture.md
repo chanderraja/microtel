@@ -24,7 +24,7 @@ This document covers v1 only. Forward-looking architecture (control plane, metri
 ## 2. Layered structure
 
 <p align="center">
-  <img alt="Layered structure, top to bottom: Application; OpenTelemetry Trace API (src/api/); SDK (src/sdk/); protocol-agnostic Exporter (src/exporter/); OTLP Wire Encoder on upb (src/wire/encoder/), which hands an EncodedPayload to IWireCodec, implemented by the OTLP/HTTP codec (src/wire/http/) and the OTLP/gRPC codec (src/wire/grpc/); both feed the HTTP/2 transport on nghttp2 (src/transport/), which sends to an OTel Collector or any OTLP-compatible backend." src="images/architecture-layers.svg" width="820">
+  <img alt="microtel layered structure: Application, API, SDK, Exporter and OTLP wire encoder, then one IWireCodec with three implementations: OTLP/HTTP and OTLP/gRPC over the nghttp2 HTTP/2 transport to a collector, and a custom codec that hands the bytes to an application ExportTransport" src="images/architecture-layers.svg" width="820">
 </p>
 
 Common services (logging, errors, limits, RAII wrappers, config, diagnostics, clocks) are in `src/common/` and consumed by every layer.
@@ -101,13 +101,13 @@ The deeper implementation notes for the gRPC codec — state machine, byte-level
 
 ### 3.6 Transport — `src/transport/`
 
-**Owns:** the OpenSSL `SslCtx` and `SslSession`, the nghttp2 session, the socket file descriptor, the I/O loop (epoll on Linux, kqueue on BSD/macOS), the per-endpoint connection state machine (open / connecting / reconnecting / closed), reconnect with backoff and jitter on socket-level failures.
+**Owns:** the OpenSSL `SslCtx` and `SslSession`, the nghttp2 session, the socket file descriptor, the epoll I/O loop (microtel is Linux-only), the per-endpoint connection state machine (open / connecting / reconnecting / closed), reconnect with backoff and jitter on socket-level failures.
 
 **Does not own:** any OTLP semantics. The transport sends bytes and surfaces response bytes; it does not parse OTLP responses.
 
 **Provides:** `ITransport` — `Connect`, `Send`, `Close`, plus a callback path for `OnResponse`. The interface is the seam where an `nghttp3`-based HTTP/3 transport could drop in for v1.6+; no HTTP/3 work in v1.
 
-**Consumes:** `IReactor` (epoll/kqueue abstraction, present primarily as a test seam), the RAII wrappers in `src/common/raii/` (`Socket`, `SslCtx`, `SslSession`, `Nghttp2Session`).
+**Consumes:** `IReactor` (the epoll abstraction, present primarily as a test seam), the RAII wrappers in `src/common/raii/` (`Socket`, `SslCtx`, `SslSession`, `Nghttp2Session`).
 
 **Absent with an application `ExportTransport`.** `Build()` constructs no `Http2Transport` and no reactor, so there is no I/O thread, and `Provider::Connect()` succeeds without doing anything. The library still links nghttp2, OpenSSL and zlib; compiling them out belongs to ICP 0030's feature selection ([ICP 0036](icps/0036-custom-export-transport.md) Decision 5).
 

@@ -106,8 +106,8 @@ the system around it. microtel splits the job in two:
   override), converts device clocks to Unix time, and sends spans from every
   device through the normal sampling, batching and retry pipeline, many
   devices per export request.
-- microtel opens no socket for any of this. The link is whatever your devices
-  already speak.
+- microtel opens no socket facing the devices: that link is whatever they
+  already speak. The gateway's only connection is its outgoing OTLP export.
 
 Footprint of a minimal trace-only leaf (one span, one attribute, streamed),
 from [docs/bench-results/leaf-footprint.md](docs/bench-results/leaf-footprint.md),

@@ -37,7 +37,7 @@ def render():
     g.text(542, 204, "per-device Resource", INK, 15, anchor="middle")
     g.text(542, 226, "clock correction", INK, 15, anchor="middle")
     g.text(542, 248, "sample · batch · retry · export", INK, 15, anchor="middle")
-    g.text(542, 307, "microtel opens no socket: the link is yours", OUTER, 14, anchor="middle", style="italic")
+    g.text(542, 307, "no leaf-facing socket: that link is yours", OUTER, 14, anchor="middle", style="italic")
 
     # Export
     g.harrow(694, 160, 774, 160, OUTER, 2.6)

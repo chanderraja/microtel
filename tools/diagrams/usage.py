@@ -28,8 +28,9 @@ def render_cpp_api():
     g.text(125, 34, "configuration", OUTER, 14, "bold", "middle")
     g.arrow(228, 118, 290, 118)
 
-    _card(g, 300, 50, 270, 136, AMBER, "SdkBuilder", ["validates everything up front"],
-          tag="① startup, once", mono=(".Build()", "→ Expected<Provider, Error>"))
+    _card(g, 300, 40, 270, 156, AMBER, "SdkBuilder", ["validates config (not the network)"],
+          tag="① startup, once",
+          mono=(".Build() →", "Expected<shared_ptr<Provider>,", "ConfigError>"))
     g.arrow(578, 118, 640, 118)
 
     _card(g, 650, 40, 300, 156, BLUE, "Provider", [], tag="②",
@@ -40,7 +41,8 @@ def render_cpp_api():
     g.arrow(760, 204, 330, 268)
     g.text(585, 258, "tracers, meters, loggers", OUTER, 14, style="italic", anchor="middle")
 
-    _card(g, 30, 272, 330, 170, AMBER, "Your code, any thread", [], tag="③ hot path",
+    _card(g, 30, 272, 330, 170, AMBER, "Your code, any thread", ["sampled here, in StartSpan"],
+          tag="③ hot path",
           mono=('span = tracer->StartSpan("GET /cart")', "span->SetAttribute(…)",
                 "counter->Add(1, attrs)", "logger->Emit(record)"))
     g.text(195, 470, "noexcept · never waits on the network", OUTER, 14, style="italic", anchor="middle")
@@ -48,7 +50,7 @@ def render_cpp_api():
     g.text(399, 340, "queue", OUTER, 13, anchor="middle")
 
     _card(g, 440, 272, 300, 170, GREEN, "microtel background threads", [
-        "batch · sample · retry", "OTLP encode (upb)", "HTTP/2 + TLS (nghttp2)"], tag="④")
+        "batch · retry", "OTLP encode (upb)", "HTTP/2 + TLS (nghttp2)"], tag="④")
     g.arrow(748, 356, 810, 356)
     g.text(779, 340, "OTLP", OUTER, 14, "bold", "middle")
     g.text(779, 380, "gRPC /", OUTER, 13, anchor="middle")

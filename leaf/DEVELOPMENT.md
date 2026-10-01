@@ -17,6 +17,7 @@ Design: [`docs/leaf-concentrator-design.md`](../docs/leaf-concentrator-design.md
 | `src/leaf_internal.h` | the core / backend contract (§2.2); not installed |
 | `src/backend_nanopb.c` | the nanopb backend (the default) — the only leaf file that includes nanopb headers |
 | `src/backend_upb.c` | the upb backend — the only leaf file that includes upb headers |
+| `nanopb/otlp_trace.options` | nanopb generator options for the trace descriptors (§2.4): every string, bytes and repeated field is a callback, so no generated struct has a fixed-size array and nothing needs `PB_ENABLE_MALLOC`. Read by `ci/scripts/regen-protos.sh`; the output is committed under `gen/nanopb/` |
 | `.clang-tidy` | the C static-analysis profile (§7.8) |
 
 Both backends produce the same bytes for the same spans (§2.3). The nanopb

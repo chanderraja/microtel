@@ -314,5 +314,8 @@ int main(int argc, char** argv)
     std::cout << "\nview it:  http://localhost:3000  (home dashboard: microtel — recent traces)\n"
               << "     or:  curl -s http://localhost:3200/api/traces/" << trace_id << '\n';
 
-    return (flush == microtel::Status::Completed) ? 0 : 2;
+    // Completed only means the queues drained; a batch the collector rejected
+    // still counts as drained. Success needs no failed batch as well.
+    const bool delivered = flush == microtel::Status::Completed && health.batches_failed == 0;
+    return delivered ? 0 : 2;
 }

@@ -68,6 +68,20 @@ carries on, so the full lifecycle still runs with nothing listening, and
 `ForceFlush`'s status and `GetExporterHealth()` then report the failure. That's
 what those calls are for.
 
+The program exits 0 only when `ForceFlush` returns `Completed` **and**
+`batches_failed` is 0, 1 if `Build()` fails, and 2 otherwise. `Completed`
+means the queue drained, which is also true when the collector rejected the
+batch. Against a collector with no traces pipeline, the flush completes but
+the batch fails, and the program exits 2:
+
+```
+trace_id: 5829b14f3c5a78b31296077438aa6d0d
+ForceFlush: Completed
+batches_sent=0 batches_failed=1 queue_depth=0
+last_error: UNIMPLEMENTED (12): unknown service opentelemetry.proto.collector.trace.v1.TraceService
+Shutdown: Completed
+```
+
 The `Status` switch is exhaustive. It includes `InvalidArgument` and
 `Unsupported`, which only the setters return and `ForceFlush` never does. With
 no `default:` label, `-Wswitch` flags the next enumerator someone adds.

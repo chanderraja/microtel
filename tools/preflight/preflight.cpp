@@ -138,6 +138,30 @@ SpanIdentity ResolveSpanIdentity(std::string_view config_path)
                         .version = std::string{kVersion}};
 }
 
+int ReportExport(microtel::Status flush,
+                 const microtel::HealthSnapshot& health,
+                 std::ostream& out,
+                 std::ostream& err)
+{
+    if (flush != microtel::Status::Completed)
+    {
+        err << "error: export timed out or failed\n";
+        return kExitRuntime;
+    }
+
+    // Completed only means the queue drained; a batch the collector rejected
+    // still counts as drained. The span was exported only if no batch failed.
+    if (health.batches_failed != 0)
+    {
+        err << "error: export failed: the collector did not accept the batch: "
+            << health.last_error_message << "\n";
+        return kExitRuntime;
+    }
+
+    out << "export OK\n";
+    return kExitOk;
+}
+
 int RunPreflight(int argc, char** argv)
 {
     return RunPreflight(argc, argv, std::cout, std::cerr);
@@ -204,16 +228,10 @@ int RunPreflight(int argc, char** argv, std::ostream& out, std::ostream& err)
     }
 
     const auto status = provider->ForceFlush(std::chrono::seconds(10));
+    const microtel::HealthSnapshot health = provider->GetExporterHealth();
     (void)provider->Shutdown(std::chrono::seconds(5));
 
-    if (status != microtel::Status::Completed)
-    {
-        err << "error: export timed out or failed\n";
-        return kExitRuntime;
-    }
-
-    out << "export OK\n";
-    return kExitOk;
+    return ReportExport(status, health, out, err);
 }
 
 }  // namespace tools

@@ -28,6 +28,9 @@ option(MICROTEL_LEAF_TARGET_GTEST "Also build the gtest leaf suite (hosted board
 
 get_filename_component(MICROTEL_REPO ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 
+# MICROTEL_WARNINGS_AS_ERRORS / ${MICROTEL_WERROR}, as in the main project.
+include(${MICROTEL_REPO}/cmake/MicrotelWarnings.cmake)
+
 if(MICROTEL_LEAF_TARGET_GTEST)
     if(NOT MICROTEL_LEAF_TARGET_BOARD STREQUAL "hosted")
         message(FATAL_ERROR "MICROTEL_LEAF_TARGET_GTEST needs MICROTEL_LEAF_TARGET_BOARD=hosted")
@@ -109,7 +112,7 @@ if(MICROTEL_LEAF_TARGET_GTEST)
         target_link_libraries(${MT_NAME} PRIVATE
             microtel_headers GTest::gtest GTest::gtest_main ${MT_LIBS})
         target_include_directories(${MT_NAME} PRIVATE ${MICROTEL_REPO}/tests)
-        target_compile_options(${MT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(${MT_NAME} PRIVATE -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
         add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
     endfunction()
     add_subdirectory(${MICROTEL_REPO}/tests/unit/leaf unit_leaf)

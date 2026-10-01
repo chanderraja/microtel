@@ -33,7 +33,7 @@ target_include_directories(microtel_config
 target_compile_features(microtel_config PUBLIC cxx_std_20)
 
 target_compile_options(microtel_config PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 if(MICROTEL_FORBID_INSECURE_TLS)
     target_compile_definitions(microtel_config

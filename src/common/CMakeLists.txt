@@ -19,7 +19,7 @@ target_include_directories(microtel_common
 target_compile_features(microtel_common PUBLIC cxx_std_20)
 
 target_compile_options(microtel_common PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 # microtel_common does NOT link spdlog — issue #190, resolved by ICP 0026 §6
 # with option (1).

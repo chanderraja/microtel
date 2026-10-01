@@ -491,6 +491,7 @@ or export, which is a quick way to check a deployment before it goes live.
 | `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Header-only log4cxx log bridge ([`src/adapters/log4cxx/`](src/adapters/log4cxx/README.md)); needs log4cxx 1.1+ installed. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | Makes `tls.insecure = true` a `Build()` error instead of a warning. |
 | `MICROTEL_SANITIZER` | empty | `asan`, `tsan` or `ubsan`. |
+| `MICROTEL_WARNINGS_AS_ERRORS` | `ON` | Builds microtel's own targets, the leaf included, with `-Werror`. Packagers set `OFF` so that a new warning from a newer compiler does not fail the build; the warnings themselves stay on. |
 
 `MICROTEL_BUILD_HEADER_CHECK`, `MICROTEL_BUILD_FUZZ`, `MICROTEL_BUILD_BENCH`
 and `MICROTEL_COVERAGE` are for development and CI; see

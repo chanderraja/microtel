@@ -74,7 +74,7 @@ function(microtel_leaf_target_runner name)
         C_STANDARD 11
         C_STANDARD_REQUIRED ON
         C_EXTENSIONS OFF)
-    target_compile_options(${name} PRIVATE -Wall -Wextra -Wvla -Werror)
+    target_compile_options(${name} PRIVATE -Wall -Wextra -Wvla ${MICROTEL_WERROR})
     if(LT_LINKER_SCRIPT)
         get_filename_component(script_dir ${LT_LINKER_SCRIPT} DIRECTORY)
         target_link_options(${name} PRIVATE

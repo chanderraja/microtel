@@ -17,4 +17,4 @@ target_include_directories(microtel_grpc_wire PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(microtel_grpc_wire PUBLIC cxx_std_20)
 
 target_compile_options(microtel_grpc_wire PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

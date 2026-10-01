@@ -33,4 +33,4 @@ target_compile_features(microtel_encoder PUBLIC cxx_std_20)
 # See third_party/upb/microtel_upb_rename.h and ICP 0020 Decision 4.
 target_compile_options(microtel_encoder PRIVATE
     -include ${MICROTEL_UPB_RENAME_HEADER}
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

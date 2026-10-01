@@ -22,7 +22,7 @@ target_include_directories(microtel_preflight_lib
 target_compile_features(microtel_preflight_lib PUBLIC cxx_std_20)
 
 target_compile_options(microtel_preflight_lib PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 # The runnable binary.
 add_executable(microtel-preflight main.cpp)
@@ -35,4 +35,4 @@ target_include_directories(microtel-preflight
 target_compile_features(microtel-preflight PRIVATE cxx_std_20)
 
 target_compile_options(microtel-preflight PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

@@ -23,11 +23,14 @@ cmake_minimum_required(VERSION 3.20)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(microtel_leaf
-            VERSION 1.1.1
+            VERSION 1.2.0
             LANGUAGES C
             DESCRIPTION "microtel-leaf: OTLP span encoder for constrained devices")
     set(MICROTEL_LEAF_STANDALONE ON)
     include(GNUInstallDirs)
+    # MICROTEL_WARNINGS_AS_ERRORS / ${MICROTEL_WERROR}; in-tree the top level
+    # has already included it.
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/MicrotelWarnings.cmake)
 else()
     set(MICROTEL_LEAF_STANDALONE OFF)
 endif()
@@ -107,7 +110,7 @@ function(microtel_leaf_add_library name backend)
 
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${name} PRIVATE
-            -pedantic-errors -Wall -Wextra -Wvla -Werror)
+            -pedantic-errors -Wall -Wextra -Wvla ${MICROTEL_WERROR})
     endif()
 
     # PRIVATE: the backend's include paths never reach a consumer. A static

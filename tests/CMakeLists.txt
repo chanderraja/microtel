@@ -32,7 +32,7 @@ function(microtel_add_test)
     target_include_directories(${MT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/tests)
     target_compile_options(${MT_NAME} PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
     set_tests_properties(${MT_NAME} PROPERTIES LABELS "unit")
 endfunction()
@@ -40,3 +40,29 @@ endfunction()
 add_subdirectory(unit)
 add_subdirectory(integration)
 add_subdirectory(conformance)
+
+# The dependency-closure gate, run against this build tree (CLAUDE.md rule 13,
+# ICP 0020 Decision 4). The CI symbol-scan job scans one configuration only —
+# effectively Release, concentrator OFF — and at -O2 upb's `UPB_INLINE`
+# helpers are inlined away. At -O0 they are emitted as weak globals, so a
+# helper missing from third_party/upb/microtel_upb_rename.h ships unprefixed
+# in a Debug build and nowhere else. Registering the scan here runs it in
+# every configuration that runs ctest, including the Debug coverage build.
+# The build-dir form also sweeps test-only archives; they get the same rules.
+# Coverage and sanitizer instrumentation define globals of their own, so those
+# trees skip the leaf pass (--instrumented); the rename passes still run.
+# GNU nm, as the CI job uses: the script parses its `nm -A` output format.
+find_program(MICROTEL_BASH bash)
+find_program(MICROTEL_GNU_NM nm)
+if(MICROTEL_BASH AND MICROTEL_GNU_NM)
+    set(MICROTEL_SYMBOL_SCAN_ARGS "")
+    if(MICROTEL_COVERAGE OR NOT MICROTEL_SANITIZER STREQUAL "")
+        set(MICROTEL_SYMBOL_SCAN_ARGS --instrumented)
+    endif()
+    add_test(NAME symbol_scan_build_tree
+        COMMAND ${MICROTEL_BASH} ${CMAKE_SOURCE_DIR}/ci/scripts/symbol-scan.sh
+                ${MICROTEL_SYMBOL_SCAN_ARGS} ${CMAKE_BINARY_DIR})
+    set_tests_properties(symbol_scan_build_tree PROPERTIES
+        LABELS "integration"
+        ENVIRONMENT "NM=${MICROTEL_GNU_NM}")
+endif()

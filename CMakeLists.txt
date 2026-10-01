@@ -1,9 +1,12 @@
 # Copyright (c) 2026 The microtel Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# M0 minimal build: declares a header-only INTERFACE target plus an optional
-# header-check executable that includes every public and internal header.
-# Implementation begins in M3; see microtel-roadmap.md.
+# Top-level build: the header-only microtel_headers target, the runtime
+# libraries under src/ (exported as microtel::microtel), the vendored upb and
+# generated protos, the optional log and opentelemetry-cpp adapters, the leaf
+# (MICROTEL_BUILD_LEAF), tools/, tests, benchmarks and examples, and the install
+# and package-config rules at the foot of this file. docs/repository-layout.md
+# lists every MICROTEL_* option.
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -61,6 +64,12 @@ add_library(microtel_sugar INTERFACE)
 target_link_libraries(microtel_sugar INTERFACE microtel_headers)
 target_compile_features(microtel_sugar INTERFACE cxx_std_20)
 
+# option(MICROTEL_WARNINGS_AS_ERRORS ... ON) and ${MICROTEL_WERROR}, which
+# every target below puts after its -W flags. ON (the default) keeps -Werror;
+# packagers turn it OFF. The module, not this file, holds the option so the
+# standalone leaf and leaf-target projects share the one definition.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MicrotelWarnings.cmake)
+
 # M0 header compile check.
 #
 # Verifies every public and internal header compiles standalone with -Werror.
@@ -72,7 +81,7 @@ if(MICROTEL_BUILD_HEADER_CHECK)
     add_executable(microtel_header_check ci/header_check.cpp)
     target_link_libraries(microtel_header_check PRIVATE microtel_headers)
     target_compile_options(microtel_header_check PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
+        -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 endif()
 
 # Sanitizer build helper. MICROTEL_SANITIZER ∈ { '', asan, tsan, ubsan }.
@@ -524,12 +533,13 @@ install(EXPORT MicrotelTargets
 # usage is `find_package(microtel …)`. `MicrotelConfig.cmake` would only be
 # found by `find_package(Microtel)`.
 #
-# The version is the project version, 1.0.0, and include/microtel/version.hpp
+# The version is PROJECT_VERSION above, and include/microtel/version.hpp
 # agrees with it. Both are hand-set — generating the header from PROJECT_VERSION
 # would make a public header a build artifact, which RELEASING.md records as a
 # rejected trade. A release bump edits this file, version.hpp, the grpc
-# user-agent literal and tools/preflight/preflight.cpp; ci/scripts/version-drift-check.sh
-# (CI job version-drift-check) fails any PR in which they stop agreeing.
+# user-agent literal, tools/preflight/preflight.cpp, leaf/include/microtel/leaf.h
+# and leaf/CMakeLists.txt; ci/scripts/version-drift-check.sh (CI job
+# version-drift-check) fails any PR in which they stop agreeing.
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
@@ -537,7 +547,7 @@ configure_package_config_file(
     ${CMAKE_CURRENT_BINARY_DIR}/microtelConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
-# Now that the project is 1.0.0, SameMajorVersion is the right mode: semver
+# Since 1.0.0, SameMajorVersion is the right mode: semver
 # says a 1.x consumer requirement is satisfied by any later 1.y. ExactVersion
 # was correct only below 1.0, where minor bumps are breaking by convention;
 # keeping it past the 1.0 cut would fail `find_package(microtel 1.0)` against a

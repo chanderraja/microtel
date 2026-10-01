@@ -30,13 +30,26 @@ collector. See
 
 ## Try it in five minutes
 
-Both paths export to a local collector, Tempo and Grafana stack (Docker or
+The first path needs nothing running and prints its spans to the terminal.
+The other two export to a local collector, Tempo and Grafana stack (Docker or
 Podman) and end with a trace at <http://localhost:3000>. Tests are off, so the
 build compiles only what the examples need. Start from a checkout:
 
 ```bash
 git clone https://github.com/chanderraja/microtel.git && cd microtel
 ```
+
+**No collector, no containers:**
+
+```bash
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_EXAMPLES=ON
+cmake --build build -j"$(nproc)"
+./build/examples/microtel_example_console_trace   # prints the spans it exported
+```
+
+[`examples/console_trace/`](examples/console_trace/) shows the output and how
+it works: the real pipeline, with the last hop swapped for a transport that
+prints.
 
 **C++ tracing:**
 
@@ -482,6 +495,7 @@ or export, which is a quick way to check a deployment before it goes live.
 | `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Header-only log4cxx log bridge ([`src/adapters/log4cxx/`](src/adapters/log4cxx/README.md)); needs log4cxx 1.1+ installed. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | Makes `tls.insecure = true` a `Build()` error instead of a warning. |
 | `MICROTEL_SANITIZER` | empty | `asan`, `tsan` or `ubsan`. |
+| `MICROTEL_WARNINGS_AS_ERRORS` | `ON` | Builds microtel's own targets, the leaf included, with `-Werror`. Packagers set `OFF` so that a new warning from a newer compiler does not fail the build; the warnings themselves stay on. |
 
 `MICROTEL_BUILD_HEADER_CHECK`, `MICROTEL_BUILD_FUZZ`, `MICROTEL_BUILD_BENCH`
 and `MICROTEL_COVERAGE` are for development and CI; see
@@ -520,7 +534,13 @@ The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
 
 ## Documentation
 
-For users: [configuration](docs/configuration.md),
+**[Full documentation index](docs/README.md)**: every document, grouped into
+using microtel, microcontrollers (the leaf), and contributing and design.
+
+**[Troubleshooting](docs/troubleshooting.md)**: an error message, warning,
+health counter or exit code, and what to do about it.
+
+Highlights for users: [configuration](docs/configuration.md),
 [compatibility matrix](docs/compatibility-matrix.md),
 [interop matrix](docs/interop-matrix.md) (tested collectors and backends),
 [auth callback recipes](docs/auth-callback-recipes.md) (OAuth2 and AWS SigV4),
@@ -529,12 +549,12 @@ For users: [configuration](docs/configuration.md),
 [error](docs/error-model.md), [threading](docs/threading-model.md) and
 [memory](docs/memory-model.md) models.
 
-For contributors: the [specification](microtel-spec.md), the
+Highlights for contributors: the [specification](microtel-spec.md), the
 [roadmap](microtel-roadmap.md), [architecture](docs/architecture.md), the
 locked [interface contracts](docs/interfaces.md),
 [metrics design](docs/metrics-design.md),
 [leaf / concentrator design](docs/leaf-concentrator-design.md), the [ICPs](docs/icps/) that record
-design decisions, and the rest of [docs/](docs/) (coding standards, sequence
+design decisions, and the rest of [docs/](docs/README.md) (coding standards, sequence
 diagrams).
 
 ## Contributing

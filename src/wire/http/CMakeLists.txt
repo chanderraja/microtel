@@ -15,4 +15,4 @@ target_include_directories(microtel_http_wire
 target_compile_features(microtel_http_wire PUBLIC cxx_std_20)
 
 target_compile_options(microtel_http_wire PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
+    -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})

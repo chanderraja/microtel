@@ -173,6 +173,10 @@ this one alone.
 
 ## Troubleshooting
 
+This section covers the containers. For microtel's own errors (a `Build()`
+failure, a `Connect()` message, a health counter), see
+[`docs/troubleshooting.md`](../../docs/troubleshooting.md).
+
 **`up.sh` says a service never became ready.** Check the logs. The command to
 get them is printed along with the error:
 
@@ -194,7 +198,8 @@ remove it.
 
 **The example reports `batches_failed` and a connection error.** The stack is
 not up, or something else owns 4317. `curl -s http://localhost:13133` should
-return the collector's health JSON.
+return the collector's health JSON. The message in `last_error_message` is listed in
+[`docs/troubleshooting.md`](../../docs/troubleshooting.md#providerconnect-fails).
 
 **Traces reach the collector but not Grafana.** Split the path:
 `podman-compose -f examples/stack/compose.yaml -p microtel-stack logs otel-collector`

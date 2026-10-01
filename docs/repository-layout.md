@@ -26,6 +26,7 @@ microtel/
 ├── bench/              benchmark harness (Docker)                         contributor
 ├── ci/                 CI scripts called by .github/workflows/            contributor
 ├── cmake/              package-config template and cross toolchains      contributor
+├── packaging/          package-manager files (vcpkg overlay port)         user
 ├── gen/                generated protobuf C code (committed)              contributor
 ├── proto/              vendored OpenTelemetry .proto files                contributor
 ├── third_party/        vendored upb, utf8_range, nanopb, tl-expected      contributor
@@ -51,8 +52,8 @@ Top-level files:
 | `.clang-format`, `.clang-tidy`, `.clangd`, `.editorconfig` | Formatting, lint and editor settings. |
 | `.gitignore`, `.gitattributes`, `.dockerignore`, `.graphifyignore` | Ignore and attribute rules. |
 
-There is no `CMakePresets.json`, no `CHANGELOG.md`, and no Python, packaging
-or shim directory at the top level.
+There is no `CMakePresets.json`, no `CHANGELOG.md`, and no Python or shim
+directory at the top level.
 
 ---
 
@@ -151,6 +152,7 @@ All tests; the taxonomy and conventions are in
 | `tests/fuzz/` | libFuzzer harnesses, `corpus/` and `crashes/` | [README](../tests/fuzz/README.md) |
 | `tests/leaf/` | Leaf test vectors (`vectors/`), the dual-backend shim (`dual/`), the differential program (`diff/`) and the cross-target project (`target/`, driven by `ci/scripts/leaf-target.sh`) | — |
 | `tests/consumer/` | External `find_package(microtel)` project driven by `ci/scripts/consumer-smoke.sh`; not part of the main build | — |
+| `tests/consumer_toml/` | External project linking installed microtel next to a compiled toml++ (`CONSUMER_TOML=1 ci/scripts/consumer-smoke.sh`) | — |
 | `tests/mocks/` | Dumb mocks, one per interface | [README](../tests/mocks/README.md) |
 | `tests/fakes/` | Test doubles with logic | [README](../tests/fakes/README.md) |
 | `tests/helpers/` | Shared test-only utilities | — |
@@ -176,6 +178,17 @@ structure is in [`ci-architecture.md`](ci-architecture.md).
 `cmake/microtelConfig.cmake.in` (the `find_package(microtel)` config
 template) and `cmake/toolchains/` (aarch64, i686 and arm-none-eabi
 cross toolchains, used by the leaf target tests).
+
+### `packaging/` — package-manager files
+
+`packaging/vcpkg/ports/microtel/` is a vcpkg overlay port (`portfile.cmake`,
+`vcpkg.json`, `usage`). Users point vcpkg at `packaging/vcpkg/ports` with
+`--overlay-ports`, or with `overlay-ports` in `vcpkg-configuration.json`. The
+port lives here, not in vcpkg's curated registry, because microtel does not
+yet meet that registry's maturity and vendoring rules
+([`packaging-research.md`](packaging-research.md)). The port pins a microtel
+commit, updated at each release ([`RELEASING.md`](../RELEASING.md)). See
+[its README](../packaging/vcpkg/ports/microtel/README.md).
 
 ### `proto/`, `gen/`, `third_party/` — vendored and generated code
 
@@ -207,6 +220,8 @@ Declared in the top-level `CMakeLists.txt` unless noted.
 | `MICROTEL_BUILD_FUZZ` | `OFF` | Build the libFuzzer harnesses (clang only). |
 | `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Build `ci/header_check.cpp`. |
 | `MICROTEL_USE_SPDLOG` | `ON` | Use spdlog for internal diagnostics; `OFF` uses a stderr fallback. |
+| `MICROTEL_USE_SYSTEM_DEPS` | `OFF` | Find toml++, spdlog and GoogleTest with `find_package` instead of FetchContent (offline and package-manager builds). |
+| `MICROTEL_WARNINGS_AS_ERRORS` | `ON` | Add `-Werror`; package builds turn it off. Declared in `cmake/MicrotelWarnings.cmake`. |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Build the opentelemetry-cpp API shim. |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Build the glog log bridge (needs glog installed). |
 | `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Build the log4cxx log bridge (needs log4cxx installed). |
@@ -252,6 +267,7 @@ Not committed (see `.gitignore`): `build/`, `build-*/`, `build_*/`, `_deps/`,
 | Sequence diagram | `docs/sequences/` |
 | Interface change | `docs/icps/NNNN-<slug>.md` |
 | Vendored code | `third_party/<name>/` with README and LICENSE |
+| Package-manager port or recipe | `packaging/<manager>/` (vcpkg ports under `packaging/vcpkg/ports/<name>/`) |
 
 If a new top-level directory or build option lands, update this file in the
 same PR.

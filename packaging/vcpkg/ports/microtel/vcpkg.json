@@ -1,0 +1,44 @@
+{
+  "name": "microtel",
+  "version": "1.2.0",
+  "description": "Lightweight OpenTelemetry-compatible trace runtime and OTLP exporter (OTLP/HTTP and OTLP/gRPC) built on nghttp2, without the gRPC or protobuf C++ libraries.",
+  "homepage": "https://github.com/chanderraja/microtel",
+  "license": "Apache-2.0 AND BSD-3-Clause AND MIT AND CC0-1.0",
+  "supports": "linux",
+  "dependencies": [
+    "nghttp2",
+    "openssl",
+    {
+      "name": "pkgconf",
+      "host": true
+    },
+    "tomlplusplus",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    "zlib"
+  ],
+  "default-features": [
+    "spdlog"
+  ],
+  "features": {
+    "concentrator": {
+      "description": "Experimental concentrator leaf receiver (MICROTEL_WITH_CONCENTRATOR): parses untrusted leaf bytes with upb's decoder"
+    },
+    "leaf": {
+      "description": "Experimental leaf C library for microcontrollers (MICROTEL_BUILD_LEAF, nanopb backend), exported as microtel::leaf",
+      "license": "Zlib"
+    },
+    "spdlog": {
+      "description": "Record MICROTEL_USE_SPDLOG=ON and provide spdlog for the header-only spdlog log bridge (include/microtel/adapters/spdlog_sink.hpp)",
+      "dependencies": [
+        "spdlog"
+      ]
+    }
+  }
+}

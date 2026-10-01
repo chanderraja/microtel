@@ -13,6 +13,7 @@
 #   src/wire/grpc/grpc_wire_codec.cpp kUserAgent                  (on the wire)
 #   tools/preflight/preflight.cpp     kVersion                    (on the wire)
 #   leaf/include/microtel/leaf.h      MICROTEL_LEAF_VERSION_*     (leaf C API)
+#   leaf/CMakeLists.txt               project(microtel_leaf VERSION)  (standalone leaf build)
 #
 # This is a CHECK, not a generator. Deriving version.hpp from PROJECT_VERSION at
 # configure time was considered and rejected: it would make a public header a
@@ -68,6 +69,7 @@ readonly PATH_VERSION_HPP='include/microtel/version.hpp'
 readonly PATH_GRPC_CODEC='src/wire/grpc/grpc_wire_codec.cpp'
 readonly PATH_PREFLIGHT='tools/preflight/preflight.cpp'
 readonly PATH_LEAF_HEADER='leaf/include/microtel/leaf.h'
+readonly PATH_LEAF_CMAKE='leaf/CMakeLists.txt'
 
 # ---------------------------------------------------------------------------
 # Extraction
@@ -218,6 +220,20 @@ check_leaf_triple()
     report "$PATH_LEAF_HEADER" "$major.$minor.$patch" "$expected" "MICROTEL_LEAF_VERSION_*"
 }
 
+# check_leaf_project <root> <expected>
+#
+# The standalone leaf build's own `project(microtel_leaf VERSION …)`. It read
+# 1.1.1 through the 1.2.0 release because nothing compared it.
+check_leaf_project()
+{
+    local root="$1"
+    local expected="$2"
+    local found
+
+    found="$(cmake_project_version "$root/$PATH_LEAF_CMAKE")" || return 2
+    report "$PATH_LEAF_CMAKE" "$found" "$expected" "standalone leaf project() VERSION"
+}
+
 # ---------------------------------------------------------------------------
 # The gate
 # ---------------------------------------------------------------------------
@@ -242,6 +258,7 @@ run_check()
     check_literal "$root" "$PATH_PREFLIGHT" "$SED_PREFLIGHT_VERSION" \
         "$expected" "preflight microtel.version attribute" || return 2
     check_leaf_triple "$root" "$expected" || return 2
+    check_leaf_project "$root" "$expected" || return 2
 
     if [[ "$FAILURES" -ne 0 ]]; then
         cat >&2 <<EOF
@@ -264,7 +281,7 @@ EOF
 # Self-test
 # ---------------------------------------------------------------------------
 
-# write_fixture <dir> <cmake ver> <hpp string ver> <hpp triple> <ua ver> <preflight ver> [leaf triple]
+# write_fixture <dir> <cmake ver> <hpp string ver> <hpp triple> <ua ver> <preflight ver> [leaf triple] [leaf cmake ver]
 #
 # A minimal tree with the same shape as the repository. `<hpp triple>` is spelled
 # as "MAJOR MINOR PATCH" so the triple can be drifted independently of
@@ -278,6 +295,7 @@ write_fixture()
     local ua_ver="$5"
     local preflight_ver="$6"
     local leaf_triple="${7:-$triple}"
+    local leaf_cmake_ver="${8:-$cmake_ver}"
     # shellcheck disable=SC2086
     set -- $leaf_triple
     local leaf_major="$1" leaf_minor="$2" leaf_patch="$3"
@@ -312,6 +330,16 @@ EOF
 
     cat > "$dir/tools/preflight/preflight.cpp" <<EOF
 constexpr std::string_view kVersion = "$preflight_ver";
+EOF
+
+    cat > "$dir/leaf/CMakeLists.txt" <<EOF
+cmake_minimum_required(VERSION 3.20)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(microtel_leaf
+            VERSION $leaf_cmake_ver
+            LANGUAGES C)
+endif()
 EOF
 
     {
@@ -356,7 +384,7 @@ self_test()
     local failed=0
 
     write_fixture "$tmp/coherent" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
-    expect_status 0 "all six literals agree" "$tmp/coherent" || failed=1
+    expect_status 0 "all seven literals agree" "$tmp/coherent" || failed=1
 
     write_fixture "$tmp/cmake-drift" "1.2.4" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
     expect_status 1 "CMake bumped, headers left behind" "$tmp/cmake-drift" || failed=1
@@ -375,6 +403,9 @@ self_test()
 
     write_fixture "$tmp/leaf-drift" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3" "1 1 1"
     expect_status 1 "leaf C header left at an old version" "$tmp/leaf-drift" || failed=1
+
+    write_fixture "$tmp/leaf-cmake-drift" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3" "1 2 3" "1.1.1"
+    expect_status 1 "standalone leaf project() VERSION left at an old version" "$tmp/leaf-cmake-drift" || failed=1
 
     write_fixture "$tmp/missing" "1.2.3" "1.2.3" "1 2 3" "1.2.3" "1.2.3"
     : > "$tmp/missing/include/microtel/version.hpp"

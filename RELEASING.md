@@ -13,7 +13,7 @@ this project has actually made.
 ## 1. Bump the version
 
 `project(microtel VERSION …)` in the top-level `CMakeLists.txt` is the
-authority. Five other literals are hand-written and must be edited in the same
+authority. Six other literals are hand-written and must be edited in the same
 commit:
 
 | Location | Literal | Reaches |
@@ -24,12 +24,13 @@ commit:
 | [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export (spec §7.2) |
 | [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version (spec §6.4) |
 | [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
+| [`leaf/CMakeLists.txt`](leaf/CMakeLists.txt) | `project(microtel_leaf VERSION …)` | the standalone leaf build's `PROJECT_VERSION`; read 1.1.1 through the v1.2.0 release until `version-drift-check.sh` started checking it |
 
 The README names the release in two prose places that no check reads: the
 Status section ("The current release is …") and the `git clone --branch` tag in
 Getting started. Update both in the same commit.
 
-Two of those six have a history worth knowing:
+Two of those seven have a history worth knowing:
 
 - The gRPC user-agent read `microtel-cpp/0.1.0` for several milestones while
   `version.hpp` said something else. It now carries a `static_assert` against

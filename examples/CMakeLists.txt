@@ -50,6 +50,7 @@ endfunction()
 
 add_subdirectory(auth_bearer)
 add_subdirectory(basic_trace)
+add_subdirectory(console_trace)
 add_subdirectory(context_propagation)
 add_subdirectory(distributed_handoff)
 add_subdirectory(health_and_backpressure)

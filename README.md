@@ -30,13 +30,26 @@ collector. See
 
 ## Try it in five minutes
 
-Both paths export to a local collector, Tempo and Grafana stack (Docker or
+The first path needs nothing running and prints its spans to the terminal.
+The other two export to a local collector, Tempo and Grafana stack (Docker or
 Podman) and end with a trace at <http://localhost:3000>. Tests are off, so the
 build compiles only what the examples need. Start from a checkout:
 
 ```bash
 git clone https://github.com/chanderraja/microtel.git && cd microtel
 ```
+
+**No collector, no containers:**
+
+```bash
+cmake -S . -B build -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_EXAMPLES=ON
+cmake --build build -j"$(nproc)"
+./build/examples/microtel_example_console_trace   # prints the spans it exported
+```
+
+[`examples/console_trace/`](examples/console_trace/) shows the output and how
+it works: the real pipeline, with the last hop swapped for a transport that
+prints.
 
 **C++ tracing:**
 

@@ -8,7 +8,9 @@ depend on them.
 
 ## Quickstart
 
-Three commands take you from a clean checkout to a trace on screen:
+Three commands take you from a clean checkout to a trace in Grafana. (No
+Docker or Podman? [`console_trace/`](console_trace/) prints its spans to the
+terminal and needs nothing running.)
 
 ```bash
 # 1. Start the collector + Tempo + Grafana stack (docker or podman, either).
@@ -51,6 +53,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | Example | What it shows | Status |
 |---|---|---|
 | [`basic_trace/`](basic_trace/) | The smallest end-to-end flow: build a provider, emit one request trace, flush, read exporter health, shut down. | Available |
+| [`console_trace/`](console_trace/) | No collector needed. The same request trace, exported through an example-local `ExportTransport` that prints the spans to stdout. | Available |
 | [`sugar_tour/`](sugar_tour/) | The `microtel::sugar` convenience layer (`MICROTEL_TRACE_FUNCTION`, `mt::Span`, `mt::Traced`, `mt::RecordException`, `mt::AttrKey`) in one order pipeline. | Available |
 | [`context_propagation/`](context_propagation/) | `StartAsCurrentSpan` and the thread-local context slot: implicit parenting with no arguments passed, and what does *not* cross a thread boundary. | Available |
 | [`distributed_handoff/`](distributed_handoff/) | Two binaries. W3C `traceparent` / `tracestate` / `baggage` inject and extract across a process boundary, joined into one trace. | Available |

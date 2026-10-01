@@ -60,17 +60,18 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/leaf_target.cmake)
 
 if(MICROTEL_LEAF_TARGET_BOARD STREQUAL "microbit")
     # 16 KiB of RAM: the nanopb runner only, with the vectors' record buffer
-    # cut from 16 KiB to what the largest vector needs.
+    # cut from 16 KiB to 4 KiB (the largest vector needs a little over 3), so
+    # the stack has room for the deepest encode (microbit.ld).
     microtel_leaf_target_runner(leaf_target_nanopb
         BACKEND nanopb LIB microtel_leaf_nanopb PLATFORM cortex-m MEASURE_STACK
         LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/microbit.ld
-        DEFINES MICROTEL_LEAF_VECTORS_RECORD_BYTES=6144)
+        DEFINES MICROTEL_LEAF_VECTORS_RECORD_BYTES=4096)
     # The control: an unaligned load that must fault, so the runner's buffers
     # at odd offsets are known to run on a core that would catch a bad access.
     microtel_leaf_target_runner(leaf_target_alignment_control
         BACKEND nanopb LIB microtel_leaf_nanopb PLATFORM cortex-m
         LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/microbit.ld
-        DEFINES MICROTEL_LEAF_VECTORS_RECORD_BYTES=6144 LEAF_TARGET_EXPECT_ALIGNMENT_FAULT=1)
+        DEFINES MICROTEL_LEAF_VECTORS_RECORD_BYTES=4096 LEAF_TARGET_EXPECT_ALIGNMENT_FAULT=1)
 elseif(MICROTEL_LEAF_TARGET_BOARD STREQUAL "mps2-an386")
     foreach(backend upb nanopb)
         set(lib microtel_leaf_${backend})

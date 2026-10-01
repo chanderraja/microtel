@@ -11,7 +11,10 @@ measured stack. This file records them for the release.
 **v1.2 figures**, measured 2026-09-26 with `ci/scripts/leaf-footprint.sh` and
 `ci/scripts/leaf-target.sh` in an `ubuntu:24.04` container using the same apt
 toolchains as CI: `arm-none-eabi-gcc` 13.2.1 (newlib-nano),
-`aarch64-linux-gnu-gcc` 13.3.0, and QEMU 8.2.2.
+`aarch64-linux-gnu-gcc` 13.3.0, and QEMU 8.2.2. The Cortex-M0+ measured
+encode figures were re-measured 2026-10-01 with the same toolchains, after the
+runner was given enough stack to measure them (see below); every other figure
+is unchanged.
 
 ## Side by side
 
@@ -23,7 +26,7 @@ graph, with the stack measured under QEMU for the probe beside it.
 
 | Target | Backend | Flash | .bss | Leaf static RAM (.data + .bss) | Caller RAM | Worst-case stack (static) | Stack measured, probe encode |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Cortex-M0+ | nanopb | **9,472** | 0 | 0 | 512 | 3,552 | 2,496 |
+| Cortex-M0+ | nanopb | **9,472** | 0 | 0 | 512 | 3,552 | 2,524 |
 | Cortex-M0+ | upb | **14,632** ¹ | 1 | 65 | 2,560 | 3,264 | — ² |
 | Cortex-M4 | nanopb | **9,298** | 0 | 0 | 512 | 3,392 | 2,092 |
 | Cortex-M4 | upb | **14,392** | 1 | 65 | 2,560 | 2,944 | 1,900 |
@@ -129,8 +132,8 @@ used under QEMU, by stack painting.
 | `span_start` | 760 | 648 | 752 | 604 | 752 | 604 | 1,040 | 788 | 1,040 | 788 |
 | `span_set_attribute` | 640 | 608 | 648 | 580 | 648 | 580 | 864 | 724 | 864 | 724 |
 | `span_end` | 528 | 552 | 512 | 516 | 512 | 516 | 672 | 660 | 672 | 660 |
-| `encode_to`, probe | 3,552 | 2,496 | 3,392 | 2,092 | 2,944 | 1,900 | 6,864 | 3,956 | 5,296 | 3,220 |
-| `encode_to`, span with an event with attributes | | 2,500 | | 2,364 | | 2,036 | | 4,564 | | 3,460 |
+| `encode_to`, probe | 3,552 | 2,524 | 3,392 | 2,092 | 2,944 | 1,900 | 6,864 | 3,956 | 5,296 | 3,220 |
+| `encode_to`, span with an event with attributes | | 2,884 | | 2,364 | | 2,036 | | 4,564 | | 3,460 |
 
 The other entry points, static: `span_start_remote` 608 (M0+, M4) and 832
 (aarch64), `span_add_event` 568 and 800, `span_set_status` 560–576 and 832,
@@ -175,6 +178,17 @@ arguments already in static memory, and finds the lowest word overwritten. It
 can under-read by the few bytes of one helper frame. Run on the probe scenario
 (`init`, `span_start`, `span_set_attribute`, `span_end`, `encode_to`,
 `encode`) and on a span with an event with attributes, the deepest nesting.
+
+A figure is only a measurement if the call left untouched paint below it. The
+runner fails if a measured call, or any of its tests, writes into the bottom
+256 bytes of the painted region: the figure would then be the region's size,
+not the call's stack, and on bare metal the stack may have run on into
+`.bss`. On the Cortex-M0 board (16 KiB of RAM) the runner keeps 11,656 bytes
+of `.bss` (output and record buffers, the golden vectors' 4 KiB record buffer
+and their long strings) and leaves 4,728 bytes of stack; its linker script
+requires at least 4,608. The v1.2 release figures for Cortex-M0+ `encode_to`
+(2,496 and 2,500) were that cap, not a measurement: the runner then had
+2,688 bytes of stack, and the encode reached the bottom of it.
 
 ## Tests on the targets
 

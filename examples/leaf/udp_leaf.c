@@ -12,11 +12,20 @@
  * touches a socket or a clock is this program's, standing in for firmware.
  *
  *   microtel_example_leaf_udp_leaf [stamped|sync|boot] [concentrator-port]
- *                                  [source-port] [payloads]
+ *                                  [source-port] [payloads] [command]
  *
  * Defaults: stamped, 9310, 9311, 5. Both ports are on 127.0.0.1. The source
  * port matters: the concentrator names each leaf by its address:port, and
  * microtel.toml configures 127.0.0.1:9311 by name.
+ *
+ * With the literal word `command` as the fifth argument, the leaf does not
+ * measure on its own schedule. It waits on its source port for a command
+ * datagram from the controller (udp_full_node with a leaf port), reads the
+ * W3C traceparent in it, and starts its sensor.read span with
+ * microtel_leaf_span_start_remote, so the span is a child of the controller's
+ * span in the controller's trace. Here the soil sensor never answers, so every
+ * commanded read is slow and ends with status ERROR. One datagram per command,
+ * no reply and no retry: a lost command is simply a read that never happens.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -25,6 +34,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,10 +56,23 @@ enum
     DATAGRAM_BYTES = 1400,
     XS_A = 13,
     XS_B = 7,
-    XS_C = 17
+    XS_C = 17,
+    /* A command is "irrigation.check traceparent=00-<32 hex>-<16 hex>-01". */
+    COMMAND_BYTES = 128,
+    COMMAND_WAIT_MS = 30000,
+    TRACE_ID_BYTES = 16,
+    SPAN_ID_BYTES = 8,
+    HEX_RADIX = 16,
+    HEX_LETTER_BASE = 10,
+    /* The simulated soil-moisture sensor: its I2C address, how long the leaf
+     * waits for it, and how often it asks. */
+    SOIL_SENSOR_ADDRESS = 0x36,
+    SOIL_SENSOR_TIMEOUT_MS = 250,
+    SOIL_SENSOR_ATTEMPTS = 3
 };
 
 #define NS_PER_SEC 1000000000LL
+#define NS_PER_MS 1000000L
 #define READ_TIME_NS 40000000L    /* the "sensor read" takes 40 ms */
 #define PAYLOAD_GAP_NS 500000000L /* half a second between payloads */
 #define BASE_TEMPERATURE_C 21.5
@@ -236,6 +259,157 @@ static microtel_leaf_status_t record_cycle(int cycle)
     return st == MICROTEL_LEAF_OK ? microtel_leaf_span_end(&g_leaf, root) : st;
 }
 
+static int hex_digit(char c)
+{
+    if (c >= '0' && c <= '9')
+    {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f')
+    {
+        return c - 'a' + HEX_LETTER_BASE;
+    }
+    return -1;
+}
+
+/* Lower-case hex, as W3C Trace Context requires, into `len` bytes. */
+static int parse_hex(const char* text, uint8_t* out, size_t len)
+{
+    size_t i;
+    for (i = 0; i < len; ++i)
+    {
+        const int hi = hex_digit(text[2u * i]);
+        const int lo = hex_digit(text[2u * i + 1u]);
+        if (hi < 0 || lo < 0)
+        {
+            return -1;
+        }
+        out[i] = (uint8_t)(hi * HEX_RADIX + lo);
+    }
+    return 0;
+}
+
+/* Finds "traceparent=00-<trace-id>-<span-id>-<flags>" in a command. The flags
+ * are not read: a leaf has no sampler, and the controller only sends
+ * commands from spans it records. microtel_leaf_span_start_remote refuses
+ * all-zero ids. */
+static int parse_traceparent(const char* command,
+                             uint8_t trace_id[TRACE_ID_BYTES],
+                             uint8_t span_id[SPAN_ID_BYTES])
+{
+    static const char kKey[] = "traceparent=00-";
+    /* Offsets after the version: the dash after the trace id, the span id,
+     * and the dash after the span id. */
+    const size_t trace_dash = (size_t)2 * TRACE_ID_BYTES;
+    const size_t span_at = trace_dash + 1u;
+    const size_t span_dash = span_at + (size_t)2 * SPAN_ID_BYTES;
+    const char* text = strstr(command, kKey);
+    if (text == NULL)
+    {
+        return -1;
+    }
+    text += sizeof(kKey) - 1u;
+    if (strlen(text) <= span_dash || text[trace_dash] != '-' || text[span_dash] != '-')
+    {
+        return -1;
+    }
+    if (parse_hex(text, trace_id, TRACE_ID_BYTES) != 0)
+    {
+        return -1;
+    }
+    return parse_hex(text + span_at, span_id, SPAN_ID_BYTES);
+}
+
+/* Waits up to COMMAND_WAIT_MS for one datagram on `fd`, as a C string. */
+static int wait_for_command(int fd, char* out, size_t out_size)
+{
+    struct pollfd pfd;
+    ssize_t n;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    if (poll(&pfd, 1, COMMAND_WAIT_MS) <= 0)
+    {
+        fprintf(stderr, "no command within %d ms\n", COMMAND_WAIT_MS);
+        return -1;
+    }
+    n = recv(fd, out, out_size - 1u, 0);
+    if (n < 0)
+    {
+        perror("recv");
+        return -1;
+    }
+    out[n] = '\0';
+    return 0;
+}
+
+/* A commanded read of the soil sensor, which does not answer. The span's
+ * parent is the controller's span, from the command's traceparent. */
+static microtel_leaf_status_t record_commanded_read(const uint8_t trace_id[TRACE_ID_BYTES],
+                                                    const uint8_t span_id[SPAN_ID_BYTES])
+{
+    static const char kRead[] = "sensor.read";
+    static const char kTimeout[] = "sensor.timeout";
+    static const char kFault[] = "soil-moisture sensor did not answer";
+    microtel_leaf_span_t read = 0;
+    const microtel_leaf_kv_t read_attrs[] = {
+        str_kv("sensor.kind", "soil-moisture"),
+        str_kv("sensor.bus", "i2c"),
+        int_kv("sensor.address", SOIL_SENSOR_ADDRESS),
+    };
+    const microtel_leaf_kv_t timeout_attrs[] = {
+        int_kv("timeout.ms", SOIL_SENSOR_TIMEOUT_MS),
+        int_kv("attempts", SOIL_SENSOR_ATTEMPTS),
+    };
+    size_t i;
+    microtel_leaf_status_t st = microtel_leaf_span_start_remote(&g_leaf,
+                                                                &read,
+                                                                kRead,
+                                                                sizeof(kRead) - 1u,
+                                                                MICROTEL_LEAF_SPAN_KIND_SERVER,
+                                                                trace_id,
+                                                                span_id);
+    for (i = 0; st == MICROTEL_LEAF_OK && i < sizeof(read_attrs) / sizeof(read_attrs[0]); ++i)
+    {
+        st = microtel_leaf_span_set_attribute(&g_leaf, read, &read_attrs[i]);
+    }
+    sleep_ns((long)SOIL_SENSOR_TIMEOUT_MS * NS_PER_MS);
+    if (st == MICROTEL_LEAF_OK)
+    {
+        st = microtel_leaf_span_add_event(&g_leaf,
+                                          read,
+                                          kTimeout,
+                                          sizeof(kTimeout) - 1u,
+                                          timeout_attrs,
+                                          sizeof(timeout_attrs) / sizeof(timeout_attrs[0]));
+    }
+    if (st == MICROTEL_LEAF_OK)
+    {
+        st = microtel_leaf_span_set_status(
+            &g_leaf, read, MICROTEL_LEAF_STATUS_ERROR, kFault, sizeof(kFault) - 1u);
+    }
+    return st == MICROTEL_LEAF_OK ? microtel_leaf_span_end(&g_leaf, read) : st;
+}
+
+/* Waits for a command and records the read it asks for. */
+static microtel_leaf_status_t serve_command(int fd, int cycle)
+{
+    char command[COMMAND_BYTES];
+    uint8_t trace_id[TRACE_ID_BYTES];
+    uint8_t span_id[SPAN_ID_BYTES];
+    if (wait_for_command(fd, command, sizeof(command)) != 0)
+    {
+        return MICROTEL_LEAF_ERR_STATE;
+    }
+    printf("command %d: \"%s\"\n", cycle, command);
+    if (parse_traceparent(command, trace_id, span_id) != 0)
+    {
+        fprintf(stderr, "command %d: no valid traceparent\n", cycle);
+        return MICROTEL_LEAF_ERR_ARG;
+    }
+    return record_commanded_read(trace_id, span_id);
+}
+
 static int open_socket(int source_port)
 {
     struct sockaddr_in local;
@@ -258,11 +432,14 @@ static int open_socket(int source_port)
     return fd;
 }
 
-static int send_payloads(int fd, int concentrator_port, int payloads)
+/* `commands`: wait for a command before each payload instead of measuring on
+ * the leaf's own schedule. */
+static int send_payloads(int fd, int concentrator_port, int payloads, int commands)
 {
     uint8_t datagram[DATAGRAM_BYTES];
     struct sockaddr_in to;
     int cycle;
+    const int spans = commands ? 1 : 2;
 
     memset(&to, 0, sizeof(to));
     to.sin_family = AF_INET;
@@ -272,7 +449,7 @@ static int send_payloads(int fd, int concentrator_port, int payloads)
     for (cycle = 1; cycle <= payloads; ++cycle)
     {
         size_t written = 0;
-        microtel_leaf_status_t st = record_cycle(cycle);
+        microtel_leaf_status_t st = commands ? serve_command(fd, cycle) : record_cycle(cycle);
         if (st == MICROTEL_LEAF_OK)
         {
             st = microtel_leaf_encode(&g_leaf, datagram, sizeof(datagram), &written);
@@ -287,9 +464,16 @@ static int send_payloads(int fd, int concentrator_port, int payloads)
             perror("sendto");
             return -1;
         }
-        printf(
-            "payload %d: %zu bytes, 2 spans -> 127.0.0.1:%d\n", cycle, written, concentrator_port);
-        sleep_ns(PAYLOAD_GAP_NS);
+        printf("payload %d: %zu bytes, %d span%s -> 127.0.0.1:%d\n",
+               cycle,
+               written,
+               spans,
+               spans == 1 ? "" : "s",
+               concentrator_port);
+        if (!commands)
+        {
+            sleep_ns(PAYLOAD_GAP_NS);
+        }
     }
     return 0;
 }
@@ -306,14 +490,16 @@ int main(int argc, char** argv)
     const int concentrator_port = parse_port(argc > 2 ? argv[2] : NULL, DEFAULT_CONCENTRATOR_PORT);
     const int source_port = parse_port(argc > 3 ? argv[3] : NULL, DEFAULT_SOURCE_PORT);
     const int payloads = argc > 4 ? atoi(argv[4]) : DEFAULT_PAYLOADS;
+    const int commands = argc > 5 && strcmp(argv[5], "command") == 0;
     int fd;
     int rc;
 
     if ((argc > 1 && parse_mode(argv[1], &mode) != 0) || concentrator_port < 0 || source_port < 0 ||
-        payloads < 1)
+        payloads < 1 || (argc > 5 && !commands))
     {
         fprintf(stderr,
-                "usage: %s [stamped|sync|boot] [concentrator-port] [source-port] [payloads]\n",
+                "usage: %s [stamped|sync|boot] [concentrator-port] [source-port] [payloads] "
+                "[command]\n",
                 argv[0]);
         return 2;
     }
@@ -335,7 +521,11 @@ int main(int argc, char** argv)
            (unsigned)(microtel_leaf_version() >> 16u),
            (unsigned)((microtel_leaf_version() >> 8u) & 0xffu),
            (unsigned)(microtel_leaf_version() & 0xffu));
-    rc = send_payloads(fd, concentrator_port, payloads);
+    if (commands)
+    {
+        printf("waiting for commands on 127.0.0.1:%d\n", source_port);
+    }
+    rc = send_payloads(fd, concentrator_port, payloads, commands);
     close(fd);
     microtel_leaf_free(&g_leaf);
     return rc == 0 ? 0 : 3;

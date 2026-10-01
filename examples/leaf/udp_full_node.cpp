@@ -11,13 +11,20 @@
 // concentrator's microtel.toml names with time_mode = "unix".
 //
 //   microtel_example_leaf_full_node [concentrator-port] [source-port] [cycles]
+//                                   [leaf-port]
 //
 //   concentrator-port  UDP port on 127.0.0.1; default 9310
 //   source-port        this node's UDP port, its id at the concentrator;
 //                      default 9313
 //   cycles             greenhouse cycles to trace; default 5
+//   leaf-port          if given, the node plays the greenhouse controller:
+//                      each cycle sends one command datagram to the leaf on
+//                      127.0.0.1:leaf-port carrying the W3C traceparent of
+//                      its irrigation.check span, so the leaf's sensor.read
+//                      joins the same trace. No reply, no retry.
 
 #include "microtel/export_transport.hpp"
+#include "microtel/propagator.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
@@ -35,6 +42,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -239,6 +247,66 @@ void TraceCycle(microtel::Tracer& tracer, const int cycle)
     root->End();
 }
 
+/// The command to the leaf: its name, then the W3C traceparent of the span
+/// that sends it: "irrigation.check traceparent=00-<trace-id>-<span-id>-01".
+std::string CommandFor(const microtel::SpanContext& context)
+{
+    std::string command{"irrigation.check"};
+    microtel::W3CTraceContextPropagator{}.Inject(
+        context,
+        [&command](const std::string_view header, const std::string_view value)
+        {
+            if (header == "traceparent")
+            {
+                command.append(" traceparent=").append(value);
+            }
+        });
+    return command;
+}
+
+/// One controller cycle: greenhouse.control, and an irrigation.check child
+/// that asks the leaf for a soil reading. The leaf starts its sensor.read
+/// under irrigation.check, so the trace spans both devices. The command is one
+/// datagram and nothing comes back: irrigation.check ends once it is sent, and
+/// the leaf's span may well outlast it.
+void TraceCommandCycle(microtel::Tracer& tracer, const Fd& command_link, const int cycle)
+{
+    auto root = tracer.StartSpan("greenhouse.control");
+    root->SetAttribute("greenhouse.cycle", static_cast<std::int64_t>(cycle));
+    microtel::StartSpanOptions child;
+    child.kind = microtel::SpanKind::Client;
+    child.parent = root->GetContext();
+    auto check = tracer.StartSpan("irrigation.check", child);
+    check->SetAttribute("greenhouse.zone", std::string{"north"});
+    const std::string command = CommandFor(check->GetContext());
+    if (::send(command_link.Get(), command.data(), command.size(), 0) < 0)
+    {
+        check->SetStatus(microtel::StatusCode::Error, std::strerror(errno));
+    }
+    check->End();
+    root->End();
+    std::cout << "cycle " << cycle << ": 2 spans, sent \"" << command << "\"\n";
+}
+
+/// Traces `cycles` cycles: plain ones, or, given a command link to a leaf,
+/// controller cycles that each send it a command.
+void RunCycles(microtel::Tracer& tracer, const Fd& command_link, const int cycles)
+{
+    for (int cycle = 1; cycle <= cycles; ++cycle)
+    {
+        if (command_link.Get() >= 0)
+        {
+            TraceCommandCycle(tracer, command_link, cycle);
+        }
+        else
+        {
+            TraceCycle(tracer, cycle);
+            std::cout << "cycle " << cycle << ": 2 spans\n";
+        }
+        std::this_thread::sleep_for(kCycleGap);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -248,11 +316,20 @@ int main(int argc, char** argv)
     const auto source =
         static_cast<std::uint16_t>(argc > 2 ? std::atoi(argv[2]) : kDefaultSourcePort);
     const int cycles = argc > 3 ? std::atoi(argv[3]) : kDefaultCycles;
+    const auto leaf_port = static_cast<std::uint16_t>(argc > 4 ? std::atoi(argv[4]) : 0);
 
     Fd link = OpenLink(source, dest);
     if (link.Get() < 0)
     {
         std::cerr << "cannot open UDP 127.0.0.1:" << source << " -> 127.0.0.1:" << dest << '\n';
+        return 1;
+    }
+    // Commands leave from an ephemeral port: only the export link's source
+    // port names this node at the concentrator.
+    const Fd command_link = leaf_port != 0 ? OpenLink(0, leaf_port) : Fd{-1};
+    if (leaf_port != 0 && command_link.Get() < 0)
+    {
+        std::cerr << "cannot open UDP to the leaf on 127.0.0.1:" << leaf_port << '\n';
         return 1;
     }
 
@@ -274,14 +351,13 @@ int main(int argc, char** argv)
     const std::shared_ptr<microtel::Provider> provider = std::move(*built);
     std::cout << "full node 127.0.0.1:" << source << " -> 127.0.0.1:" << dest
               << " (OTLP over UDP)\n";
+    if (leaf_port != 0)
+    {
+        std::cout << "commands -> leaf 127.0.0.1:" << leaf_port << " (one datagram each)\n";
+    }
 
     const auto tracer = provider->GetTracer("greenhouse.controller", "1.0.0");
-    for (int cycle = 1; cycle <= cycles; ++cycle)
-    {
-        TraceCycle(*tracer, cycle);
-        std::cout << "cycle " << cycle << ": 2 spans\n";
-        std::this_thread::sleep_for(kCycleGap);
-    }
+    RunCycles(*tracer, command_link, cycles);
 
     const microtel::Status flush = provider->ForceFlush(kFlushTimeout);
     const microtel::HealthSnapshot health = provider->GetExporterHealth();

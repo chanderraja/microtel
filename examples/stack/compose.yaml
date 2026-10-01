@@ -40,6 +40,7 @@ services:
     ports:
       - "4317:4317"    # OTLP/gRPC  — the examples' default endpoint
       - "4318:4318"    # OTLP/HTTP  — TLS only, from microtel
+      - "4319:4319"    # OTLP/gRPC, unbatched — examples/leaf's fan-in check
       - "13133:13133"  # health_check extension, polled by up.sh
     depends_on:
       - tempo

@@ -27,6 +27,18 @@ receivers:
       http:
         endpoint: "0.0.0.0:4318"
 
+  # For examples/leaf's fan-in check (examples/leaf/fan-in-check.sh), and
+  # nothing else. It feeds the traces/requests pipeline below, which has no
+  # batch processor, so debug/requests logs each export request exactly as it
+  # arrived: one entry per request, with every ResourceSpans in it. The batch
+  # processor of the main pipeline merges requests, so its log cannot show how
+  # many requests an exporter sent. Examples that export to 4317 never reach
+  # this pipeline.
+  otlp/requests:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4319"
+
 processors:
   # One second, not the 200ms default send delay, so an example that emits a
   # handful of spans and exits still has them batched and forwarded before a
@@ -48,6 +60,10 @@ exporters:
   debug:
     verbosity: normal
 
+  # Every Resource attribute of every request on otlp/requests.
+  debug/requests:
+    verbosity: detailed
+
 service:
   extensions: [health_check]
   pipelines:
@@ -55,3 +71,8 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp/tempo, debug]
+    # No processors: one request in is one debug/requests entry out. The
+    # spans still go on to Tempo.
+    traces/requests:
+      receivers: [otlp/requests]
+      exporters: [otlp/tempo, debug/requests]

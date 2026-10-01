@@ -57,9 +57,11 @@ microtel_example_leaf_concentrator [endpoint] [listen-port] [config]
   [listen-port]  UDP port on 127.0.0.1, default 9310
   [config]       TOML with the [concentrator] table, default microtel.toml here
 
-microtel_example_leaf_udp_leaf [stamped|sync|boot] [concentrator-port] [source-port] [payloads]
+microtel_example_leaf_udp_leaf [stamped|sync|boot] [concentrator-port] [source-port] [payloads] [command]
 
   defaults: stamped 9310 9311 5
+  command:  wait for a controller's command before each payload; see
+            "A fault, traced across devices" below
 ```
 
 The concentrator waits up to a minute for the first datagram, and exits once
@@ -106,9 +108,16 @@ Shutdown: Completed
 
 Each line of the concentrator's output is one `Ingest` call and its
 `IngestResult`. The two leaves' payloads interleave, and the Provider's batch
-processor collects them regardless of which leaf they came from. Sixteen spans
-from two devices left in two batches, because the leaves took longer than the
-Provider's five-second schedule delay to send everything.
+processor collects them regardless of which leaf they came from.
+
+`batches_sent=2` is not two export requests. The concentrator keeps one batch
+per device and joins a drain's batches into one request, but counts each
+batch it sends (design §3.6.1), so the 2 is one batch per leaf. The counter
+can't say how many requests reached the collector, and neither can the
+collector's normal pipeline, whose batch processor merges requests. Sent to the
+collector's unbatched receiver instead, the same run shows all sixteen spans
+from both devices arriving in a single request; see
+[One request, many devices](#one-request-many-devices).
 
 A payload is about 460 bytes for two spans with four attributes and an event
 between them. The boot-relative leaf's payloads are 33 bytes bigger, since
@@ -326,9 +335,11 @@ concentrator, then a leaf and the node:
 ```
 
 ```
-microtel_example_leaf_full_node [concentrator-port] [source-port] [cycles]
+microtel_example_leaf_full_node [concentrator-port] [source-port] [cycles] [leaf-port]
 
-  defaults: 9310 9313 5
+  defaults: 9310 9313 5, and no leaf-port
+  leaf-port: send each cycle's command to the leaf on this port; see
+             "A fault, traced across devices" below
 ```
 
 ### What it prints
@@ -446,11 +457,212 @@ the concentrator's limit and the node's is refused as `TooLarge` there, counted
 concentrator's. A single batch bigger than the cap is still sent whole, with a
 warning. `BatchOptions::max_export_batch_size` is the knob for that case.
 
+## A fault, traced across devices
+
+So far every leaf payload is a trace of its own. The point of tracing a
+greenhouse is to follow one decision across the devices it touches, so here
+the full node plays the controller and drives the leaf:
+
+1. The controller starts `greenhouse.control` and a child,
+   `irrigation.check`, and sends the leaf one command datagram carrying that
+   child's W3C `traceparent`.
+2. The leaf parses the trace id and span id out of it and starts its
+   `sensor.read` with `microtel_leaf_span_start_remote`, so the span is a
+   child of `irrigation.check`. Its soil sensor never answers: the read takes
+   250 ms, records a `sensor.timeout` event, and ends with status `ERROR`.
+3. The leaf encodes and sends the payload to the concentrator as before. The
+   concentrator gives it its Resource and corrects its clock. Nothing about
+   the concentrator changes.
+
+The command is one UDP datagram with no reply, no acknowledgement and no
+retry. A lost command is a read that never happens, and `irrigation.check`
+ends as soon as the datagram is sent, so the leaf's span outlasts its parent.
+The leaf's id and timestamps still come from the concentrator, exactly as for
+any other payload; only the trace id and parent span id come from the
+controller.
+
+### Run it
+
+Start the leaf in command mode before the controller, so it is listening on
+port 9311 when the first command arrives. A second, ordinary leaf on 9312 is
+there to show fan-in. The concentrator exports to the collector's unbatched
+receiver on 4319 (see [One request, many devices](#one-request-many-devices));
+4317 works just as well for the trace.
+
+```bash
+# terminal 1
+./build/examples/microtel_example_leaf_concentrator http://localhost:4319
+```
+```bash
+# terminal 2
+./build/examples/microtel_example_leaf_udp_leaf stamped 9310 9311 3 command &
+./build/examples/microtel_example_leaf_udp_leaf boot 9310 9312 3 &
+sleep 1
+./build/examples/microtel_example_leaf_full_node 9310 9313 3 9311
+```
+
+### What they print
+
+```
+$ ./build/examples/microtel_example_leaf_full_node 9310 9313 3 9311
+full node 127.0.0.1:9313 -> 127.0.0.1:9310 (OTLP over UDP)
+commands -> leaf 127.0.0.1:9311 (one datagram each)
+cycle 1: 2 spans, sent "irrigation.check traceparent=00-807175be716d2ef6fcc3286b303fff10-71461118183f8b6e-01"
+cycle 2: 2 spans, sent "irrigation.check traceparent=00-a8c5f38fc73f15700f5304376150b34d-c2c55f18a26bd3da-01"
+cycle 3: 2 spans, sent "irrigation.check traceparent=00-962434dd976e5dc3cf065c9474ee1828-8caddf3cd3e69020-01"
+ForceFlush: Completed
+batches_sent=1 batches_failed=0
+Shutdown: Completed
+```
+
+```
+$ ./build/examples/microtel_example_leaf_udp_leaf stamped 9310 9311 3 command
+leaf 127.0.0.1:9311, time mode stamped, leaf library 1.2.0
+waiting for commands on 127.0.0.1:9311
+command 1: "irrigation.check traceparent=00-807175be716d2ef6fcc3286b303fff10-71461118183f8b6e-01"
+payload 1: 446 bytes, 1 span -> 127.0.0.1:9310
+command 2: "irrigation.check traceparent=00-a8c5f38fc73f15700f5304376150b34d-c2c55f18a26bd3da-01"
+payload 2: 446 bytes, 1 span -> 127.0.0.1:9310
+command 3: "irrigation.check traceparent=00-962434dd976e5dc3cf065c9474ee1828-8caddf3cd3e69020-01"
+payload 3: 446 bytes, 1 span -> 127.0.0.1:9310
+```
+
+```
+$ ./build/examples/microtel_example_leaf_concentrator http://localhost:4319
+concentrator: UDP 127.0.0.1:9310 -> http://localhost:4319 (OTLP/gRPC)
+config: /path/to/microtel/examples/leaf/microtel.toml
+127.0.0.1:9312  490 bytes  Accepted  spans_accepted=2
+127.0.0.1:9311  446 bytes  Accepted  spans_accepted=1
+127.0.0.1:9312  490 bytes  Accepted  spans_accepted=2
+127.0.0.1:9311  446 bytes  Accepted  spans_accepted=1
+127.0.0.1:9313  681 bytes  Accepted  spans_accepted=6
+127.0.0.1:9311  446 bytes  Accepted  spans_accepted=1
+127.0.0.1:9312  490 bytes  Accepted  spans_accepted=2
+payloads_accepted=7 payloads_rejected=0 leaves_tracked=3 time_fallbacks=0
+ForceFlush: Completed
+batches_sent=3 batches_failed=0
+Shutdown: Completed
+```
+
+### What Tempo shows
+
+Search for the failed reads, and each one comes back as part of a trace whose
+root is the controller's:
+
+```bash
+$ curl -s -G http://localhost:3200/api/search \
+    --data-urlencode 'q={ resource.service.name = "greenhouse-north" && name = "sensor.read" && status = error }' \
+    --data-urlencode "start=$(( $(date +%s) - 3600 ))" --data-urlencode "end=$(date +%s)" | \
+    jq -r '.traces[] | "\(.traceID)  \(.rootServiceName)  \(.rootTraceName)"'
+962434dd976e5dc3cf065c9474ee1828  greenhouse-controller  greenhouse.control
+a8c5f38fc73f15700f5304376150b34d  greenhouse-controller  greenhouse.control
+807175be716d2ef6fcc3286b303fff10  greenhouse-controller  greenhouse.control
+```
+
+`start` and `end` make Tempo search its stored blocks as well; without them
+this stack's Tempo searches only about the last 30 seconds.
+
+One of those traces, span by span, with each span's parent and the Resource it
+came with:
+
+```bash
+$ curl -s http://localhost:3200/api/traces/807175be716d2ef6fcc3286b303fff10 | jq -r '
+    [.batches[] | (.resource.attributes | map({(.key): .value.stringValue}) | add) as $r
+     | .scopeSpans[].spans[] | . + {svc: $r["service.name"], dev: $r["device.id"]}]
+    | (map({(.spanId): .name}) | add) as $names
+    | sort_by(.startTimeUnixNano | tonumber) | .[]
+    | "\(.name)  parent=\($names[.parentSpanId // ""] // "-")  \(.svc)  \(.dev)  \(((.endTimeUnixNano | tonumber) - (.startTimeUnixNano | tonumber)) / 1e6 | floor) ms  \(.status.code // "")"'
+greenhouse.control  parent=-  greenhouse-controller  127.0.0.1:9313  0 ms
+irrigation.check  parent=greenhouse.control  greenhouse-controller  127.0.0.1:9313  0 ms
+sensor.read  parent=irrigation.check  greenhouse-north  127.0.0.1:9311  250 ms  STATUS_CODE_ERROR
+```
+
+One trace, two devices, two `service.name`s, two `device.id`s, and the fault
+where it happened:
+
+```bash
+$ curl -s http://localhost:3200/api/traces/807175be716d2ef6fcc3286b303fff10 | jq -c '
+    .batches[].scopeSpans[].spans[] | select(.name == "sensor.read") | {status, events: [.events[] |
+    {name, attributes: (.attributes | map({(.key): (.value | to_entries[0].value)}) | add)}]}'
+{"status":{"message":"soil-moisture sensor did not answer","code":"STATUS_CODE_ERROR"},"events":[{"name":"sensor.timeout","attributes":{"timeout.ms":"250","attempts":"3"}}]}
+```
+
+Grafana's Tempo datasource serves the same trace, so pasting one of the ids
+into Explore shows the leaf's `sensor.read` under the controller's
+`irrigation.check`, marked as an error.
+
+### How the context crosses
+
+The controller formats its span's context with the C++ API's own propagator,
+the same one an HTTP service would use for a header:
+
+```cpp
+microtel::W3CTraceContextPropagator{}.Inject(check->GetContext(),
+    [&command](std::string_view header, std::string_view value)
+    {
+        if (header == "traceparent") { command.append(" traceparent=").append(value); }
+    });
+```
+
+The leaf has no propagator, so `udp_leaf.c` parses the 55-character
+`traceparent` itself: 32 hex digits of trace id and 16 of span id, which go
+straight into `microtel_leaf_span_start_remote`. It ignores the sampled flag,
+since the leaf has no sampler and the controller only sends commands from
+spans it records. A device could just as well take the 24 raw bytes in a
+binary frame; the text form is self-describing, and easy to read off a packet
+capture.
+
+## One request, many devices
+
+The concentrator joins every device's batch from one drain into a single
+export request with one `ResourceSpans` per device (design §3.6.1), but none of
+its counters show that: `batches_sent` counts batches, one per device, not
+requests. The collector's normal pipeline can't show it either, because its
+batch processor merges requests before anything is stored or logged.
+
+So the stack's collector has a second OTLP/gRPC receiver for this, on port
+4319. Its pipeline has no batch processor and logs each request in full with a
+`debug` exporter at `detailed` verbosity, then forwards it to Tempo like the
+main pipeline. Examples that export to 4317 never touch it.
+[`fan-in-check.sh`](fan-in-check.sh) reads that log and prints one line per
+request with the devices in it. After the run above:
+
+```
+$ examples/leaf/fan-in-check.sh
+request 1: 3 ResourceSpans, 15 spans
+  device.id=127.0.0.1:9312  service.name=greenhouse-sensor
+  device.id=127.0.0.1:9311  service.name=greenhouse-north
+  device.id=127.0.0.1:9313  service.name=greenhouse-controller
+fan-in: 1 of 1 requests carried more than one device (most: 3)
+```
+
+Fifteen spans from three devices in one request, although the concentrator
+reported `batches_sent=3`. The two-leaf run at the top of this page, sent to
+4319, does the same with its sixteen spans:
+
+```
+request 1: 2 ResourceSpans, 16 spans
+  device.id=127.0.0.1:9311  service.name=greenhouse-north
+  device.id=127.0.0.1:9312  service.name=greenhouse-sensor
+fan-in: 1 of 1 requests carried more than one device (most: 2)
+```
+
+The script lists every request on 4319 since the stack started, exits 0 if
+any of them carried more than one device and 1 if none did, and reads a saved
+collector log from stdin with `-`. How many requests a run takes depends on
+timing: a drain takes the spans every device has sent by then, and anything
+that arrives after it waits for the next one. The conformance test
+(`tests/conformance/leaf/leaf_e2e_test.cpp`) asserts the same property with
+its own unbatched receiver and a file exporter.
+
 ## Exit codes
 
 The concentrator returns `0` on success, `1` if `Build()` fails or the port
 can't be bound, and `2` if `ForceFlush` did not complete. The leaf returns `0`
 on success, `1` if the leaf or its socket can't be set up, `2` for bad
-arguments, and `3` if an encode or a send failed. The full node returns `0`
-on success, `1` if its socket can't be set up or `Build()` fails, and `2` if
-`ForceFlush` did not complete or a batch failed.
+arguments, and `3` if an encode or a send failed or, in command mode, if no
+valid command arrived within 30 seconds. The full node returns `0` on success,
+`1` if one of its sockets can't be set up or `Build()` fails, and `2` if
+`ForceFlush` did not complete or a batch failed. A command it can't send marks
+that cycle's `irrigation.check` as an error and does not change the exit
+code.

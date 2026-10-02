@@ -52,7 +52,7 @@ from `CLAUDE.md`, `CMakeLists.txt`, `ci/header_check.cpp` and the headers.
 | [0034](0034-leaf-receiver-api.md) | `Provider::GetLeafReceiver`, the `LeafReceiver` API, and three leaf `DropReason`s | Accepted | — (v1.2 leaf receiver packet) |
 | [0035](0035-leaf-post-shutdown-counter.md) | Leaf payloads after `Shutdown` counted in `LeafReceiverStats::payloads_post_shutdown`, not `post_shutdown` | Accepted | #354 |
 | [0036](0036-custom-export-transport.md) | `SdkBuilder::WithExportTransport` for full-SDK nodes; `LeafTimeMode::Unix` for undeclared concentrator payloads | Accepted | #357, #358 |
-| [0037](0037-retire-the-v1-spec.md) | Retire `microtel-spec.md` as the source of truth; move the compatibility tiers, ABI policy and performance targets to live docs | Draft | — |
+| [0037](0037-retire-the-v1-spec.md) | Retire `microtel-spec.md`: move the tiers, ABI policy and performance targets to live docs, rewrite references outside the ICPs, delete it (archived at `v1.2.1`) | Draft | — |
 
 [ICP 0024](0024-v1.1-rescope.md) reserved number 0027 for an amendment to
 `docs/control-plane-design.md` §9 (the fourth thread role). That amendment is

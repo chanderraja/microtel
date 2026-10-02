@@ -81,13 +81,6 @@
 /packaging/                             @chanderraja
 
 # ----------------------------------------------------------------------
-# Python bindings
-# ----------------------------------------------------------------------
-
-/python/                                @chanderraja
-/python/bindings/                       @chanderraja
-
-# ----------------------------------------------------------------------
 # Vendored third-party code — changes require explicit attention
 # ----------------------------------------------------------------------
 
@@ -105,11 +98,11 @@
 /tests/fuzz/                            @chanderraja
 
 # ----------------------------------------------------------------------
-# Compatibility shims — separate experimental packages
+# Adapters — the opentelemetry-cpp shim and the logging bridges
 # ----------------------------------------------------------------------
 
-/shims/otelcpp/                         @chanderraja
-/shims/python/                          @chanderraja
+/src/adapters/                          @chanderraja
+/src/adapters/otelcpp/                  @chanderraja
 
 # ----------------------------------------------------------------------
 # Project-level metadata

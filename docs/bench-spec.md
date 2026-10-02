@@ -345,3 +345,91 @@ run; it does not block PR merges.
 - [bloaty](https://github.com/google/bloaty) — for binary size analysis
 - [Brendan Gregg, "Systems Performance" Ch. 12](https://www.brendangregg.com/sysperfbook.html) — methodology references
 - [OpenTelemetry Collector](https://github.com/open-telemetry/opentelemetry-collector) — pinned for collector-mode sink
+
+---
+
+## 14. Performance Targets
+
+The targets the harness exists to check. Measured against `opentelemetry-cpp` with both its OTLP/gRPC and OTLP/HTTP exporters on identical workloads, same hardware, OTel collector pinned to the same version. Workload: traces only, 100k spans/sec sustained, 200-byte average span, 5 attributes per span. Full methodology in §1–§7 of this document.
+
+§14.1–§14.4 name the metrics the targets are stated in; §5 is the table of what a run records, and §14.6 maps one onto the other rather than restating it.
+
+### 14.1 Hot-path metrics
+
+For trace SDKs, sampler behavior dominates production cost — most spans in production are unsampled and the unsampled path must be near-zero overhead. Benchmarks cover both:
+
+- p50 / p95 / p99 nanoseconds for span creation, **sampled** and **unsampled**
+- p50 / p95 / p99 for parent-sampled vs parent-not-sampled paths
+- attributes added before the sampling decision vs after
+- allocations per span on caller thread (sampled and unsampled)
+- bytes allocated per span on caller thread
+- caller-thread CPU cycles per span
+- queue push contention under 1, 4, 16 application threads
+
+### 14.2 Exporter metrics
+
+- batches/sec sustained
+- spans/sec sustained
+- encoder CPU
+- transport CPU
+- queue depth under collector outage
+- spans dropped under sustained outage
+- reconnect behavior under `GOAWAY` and `RST_STREAM`
+
+### 14.3 Footprint metrics
+
+- stripped shared object size
+- package install size
+- loaded RSS after init
+- RSS under steady export
+- transitive dynamic dependencies via `lddtree`
+
+### 14.4 Cold-start metric
+
+Defined precisely: time from SDK initialization start to successful receipt of the first export response from a local collector, with DNS disabled, collector warmed, TLS mode specified, and batch delay forced to zero.
+
+### 14.5 Footprint targets (v1, stretch)
+
+Component-separated to keep claims defensible:
+
+| Component | Target (stretch, pending prototype) |
+|---|---|
+| `libmicrotel-exporter.so` (stripped) | < 800 KB |
+| `libmicrotel-sdk.so` (stripped, full v1 surface) | < 1.5 MB |
+| Total transitive dynamic closure | < 3 MB |
+| Python extension | measured separately |
+| Control-plane component | excluded from core size target (deferred to v1.4) |
+
+Benchmarks report both **dynamic-link** and **mostly-static** configurations. Dependency closure is measured with `lddtree` for dynamic and package artifact size for static. Realistic floors were to be set after M0 and M2; none has been set, so the table above is stretch.
+
+| Metric | vs otel-cpp+gRPC | vs otel-cpp+HTTP |
+|---|---|---|
+| Caller-thread CPU per span | ≥ 30% lower | ≥ 15% lower |
+| RSS, steady state | ≥ 50% lower | ≥ 25% lower |
+| Wire bytes per span (gzip on) | within ±5% | within ±5% |
+| Wire bytes per span (gzip off) | within ±2% | within ±2% |
+| Library binary size (stripped, dyn) | ≥ 70% smaller | ≥ 50% smaller |
+| Cold-start to first export | ≥ 40% faster | ≥ 20% faster |
+
+The component table assumes shared libraries. microtel ships static archives
+only (`libmicrotel_*.a`), so the per-library rows have no artifact to measure
+as named; [`microtel-roadmap.md`](../microtel-roadmap.md) §6 carries that
+status and the footprint trajectory across releases.
+
+### 14.6 Where §5 records each target metric
+
+| Target metric | Recorded by |
+|---|---|
+| Span creation p50/p95/p99 (§14.1) | §5 "StartSpan overhead". The §4 profiles do not set a sampler, so the sampled / unsampled and parent-sampled splits have no row |
+| Attributes before vs after sampling, allocations and bytes per span (§14.1) | no §5 row |
+| Caller-thread CPU per span (§14.1, §14.5) | §5 "Caller-thread CPU time on emit" (CPU time, not cycles) |
+| Queue push contention, 1 / 4 / 16 threads (§14.1) | `hot-loop-traces` (§4.1) runs at 1, 4 and 16 threads; contention itself has no row |
+| Spans/sec (§14.2) | §5 "Throughput (sink-observed)" |
+| Batches/sec, transport CPU, queue depth under outage, reconnect behaviour (§14.2) | no §5 row |
+| Encoder CPU (§14.2) | §5 "Encoding cost per batch" |
+| Spans dropped under outage (§14.2) | §5 drop counters; `bursty` (§4.4) overflows the queue but is not an outage |
+| Stripped size, dependency closure (§14.3, §14.5) | §5 "Binary size (stripped)" and "Dep closure size"; `binary-size` (§4.6) |
+| Package install size, RSS after init (§14.3) | no §5 row |
+| RSS under steady export (§14.3, §14.5) | §5 "Steady-state RSS (median)" |
+| Wire bytes per span (§14.5) | §5 "Wire bytes per signal", gzip on/off |
+| Cold start (§14.4, §14.5) | §5 "Cold-start to first export"; `cold-start` (§4.3) measures process start to first byte at the sink, which is looser than the §14.4 definition |

@@ -265,6 +265,22 @@ not self-index.
 
 ---
 
+## 7. Versioning, compatibility and release cadence
+
+The policy the steps above carry out.
+
+- **Release cadence:** monthly pre-1.0; quarterly stable after 1.0.
+- **Compatibility policy:** semantic versioning; the public C++ API is stable within a major version. Wire compatibility is tracked against a pinned OTel spec version, with changes called out per release.
+- **ABI policy:** No stable C++ ABI guarantee before 1.0. After 1.0, public headers follow semver source compatibility. Binary ABI compatibility is best-effort within a minor release, **not** guaranteed across minor releases unless explicitly stated. Users requiring strict binary compatibility should pin to a specific minor version.
+
+The package-config `SameMajorVersion` mode in §2 is the source-compatibility
+promise expressed to CMake. Which releases receive fixes is
+[`SECURITY.md`](SECURITY.md)'s supported-versions matrix (§3), and the
+long-term-support window for a major line is in
+[`microtel-roadmap.md`](microtel-roadmap.md) §2.
+
+---
+
 ## Checklist
 
 ```

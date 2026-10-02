@@ -505,6 +505,81 @@ TEST(OverlayEnvTest, OtelHeaders_ParsesKeyValuePairs)
     EXPECT_EQ(std::get<std::string>(cfg.headers[0].value), "Bearer tok");
 }
 
+// Issue #413: the OTel key=value env format is W3C Baggage without metadata,
+// so whitespace around keys and values is optional and values are
+// percent-encoded.
+TEST(OverlayEnvTest, OtelHeaders_TrimsWhitespaceAroundKeysAndValues)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", " x-a = 1 ,\tx-b=2\t, x-c=3");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(cfg.headers.size(), 3U);
+    EXPECT_EQ(cfg.headers.at(0).key, "x-a");
+    EXPECT_EQ(std::get<std::string>(cfg.headers.at(0).value), "1");
+    EXPECT_EQ(cfg.headers.at(1).key, "x-b");
+    EXPECT_EQ(std::get<std::string>(cfg.headers.at(1).value), "2");
+    EXPECT_EQ(cfg.headers.at(2).key, "x-c");
+}
+
+TEST(OverlayEnvTest, OtelHeaders_PercentDecodesValues)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer%20tok,x-v=a%2Cb%3dc,x-w=%20x%20");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(cfg.headers.size(), 3U);
+    EXPECT_EQ(std::get<std::string>(cfg.headers.at(0).value), "Bearer tok");
+    EXPECT_EQ(std::get<std::string>(cfg.headers.at(1).value), "a,b=c");
+    // Encoded whitespace is the user's, so trimming does not touch it.
+    EXPECT_EQ(std::get<std::string>(cfg.headers.at(2).value), " x ");
+}
+
+TEST(OverlayEnvTest, OtelHeaders_KeysAreNotPercentDecoded)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "x%41=1");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(cfg.headers.size(), 1U);
+    EXPECT_EQ(cfg.headers.at(0).key, "x%41");
+}
+
+TEST(OverlayEnvTest, OtelHeaders_MalformedPercentEscape_ReturnsEnvParseFailure)
+{
+    for (const char* value : {"x-v=a%2", "x-v=%zz", "x-v=100%"})
+    {
+        const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+        SetEnv("OTEL_EXPORTER_OTLP_HEADERS", value);
+        mc::Config cfg;
+        const auto result = mc::OverlayEnv(cfg);
+        ASSERT_FALSE(result.has_value()) << value;
+        EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure) << value;
+        EXPECT_EQ(result.error().field, "OTEL_EXPORTER_OTLP_HEADERS") << value;
+        // Names the key, never the value: header values may be secrets.
+        EXPECT_NE(result.error().message.find("x-v"), std::string::npos) << value;
+        EXPECT_EQ(result.error().message.find(std::string_view{value}.substr(4)), std::string::npos)
+            << value;
+    }
+}
+
+TEST(OverlayEnvTest, OtelResourceAttributes_TrimsAndPercentDecodes)
+{
+    const EnvGuard guard{{"OTEL_RESOURCE_ATTRIBUTES"}};
+    SetEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.env = prod , team=a%20b");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(cfg.resource_attrs.size(), 2U);
+    EXPECT_EQ(cfg.resource_attrs.at(0).key, "deployment.env");
+    EXPECT_EQ(std::get<std::string>(cfg.resource_attrs.at(0).value), "prod");
+    EXPECT_EQ(cfg.resource_attrs.at(1).key, "team");
+    EXPECT_EQ(std::get<std::string>(cfg.resource_attrs.at(1).value), "a b");
+}
+
 TEST(OverlayEnvTest, OtelTimeout_SetsPeerExport)
 {
     const EnvGuard guard{{"OTEL_EXPORTER_OTLP_TIMEOUT"}};

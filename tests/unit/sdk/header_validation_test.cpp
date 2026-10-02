@@ -126,6 +126,15 @@ TEST(HeaderValidation, EnvVar_ReservedName_FailsBuild)
     ExpectRejected(result, "exporter.headers.te");
 }
 
+// Issue #413: a space after the comma is legal in the OTel env format, and
+// must not reach the name check as part of the next header's name.
+TEST(HeaderValidation, EnvVar_SpaceAfterComma_Builds)
+{
+    const HeadersEnv env{"x-a=1, x-b=2"};
+    auto result = mt::SdkBuilder().WithEndpoint(std::string{kEndpoint}).Build();
+    ExpectAccepted(result);
+}
+
 TEST(HeaderValidation, TomlTable_ReservedName_FailsBuild)
 {
     const TomlFile file{R"("connection" = "close")"};

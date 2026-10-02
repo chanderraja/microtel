@@ -56,11 +56,11 @@ Sent on stream open. Required pseudo-headers and headers:
 | `grpc-accept-encoding` | `gzip`, always — the codec decodes `CF = 0x01` responses (§5.2) |
 | `grpc-timeout` | absent in v1 — microtel manages its own timeouts and uses `RST_STREAM` on local timeout (see §2.5) |
 
-Plus any user-configured static headers (`exporter.headers` in `microtel.toml`) and the `Authorization` header from `IAuthProvider`.
+Plus any user-configured static headers (`exporter.headers` in `microtel.toml`, `WithHeaders`, `OTEL_EXPORTER_OTLP_HEADERS`) and the `authorization` header from `IAuthProvider`.
 
-**Header rules.** Header values are HPACK-encoded by nghttp2; microtel constructs them as `std::string_view` plus copy where nghttp2 needs an owning view. No header is rejected at the codec layer — validation is HPACK's responsibility — but oversized headers are caught by HTTP/2's own limits (`SETTINGS_MAX_HEADER_LIST_SIZE`).
+**Header rules.** Header values are HPACK-encoded by nghttp2; microtel constructs them as `std::string_view` plus copy where nghttp2 needs an owning view. The codec appends the static headers unchanged, and nghttp2 sends them unchanged apart from lowercasing the names. The names are checked once, at `SdkBuilder::Build()` ([ICP 0038](icps/0038-reject-reserved-request-headers.md)). It rejects pseudo-headers and other non-token names, the connection-specific headers HTTP/2 forbids (`connection`, `keep-alive`, `proxy-connection`, `transfer-encoding`, `upgrade`, `te`), `host`, and the names in the table above that microtel sets itself (`content-type`, `user-agent`, `grpc-encoding`, `grpc-accept-encoding`). It also rejects a static `authorization` when `IAuthProvider` supplies one. Values are not checked. Oversized headers are caught by HTTP/2's own limits (`SETTINGS_MAX_HEADER_LIST_SIZE`).
 
-`:authority` is built from the configured endpoint, **not** from the user's `host` header if any. (This document used to say a user-supplied `host` header is rejected at config-load time; nothing does that today.)
+`:authority` is always built from the configured endpoint. A user-supplied `host` header fails `Build()`.
 
 ### 2.2 Request DATA frames — gRPC framing
 

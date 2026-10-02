@@ -6,6 +6,9 @@
 #include "microtel/error.hpp"
 #include "microtel/protocol.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <filesystem>
@@ -13,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace microtel::config
 {
@@ -305,6 +309,108 @@ struct AuthorityPath
     return {};
 }
 
+// ---------------------------------------------------------------------------
+// Static request header names (ICP 0038)
+// ---------------------------------------------------------------------------
+
+/// Forbidden in any HTTP/2 request (RFC 9113 §8.2.2). `te: trailers` is the
+/// one legal `te`; the gRPC codec sends it and it means nothing on HTTP.
+constexpr std::array<std::string_view, 6> kConnectionSpecificHeaders{
+    "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "te"};
+
+/// Set by the gRPC codec (`docs/grpc-wire-protocol.md` §2.1).
+constexpr std::array<std::string_view, 4> kGrpcCodecHeaders{
+    "content-type", "user-agent", "grpc-encoding", "grpc-accept-encoding"};
+
+/// Set by the HTTP codec.
+constexpr std::array<std::string_view, 4> kHttpCodecHeaders{
+    "content-type", "content-length", "content-encoding", "accept-encoding"};
+
+constexpr std::string_view kHostHeader = "host";
+constexpr std::string_view kAuthorizationHeader = "authorization";
+constexpr std::string_view kHeadersFieldPrefix = "exporter.headers.";
+/// RFC 9110 §5.6.2 `tchar`, less ALPHA and DIGIT.
+constexpr std::string_view kTokenPunctuation = "!#$%&'*+-.^_`|~";
+
+[[nodiscard]] bool IsTokenChar(char c) noexcept
+{
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 ||
+           kTokenPunctuation.find(c) != std::string_view::npos;
+}
+
+/// RFC 9110 §5.1 field names are tokens. A pseudo-header's leading `:` is not
+/// a token character, so this also rejects every pseudo-header.
+[[nodiscard]] bool IsToken(std::string_view name) noexcept
+{
+    return !name.empty() && std::ranges::all_of(name, IsTokenChar);
+}
+
+[[nodiscard]] bool EqualsIgnoreCase(std::string_view a, std::string_view b) noexcept
+{
+    return std::ranges::equal(a,
+                              b,
+                              [](char x, char y)
+                              {
+                                  return std::tolower(static_cast<unsigned char>(x)) ==
+                                         std::tolower(static_cast<unsigned char>(y));
+                              });
+}
+
+template <std::size_t N>
+[[nodiscard]] bool IsOneOf(std::string_view name,
+                           const std::array<std::string_view, N>& set) noexcept
+{
+    return std::ranges::any_of(set,
+                               [name](std::string_view s) { return EqualsIgnoreCase(name, s); });
+}
+
+/// @return Why @p name cannot be a static header under @p protocol, or
+///         `std::nullopt` if it can.
+[[nodiscard]] std::optional<std::string_view> HeaderNameFault(std::string_view name,
+                                                              Protocol protocol) noexcept
+{
+    if (!IsToken(name))
+    {
+        return "is not a valid header name (RFC 9110 token); pseudo-headers are set by microtel";
+    }
+    if (IsOneOf(name, kConnectionSpecificHeaders))
+    {
+        return "is connection-specific, which HTTP/2 forbids in a request (RFC 9113 §8.2.2)";
+    }
+    if (EqualsIgnoreCase(name, kHostHeader))
+    {
+        return "is set by microtel from the endpoint, as :authority";
+    }
+    const bool owned = (protocol == Protocol::Grpc) ? IsOneOf(name, kGrpcCodecHeaders)
+                                                    : IsOneOf(name, kHttpCodecHeaders);
+    if (owned)
+    {
+        return "is set by microtel for this protocol";
+    }
+    return std::nullopt;
+}
+
+/// The error for header @p name; the value is never included (it may be a
+/// secret).
+[[nodiscard]] ConfigError HeaderError(const std::string& name, std::string_view reason)
+{
+    return ConfigError{.kind = ConfigError::Kind::InvalidValue,
+                       .field = std::string{kHeadersFieldPrefix} + name,
+                       .message = "header \"" + name + "\" " + std::string{reason}};
+}
+
+[[nodiscard]] microtel::Expected<void, ConfigError> ValidateHeaderNames(const Config& cfg)
+{
+    for (const auto& header : cfg.headers)
+    {
+        if (const auto fault = HeaderNameFault(header.key, cfg.protocol))
+        {
+            return microtel::make_unexpected(HeaderError(header.key, *fault));
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -334,6 +440,20 @@ std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noe
                                  .message = "schedule_delay must be greater than zero"};
     }
     return std::nullopt;
+}
+
+microtel::Expected<void, ConfigError> CheckNoStaticAuthorization(
+    const std::vector<KeyValue>& headers)
+{
+    for (const auto& header : headers)
+    {
+        if (EqualsIgnoreCase(header.key, kAuthorizationHeader))
+        {
+            return microtel::make_unexpected(HeaderError(
+                header.key, "is set by the WithAuthProvider callback; set one or the other"));
+        }
+    }
+    return {};
 }
 
 microtel::Expected<void, ConfigError> Validate(Config& cfg)
@@ -374,6 +494,13 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
     if (auto tls_ok = ValidateTlsMaterial(cfg); !tls_ok)
     {
         return microtel::make_unexpected(tls_ok.error());
+    }
+
+    // --- Static header names (ICP 0038): after the protocol is resolved,
+    // because the names the codec sets depend on it ---
+    if (auto headers_ok = ValidateHeaderNames(cfg); !headers_ok)
+    {
+        return microtel::make_unexpected(headers_ok.error());
     }
 
     // --- Batch coherence (the same rules SetBatchOptions applies, #267) ---

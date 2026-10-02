@@ -963,6 +963,13 @@ Expected<config::Config, ConfigError> SdkBuilder::Impl::LoadConfig(
     {
         return make_unexpected(r.error());
     }
+    if (auth_cb)
+    {
+        if (auto r = config::CheckNoStaticAuthorization(cfg.headers); !r)
+        {
+            return make_unexpected(r.error());
+        }
+    }
     return cfg;
 }
 

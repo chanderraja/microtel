@@ -868,6 +868,134 @@ TEST(ValidateTest, InsecureTls_WithoutForbidOption_Succeeds)
 }
 
 // ---------------------------------------------------------------------------
+// Validate — static request header names (ICP 0038, issue #408)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// One header name, the protocol it is configured under, and whether
+/// `Validate` must reject it.
+struct HeaderNameCase
+{
+    std::string_view name;
+    mt::Protocol protocol;
+    bool rejected;
+};
+
+constexpr std::string_view kHeaderSecret = "s3cr3t-value";
+
+std::vector<HeaderNameCase> HeaderNameCases()
+{
+    std::vector<HeaderNameCase> cases;
+    // Rejected on both protocols: not a token, connection-specific, or `host`.
+    for (const std::string_view name : {":authority",
+                                        ":path",
+                                        "",
+                                        "x tenant",
+                                        "x-tenant:",
+                                        "connection",
+                                        "keep-alive",
+                                        "proxy-connection",
+                                        "transfer-encoding",
+                                        "upgrade",
+                                        "te",
+                                        "TE",
+                                        "host",
+                                        "Host"})
+    {
+        cases.push_back({.name = name, .protocol = mt::Protocol::Grpc, .rejected = true});
+        cases.push_back({.name = name, .protocol = mt::Protocol::Http, .rejected = true});
+    }
+    // Set by the gRPC codec.
+    for (const std::string_view name :
+         {"content-type", "Content-Type", "user-agent", "grpc-encoding", "grpc-accept-encoding"})
+    {
+        cases.push_back({.name = name, .protocol = mt::Protocol::Grpc, .rejected = true});
+    }
+    // Set by the HTTP codec.
+    for (const std::string_view name : {"content-type",
+                                        "content-length",
+                                        "Content-Length",
+                                        "content-encoding",
+                                        "accept-encoding"})
+    {
+        cases.push_back({.name = name, .protocol = mt::Protocol::Http, .rejected = true});
+    }
+    // Accepted: ordinary names, and names the other protocol's codec owns.
+    for (const std::string_view name : {"x-tenant", "X-Tenant", "authorization", "grpc-timeout"})
+    {
+        cases.push_back({.name = name, .protocol = mt::Protocol::Grpc, .rejected = false});
+        cases.push_back({.name = name, .protocol = mt::Protocol::Http, .rejected = false});
+    }
+    cases.push_back({.name = "user-agent", .protocol = mt::Protocol::Http, .rejected = false});
+    cases.push_back({.name = "grpc-encoding", .protocol = mt::Protocol::Http, .rejected = false});
+    cases.push_back({.name = "accept-encoding", .protocol = mt::Protocol::Grpc, .rejected = false});
+    return cases;
+}
+
+std::string_view ProtocolLabel(mt::Protocol p)
+{
+    return p == mt::Protocol::Grpc ? "grpc" : "http";
+}
+
+}  // namespace
+
+TEST(ValidateTest, HeaderNames_RejectedPerIcp0038)
+{
+    for (const auto& c : HeaderNameCases())
+    {
+        mc::Config cfg = MinimalValidConfig();
+        cfg.endpoint_url = "https://collector.internal:4318";
+        cfg.protocol = c.protocol;
+        cfg.protocol_explicit = true;
+        cfg.headers = {{.key = std::string{c.name}, .value = std::string{kHeaderSecret}}};
+        const auto result = mc::Validate(cfg);
+        const std::string label =
+            "\"" + std::string{c.name} + "\" on " + std::string{ProtocolLabel(c.protocol)};
+        if (!c.rejected)
+        {
+            EXPECT_TRUE(result.has_value()) << label << ": " << result.error().message;
+            continue;
+        }
+        ASSERT_FALSE(result.has_value()) << label << ": accepted";
+        EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue) << label;
+        EXPECT_EQ(result.error().field, "exporter.headers." + std::string{c.name}) << label;
+        EXPECT_EQ(result.error().message.find(kHeaderSecret), std::string::npos)
+            << label << ": the message leaks the header value";
+    }
+}
+
+TEST(ValidateTest, HeaderNames_FirstOffendingHeaderIsReported)
+{
+    mc::Config cfg = MinimalValidConfig();
+    cfg.headers = {{.key = "x-tenant", .value = std::string{"a"}},
+                   {.key = "upgrade", .value = std::string{"h2c"}},
+                   {.key = "host", .value = std::string{"b"}}};
+    const auto result = mc::Validate(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().field, "exporter.headers.upgrade");
+}
+
+TEST(CheckNoStaticAuthorizationTest, AuthorizationHeader_IsRejected)
+{
+    const std::vector<mt::KeyValue> headers{
+        {.key = "x-tenant", .value = std::string{"a"}},
+        {.key = "Authorization", .value = std::string{kHeaderSecret}}};
+    const auto result = mc::CheckNoStaticAuthorization(headers);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue);
+    EXPECT_EQ(result.error().field, "exporter.headers.Authorization");
+    EXPECT_EQ(result.error().message.find(kHeaderSecret), std::string::npos);
+}
+
+TEST(CheckNoStaticAuthorizationTest, NoAuthorizationHeader_IsAccepted)
+{
+    const std::vector<mt::KeyValue> headers{{.key = "x-tenant", .value = std::string{"a"}}};
+    EXPECT_TRUE(mc::CheckNoStaticAuthorization(headers).has_value());
+}
+
+// ---------------------------------------------------------------------------
 // Validate — service identity resolution (issue #203)
 // ---------------------------------------------------------------------------
 

@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace microtel::config
 {
@@ -37,6 +38,19 @@ struct BatchOptionsFault
 /// @return The first rule @p opts breaks, or `std::nullopt` if it is coherent.
 [[nodiscard]] std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noexcept;
 
+/// @brief Reject a static `authorization` header (ICP 0038 rule 4).
+///
+/// `SdkBuilder::Build` calls this when `WithAuthProvider` is set: the
+/// callback's `authorization` header would otherwise be sent next to the
+/// static one. Names compare ASCII case-insensitively.
+///
+/// @param headers the merged static headers (`Config::headers`).
+/// @return `InvalidValue` on `exporter.headers.<name as given>` for the first
+///         `authorization` header, or success if there is none. The message
+///         never carries the header's value.
+[[nodiscard]] microtel::Expected<void, ConfigError> CheckNoStaticAuthorization(
+    const std::vector<KeyValue>& headers);
+
 /// @brief Resolve the remaining defaults in a Config and validate the result.
 ///
 /// Performs eager validation without network access:
@@ -51,6 +65,10 @@ struct BatchOptionsFault
 ///     `MICROTEL_FORBID_INSECURE_TLS=ON` (`docs/configuration.md` §3.5).
 ///   - TLS file readability (ca_bundle, client_cert, client_key).
 ///   - mTLS key-cert pairing (both or neither).
+///   - Static header names (ICP 0038): each must be an RFC 9110 token
+///     (so no pseudo-headers), not connection-specific, not `host`, and not
+///     a name the codec for the resolved protocol sets itself.
+///     `InvalidValue` on `exporter.headers.<name>`.
 ///   - Batch: `CheckBatchOptions` — non-zero queue and batch sizes,
 ///     max_export_batch_size ≤ max_queue_size, positive schedule_delay.
 ///

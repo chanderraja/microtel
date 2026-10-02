@@ -106,7 +106,7 @@ The runtime dependency closure is:
 | OpenSSL | TLS and mTLS |
 | zlib | gzip request compression and response decompression |
 | upb (vendored, symbols renamed to `microtel_upb_*`) | OTLP protobuf encoding |
-| spdlog (optional) | internal diagnostic log sink |
+| spdlog (optional) | the opt-in `microtel_spdlog_bridge`, which forwards an application's spdlog messages into OTLP logs; microtel's own diagnostics go to stderr or a `SetLogSink` callback |
 
 A CI symbol scan fails any PR whose shipped archives define or reference an
 `absl::`, `grpc` or `google::protobuf::` symbol. Adding a runtime dependency

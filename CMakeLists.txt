@@ -146,7 +146,7 @@ endif()
 # OFF uses the minimal stderr fallback. Either way, the public LogSink
 # hook in include/microtel/log_sink.hpp lets applications redirect into
 # their own logger (per docs/error-model.md §9.3).
-option(MICROTEL_USE_SPDLOG "Use spdlog for internal diagnostic logs" ON)
+option(MICROTEL_USE_SPDLOG "Build the opt-in spdlog log bridge (microtel_spdlog_bridge)" ON)
 
 # Where toml++, spdlog and GoogleTest come from. OFF (the default) downloads
 # pinned versions with FetchContent at configure time. ON resolves each with

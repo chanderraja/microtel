@@ -52,7 +52,7 @@ check costs one CI job and changes nothing about what ships.
 ### Why `master` has no `-dev` suffix
 
 Between releases, `master` stays at the version that was last released — today,
-`1.2.0`. It is **not** bumped to `1.3.0-dev` or similar.
+`1.2.1`. It is **not** bumped to `1.3.0-dev` or similar.
 
 The reason is that the version is not only metadata: it goes out on the wire.
 `kUserAgent` becomes the gRPC `user-agent` header on every export, and `kVersion`

@@ -18,6 +18,8 @@
 //     puts that archive on a consumer's link line;
 //   - microtelConfig.cmake's find_dependency calls resolve the archives'
 //     undefined references to zlib, OpenSSL and nghttp2;
+//   - the version find_package() matched (microtelConfigVersion.cmake, from
+//     PROJECT_VERSION) is the version the installed headers report;
 //   - the result runs.
 //
 // It makes no network assumption. The endpoint is a closed port, the timeouts
@@ -37,6 +39,7 @@
 #include <microtel/sugar.hpp>
 #include <microtel/trace.hpp>
 #include <microtel/tracer.hpp>
+#include <microtel/version.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -146,6 +149,16 @@ int main()
 
     const std::shared_ptr<microtel::Provider> provider = std::move(*built);
     bool ok = Check(provider != nullptr, "Build() returned a provider");
+
+    // A `find_package(microtel 1.2)` requirement is satisfied by
+    // microtelConfigVersion.cmake, which is written from PROJECT_VERSION; the
+    // code then reports kVersionString. Both are hand-set (RELEASING.md §1),
+    // and this is the only place the *installed* pair meets.
+    std::cout << "package version=" << MICROTEL_CONSUMER_PACKAGE_VERSION
+              << " kVersionString=" << microtel::kVersionString << '\n';
+    ok = Check(microtel::kVersionString == std::string_view{MICROTEL_CONSUMER_PACKAGE_VERSION},
+               "the installed package version is the installed kVersionString") &&
+         ok;
 
     // A closed port must fail, and fail cleanly rather than hanging or
     // aborting. A *successful* Connect() would mean something is listening on

@@ -114,7 +114,7 @@ requires an [ICP](docs/icps/).
 
 ## Status
 
-The current release is **v1.2.0**, and the project follows SemVer.
+The current release is **v1.2.1**, and the project follows SemVer.
 [SECURITY.md](SECURITY.md) lists which versions get fixes.
 
 | Area | Status |
@@ -199,7 +199,7 @@ Get the latest release, then build and install it under your home directory,
 which needs no `sudo`:
 
 ```bash
-git clone --branch v1.2.0 https://github.com/chanderraja/microtel.git
+git clone --branch v1.2.1 https://github.com/chanderraja/microtel.git
 cd microtel
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMICROTEL_BUILD_TESTS=OFF
 cmake --build build -j"$(nproc)"

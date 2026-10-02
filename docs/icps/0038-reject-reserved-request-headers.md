@@ -160,3 +160,13 @@ but configurations that built before can now fail.
 2. **gRPC `user-agent`.** gRPC's spec lets a client prepend its own
    `user-agent` to the library's. Reject it (proposed), or later add an
    explicit option to prepend a user-agent product token?
+
+## Amendment (2026-10-02): `content-length` on gRPC
+
+Rule 3 let `content-length` through on gRPC, because microtel does not send
+it there. A user value is still wrong: it is fixed for the process, while
+every batch's body has its own length. In the #408 probe a receiver that
+checks it (python-h2) rejected the request, and microtel retried until the
+connection was lost. `Build()` now rejects `content-length` on gRPC as well,
+with its own message (`cannot be fixed on gRPC, where every request body has
+its own length`). HTTP/protobuf already rejected it as a codec-set header.

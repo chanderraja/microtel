@@ -47,7 +47,7 @@ scope microtel-console-example
     attr      url.path="/api/widgets"
     attr      http.response.status_code=200
 ForceFlush: Completed
-batches_sent=1 batches_failed=0
+batches_sent=1 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 

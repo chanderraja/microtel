@@ -121,6 +121,7 @@ void PrintHealth(const microtel::HealthSnapshot& health)
     std::cout << "  health: connection_state=" << ConnectionStateToString(health.connection_state)
               << " batches_sent=" << health.batches_sent
               << " batches_failed=" << health.batches_failed
+              << " rejected=" << DropCount(health, microtel::DropReason::PartialSuccessRejection)
               << " ConnectFailure=" << DropCount(health, microtel::DropReason::ConnectFailure)
               << '\n';
     if (!health.last_error_message.empty())

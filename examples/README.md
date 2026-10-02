@@ -28,7 +28,7 @@ cmake --build build -j"$(nproc)"
 ```
 trace_id: 532267361510131fac037e635454ce60
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 

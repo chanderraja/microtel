@@ -81,21 +81,21 @@ start the auth overlay with: examples/auth_bearer/up-auth.sh
 === phase 1: WithHeaders, wrong token ===
   trace_id: c67c5804f3880532e9ac96088136f672
   ForceFlush: Completed
-  health: connection_state=Connected batches_sent=0 batches_failed=1 NonRetryableFailure=1 ConnectFailure=0
+  health: connection_state=Connected batches_sent=0 batches_failed=1 rejected=0 NonRetryableFailure=1 ConnectFailure=0
   last_error: UNAUTHENTICATED (16): provided authorization does not match expected scheme or token
   Shutdown: Completed
 
 === phase 2: WithAuthProvider, callback fails ===
   trace_id: 734aa87b2418898e0bc7d024de98b765
   ForceFlush: Completed
-  health: connection_state=Connected batches_sent=0 batches_failed=1 NonRetryableFailure=1 ConnectFailure=0
+  health: connection_state=Connected batches_sent=0 batches_failed=1 rejected=0 NonRetryableFailure=1 ConnectFailure=0
   last_error: authorization header unavailable: token endpoint unreachable
   Shutdown: Completed
 
 === phase 3: WithHeaders, right token ===
   trace_id: f47a77ad80857e8c11c8b9488d99016b
   ForceFlush: Completed
-  health: connection_state=Connected batches_sent=1 batches_failed=0 NonRetryableFailure=0 ConnectFailure=0
+  health: connection_state=Connected batches_sent=1 batches_failed=0 rejected=0 NonRetryableFailure=0 ConnectFailure=0
   Shutdown: Completed
 ```
 

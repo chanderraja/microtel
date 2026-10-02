@@ -39,7 +39,7 @@ cmake --build build --target microtel_example_sugar_tour
 ```
 trace_id: 04e2b1fa78ab325c22156b42e4c99921
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 
 view it:  http://localhost:3000  (home dashboard: microtel — recent traces)

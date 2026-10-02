@@ -371,7 +371,8 @@ int main(int argc, char** argv)
     const microtel::HealthSnapshot health = provider->GetExporterHealth();
     std::cout << "ForceFlush: " << StatusName(flush) << '\n'
               << "batches_sent=" << health.batches_sent
-              << " batches_failed=" << health.batches_failed << '\n';
+              << " batches_failed=" << health.batches_failed
+              << " rejected=" << PartialSuccessRejected(health) << '\n';
     std::cout << "Shutdown: " << StatusName(provider->Shutdown(kShutdownTimeout)) << '\n';
     const bool delivered = flush == microtel::Status::Completed && health.batches_failed == 0 &&
                            PartialSuccessRejected(health) == 0;

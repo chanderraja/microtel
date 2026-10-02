@@ -176,6 +176,7 @@ bool Finish(microtel::Provider& provider, const char* label)
     std::cout << "  " << label << ": ForceFlush=" << StatusToString(flush)
               << " batches_sent=" << health.batches_sent
               << " batches_failed=" << health.batches_failed
+              << " rejected=" << PartialSuccessRejected(health)
               << " queue_depth=" << health.queue_depth_now
               << " Shutdown=" << StatusToString(shutdown) << '\n';
     if (!health.last_error_message.empty())

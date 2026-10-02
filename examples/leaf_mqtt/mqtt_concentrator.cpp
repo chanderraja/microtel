@@ -331,7 +331,8 @@ int FlushAndReport(microtel::Provider& provider, const microtel::LeafReceiver& r
     std::cout << "ForceFlush: " << StatusName(flush) << '\n';
     const microtel::HealthSnapshot health = provider.GetExporterHealth();
     std::cout << "batches_sent=" << health.batches_sent
-              << " batches_failed=" << health.batches_failed << '\n';
+              << " batches_failed=" << health.batches_failed
+              << " rejected=" << PartialSuccessRejected(health) << '\n';
     std::cout << "Shutdown: " << StatusName(provider.Shutdown(kShutdownTimeout)) << '\n';
     std::cout << "\nview it: http://localhost:3000  (TraceQL: { resource.service.name =~ "
                  "\"greenhouse-.*\" })\n";

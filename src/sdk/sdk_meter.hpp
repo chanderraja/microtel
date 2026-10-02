@@ -7,6 +7,7 @@
 #include "microtel/internal/diagnostics_sink.hpp"
 #include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/meter.hpp"
+#include "microtel/view.hpp"
 
 #include "sdk/metric_attribute_set.hpp"
 
@@ -152,6 +153,16 @@ private:
         std::string description,
         std::string unit,
         microtel::ObservableCallback<double> callback) override;
+
+    /// @brief Shared body of the six `DoCreateObservable*` overrides: one
+    ///        stream per view the instrument resolves to. Defined, and only
+    ///        instantiated, in `sdk_meter.cpp`.
+    template <typename T>
+    void RegisterObservable(const std::string& name,
+                            const std::string& description,
+                            const std::string& unit,
+                            InstrumentKind kind,
+                            const microtel::ObservableCallback<T>& callback);
 
     internal::InstrumentationScope m_scope;
     std::shared_ptr<MetricProducer> m_producer;

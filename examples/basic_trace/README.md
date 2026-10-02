@@ -25,7 +25,7 @@ cmake --build build --target microtel_example_basic_trace
 ```
 trace_id: 532267361510131fac037e635454ce60
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 
@@ -79,7 +79,7 @@ the batch fails, and the program exits 2:
 ```
 trace_id: 5829b14f3c5a78b31296077438aa6d0d
 ForceFlush: Completed
-batches_sent=0 batches_failed=1 queue_depth=0
+batches_sent=0 batches_failed=1 rejected=0 queue_depth=0
 last_error: UNIMPLEMENTED (12): unknown service opentelemetry.proto.collector.trace.v1.TraceService
 Shutdown: Completed
 ```

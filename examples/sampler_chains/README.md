@@ -31,14 +31,14 @@ first-match chain  [tenant=premium -> AlwaysOn | kind=Server -> ratio 0.5 | defa
       trace_id: 4c0588a2288910d833858ee442ad03fd
       trace_id: 27b641d4a23a24887b4a6602604a8ccf
   chain.background.sweep  tenant=free kind=Internal  ->  sampled 0/12
-  ForceFlush: Completed  batches_sent=1 batches_failed=0 queue_depth=0  Shutdown: Completed
+  ForceFlush: Completed  batches_sent=1 batches_failed=0 rejected=0 queue_depth=0  Shutdown: Completed
 
 all-must-agree chain  [tenant=premium AND kind=Server]
   agree.premium.server  tenant=premium kind=Server  ->  sampled 1/1
       trace_id: 1d43f63959f936ad7b21d7f0492e8a44
   agree.premium.internal  tenant=premium kind=Internal  ->  sampled 0/1
   agree.free.server  tenant=free kind=Server  ->  sampled 0/1
-  ForceFlush: Completed  batches_sent=1 batches_failed=0 queue_depth=0  Shutdown: Completed
+  ForceFlush: Completed  batches_sent=1 batches_failed=0 rejected=0 queue_depth=0  Shutdown: Completed
 
 Only the sampled spans were exported. In Grafana:
   { resource.service.name = "microtel-sampler-chains-example" }

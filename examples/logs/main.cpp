@@ -181,6 +181,7 @@ int main(int argc, char** argv)
     const microtel::HealthSnapshot health = provider->GetExporterHealth();
     std::cout << "batches_sent=" << health.batches_sent
               << " batches_failed=" << health.batches_failed
+              << " rejected=" << PartialSuccessRejected(health)
               << " queue_depth=" << health.queue_depth_now << '\n';
     if (!health.last_error_message.empty())
     {

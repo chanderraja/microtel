@@ -627,7 +627,8 @@ int main()
 
     const microtel::HealthSnapshot health = provider->GetExporterHealth();
     std::cout << "batches_sent=" << health.batches_sent
-              << " batches_failed=" << health.batches_failed << '\n';
+              << " batches_failed=" << health.batches_failed
+              << " rejected=" << PartialSuccessRejected(health) << '\n';
 
     const microtel::Status shutdown = provider->Shutdown(kShutdownTimeout);
     std::cout << "Shutdown: " << StatusToString(shutdown) << '\n';

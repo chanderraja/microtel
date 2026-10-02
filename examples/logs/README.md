@@ -32,7 +32,7 @@ Real output from one run (IDs differ every time):
 checkout trace_id: 7a58f391b576b28d5e43a9a4d1d96d2d
 checkout span_id:  c6f865baaa6d65ca
 ForceFlush: Completed
-batches_sent=2 batches_failed=0 queue_depth=0
+batches_sent=2 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 
@@ -166,7 +166,7 @@ warning: Connect() to http://localhost:4317 failed: connection refused
 checkout trace_id: d3c89a5ff2020c1e6e34ff0c717c3b0c
 checkout span_id:  5d1e3c81b576d5ae
 ForceFlush: TimedOut
-batches_sent=0 batches_failed=0 queue_depth=1
+batches_sent=0 batches_failed=0 rejected=0 queue_depth=1
 Shutdown: Completed
 ```
 
@@ -182,7 +182,7 @@ log batch fails, and the program exits 2:
 checkout trace_id: 265ebef56577cf9604222301d9e7db51
 checkout span_id:  0149ecd5cd283332
 ForceFlush: Completed
-batches_sent=1 batches_failed=1 queue_depth=0
+batches_sent=1 batches_failed=1 rejected=0 queue_depth=0
 last_error: UNIMPLEMENTED (12): unknown service opentelemetry.proto.collector.logs.v1.LogsService
 Shutdown: Completed
 ```

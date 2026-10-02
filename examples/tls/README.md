@@ -89,25 +89,25 @@ prints its `ca_bundle`, `ForceFlush` and `Shutdown` lines.
   ca_bundle: (system trust)
   Connect() failed: TLS certificate verification failed: unable to get local issuer certificate
   ForceFlush: Completed
-  health: connection_state=Disconnected batches_sent=0 batches_failed=1 ConnectFailure=5
+  health: connection_state=Disconnected batches_sent=0 batches_failed=1 rejected=0 ConnectFailure=5
   last_error: TLS certificate verification failed: unable to get local issuer certificate
 
 === phase 2: gRPC over TLS, ca_bundle pinned ===
   Connect(): ok
   trace_id: 445f7a8ae25442693518191f30f5fba3
-  health: connection_state=Connected batches_sent=1 batches_failed=0 ConnectFailure=0
+  health: connection_state=Connected batches_sent=1 batches_failed=0 rejected=0 ConnectFailure=0
 
 === phase 3: OTLP/HTTP over TLS, ca_bundle pinned ===
   endpoint: https://localhost:5328
   Connect(): ok
   trace_id: fc1b795e0dfed01b2f42d2fd40e128f1
-  health: connection_state=Connected batches_sent=1 batches_failed=0 ConnectFailure=0
+  health: connection_state=Connected batches_sent=1 batches_failed=0 rejected=0 ConnectFailure=0
 
 === phase 4: gRPC over mTLS, client certificate presented ===
   endpoint: https://localhost:5337
   Connect(): ok
   trace_id: e4ccd18543e15497e147f66819f66946
-  health: connection_state=Connected batches_sent=1 batches_failed=0 ConnectFailure=0
+  health: connection_state=Connected batches_sent=1 batches_failed=0 rejected=0 ConnectFailure=0
 ```
 
 ---
@@ -182,7 +182,7 @@ and reports:
 
 ```
   Connect() failed: nghttp2 recv failed during SETTINGS exchange
-  health: connection_state=Disconnected batches_sent=0 batches_failed=1 ConnectFailure=5
+  health: connection_state=Disconnected batches_sent=0 batches_failed=1 rejected=0 ConnectFailure=5
 ```
 
 The message doesn't mention certificates. Here is why. Under

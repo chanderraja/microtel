@@ -164,7 +164,7 @@ last sampled trace_id: 9bf0b8aa…
   Grafana: http://localhost:3000 (Explore -> Tempo, or the "microtel - recent traces" dashboard)
 
 ForceFlush: Completed
-batches_sent=15 batches_failed=0 queue_depth=0
+batches_sent=15 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 
 after Shutdown, SetSamplerRatio(0.1) -> AlreadyShutDown

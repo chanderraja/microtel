@@ -29,7 +29,7 @@ what the detectors should report:
 
 trace_id: fae82fbdcc1a50cff0462a0309b85bca
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 

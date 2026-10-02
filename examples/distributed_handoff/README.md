@@ -67,7 +67,7 @@ reply: 200 OK
 sender trace_id: 6b6fbe127f904dffdd16cf9e16c823c0
 sender span_id:  add1851f35ba998f   (the receiver's server span should name this as its parent)
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 
@@ -85,7 +85,7 @@ receiver trace_id:      6b6fbe127f904dffdd16cf9e16c823c0
 receiver span_id:       3b3c3936ccd0042c
 receiver parent span:   add1851f35ba998f   (the sender's client span)
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 ```
 

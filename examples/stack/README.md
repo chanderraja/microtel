@@ -102,7 +102,7 @@ end to end:
 $ ./build/examples/microtel_example_basic_trace
 trace_id: 532267361510131fac037e635454ce60
 ForceFlush: Completed
-batches_sent=1 batches_failed=0 queue_depth=0
+batches_sent=1 batches_failed=0 rejected=0 queue_depth=0
 Shutdown: Completed
 
 $ curl -s http://localhost:3200/api/traces/532267361510131fac037e635454ce60 | head -c 200

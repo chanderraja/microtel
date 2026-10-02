@@ -36,8 +36,8 @@ the registry
   kind is DuplicateProfileName: yes  (the live provider keeps the name; this is never last-wins)
 
 shutting down
-  frontend: ForceFlush=Completed batches_sent=1 batches_failed=0 queue_depth=0 Shutdown=Completed
-  backend: ForceFlush=Completed batches_sent=1 batches_failed=0 queue_depth=0 Shutdown=Completed
+  frontend: ForceFlush=Completed batches_sent=1 batches_failed=0 rejected=0 queue_depth=0 Shutdown=Completed
+  backend: ForceFlush=Completed batches_sent=1 batches_failed=0 rejected=0 queue_depth=0 Shutdown=Completed
   after Shutdown, GetProvider("frontend"): live  (a name is freed by destruction, not by Shutdown)
   after destruction, GetProvider("frontend"): nullptr
   GetProvider("backend"):  live  (still owned here)

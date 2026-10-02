@@ -102,7 +102,7 @@ config: /path/to/microtel/examples/leaf/microtel.toml
 127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
 payloads_accepted=8 payloads_rejected=0 leaves_tracked=2 time_fallbacks=0
 ForceFlush: Completed
-batches_sent=2 batches_failed=0
+batches_sent=2 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 
@@ -353,7 +353,7 @@ cycle 3: 2 spans
 cycle 4: 2 spans
 cycle 5: 2 spans
 ForceFlush: Completed
-batches_sent=1 batches_failed=0
+batches_sent=1 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 
@@ -369,7 +369,7 @@ config: /path/to/microtel/examples/leaf/microtel.toml
 127.0.0.1:9311  457 bytes  Accepted  spans_accepted=2
 payloads_accepted=6 payloads_rejected=0 leaves_tracked=2 time_fallbacks=0
 ForceFlush: Completed
-batches_sent=2 batches_failed=0
+batches_sent=2 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 
@@ -511,7 +511,7 @@ cycle 1: 2 spans, sent "irrigation.check traceparent=00-807175be716d2ef6fcc3286b
 cycle 2: 2 spans, sent "irrigation.check traceparent=00-a8c5f38fc73f15700f5304376150b34d-c2c55f18a26bd3da-01"
 cycle 3: 2 spans, sent "irrigation.check traceparent=00-962434dd976e5dc3cf065c9474ee1828-8caddf3cd3e69020-01"
 ForceFlush: Completed
-batches_sent=1 batches_failed=0
+batches_sent=1 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 
@@ -540,7 +540,7 @@ config: /path/to/microtel/examples/leaf/microtel.toml
 127.0.0.1:9312  490 bytes  Accepted  spans_accepted=2
 payloads_accepted=7 payloads_rejected=0 leaves_tracked=3 time_fallbacks=0
 ForceFlush: Completed
-batches_sent=3 batches_failed=0
+batches_sent=3 batches_failed=0 rejected=0
 Shutdown: Completed
 ```
 

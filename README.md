@@ -12,6 +12,9 @@ use day to day: tracers, spans, context, W3C propagation, samplers, a batch
 processor and resources, plus an OTLP exporter. Both OTLP protocols run over a
 single nghttp2 HTTP/2 transport. The gRPC side is a small unary-RPC layer on
 that transport, so picking gRPC over HTTP costs nothing extra in binary size.
+In the project's benchmark against opentelemetry-cpp it starts a span about
+**4× faster** and sustains roughly **twice the throughput**;
+[Performance](#performance) has the full comparison and its caveats.
 
 ## Who is this for?
 

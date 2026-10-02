@@ -657,6 +657,21 @@ TEST(OverlayEnvTest, MalformedHeader_MissingEquals_ReturnsEnvParseFailure)
     EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
 }
 
+// A colon instead of '=' is the likely typo, and the entry then holds the
+// whole credential: the error names the entry's position, never its content.
+TEST(OverlayEnvTest, MalformedHeader_MissingEquals_DoesNotEchoTheEntry)
+{
+    const EnvGuard guard{{"OTEL_EXPORTER_OTLP_HEADERS"}};
+    SetEnv("OTEL_EXPORTER_OTLP_HEADERS", "x-tenant=a, authorization:Bearer s3cr3t");
+    mc::Config cfg;
+    const auto result = mc::OverlayEnv(cfg);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::EnvParseFailure);
+    EXPECT_EQ(result.error().message.find("s3cr3t"), std::string::npos)
+        << "the message leaks the entry: " << result.error().message;
+    EXPECT_NE(result.error().message.find("entry 2"), std::string::npos) << result.error().message;
+}
+
 // ---------------------------------------------------------------------------
 // Validate — endpoint URL parsing
 // ---------------------------------------------------------------------------

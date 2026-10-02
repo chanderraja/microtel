@@ -167,9 +167,11 @@ the variable name in `field`.
 - **If you see** `<VAR>: expected integer milliseconds` **→** the variable
   (for example `OTEL_EXPORTER_OTLP_TIMEOUT`) takes a bare integer: `5000`,
   not `5s`.
-- **If you see** `<VAR>: malformed key=value pair (missing '='): <token>` **→**
-  fix the comma-separated `k=v,k=v` list (for example
-  `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`).
+- **If you see** `<VAR>: entry <n> is not a key=value pair (missing '=')` **→**
+  fix the n-th entry, counting from 1, of the comma-separated `k=v,k=v` list
+  (for example `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`). A
+  `:` typed instead of `=` is the usual cause. The message does not repeat the
+  entry, because in a header list it can be a credential.
 - **If you see** `<VAR>: malformed percent-escape in the value of <key> (expected %XX, two hex digits)`
   **→** values in these lists are percent-decoded, so a literal `%` must be
   written `%25`. A space is `%20`, a comma `%2C`, an `=` `%3D`.

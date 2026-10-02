@@ -159,6 +159,13 @@ public:
     SdkBuilder& WithEndpoint(std::string endpoint);
     SdkBuilder& WithProtocol(Protocol p);
     SdkBuilder& WithCompressionGzip(bool on);
+    /// @brief Set static request headers, merged per name over the env and
+    ///        file sources (`docs/configuration.md` §3.3).
+    ///
+    /// `Build()` fails with `ConfigError::Kind::InvalidValue` on field
+    /// `exporter.headers.<name>` for a name HTTP/2 forbids in a request or
+    /// that microtel sets itself for the resolved protocol, and for a static
+    /// `authorization` when `WithAuthProvider` is also set (ICP 0038).
     SdkBuilder& WithHeaders(std::vector<KeyValue> headers);
 
     SdkBuilder& WithServiceName(std::string name);
@@ -217,6 +224,12 @@ public:
 
     SdkBuilder& WithTimeouts(TimeoutOptions opts);
     SdkBuilder& WithTls(TlsOptions opts);
+    /// @brief Supply the `authorization` header value per export from @p cb,
+    ///        cached for @p cache_ttl.
+    ///
+    /// A static `authorization` header from any source then fails `Build()`
+    /// (`InvalidValue`, field `exporter.headers.<name>`), because both would
+    /// be sent (ICP 0038).
     SdkBuilder& WithAuthProvider(AuthCallback cb,
                                  std::chrono::milliseconds cache_ttl = std::chrono::seconds(60));
 

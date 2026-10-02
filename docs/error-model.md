@@ -306,6 +306,7 @@ A Provider built with `SdkBuilder::WithExportTransport` classifies nothing itsel
 | Client cert / key path unreadable | `TlsMaterialUnreadable` | `tls.client_cert` |
 | `insecure=true` while compiled with `MICROTEL_FORBID_INSECURE_TLS=ON` | `InsecureDisallowed` | `tls.insecure` |
 | Incoherent batch options (zero queue size, batch larger than the queue, zero schedule delay) | `InvalidValue` | `sdk.max_export_batch_size` |
+| A static request header that HTTP/2 forbids or that microtel sets for the resolved protocol, or a static `authorization` header with `WithAuthProvider` ([ICP 0038](icps/0038-reject-reserved-request-headers.md)) | `InvalidValue` | `exporter.headers.host` |
 | An environment variable that does not parse (e.g. `OTEL_EXPORTER_OTLP_TIMEOUT` not integer milliseconds) | `EnvParseFailure` | `OTEL_EXPORTER_OTLP_TIMEOUT` |
 | Second call to `SdkBuilder::Build()` | `BuildAlreadyConsumed` | (empty) |
 

@@ -171,6 +171,34 @@ the variable name in `field`.
   fix the comma-separated `k=v,k=v` list (for example
   `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`).
 
+### Request headers
+
+Source: `src/common/config/config_validator.cpp` (`HeaderNameFault`,
+`CheckNoStaticAuthorization`; [ICP 0038](icps/0038-reject-reserved-request-headers.md)).
+All are `InvalidValue`, field `exporter.headers.<name as configured>`. The
+header can come from `WithHeaders`, `OTEL_EXPORTER_OTLP_HEADERS` or
+`[exporter.headers]`. The message never includes the header's value.
+
+- **If you see** `header "<name>" is not a valid header name (RFC 9110 token); pseudo-headers are set by microtel`
+  **→** the name is empty, contains a space or separator, or starts with `:`.
+  Remove it: microtel sets `:authority`, `:path`, `:method` and `:scheme`
+  itself.
+- **If you see** `header "<name>" is connection-specific, which HTTP/2 forbids in a request (RFC 9113 §8.2.2)`
+  **→** remove `connection`, `keep-alive`, `proxy-connection`,
+  `transfer-encoding`, `upgrade` or `te`. HTTP/2 has no use for them, and a
+  receiver rejects the request.
+- **If you see** `header "host" is set by microtel from the endpoint, as :authority`
+  **→** remove it, and put the host you want in the endpoint.
+- **If you see** `header "<name>" is set by microtel for this protocol` **→**
+  remove it. On gRPC that is `content-type`, `user-agent`, `grpc-encoding`
+  and `grpc-accept-encoding`. On HTTP/protobuf it is `content-type`,
+  `content-length`, `content-encoding` and `accept-encoding`. Compression is
+  `WithCompressionGzip` / `OTEL_EXPORTER_OTLP_COMPRESSION`.
+- **If you see** `header "<name>" is set by the WithAuthProvider callback; set one or the other`
+  **→** a static `authorization` header and `WithAuthProvider` would send two
+  `authorization` headers. Keep one; the static header may be coming from
+  `OTEL_EXPORTER_OTLP_HEADERS`.
+
 ### Batch settings
 
 Source: `src/common/config/config_validator.cpp` (`CheckBatchOptions`). All are

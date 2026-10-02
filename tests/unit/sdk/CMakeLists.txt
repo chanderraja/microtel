@@ -224,6 +224,12 @@ microtel_add_test(
     SOURCES batch_options_validation_test.cpp
     LIBS    microtel_sdk)
 
+# Static request header names (ICP 0038): code, env and TOML reach one check.
+microtel_add_test(
+    NAME    header_validation_test
+    SOURCES header_validation_test.cpp
+    LIBS    microtel_sdk)
+
 # SdkProvider::ForceFlush two-stage flush (processor → exporter).
 # Concurrency regression: Provider is documented thread-safe; GetMeter/
 # GetLogger raced ForceFlush/Shutdown on the lazily-built members. Meaningful

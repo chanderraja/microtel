@@ -25,6 +25,12 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+    # Docs-only PRs have nothing for Sonar to analyse. Not a required check,
+    # so skipping the whole workflow cannot leave a PR waiting.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'tools/diagrams/**'
   # Manual trigger. Without it the first scan after SONAR_TOKEN is configured
   # cannot be fired on demand — `gh workflow run` returns HTTP 422 — and the
   # secret's first real exercise would have to wait for the next merge to
@@ -37,9 +43,18 @@ concurrency:
   group: sonarqube-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Retries and network timeouts for every apt-get call, so a stalled mirror
+  # fails over in seconds instead of holding the job until its timeout.
+  APT_OPTS: >-
+    -o Acquire::Retries=3
+    -o Acquire::http::Timeout=30
+    -o Acquire::https::Timeout=30
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: scan
 
     # Skip on fork PRs (no SONAR_TOKEN) and when the secret is unset.
@@ -110,10 +125,11 @@ jobs:
                "http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-21.list
       - name: Install toolchain + llvm coverage tools
+        timeout-minutes: 20
         if: steps.token-check.outputs.available == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y clang-18 llvm-18 llvm-21 cmake ninja-build \
             libssl-dev libnghttp2-dev zlib1g-dev
 
       # MICROTEL_COVERAGE_ENFORCE=0 because this job wants the tracefile, not a

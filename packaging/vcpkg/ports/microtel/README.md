@@ -75,20 +75,17 @@ host build.
 
 ## Source pinning
 
-`portfile.cmake` downloads one pinned commit of
-`github.com/chanderraja/microtel` (`REF` and `SHA512`). It doesn't download a
-release tag, because the `v1.2.0` tag predates three build changes the port
-needs: `MICROTEL_USE_SYSTEM_DEPS`, `MICROTEL_WARNINGS_AS_ERRORS` and the
-`OpenSSL::Crypto` link. The pin is a `master` commit that has all three. The
-port's `version` stays at `1.2.0`, which is what that commit's
-`microtelConfigVersion.cmake` reports. From the first release tag that has
-these changes, `REF` becomes `"v${VERSION}"`. `RELEASING.md` has the step for
-updating `REF` and `SHA512` at each release.
+`portfile.cmake` downloads the release tag that matches the port's `version`
+(`REF "v${VERSION}"`), currently `v1.2.1`, and checks it against `SHA512`.
+`v1.2.1` is the first tag with the three build changes the port needs:
+`MICROTEL_USE_SYSTEM_DEPS`, `MICROTEL_WARNINGS_AS_ERRORS` and the
+`OpenSSL::Crypto` link. `RELEASING.md` has the step for updating `version`
+and `SHA512` at each release.
 
 Other ways to get the source:
 
 - `vcpkg install microtel --head --overlay-ports=...` builds the current tip of
-  `master` instead of the pin.
+  `master` instead of the release.
 - To build a local checkout, for example to test a change to microtel or to
   this port, set `MICROTEL_SOURCE_DIR` in the environment:
 
@@ -100,10 +97,10 @@ Other ways to get the source:
   vcpkg's binary cache keys on the port files, not on that directory, so
   `--binarysource=clear` stops it from reusing an older build.
 
-To compute the `SHA512` of a new pin:
+To compute the `SHA512` of a new release:
 
 ```bash
-curl -sL https://github.com/chanderraja/microtel/archive/<commit>.tar.gz | sha512sum
+curl -sL https://github.com/chanderraja/microtel/archive/vX.Y.Z.tar.gz | sha512sum
 ```
 
 GitHub's archive omits the `export-ignore` paths in `.gitattributes`, among

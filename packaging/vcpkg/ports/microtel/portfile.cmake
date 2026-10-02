@@ -8,14 +8,12 @@
 # so a dynamic triplet still gets static archives.
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
-# Source. A pinned commit, not a release tag: the v1.2.0 tag predates the
-# build options this port relies on (MICROTEL_USE_SYSTEM_DEPS,
-# MICROTEL_WARNINGS_AS_ERRORS) and the OpenSSL::Crypto link fix. Update REF and
-# SHA512 together at each release (RELEASING.md); once a tag carries those
-# changes, REF becomes "v${VERSION}".
+# Source: the release tag matching the port's version. Update version and
+# SHA512 together at each release (RELEASING.md). `vcpkg install --head`
+# builds the tip of master instead.
 #
 # MICROTEL_SOURCE_DIR in the environment builds a local checkout instead, for
-# testing changes to microtel or to this port before they are pinned. vcpkg's
+# testing changes to microtel or to this port before they are released. vcpkg's
 # binary cache keys on the port files, not on that directory, so pass
 # --binarysource=clear when using it, or a stale cached build is reused.
 if(DEFINED ENV{MICROTEL_SOURCE_DIR})
@@ -25,9 +23,8 @@ else()
     vcpkg_from_github(
         OUT_SOURCE_PATH SOURCE_PATH
         REPO chanderraja/microtel
-        # master after #378, the first commit with all three changes.
-        REF 81d9956eb0c982a8ade2748ddd6873c3071ebecc
-        SHA512 824c994a1e325dd43235e7f0d3afe41065f0e27ce71f3575769eee81fa7efec3ad534d2c6c12aca1e85c191d6e3378e25f490613435fcbf76b1288a41675b3b5
+        REF "v${VERSION}"
+        SHA512 bd75368a6853c41f73094136688db4820161c2a6c2743d057fb78ec9881942e66efeb83f80609e13aa8bed51858003b80e61e127eacdad35da185f57a979292d
         HEAD_REF master
     )
 endif()

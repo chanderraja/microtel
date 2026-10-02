@@ -12,6 +12,82 @@ This page is for firmware authors using the leaf. Working on the leaf itself
 Design: [`docs/leaf-concentrator-design.md`](../docs/leaf-concentrator-design.md)
 §1 (API) and §2 (backends).
 
+**The leaf and concentrator are experimental in v1.2:** traces only, off by
+default, and the C API may change in any 1.x minor. The roadmap stabilises the
+API in v2.0 and adds reference ports for STM32 HAL, Zephyr and FreeRTOS in
+v2.1.
+
+## How the leaf and concentrator fit together
+
+<p align="center">
+  <img alt="Devices running microtel-leaf send OTLP payload bytes over their own link (UART, CAN, BLE, UDP, MQTT) to a gateway, where LeafReceiver::Ingest feeds a microtel Provider that adds a per-device Resource, corrects clocks, and batches and exports over OTLP gRPC or HTTP to a collector or backend." src="../docs/images/leaf-concentrator.svg" width="860">
+</p>
+
+- **The leaf** builds spans in memory the caller owns and encodes them as a
+  standard OTLP `ExportTraceServiceRequest`. It starts no thread, does no I/O
+  and never allocates: your firmware sends the bytes over whatever link it
+  already has.
+- **The concentrator** is an ordinary microtel `Provider` built with
+  `-DMICROTEL_WITH_CONCENTRATOR=ON`. Its `LeafReceiver` takes the bytes you
+  read from that link, validates them, gives each device its own Resource
+  (`device.id` is the transport id you pass in, which the payload can't
+  override), converts device clocks to Unix time, and sends spans from every
+  device through the normal sampling, batching and retry pipeline, many
+  devices per export request.
+- microtel opens no socket facing the devices: that link is whatever they
+  already speak. The gateway's only connection is its outgoing OTLP export.
+
+On the device, in C:
+
+```c
+static microtel_leaf_t g_leaf;        /* 256 bytes of opaque state */
+static uint8_t g_records[256];        /* spans live here until encoded */
+
+microtel_leaf_init(&g_leaf, sizeof g_leaf, &config, g_records, sizeof g_records);
+
+microtel_leaf_span_t span;
+microtel_leaf_span_start(&g_leaf, &span, "sensor.read", 11, MICROTEL_LEAF_SPAN_KIND_CLIENT, NULL);
+microtel_leaf_span_set_attribute(&g_leaf, span, &reading);
+microtel_leaf_span_end(&g_leaf, span);
+
+microtel_leaf_encode(&g_leaf, frame, sizeof frame, &written);  /* or stream with encode_to */
+uart_send(frame, written);                                     /* your link, not ours */
+```
+
+On the gateway, in C++:
+
+```cpp
+auto provider = *microtel::SdkBuilder{}
+                     .FromFile("microtel.toml")   // [concentrator] enabled = true
+                     .WithEndpoint("http://collector:4317")
+                     .WithProtocol(microtel::Protocol::Grpc)
+                     .Build();
+const auto receiver = provider->GetLeafReceiver();
+
+// For each frame read from the link:
+const microtel::IngestResult result = receiver->Ingest({
+    .leaf_id = "can0:0x1a4",                        // becomes device.id
+    .payload = frame_bytes,
+    .received_at = std::chrono::system_clock::now(),
+});
+```
+
+Per-device settings live in the concentrator's config: a `service.name` per
+device, Resource keys every device should carry, an allow-list of known
+devices, and each device's time mode. A leaf's clock usually doesn't know the
+time of day, so it can send timestamps stamped relative to the moment of
+encoding, relative to the last clock sync, or relative to boot, and the
+concentrator converts them. A Linux board next to the sensors can also run the
+full C++ SDK and export through `SdkBuilder::WithExportTransport` onto the
+same link and concentrator. The concentrator's settings are in
+[`docs/configuration.md`](../docs/configuration.md) §3.14; the design is in
+[`docs/leaf-concentrator-design.md`](../docs/leaf-concentrator-design.md) §3
+(ingest), §4 (per-leaf identity and configuration) and §5 (time modes).
+
+Both backends produce byte-identical payloads, which CI checks against golden
+vectors and a differential fuzzer. The leaf's tests run bare-metal on Cortex-M0+
+and Cortex-M4 under QEMU, and under aarch64 and 32-bit x86 Linux.
+
 ## The header
 
 `include/microtel/leaf.h` is the only public header; valid C11 and C++. Every
@@ -26,6 +102,9 @@ Standalone, with only a C compiler (nanopb by default):
 cmake -S leaf -B build-leaf [-DMICROTEL_LEAF_ENCODER=upb]
 cmake --build build-leaf
 ```
+
+The standalone build needs just a C11 cross-compiler; for a Cortex-M target,
+add `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-none-eabi.cmake`.
 
 In-tree, as part of the main project (exported as `microtel::leaf`, never a
 dependency of `microtel::microtel`):
@@ -95,7 +174,7 @@ target. To measure on your own toolchain, see
 
 ## Examples
 
-- [`examples/leaf/`](../examples/leaf/) is a leaf and a concentrator talking
-  over UDP.
-- [`examples/leaf_mqtt/`](../examples/leaf_mqtt/) is the same example over
-  MQTT, with coreMQTT on the device side.
+- [`examples/leaf/`](../examples/leaf/) runs devices and a concentrator over
+  UDP into the bundled collector, Tempo and Grafana stack.
+- [`examples/leaf_mqtt/`](../examples/leaf_mqtt/) does the same over MQTT,
+  with coreMQTT on the device side.

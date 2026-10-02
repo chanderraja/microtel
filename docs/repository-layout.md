@@ -210,31 +210,10 @@ if the committed output differs.
 
 ## 3. Build options
 
-Declared in the top-level `CMakeLists.txt` unless noted.
-
-| Option | Default | What it does |
-|---|---|---|
-| `MICROTEL_BUILD_TESTS` | `ON` | Build `tests/` (fetches GoogleTest). |
-| `MICROTEL_BUILD_EXAMPLES` | `OFF` | Build `examples/`. |
-| `MICROTEL_BUILD_BENCH` | `OFF` | Build `bench/` (needs Docker). |
-| `MICROTEL_BUILD_FUZZ` | `OFF` | Build the libFuzzer harnesses (clang only). |
-| `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Build `ci/header_check.cpp`. |
-| `MICROTEL_USE_SPDLOG` | `ON` | Use spdlog for internal diagnostics; `OFF` uses a stderr fallback. |
-| `MICROTEL_USE_SYSTEM_DEPS` | `OFF` | Find toml++, spdlog and GoogleTest with `find_package` instead of FetchContent (offline and package-manager builds). |
-| `MICROTEL_WARNINGS_AS_ERRORS` | `ON` | Add `-Werror`; package builds turn it off. Declared in `cmake/MicrotelWarnings.cmake`. |
-| `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Build the opentelemetry-cpp API shim. |
-| `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Build the glog log bridge (needs glog installed). |
-| `MICROTEL_BUILD_LOG4CXX_BRIDGE` | `OFF` | Build the log4cxx log bridge (needs log4cxx installed). |
-| `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | Fail at init if `insecure = true` is configured. |
-| `MICROTEL_BUILD_LEAF` | `OFF` | Build the leaf C library. |
-| `MICROTEL_LEAF_ENCODER` | `nanopb` | Leaf encoder backend: `upb` or `nanopb` (also honoured by a standalone `leaf/` build). |
-| `MICROTEL_WITH_CONCENTRATOR` | `OFF` | Compile the concentrator's leaf receiver. |
-| `MICROTEL_SANITIZER` | empty | `asan`, `tsan` or `ubsan`. |
-| `MICROTEL_COVERAGE` | `OFF` | Coverage instrumentation. |
-
-`tests/leaf/target/CMakeLists.txt` adds `MICROTEL_LEAF_TARGET_BOARD` and
-`MICROTEL_LEAF_TARGET_GTEST`; `cmake/toolchains/arm-none-eabi.cmake` adds
-`MICROTEL_LEAF_CPU`; `bench/emit-app/` has its own `BENCH_*` options.
+Every CMake option, with its default and where it is declared (the top-level
+`CMakeLists.txt`, `cmake/MicrotelWarnings.cmake`, the standalone `leaf/`, the
+leaf target runner under `tests/leaf/target/`, and the Arm toolchain file), is in
+[build-options.md](build-options.md).
 
 ---
 

@@ -15,6 +15,37 @@ environment block was diffed against the previous snapshot as
 [`RELEASING.md`](../../RELEASING.md) §5 requires, and every identity field
 matched, governor included, so the deltas below are like for like.
 
+## Summary
+
+This is the table the root README's performance claims are read off.
+Hot-loop traces, 10 000 spans per sample × 10 samples, blackhole sink (no
+network), Podman containers on one host (AMD Ryzen 5 5600G, `performance`
+governor, SMT on).
+
+| Metric | microtel (HTTP) | microtel (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
+|---|---|---|---|---|
+| StartSpan p50 | **217 ns** | **218 ns** | 832 ns | 804 ns |
+| StartSpan p95 | **478 ns** | **474 ns** | 3 246 ns | 2 738 ns |
+| Spans / sec | **1 540 963** | 1 232 937 | 715 498 | 810 803 |
+| Flush p50 | 2.7 ms | 4.3 ms | 2.0 ms | 1.9 ms |
+| Delivery rate | **100%** | **100%** | 95.2% | 97.0% |
+| Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
+| Benchmark binary size | **17.5 MB** | **17.5 MB** | 43.1 MB | 19.3 MB |
+
+The methodology is in [docs/bench-spec.md](../bench-spec.md), and
+[plots.html](plots.html) has interactive plots and the raw
+per-sample data. To reproduce with Docker or Podman:
+
+```bash
+cd bench && ./bench.sh              # hot-loop-traces profile
+./bench.sh --profile hot-loop-metrics
+./bench.sh --profile hot-loop-logs
+./bench.sh --flamegraph             # adds per-SUT SVG flame graphs
+```
+
+The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
+[leaf-footprint.md](leaf-footprint.md).
+
 ## Changes since the previous snapshot
 
 Throughput is within this host's spread: microtel +2.6% (1,540,963 spans/sec),
@@ -72,7 +103,8 @@ cd bench && ./bench.sh                     # writes bench/results/
 cp bench/results/{plots.html,results.json,results.md} docs/bench-results/
 ```
 
-Then update the table in the root `README.md` so the two agree.
+Then update the [Summary](#summary) table above, and the ratio claims in the
+root `README.md`, so they agree with the new run.
 
 **Diff the `environment` block against the outgoing snapshot before you
 commit** ([`RELEASING.md`](../../RELEASING.md) §5). A run from a different

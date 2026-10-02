@@ -60,7 +60,7 @@ Track C — OTLP/gRPC wire codec.
   [`tests/integration/transport/http2_send_test.cpp`](../../../tests/integration/transport/http2_send_test.cpp)
   against a real nghttp2 peer.
 - `tests/fuzz/grpc_codec_fuzz.cpp`: a libFuzzer harness over the
-  response-parser entry point, a release requirement per spec §13.5.
+  response-parser entry point, run by the fuzz CI (`tests/fuzz/README.md`).
 - `tests/conformance/grpc/`: end-to-end against a real collector.
 
 ## Style notes
@@ -74,7 +74,7 @@ Track C — OTLP/gRPC wire codec.
   §2.5, validated in the M1 spike), so the codec also looks for `grpc-status`
   among the response headers.
 - **`RESOURCE_EXHAUSTED` without `RetryInfo` is non-retryable** (LOCKED —
-  spec §7.2, `error-model.md` §7.2). The codec parses
+  `error-model.md` §7.2). The codec parses
   `grpc-status-details-bin` as `google.rpc.Status` and walks `details[]`
   for `RetryInfo`; if none is found, `retryable=false`.
 - **Single-caller**, the same contract as the HTTP codec. The transport

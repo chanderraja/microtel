@@ -21,7 +21,7 @@ class Context;
 namespace microtel::internal
 {
 
-/// @brief Synchronous, non-batching span processor (spec §8: "for tests/debug").
+/// @brief Synchronous, non-batching span processor (`docs/interfaces.md` §4.6: "for tests").
 ///
 /// Each `OnEnd` builds a single-span `BatchHandle` (Resource from
 /// construction, `InstrumentationScope` from the call) and hands it directly to

@@ -943,7 +943,7 @@ TEST(Http2TlsConnectTest, AlpnNotNegotiated_ConnectFailsWithProtocolError)
 // whatever the linked OpenSSL happens to permit.  Without that, the same
 // source linked two ways negotiates two different security floors: TLS 1.2
 // against an OpenSSL 3.x under a strict host crypto policy, TLS 1.0 against a
-// default-built OpenSSL 1.1.1 — which spec §9.1 still accepts.
+// default-built OpenSSL 1.1.1 — which microtel still accepts.
 //
 // Note on what these two prove where.  A host whose OpenSSL refuses TLS 1.1
 // outright — seclevel 2 by default plus `TLS.MinProtocol = TLSv1.2` from the

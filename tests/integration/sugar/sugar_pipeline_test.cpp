@@ -12,9 +12,9 @@
 // correctly-parented tree under one trace id.
 //
 // Scope, deliberately: **exactly one** integration test, and no conformance
-// test at all. `microtel-spec.md` §18.1 — "Sugar APIs are explicitly non-goals
-// for compatibility testing — conformance tests target the OTel-like API and
-// wire output, not convenience wrappers" — so nothing under
+// test at all. Sugar APIs are non-goals for compatibility testing —
+// conformance tests target the OTel-like API and wire output, not convenience
+// wrappers — so nothing under
 // tests/conformance/ gains a sugar case (ICP 0028, "Restated exclusions").
 
 #include "microtel/internal/batch.hpp"

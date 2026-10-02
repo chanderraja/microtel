@@ -2,7 +2,7 @@
 #
 # Spans with 20 attributes, mean 256 bytes each, including some 4 KB
 # string attributes.  Measures encoding cost on big payloads and exercises
-# the attribute_value_length_limit truncation path (spec §5.6).
+# the attribute_value_length_limit truncation path (docs/memory-model.md §7).
 #
 # The driver injects EMIT_ATTRIBUTES_PER_SPAN and EMIT_ATTRIBUTE_VALUE_BYTES
 # into each SUT container; the emit-app pre-builds the attribute key vector

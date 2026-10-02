@@ -629,7 +629,7 @@ TEST(ValidateTest, HttpUrl_NoPort_UsesDefaultHttp)
 // ---------------------------------------------------------------------------
 // Validate — protocol inference from the endpoint scheme (issue #203)
 //
-// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (spec §12.2).
+// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (docs/configuration.md §3.3).
 // They select the protocol when the user has not named one; when the user has
 // named a conflicting one, the configuration is rejected rather than silently
 // resolved in either direction.
@@ -711,7 +711,7 @@ TEST(ValidateTest, GrpcsScheme_ExplicitHttpProtocol_ReturnsProtocolMismatch)
 
 TEST(ValidateTest, HttpsScheme_ExplicitGrpcProtocol_Succeeds)
 {
-    // The canonical spelling of an OTLP/gRPC endpoint (spec §12.2). No scheme
+    // The canonical spelling of an OTLP/gRPC endpoint (configuration.md §3.3). No scheme
     // shorthand is involved, so nothing is inferred and nothing conflicts.
     mc::Config cfg;
     cfg.endpoint_url = "https://collector.internal:4317";
@@ -1064,7 +1064,7 @@ TEST(OverlayEnvTest, ResourceDetectorsStrict_Unset_LeavesFileValue)
 }
 
 // ---------------------------------------------------------------------------
-// Validate — service.name provenance (v1.1; feeds the §12.7 merge order)
+// Validate — service.name provenance (v1.1; feeds the configuration.md §3.2 merge order)
 // ---------------------------------------------------------------------------
 
 TEST(ValidateTest, NoServiceName_MarksTheResolvedNameAsDefaulted)

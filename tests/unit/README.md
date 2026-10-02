@@ -30,8 +30,6 @@ mocks and fakes compile and link inside a gtest translation unit, and
 
 ## Rules
 
-From spec §14.2:
-
 - Under 1 ms per test. Unit tests are tight loops over mocked
   dependencies. A test that takes longer probably belongs in
   [`integration/`](../integration/).
@@ -44,7 +42,7 @@ From spec §14.2:
   contract. The synchronous `_test_only_drain_synchronously()` seam
   described in `threading-model.md` §9.3 was never added.
 - Aggregate coverage of at least 90% line and 85% branch on SDK and
-  encoder code (spec §14.2).
+  encoder code (the `coverage` job, `docs/ci-architecture.md`).
 
 ## Naming
 

@@ -5,7 +5,7 @@
 # TDD test-presence gate. Fails a pull request that changes production sources
 # under `src/` without changing anything under `tests/` in the same PR.
 #
-# This is the mechanical backing for CLAUDE.md rule 3 and spec §14.2: "any
+# This is the mechanical backing for CLAUDE.md rule 3: "any
 # change to `src/**/*.{cpp,hpp}` requires a corresponding change to
 # `tests/**/*.{cpp,hpp}`". It is a presence check, not a coverage check — it
 # proves a test file moved, not that the new line is covered. The diff-coverage
@@ -176,7 +176,7 @@ cat >&2 <<EOF
 test-presence: FAIL
 
   This PR changes src/**/*.{cpp,hpp} but changes nothing under
-  tests/**/*.{cpp,hpp}. Per spec §14.2 and CLAUDE.md rule 3, production
+  tests/**/*.{cpp,hpp}. Per CLAUDE.md rule 3, production
   changes ship with the tests that exercise them, in the same PR.
 
   To clear this gate, either:

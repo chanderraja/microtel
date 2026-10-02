@@ -368,7 +368,7 @@ TEST(SdkSpanTest, Diagnostics_NullSink_IsNotDereferenced)
 }
 
 // ---------------------------------------------------------------------------
-// Attribute value length limit (spec §5.6; issue #181)
+// Attribute value length limit (memory-model.md §7; issue #181)
 //
 // `attribute_value_length_limit` truncates a string value rather than dropping
 // the attribute: the key and the type survive, the tail does not. One

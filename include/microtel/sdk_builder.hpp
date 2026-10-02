@@ -64,7 +64,7 @@ struct BatchOptions
     DropPolicy drop_policy = DropPolicy::DropNewest;
 };
 
-/// @brief Six-axis timeout taxonomy from `microtel-spec.md` §7.3.
+/// @brief Six-axis timeout taxonomy (`docs/configuration.md` §3.4).
 struct TimeoutOptions
 {
     std::chrono::milliseconds connect = std::chrono::seconds(10);
@@ -85,7 +85,7 @@ struct TlsOptions
     std::string sni_override;           ///< empty: derive from endpoint host
 };
 
-/// @brief Span structural-limit configuration (per `microtel-spec.md` §5.6).
+/// @brief Span structural-limit configuration (per `docs/memory-model.md` §7).
 struct SpanLimitOptions
 {
     std::uint32_t attribute_count_limit = 128;
@@ -108,7 +108,7 @@ struct MetricLimitOptions
     std::size_t max_cardinality = 2000;
 };
 
-/// @brief Memory-budget configuration (per `microtel-spec.md` §5.5).
+/// @brief Memory-budget configuration (per `docs/memory-model.md` §6).
 struct MemoryLimitOptions
 {
     std::uint64_t max_total_queue_bytes = 16ULL * 1024ULL * 1024ULL;  // 16 MiB
@@ -187,10 +187,10 @@ public:
     ///
     /// Call once per detector; registration order is significant. `Build()`
     /// runs each detector exactly once, on the calling thread, and merges their
-    /// contributions per `microtel-spec.md` §12.7: detectors first (a later one
+    /// contributions per `docs/configuration.md` §3.2: detectors first (a later one
     /// overriding an earlier one), then the configuration — `microtel.toml`,
     /// environment and code, resolved key by key in that ascending order
-    /// (§12.1). A key set in any configured source therefore always beats the
+    /// (`docs/configuration.md` §1). A key set in any configured source therefore always beats the
     /// same key from a detector.
     ///
     /// A detector that returns a `ConfigError` is logged at Warn and skipped.

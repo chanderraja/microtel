@@ -35,11 +35,11 @@ namespace
 constexpr std::string_view kVersion = "1.2.1";
 constexpr std::string_view kPreflightFlag = "--preflight=";
 
-/// Spec §6.4: the synthetic span's `service.name`, fixed so a collector rule
+/// The synthetic span's `service.name`, fixed so a collector rule
 /// can drop preflight traffic by matching it.
 constexpr std::string_view kPreflightServiceName = "microtel-preflight";
 
-/// Spell a protocol the way spec §6.4 requires the attribute to read.
+/// Spell a protocol the way the `microtel.protocol` attribute reads.
 [[nodiscard]] constexpr std::string_view ProtocolName(microtel::Protocol protocol) noexcept
 {
     return protocol == microtel::Protocol::Grpc ? "grpc" : "http";
@@ -103,7 +103,7 @@ struct PreflightArgs
 SpanIdentity ResolveSpanIdentity(std::string_view config_path)
 {
     // The service name is preflight's own and is not resolved from anything:
-    // spec §6.4 fixes it precisely so that a collector rule can match it, and
+    // it is fixed precisely so that a collector rule can match it, and
     // a value the file under test could change would not be that.
     //
     // The protocol is the opposite — it is whatever the configuration under
@@ -201,7 +201,7 @@ int RunPreflight(int argc, char** argv, std::ostream& out, std::ostream& err)
         builder.FromFile(*args->config_path);
     }
 
-    // Spec §6.4 fixes the synthetic span's service name, and it has to survive
+    // The synthetic span's service name is fixed, and it has to survive
     // a run against an operator's own config: the value exists so a collector
     // rule can drop preflight traffic, which it cannot do if the file under
     // test renames it. A code override is the highest-precedence layer

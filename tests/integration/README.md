@@ -33,7 +33,7 @@ unit test and belongs in `tests/unit/exporter/`.
   `FakeTransport`, `FakeReactor` and `FakeClock` rather than mocking
   individual methods.
 - Every test here must be clean under ASan, TSan and UBSan (a CI gate,
-  spec §13.5 and §14.2).
+  `docs/ci-architecture.md`).
 - Keep tests deterministic. Don't use a fixed sleep to wait for
   something to happen. Where a test does have to wait on a real socket
   or worker, it polls for the condition with a deadline.

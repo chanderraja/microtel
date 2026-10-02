@@ -479,7 +479,7 @@ microtel_add_test(
     SOURCES resource_detectors_test.cpp
     LIBS    microtel_sdk)
 
-# v1.1 — the spec §12.7 composition order (defaults, detectors, env, user) and
+# v1.1 — the docs/configuration.md §3.2 composition order (defaults, detectors, env, user) and
 # the strict/lenient detector policy. Reaches into src/sdk/resource_builder.hpp
 # and src/common/config/config.hpp directly.
 microtel_add_test(

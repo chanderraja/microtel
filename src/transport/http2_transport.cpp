@@ -329,7 +329,7 @@ microtel::Expected<void, microtel::Error> LoadSslCtxCredentials(
     // Unchecked, like the neighbouring `SSL_CTX_set_default_verify_paths` and
     // `SSL_CTX_set_alpn_protos`: this call only fails when the version is
     // outside the range the build supports, and every OpenSSL microtel
-    // supports (spec §9.1: 1.1.1 and newer) has TLS 1.2.
+    // supports (1.1.1 and newer) has TLS 1.2.
     ::SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     if (!opts.ca_bundle.empty())

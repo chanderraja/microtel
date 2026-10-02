@@ -41,14 +41,14 @@ struct BatchOptionsFault
 ///
 /// Performs eager validation without network access:
 ///   - Endpoint URL structure and scheme.
-///   - Protocol against the endpoint scheme (spec §12.2): a `grpc://` or
+///   - Protocol against the endpoint scheme (`docs/configuration.md` §3.3): a `grpc://` or
 ///     `grpcs://` endpoint selects `Protocol::Grpc` unless the user named a
 ///     protocol, and is rejected with `ProtocolMismatch` when the protocol
 ///     they named is `http`. `http://` and `https://` say nothing about the
 ///     protocol and leave it alone.
-///   - Path rejection for gRPC endpoints (spec §12.2).
+///   - Path rejection for gRPC endpoints (`docs/configuration.md` §3.3).
 ///   - `insecure = true` rejection when the build sets
-///     `MICROTEL_FORBID_INSECURE_TLS=ON` (spec §12.3).
+///     `MICROTEL_FORBID_INSECURE_TLS=ON` (`docs/configuration.md` §3.5).
 ///   - TLS file readability (ca_bundle, client_cert, client_key).
 ///   - mTLS key-cert pairing (both or neither).
 ///   - Batch: `CheckBatchOptions` — non-zero queue and batch sizes,

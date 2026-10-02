@@ -46,13 +46,13 @@ C and E could unblock (`docs/development.md` §2).
 ## Dependencies
 
 - upb, vendored at [`third_party/upb/`](../../../third_party/upb/) with the
-  pinned commit per spec §9.1. Its globals carry a `microtel_` prefix via the
+  pinned commit recorded in its README. Its globals carry a `microtel_` prefix via the
   force-included `third_party/upb/microtel_upb_rename.h`
   ([ICP 0020](../../../docs/icps/0020-install-and-package-config.md)
   Decision 4).
 - The generated upb C accessors in [`gen/`](../../../gen/) (target
   `microtel_upb_gen`). They are committed, and CI checks that regeneration
-  produces zero diff (spec §9.3).
+  produces zero diff (`regen-check`, `docs/ci-architecture.md`).
 - `Resource`, `BatchHandle`, `SpanRecord` and the metric and log batch types:
   plain C++ values, so no upb leaks across the boundary.
 
@@ -72,7 +72,7 @@ C and E could unblock (`docs/development.md` §2).
   coverage themes to these tests; there are no fixture files.
 - The CI job `regen-check` runs `ci/scripts/regen-protos.sh` against the pinned
   upb and `opentelemetry-proto` versions and fails on any diff under `gen/`
-  (spec §9.3, a release gate per spec §13.5).
+  (`docs/ci-architecture.md`, `regen-check`).
 
 ## Style notes
 

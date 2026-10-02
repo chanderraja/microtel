@@ -32,7 +32,7 @@ interface is recorded in `docs/interfaces.md` §4.
 
 ## The dumb-mock contract (LOCKED)
 
-From `CLAUDE.md` rule 4 and spec §14.2:
+From `CLAUDE.md` rule 4 and `docs/interfaces.md` §5:
 
 - It returns what it's configured to return. No logic, and no state
   computed from its inputs.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // v1.1 — Resource::Merge, the key-level precedence primitive behind the
-// resource composition order in microtel-spec.md §12.7 (detectors first, then
+// resource composition order in docs/configuration.md §3.2 (detectors first, then
 // environment, then user-supplied; later wins).
 
 #include "microtel/attribute.hpp"
@@ -166,7 +166,7 @@ TEST(ResourceMergeTest, Merge_DuplicateKeyWithinOverriding_LastOccurrenceWins)
 
 TEST(ResourceMergeTest, Merge_IsAssociativeLeftToRight_SpecPrecedenceChain)
 {
-    // The §12.7 chain as the SDK applies it: detectors, then env, then user.
+    // The configuration.md §3.2 chain as the SDK applies it: detectors, then env, then user.
     // Every later layer overrides the ones before it, and each layer's own
     // keys survive where nothing later names them.
     const microtel::Resource detectors{{{.key = "host.name", .value = std::string{"detected"}},

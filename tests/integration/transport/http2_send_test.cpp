@@ -302,7 +302,7 @@ void SrvSubmitGrpcResponse(nghttp2_session* s,
 }
 
 // ---------------------------------------------------------------------------
-// Oversized responses — spec §13.5 gate 8 (`max_response_bytes`,
+// Oversized responses — response-size limits (`max_response_bytes`,
 // `max_trailer_bytes`)
 //
 // Both sizes are comfortably under HTTP/2's default 64 KiB connection window
@@ -1072,7 +1072,7 @@ TEST(Http2TransportSendIntegrationTest, Send_PeerResetsMidBurst_ProcessSurvives)
 }
 
 // ---------------------------------------------------------------------------
-// Peer GOAWAY (spec §13.5 gate 6, M5 "GOAWAY and RST_STREAM handling")
+// Peer GOAWAY (`docs/grpc-wire-protocol.md` §6.2)
 //
 // `docs/sequences/goaway-handling.md` has specified this since M0 and nothing
 // implemented it: the frame-recv callback branched on SETTINGS alone, so a
@@ -1261,7 +1261,7 @@ TEST(Http2TransportSendIntegrationTest, Send_PeerGoawayAfterAccepting_CompletesT
 }
 
 // ---------------------------------------------------------------------------
-// Peer RST_STREAM (spec §13.5 gate 6, `docs/grpc-wire-protocol.md` §2.6)
+// Peer RST_STREAM (`docs/grpc-wire-protocol.md` §2.6)
 //
 // A stream-level error. The request it kills must fail; the connection under
 // it must not. The only peer-reset coverage before this was TCP-level (an RST
@@ -1308,7 +1308,8 @@ TEST(Http2TransportSendIntegrationTest, Send_PeerRstStream_FailsRequestKeepsConn
 }
 
 // ---------------------------------------------------------------------------
-// A gRPC message split across DATA frames (spec §7.2, LOCKED: "the parser must
+// A gRPC message split across DATA frames (grpc-wire-protocol.md §2.3, LOCKED:
+// "the parser must
 // not assume a gRPC message corresponds to a single HTTP/2 DATA frame")
 //
 // The accumulation this exercises lives in the transport, below the codec's
@@ -1392,7 +1393,7 @@ TEST(Http2TransportSendIntegrationTest, GrpcResponse_SplitMidBody_Accumulates)
 }
 
 // ---------------------------------------------------------------------------
-// Response memory caps — spec §13.5 gate 8, issue #181
+// Response memory caps — memory-model.md §6, issue #181
 //
 // `max_response_bytes` and `max_trailer_bytes` were declared in
 // `MemoryLimitOptions`, documented in `error-model.md` §7.1, asserted by three

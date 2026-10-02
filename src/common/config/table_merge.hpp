@@ -16,7 +16,7 @@ namespace microtel::config
 /// §1, issue #257). A key in `overriding` replaces that key in `base`, in
 /// place; every key `overriding` does not name survives. Keys compare exactly:
 /// OTel attribute keys are case-sensitive. This is `Resource::Merge`, so the
-/// config layers resolve with the same rule as the §12.7 detector layers.
+/// config layers resolve with the same rule as the detector layers (§3.2 there).
 ///
 /// @param base the lower-precedence table; updated in place.
 /// @param overriding the higher-precedence table.

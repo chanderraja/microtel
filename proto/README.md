@@ -2,7 +2,7 @@
 
 A pinned copy of the [`opentelemetry-proto`][upstream] schema that microtel's
 OTLP encoder is generated from. The definitions are vendored instead of being
-fetched at configure time (spec §9.6), so a clone always has everything needed
+fetched at configure time, so a clone always has everything needed
 to regenerate the encoder.
 
 [upstream]: https://github.com/open-telemetry/opentelemetry-proto

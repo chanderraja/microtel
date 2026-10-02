@@ -18,7 +18,7 @@ namespace microtel
 /// The Resource is built once at `SdkBuilder::Build()` time from the explicit
 /// configuration, the active `IResourceDetector` set, and the OTel-standard
 /// environment variables (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`).
-/// Conflicts are resolved per `microtel-spec.md` §12.7.
+/// Conflicts are resolved per `docs/configuration.md` §3.2.
 ///
 /// After `Build()`, the Resource is **immutable** for the lifetime of the
 /// `Provider`. Hot reload is not in v1; per-`Provider` re-build is required to
@@ -44,7 +44,7 @@ public:
 
     /// @brief Key-level merge of two resources — `overriding` wins.
     ///
-    /// This is the primitive the SDK composes the §12.7 precedence chain out
+    /// This is the primitive the SDK composes the `docs/configuration.md` §3.2 precedence chain out
     /// of: `Merge(Merge(detectors, env), user)`. Applied left to right, each
     /// later layer overrides the ones before it, and every key no later layer
     /// names survives.

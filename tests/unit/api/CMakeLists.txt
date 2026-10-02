@@ -40,7 +40,7 @@ microtel_add_test(
     SOURCES baggage_propagator_test.cpp
     LIBS    microtel_api)
 
-# v1.1 — Resource::Merge precedence (spec §12.7). Header-only: the merge is an
+# v1.1 — Resource::Merge precedence (docs/configuration.md §3.2). Header-only: the merge is an
 # inline member of the public `Resource`, so this needs no library beyond the
 # header target microtel_add_test already links.
 microtel_add_test(

@@ -22,7 +22,7 @@ Several things once planned for this directory live elsewhere:
   (`docs/error-model.md` §3, §9.1).
 - `microtel::Error` and `microtel::ConfigError` are header-only, in
   [`include/microtel/error.hpp`](../../include/microtel/error.hpp).
-- The byte-budget defaults from `microtel-spec.md` §5.5 are the
+- The byte-budget defaults in `docs/memory-model.md` §6 are the
   `MemoryLimitOptions` defaults in
   [`include/microtel/sdk_builder.hpp`](../../include/microtel/sdk_builder.hpp).
 - `internal::IClock` and `internal::ISteadyClock`

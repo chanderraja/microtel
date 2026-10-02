@@ -1,12 +1,9 @@
 # `tests/fuzz/`
 
-libFuzzer harnesses for adversarial inputs. `microtel-spec.md` §13.5
-makes them a release requirement:
+libFuzzer harnesses for adversarial inputs: the gRPC framing and trailer
+paths, the TOML parser and the response-size limits.
 
-> Fuzzing (gRPC framing/trailer paths, TOML parser, response-size
-> limits), soak tests, perf gates in CI, collector interop matrix CI...
-
-## Required harnesses (spec §13.5, §14.2, §16)
+## Required harnesses
 
 | File | Surface |
 |---|---|
@@ -60,7 +57,7 @@ Fuzzing itself is not a per-PR gate, because it is slow and its
 findings are non-deterministic. [`fuzz.yml`](../../.github/workflows/fuzz.yml)
 runs every harness weekly (default 120 s each, adjustable on a manual
 dispatch) and uploads any crashing input as an artifact. Mutation
-testing follows the same pattern (spec §14.2). Findings open issues;
+testing follows the same pattern. Findings open issues;
 they don't block PRs.
 
 Replaying `crashes/` is a hard gate on every PR. The gate is

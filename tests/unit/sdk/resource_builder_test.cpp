@@ -1,7 +1,7 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// v1.1 — the §12.7 resource composition: built-in defaults, then detectors in
+// v1.1 — the configuration.md §3.2 resource composition: built-in defaults, then detectors in
 // registration order, then the resolved config (env and user). Later wins.
 //
 // This is the unit that owns the precedence *order*; `Resource::Merge` owns the
@@ -212,7 +212,7 @@ TEST(ResourceBuilderTest, NoDetectors_EmptyServiceVersion_IsOmitted)
 }
 
 // ---------------------------------------------------------------------------
-// §12.7 precedence — detectors, then env, then user
+// configuration.md §3.2 precedence — detectors, then env, then user
 // ---------------------------------------------------------------------------
 
 TEST(ResourceBuilderTest, DetectorAttributes_ReachTheResource)
@@ -262,7 +262,7 @@ TEST(ResourceBuilderTest, LaterDetector_OverridesEarlierDetector)
 
 TEST(ResourceBuilderTest, DetectorServiceName_BeatsTheUnknownServicePlaceholder)
 {
-    // `unknown_service` is a built-in default — the lowest tier in §12.1 — so a
+    // `unknown_service` is a built-in default — the lowest tier in configuration.md §1 — so a
     // detector that knows better must win. Without the provenance flag the
     // placeholder would shadow every detector that sets service.name.
     const microtel::config::Config cfg = ConfigWithServiceName("");
@@ -406,7 +406,7 @@ TEST(ResourceBuilderTest, Strict_AllDetectorsSucceed_BuildsNormally)
 }
 
 // ---------------------------------------------------------------------------
-// Issue #284 — spec §12.7 "the resolved Resource is logged at init"
+// Issue #284 — configuration.md §5 "the resolved Resource is logged at init"
 // ---------------------------------------------------------------------------
 
 TEST(ResourceBuilderTest, ResolvedResource_LoggedOnceAtInfoPerBuild)

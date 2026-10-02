@@ -85,8 +85,8 @@ if(MICROTEL_BUILD_HEADER_CHECK)
 endif()
 
 # Sanitizer build helper. MICROTEL_SANITIZER ∈ { '', asan, tsan, ubsan }.
-# Empty (default) means no sanitizer. Per spec §14.2 / docs/coding-standards.md
-# §14.2, asan + tsan + ubsan must be clean on the full test suite for v1.0.
+# Empty (default) means no sanitizer. asan + tsan + ubsan must be clean on the
+# full test suite (docs/ci-architecture.md, sanitizers).
 set(MICROTEL_SANITIZER "" CACHE STRING
     "Sanitizer to enable: '', asan, tsan, ubsan")
 set_property(CACHE MICROTEL_SANITIZER PROPERTY STRINGS "" asan tsan ubsan)
@@ -108,7 +108,7 @@ if(NOT MICROTEL_SANITIZER STREQUAL "")
     message(STATUS "microtel: ${MICROTEL_SANITIZER} enabled")
 endif()
 
-# Coverage build helper. Per spec §14.2 the v1.0 thresholds are 90% line /
+# Coverage build helper. The thresholds are 90% line /
 # 85% branch on SDK + encoder code and 80% line on transport + exporter;
 # `ci/scripts/coverage.sh` enforces all three.
 #
@@ -117,7 +117,7 @@ endif()
 # attached to source *regions* the front end knows about, so a branch record
 # corresponds to a conditional someone wrote. gcov, by contrast, emits an edge
 # for the unwind path out of every potentially-throwing call, which put whole-
-# tree branch coverage at 57.8% against 91.0% line and made the §14.2 branch
+# tree branch coverage at 57.8% against 91.0% line and made the branch
 # floor unmeasurable (issue #198).
 #
 # The gcc branch below is a fallback for a local `--coverage` run; it is not
@@ -142,10 +142,10 @@ if(MICROTEL_COVERAGE)
     endif()
 endif()
 
-# spdlog for internal diagnostic logging. Default ON per spec §9.2 + §9.4;
-# OFF uses the minimal stderr fallback. Either way, the public LogSink
-# hook in include/microtel/log_sink.hpp lets applications redirect into
-# their own logger (per docs/error-model.md §9.3).
+# spdlog for the opt-in log bridge (src/adapters/spdlog); see
+# docs/build-options.md. microtel's own diagnostics go to stderr in every
+# build, and the public LogSink hook in include/microtel/log_sink.hpp lets
+# applications redirect them into their own logger (docs/error-model.md §9.3).
 option(MICROTEL_USE_SPDLOG "Build the opt-in spdlog log bridge (microtel_spdlog_bridge)" ON)
 
 # Where toml++, spdlog and GoogleTest come from. OFF (the default) downloads
@@ -170,8 +170,8 @@ elseif(MICROTEL_USE_SPDLOG)
         GIT_TAG        v1.15.3
         GIT_SHALLOW    TRUE
     )
-    # std::format mode — avoids the fmt transitive dependency that
-    # microtel-spec.md §9.4 explicitly excludes.
+    # std::format mode — avoids a transitive fmt dependency, which is outside
+    # the dependency closure (CLAUDE.md rule 12).
     set(SPDLOG_USE_STD_FORMAT ON CACHE BOOL "" FORCE)
     set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(spdlog)
@@ -292,7 +292,7 @@ if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
 endif()
 
 # Compile-time gate: when ON, insecure = true in config causes init failure.
-# Default OFF (emit runtime warning only). See microtel-spec.md §12.3.
+# Default OFF (emit runtime warning only). See docs/configuration.md §3.5.
 option(MICROTEL_FORBID_INSECURE_TLS
     "Fail at init if insecure = true is configured" OFF)
 
@@ -453,7 +453,7 @@ install(TARGETS ${MICROTEL_EXPORTED_TARGETS}
     EXPORT MicrotelTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
-# The operator CLI from spec §6.4. The binary ships; `microtel_preflight_lib`
+# The operator CLI (docs/troubleshooting.md). The binary ships; `microtel_preflight_lib`
 # does not, and no target for either is exported — installing an executable
 # needs no export entry.
 install(TARGETS microtel-preflight
@@ -563,8 +563,8 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
-# per spec §14.2 / docs/coding-standards.md §11. Default ON; OFF skips the
-# whole tree for cross-compilation or constrained builds (spec §14.2).
+# per docs/coding-standards.md §11. Default ON; OFF skips the whole tree for
+# cross-compilation or constrained builds.
 option(MICROTEL_BUILD_BENCH "Build the benchmark harness (requires Docker)" OFF)
 
 if(MICROTEL_BUILD_BENCH)
@@ -586,7 +586,7 @@ if(MICROTEL_BUILD_TESTS)
     # GoogleTest via FetchContent — pinned to a stable tag — or, under
     # MICROTEL_USE_SYSTEM_DEPS, the installed package (GTestConfig.cmake
     # provides the same GTest::gtest and GTest::gtest_main targets).
-    # Test-only; not part of the runtime closure in microtel-spec.md §9.1.
+    # Test-only; not part of the runtime closure (CLAUDE.md rule 12).
     if(MICROTEL_USE_SYSTEM_DEPS)
         find_package(GTest CONFIG REQUIRED)
     else()

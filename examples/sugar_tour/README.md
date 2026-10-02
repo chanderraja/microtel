@@ -156,8 +156,8 @@ also the one to use in `-fno-rtti` builds, because the other one needs
 
 Setting `Error` status is a difference from opentelemetry-cpp, whose
 similarly named `Span::RecordException` leaves the status alone. Roadmap §5
-v1.1 specifies both the status and the event, and spec §18.1 excludes sugar
-from conformance testing, so this helper isn't measured against the OTel API.
+v1.1 specifies both the status and the event, and sugar is excluded from
+conformance testing ([ICP 0028](../../docs/icps/0028-sugar-surface.md)), so this helper isn't measured against the OTel API.
 
 `exception.stacktrace` and `exception.escaped` are left out. microtel doesn't
 capture stack traces, and the helper has no way to know whether the exception

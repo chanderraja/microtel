@@ -177,7 +177,7 @@ std::size_t PollForOccurrences(const std::filesystem::path& path,
 /// thing that fails when a limit changes. These are the ones that mean "a span
 /// this test emitted never reached the collector".
 ///
-/// @note Live coverage as of issue #181, which closed the last of the §13.5
+/// @note Live coverage as of issue #181, which closed the last of the v1.0
 ///       limits gates: every counter in the list below now has a producer in
 ///       `src/` (`transport_busy` at the transport's bounded request queue was
 ///       the last). It used to be a tripwire — when this note was written

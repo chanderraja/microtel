@@ -54,7 +54,7 @@ namespace microtel::config
 }
 
 
-/// @brief Controls treatment of unknown TOML keys (per spec §12 strict mode).
+/// @brief Controls treatment of unknown TOML keys (`docs/configuration.md` §1, strict by default).
 enum class UnknownKeyMode : std::uint8_t
 {
     Error = 0,   ///< unknown key is a fatal error (default)
@@ -113,11 +113,11 @@ struct Config
     /// @brief True when `service_name` holds the `unknown_service` placeholder
     ///        `Validate()` supplies rather than a value someone configured.
     ///
-    /// The placeholder is a built-in default, the lowest tier in §12.1, and so
-    /// sits *below* a resource detector's contribution in the §12.7 merge
-    /// order. The resource builder cannot tell the two apart from the string
-    /// alone — a user is free to configure `unknown_service` themselves — so
-    /// `Validate()` records which one it is.
+    /// The placeholder is a built-in default, the lowest tier in `docs/configuration.md`
+    /// §1, and so sits *below* a resource detector's contribution in the
+    /// resource merge order (§3.2 there). The resource builder cannot tell the two apart from the
+    /// string alone — a user is free to configure `unknown_service` themselves — so `Validate()`
+    /// records which one it is.
     bool service_name_defaulted{false};
 
     /// @brief Strict resource-detector policy: a failing detector fails `Build()`.

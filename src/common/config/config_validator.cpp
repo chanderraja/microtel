@@ -188,7 +188,7 @@ struct AuthorityPath
 
 /// @brief Resolve the effective protocol against the endpoint scheme.
 ///
-/// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (spec §12.2).
+/// `grpc://` and `grpcs://` are microtel shorthand for OTLP/gRPC (`docs/configuration.md` §3.3).
 /// The shorthand selects the protocol when the user has not named one; when the
 /// user has named `http`, the two disagree and the configuration is rejected
 /// rather than silently resolved in either direction — the same rule, and the
@@ -234,7 +234,7 @@ struct AuthorityPath
 /// @brief Reject `insecure = true` when the build forbids it.
 ///
 /// `MICROTEL_FORBID_INSECURE_TLS=ON` compiles the macro into this translation
-/// unit (see src/common/config/CMakeLists.txt). Spec §12.3 makes the refusal an
+/// unit (see src/common/config/CMakeLists.txt). `docs/configuration.md` §3.5 makes the refusal an
 /// initialisation failure, not a warning: a default build only warns, and
 /// `SdkBuilder`'s `WarnOnRiskyConfig` owns that half.
 ///
@@ -338,7 +338,7 @@ std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noe
 
 microtel::Expected<void, ConfigError> Validate(Config& cfg)
 {
-    // --- Protocol (spec §12.2) ---
+    // --- Protocol (docs/configuration.md §3.3) ---
     // Before the endpoint is parsed: the resolved protocol is what picks the
     // default port, so `grpc://collector` means 4317 and not 4318.
     auto protocol = ResolveProtocol(cfg);
@@ -355,7 +355,7 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
         return microtel::make_unexpected(endpoint.error());
     }
 
-    // --- gRPC path rejection (spec §12.2) ---
+    // --- gRPC path rejection (docs/configuration.md §3.3) ---
     if (cfg.protocol == Protocol::Grpc && !endpoint->path.empty())
     {
         return microtel::make_unexpected(
@@ -390,7 +390,7 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
     // keeps one owner for the default and leaves `Config` a complete record of
     // what the pipeline will actually report.
     // `service_name_defaulted` records which of the two it is, because the
-    // §12.7 merge order puts a built-in default below a detector's
+    // resource merge order (docs/configuration.md §3.2) puts a built-in default below a detector's
     // contribution and a configured name above it.
     cfg.service_name_defaulted = cfg.service_name.empty();
     if (cfg.service_name_defaulted)

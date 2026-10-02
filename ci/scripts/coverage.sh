@@ -4,10 +4,11 @@
 #
 # Aggregate coverage gate. Configures + builds + runs the test suite under
 # clang source-based coverage, exports an lcov tracefile with llvm-cov, and
-# fails if any coverage group is below its spec §14.2 floor.
+# fails if any coverage group is below its floor (docs/ci-architecture.md,
+# `coverage`).
 #
-# This is spec §13.5 release gate 11 ("test coverage thresholds met"). The
-# per-PR diff-coverage half of §14.2 is a separate CI step (`diff-cover`
+# This is the aggregate half of the coverage gate (CLAUDE.md rule 3). The
+# per-PR diff-coverage half is a separate CI step (`diff-cover`
 # against the same filtered tracefile); this script owns the aggregate half.
 #
 # ---------------------------------------------------------------------------
@@ -23,7 +24,7 @@
 #     return DoCreateCounterI64(std::move(name), std::move(description), ...);
 #
 # which hold no conditional at all. Whole-tree branch coverage read 57.8%
-# against 91.0% line for that reason alone, and the §14.2 branch floor had to
+# against 91.0% line for that reason alone, and the branch floor had to
 # ship measured-but-not-enforced.
 #
 # Clang's source-based coverage attaches counters to source *regions* the front
@@ -42,7 +43,7 @@
 # Up to llvm-cov 20, `export` emits one set of branch records per *template
 # instantiation*, while emitting **line** records already summed across
 # instantiations. The gate then compares a merged line percentage against a
-# per-instantiation branch percentage, which spec §14.2 states as if the two
+# per-instantiation branch percentage, which the floors state as if the two
 # were commensurable. Where an instantiation is never entered, the older
 # exporter emits `BRDA:…,-` records that are pure denominator.
 #
@@ -68,7 +69,7 @@
 # Group mapping
 # ---------------------------------------------------------------------------
 #
-# §14.2 states the thresholds against two named areas — "SDK and encoder code"
+# The floors are stated against two named areas — "SDK and encoder code"
 # and "transport and exporter paths" — without enumerating directories. The
 # mapping below is this script's reading of that wording. It is stated here
 # rather than buried in the code because the mapping, not the percentage, is
@@ -84,7 +85,7 @@
 #                            is in-process logic reachable from a unit test
 #                            with no socket, so it is held to the SDK floor
 #                            rather than the transport one.
-#     src/wire/encoder/**    the upb OTLP encoder — the "encoder" of §14.2
+#     src/wire/encoder/**    the upb OTLP encoder — the "encoder" of the floors
 #     leaf/**                the C leaf: span building and its OTLP encoder
 #                            backends (docs/leaf-concentrator-design.md);
 #                            measured when MICROTEL_BUILD_LEAF is on
@@ -136,7 +137,7 @@ BUILD_DIR="${1:-build/coverage}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# spec §14.2. Percentages, as integers.
+# docs/ci-architecture.md, `coverage`. Percentages, as integers.
 readonly SDK_LINE_MIN=90
 readonly SDK_BRANCH_MIN=85
 readonly TRANSPORT_LINE_MIN=80
@@ -502,7 +503,7 @@ awk \
         p = pct(brh[group], brf[group])
         if (floor_pct == 0)
         {
-            printf "    branch  %6.2f%%  (%5d/%5d)   no floor in §14.2\n",
+            printf "    branch  %6.2f%%  (%5d/%5d)   no floor\n",
                 p, brh[group], brf[group]
             return
         }
@@ -520,7 +521,7 @@ awk \
 
     END {
         print ""
-        print "=== Aggregate coverage vs spec §14.2 ==="
+        print "=== Aggregate coverage vs the floors ==="
 
         print ""
         print "  sdk-encoder  (include/microtel, src/api, src/sdk, src/common, src/wire/encoder, leaf)"

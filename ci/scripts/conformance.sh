@@ -6,7 +6,8 @@
 # for it to report healthy, and runs every ctest carrying the `conformance`
 # label against it.
 #
-# This is the spec §13.5 release gate: "OTLP/HTTP trace export passes
+# This is the Tier 1 conformance gate (docs/compatibility-matrix.md §7):
+# "OTLP/HTTP trace export passes
 # integration tests against the pinned OpenTelemetry Collector matrix", and the
 # same for OTLP/gRPC. A mock cannot discharge it — the claim is about a real
 # receiver accepting real bytes — so the collector is the system under test as

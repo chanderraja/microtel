@@ -360,7 +360,7 @@ void WarnOnUnknownKeys(const config::Config& cfg)
 ///
 /// Neither case is rejected here. Plaintext OTLP/HTTP is legitimate in front of
 /// an h2c-capable proxy (and the bench harness's own sink), and a default build
-/// permits `insecure = true` outright per spec §12.3 — the hard ban belongs to
+/// permits `insecure = true` outright (docs/configuration.md §3.5) — the hard ban belongs to
 /// `MICROTEL_FORBID_INSECURE_TLS=ON`, which `config::Validate` enforces before
 /// this ever runs. Both are, however, overwhelmingly likely to be a mistake,
 /// and `config::Validate` returns `Expected<void, ConfigError>`: it can reject
@@ -1148,7 +1148,7 @@ Expected<std::shared_ptr<Provider>, ConfigError> SdkBuilder::Build()
         return make_unexpected(r.error());
     }
 
-    // --- Step 3: resource (spec §12.7 — defaults, detectors, env, user) -----
+    // --- Step 3: resource (configuration.md §3.2 — defaults, detectors, env, user)
     auto resource_result = sdk::BuildResource(cfg, m_impl->resource_detectors, *profile);
     if (!resource_result)
     {

@@ -30,7 +30,7 @@
 # covers more than the CMake/header pair: it read "1.0.0" from M6-D onward while
 # the project version was still 0.1.0, and became correct only by coincidence
 # when 1.0.0 shipped. It reaches collectors as the `microtel.version` span
-# attribute (spec §6.4).
+# attribute (RELEASING.md §1).
 #
 # Usage:
 #   ci/scripts/version-drift-check.sh [repo-root]   (default: git toplevel)

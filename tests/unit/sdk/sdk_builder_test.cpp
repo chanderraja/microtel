@@ -491,7 +491,7 @@ TEST(SdkBuilderTest, Provider_DestroyedImmediatelyAfterBuild_TearsDownWithinBoun
 //
 // Neither configuration below is rejected: an h2c-capable proxy and the bench
 // harness's own blackhole sink both make plaintext OTLP/HTTP legitimate, and
-// `insecure = true` is permitted by spec §12.3. Both are, however, very likely
+// `insecure = true` is permitted by configuration.md §3.5. Both are, however, very likely
 // to be a mistake, and `config::Validate` returns `Expected<void, ConfigError>`
 // — it can reject but it cannot warn. These are the first production callers
 // of the internal log channel.
@@ -620,7 +620,7 @@ TEST(SdkBuilderTest, Build_HttpsEndpoint_DoesNotWarnAboutPlaintext)
     EXPECT_FALSE(capture.WarnedAbout(kPlaintextNeedle));
 }
 
-// Issue #284: spec §12.7 — each Build() logs its resolved Resource once, at
+// Issue #284: configuration.md §5 — each Build() logs its resolved Resource once, at
 // Info, naming the profile, so two named providers give two distinct lines.
 TEST(SdkBuilderTest, Build_MultiProfile_LogsOneResolvedResourceLinePerProvider)
 {
@@ -657,7 +657,7 @@ TEST(SdkBuilderTest, Build_InsecureTls_Warns)
 
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(capture.WarnedAbout(kInsecureNeedle))
-        << "spec §12.3 promises a prominent runtime warning for insecure = true";
+        << "configuration.md §3.5 promises a Warn line for insecure = true";
 }
 
 TEST(SdkBuilderTest, Build_VerifiedTls_DoesNotWarnAboutInsecure)

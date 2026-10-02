@@ -1,6 +1,6 @@
 # ICP 0037: retire `microtel-spec.md` — move what is still in force, rewrite the references, delete it
 
-**Status:** Draft — needs the maintainer's sign-off.
+**Status:** Accepted — 2026-10-02. Implemented in three follow-up PRs (move, rewrite references, delete).
 **Affected interfaces / docs:**
 - `microtel-spec.md` (deleted; archived at the `v1.2.1` tag)
 - `docs/compatibility-matrix.md` (gains the compatibility tiers, spec §2.2)

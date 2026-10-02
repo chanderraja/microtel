@@ -13,12 +13,14 @@
 #include "common/config/table_merge.hpp"
 
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace microtel::config
@@ -51,9 +53,58 @@ namespace
     return std::chrono::milliseconds{ms};
 }
 
+/// Optional whitespace around a W3C Baggage list member, key or value.
+constexpr std::string_view kOws = " \t";
+constexpr std::size_t kPercentEscapeLen = 3;  // '%' and two hex digits
+constexpr int kHexBase = 16;
+
+/// Strip leading and trailing spaces and tabs.
+[[nodiscard]] std::string_view TrimOws(std::string_view sv) noexcept
+{
+    const auto first = sv.find_first_not_of(kOws);
+    if (first == std::string_view::npos)
+    {
+        return {};
+    }
+    const auto last = sv.find_last_not_of(kOws);
+    return sv.substr(first, last - first + 1);
+}
+
+/// Decode `%XX` escapes. `std::nullopt` on a `%` not followed by two hex digits.
+[[nodiscard]] std::optional<std::string> PercentDecode(std::string_view sv)
+{
+    std::string out;
+    out.reserve(sv.size());
+    while (!sv.empty())
+    {
+        const auto pct = sv.find('%');
+        out.append(sv.substr(0, pct));
+        if (pct == std::string_view::npos)
+        {
+            break;
+        }
+        const std::string_view hex = sv.substr(pct + 1, kPercentEscapeLen - 1);
+        unsigned int byte = 0;
+        const auto [ptr, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), byte, kHexBase);
+        if (hex.size() != kPercentEscapeLen - 1 || ec != std::errc{} ||
+            ptr != hex.data() + hex.size())
+        {
+            return std::nullopt;
+        }
+        out.push_back(static_cast<char>(byte));
+        sv = sv.substr(pct + kPercentEscapeLen);
+    }
+    return out;
+}
+
 /// Parse a "key=value,key2=value2" list into KeyValue pairs.
 ///
-/// Each token must contain exactly one '='. Empty tokens are skipped.
+/// The OTel key=value variables use the W3C Baggage list format without
+/// metadata (issue #413): whitespace around each key and value is dropped, and
+/// values are percent-decoded after trimming, so `%20` survives as a space.
+/// Keys are not decoded. Each token must contain a '='; empty tokens are
+/// skipped. A malformed escape is `EnvParseFailure`, naming the key but not
+/// the value, which may be a secret.
 [[nodiscard]] microtel::Expected<std::vector<KeyValue>, ConfigError> ParseKeyValueList(
     std::string_view sv, const char* var_name)
 {
@@ -61,15 +112,8 @@ namespace
     while (!sv.empty())
     {
         const auto comma = sv.find(',');
-        const std::string_view token = sv.substr(0, comma);
-        if (comma == std::string_view::npos)
-        {
-            sv = {};
-        }
-        else
-        {
-            sv = sv.substr(comma + 1);
-        }
+        const std::string_view token = TrimOws(sv.substr(0, comma));
+        sv = (comma == std::string_view::npos) ? std::string_view{} : sv.substr(comma + 1);
         if (token.empty())
         {
             continue;
@@ -83,8 +127,19 @@ namespace
                 .message = std::string{var_name} +
                            ": malformed key=value pair (missing '='): " + std::string{token}});
         }
-        result.push_back(
-            {.key = std::string{token.substr(0, eq)}, .value = std::string{token.substr(eq + 1)}});
+        const std::string_view key = TrimOws(token.substr(0, eq));
+        auto value = PercentDecode(TrimOws(token.substr(eq + 1)));
+        if (!value)
+        {
+            return microtel::make_unexpected(
+                ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                            .field = var_name,
+                            .message = std::string{var_name} +
+                                       ": malformed percent-escape in "
+                                       "the value of " +
+                                       std::string{key} + " (expected %XX, two hex digits)"});
+        }
+        result.push_back({.key = std::string{key}, .value = std::move(*value)});
     }
     return result;
 }

@@ -170,6 +170,9 @@ the variable name in `field`.
 - **If you see** `<VAR>: malformed key=value pair (missing '='): <token>` **→**
   fix the comma-separated `k=v,k=v` list (for example
   `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`).
+- **If you see** `<VAR>: malformed percent-escape in the value of <key> (expected %XX, two hex digits)`
+  **→** values in these lists are percent-decoded, so a literal `%` must be
+  written `%25`. A space is `%20`, a comma `%2C`, an `=` `%3D`.
 
 ### Request headers
 

@@ -254,6 +254,7 @@ A minimal `main.cpp` that sends one span to a local collector:
 #include <microtel/tracer.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -283,9 +284,12 @@ int main()
     }  // The span ends here and the batch processor exports it in the background.
 
     const microtel::Status flushed = provider->ForceFlush(std::chrono::seconds{5});
-    // Completed means the queue drained; a batch the collector rejected also drains.
-    const bool delivered =
-        flushed == microtel::Status::Completed && provider->GetExporterHealth().batches_failed == 0;
+    // Completed means the queue drained; a batch the collector rejected also drains,
+    // and a span it rejected via OTLP partial success is counted as a drop, not a failure.
+    const microtel::HealthSnapshot health = provider->GetExporterHealth();
+    const auto rejected = static_cast<std::size_t>(microtel::DropReason::PartialSuccessRejection);
+    const bool delivered = flushed == microtel::Status::Completed && health.batches_failed == 0 &&
+                           health.drop_counters[rejected] == 0;
     const microtel::Status shut = provider->Shutdown(std::chrono::seconds{5});
     return (delivered && shut == microtel::Status::Completed) ? 0 : 2;
 }
@@ -299,7 +303,10 @@ The API does not throw. `StartSpan`, `SetAttribute`, `AddEvent` and `End` are
 `TimedOut`, `AlreadyShutDown` or `Failed`. `Completed` is not a delivery
 receipt: it means the queue drained, which is also true when the collector
 rejected a batch. `GetExporterHealth().batches_failed` and
-`last_error_message` say whether one was rejected.
+`last_error_message` say whether one was rejected. A collector can also
+answer with OTLP partial success, accepting the request but rejecting some
+or all of its spans: that batch counts as sent, and the rejected spans show
+up only in the `DropReason::PartialSuccessRejection` entry of `drop_counters`.
 
 Nothing touches the network until the first export. Call
 `provider->Connect()` if you want a bad endpoint reported at startup. A span
@@ -434,7 +441,8 @@ setting with its environment variable, TOML key and default.
 configuration the same way the SDK does and then attempts a real connection
 or export, which is a quick way to check a deployment before it goes live.
 `--preflight=export` exits 0 only if the span was exported and the collector
-accepted it; a rejected batch exits 3 with the collector's error.
+accepted it; a rejected batch exits 3 with the collector's error, and so does
+a span the collector rejected via OTLP partial success.
 
 ## Build options
 

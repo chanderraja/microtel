@@ -32,7 +32,7 @@ namespace tools
 namespace
 {
 
-constexpr std::string_view kVersion = "1.2.1";
+constexpr std::string_view kVersion = "1.2.2";
 constexpr std::string_view kPreflightFlag = "--preflight=";
 
 /// The synthetic span's `service.name`, fixed so a collector rule

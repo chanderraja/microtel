@@ -183,3 +183,23 @@ asserts the limitation *and* its error message, and the sibling HTTP
 conformance tests point at TLS endpoints because of it. If that test starts
 failing, this section and [`interop-matrix.md`](interop-matrix.md) §4 are part
 of the change.
+
+---
+
+## 7. Compatibility tiers
+
+Compatibility is defined in tiers so the promise is testable, not aspirational:
+
+| Tier | Promise |
+|---|---|
+| **Tier 1: OTLP wire compatibility** | Exported payloads are accepted by receivers implementing the pinned OTLP specification version, over both OTLP/HTTP-protobuf and OTLP/gRPC. The client correctly parses success, failure, retryable failure, and partial-success responses. Compatibility is measured against a pinned `opentelemetry-proto` tag and an interop matrix of collector and backend versions (§2 of this file and [`interop-matrix.md`](interop-matrix.md)). |
+| **Tier 2: OpenTelemetry data-model compatibility** | Traces, attributes, resources, and instrumentation scope map to the OpenTelemetry protobuf schemas. |
+| **Tier 3: API-adapter compatibility** | Optional shims support common `opentelemetry-cpp` and `opentelemetry-python` use cases. The supported subset is documented in §2 of this file. |
+| **Tier 4: Full SDK conformance** | Every requirement in the OpenTelemetry SDK specification is met. |
+
+This section defines the tiers. Which signals each release
+claims at which tier is in [`microtel-roadmap.md`](../microtel-roadmap.md) §3,
+and the gates a release must pass to promote a tier are in its §10. The rows
+in §2–§5 are the per-feature evidence. For traces, Tier 1 holds over OTLP/gRPC
+and over OTLP/HTTP with TLS; plaintext OTLP/HTTP does not reach an
+HTTP/1.1-only receiver (§4).

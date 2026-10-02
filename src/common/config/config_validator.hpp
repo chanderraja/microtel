@@ -38,6 +38,16 @@ struct BatchOptionsFault
 /// @return The first rule @p opts breaks, or `std::nullopt` if it is coherent.
 [[nodiscard]] std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noexcept;
 
+/// @brief Why @p value cannot be an HTTP/2 field value (RFC 9113 §8.2.1).
+///
+/// Rejects NUL, CR and LF anywhere, and SP or HTAB at either end. Shared by
+/// `Validate` (static headers) and `CallbackAuthProvider` (the callback's
+/// `authorization` value), issue #412.
+///
+/// @return A message fragment naming the rule, never the value, or
+///         `std::nullopt` if @p value is valid. Points at a string literal.
+[[nodiscard]] std::optional<std::string_view> FieldValueFault(std::string_view value) noexcept;
+
 /// @brief Reject a static `authorization` header (ICP 0038 rule 4).
 ///
 /// `SdkBuilder::Build` calls this when `WithAuthProvider` is set: the
@@ -69,6 +79,7 @@ struct BatchOptionsFault
 ///     (so no pseudo-headers), not connection-specific, not `host`, and not
 ///     a name the codec for the resolved protocol sets itself.
 ///     `InvalidValue` on `exporter.headers.<name>`.
+///   - Static header values (issue #412): `FieldValueFault`, same error.
 ///   - Batch: `CheckBatchOptions` — non-zero queue and batch sizes,
 ///     max_export_batch_size ≤ max_queue_size, positive schedule_delay.
 ///

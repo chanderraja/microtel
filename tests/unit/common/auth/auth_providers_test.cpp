@@ -204,6 +204,36 @@ TEST(CallbackAuthProviderTest, CallbackError_DoesNotCache_NextCallRetries)
 // CallbackAuthProvider — throwing callback (issue #251, interfaces.md §4.9)
 // ---------------------------------------------------------------------------
 
+// Issue #412: a value HTTP/2 cannot carry is an error, so the batch is
+// dropped instead of sending a malformed (or header-injecting) request.
+TEST(CallbackAuthProviderTest, MalformedValue_IsAnErrorAndNotCached)
+{
+    int call_count = 0;
+    std::string value = "Bearer tok\r\nx-injected: 1";
+    mc::CallbackAuthProvider provider{[&]() -> mt::Expected<std::string, mt::Error>
+                                      {
+                                          ++call_count;
+                                          return value;
+                                      },
+                                      std::chrono::seconds(60)};
+
+    const mtfk::FakeSteadyClock clock;
+    const auto bad = provider.GetAuthorization(clock.Now());
+    ASSERT_FALSE(bad.has_value());
+    EXPECT_EQ(bad.error().kind, mt::Error::Kind::Malformed);
+    EXPECT_EQ(bad.error().message.find("Bearer tok"), std::string::npos)
+        << "the message leaks the value";
+
+    value = " Bearer tok";
+    EXPECT_FALSE(provider.GetAuthorization(clock.Now()).has_value());
+    ASSERT_EQ(call_count, 2) << "a malformed value must not be cached";
+
+    value = "Bearer tok";
+    const auto good = provider.GetAuthorization(clock.Now());
+    ASSERT_TRUE(good.has_value());
+    EXPECT_EQ(good->value(), "Bearer tok");  // NOLINT(bugprone-unchecked-optional-access)
+}
+
 TEST(CallbackAuthProviderTest, ThrowingCallback_ConvertsToInternalFailure)
 {
     mc::CallbackAuthProvider provider{[]() -> mt::Expected<std::string, mt::Error>

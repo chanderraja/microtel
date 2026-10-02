@@ -200,6 +200,11 @@ header can come from `WithHeaders`, `OTEL_EXPORTER_OTLP_HEADERS` or
 - **If you see** `header "content-length" cannot be fixed on gRPC, where every request body has its own length`
   **→** remove it. microtel sends no `content-length` on gRPC, and a fixed
   value would be wrong for every batch but one.
+- **If you see** `header "<name>" value contains CR, LF or NUL, which HTTP/2 forbids (RFC 9113 §8.2.1)`
+  or `header "<name>" value starts or ends with a space or tab, which HTTP/2 forbids (RFC 9113 §8.2.1)`
+  **→** fix the value. A TOML escape such as `\n` puts a real line break into
+  it. In `OTEL_EXPORTER_OTLP_HEADERS`, write a space that belongs to the value
+  as `%20`.
 - **If you see** `header "<name>" is set by the WithAuthProvider callback; set one or the other`
   **→** a static `authorization` header and `WithAuthProvider` would send two
   `authorization` headers. Keep one; the static header may be coming from

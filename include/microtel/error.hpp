@@ -34,8 +34,10 @@ public:
         /// Peer signalled overload (retryable per RetryInfo), or a local
         /// transport queue refused the work at its bound.
         ResourceExhausted = 3,
-        Cancelled = 4,        ///< local cancel (timeout, shutdown)
-        Malformed = 5,        ///< unparseable response or trailer
+        Cancelled = 4,  ///< local cancel (timeout, shutdown)
+        /// Unparseable response or trailer, or an auth callback value that
+        /// HTTP/2 cannot carry (issue #412).
+        Malformed = 5,
         InternalFailure = 6,  ///< microtel internal bug; should not occur
     };
 

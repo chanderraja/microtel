@@ -42,13 +42,18 @@ description of current enforcement — read the Today column for that.
 | Do not allow bypassing the above settings | ✅ | ✅ | `enforce_admins: true` |
 | Restrict who can push to matching branches | ✅ | ❌ | |
 
-**Required status checks (13, enforced today).** Names must match the job `name:`
+**Required status checks (14, enforced today).** Names must match the job `name:`
 in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) exactly — renaming a
 job silently un-requires it:
 
 `clang-format`, `clang-tidy`, `cxx20 / clang`, `cxx20 / gcc`, `asan`, `tsan`,
 `ubsan`, `coverage`, `symbol-scan`, `conformance`, `regen-check`,
-`version-drift-check`, `citation-check`
+`version-drift-check`, `citation-check`, `system-deps`
+
+On a docs-only pull request (every changed path is `*.md`, `docs/**` or
+`tools/diagrams/**`; see `ci/scripts/classify-change.sh`) the heavy jobs skip
+their work but still report: a job skipped by its `if` counts as passing, and
+the matrix jobs (`cxx20 / …`, the sanitizers) run with every step skipped.
 
 `regen-check` has been required in the GitHub settings since v1.0 — this
 document said otherwise until the drift was caught while reconciling the list
@@ -178,7 +183,7 @@ Blank issues are disabled. Anyone opening an issue picks a template, which force
 - **CI minutes don't get burned by spam PRs.** Fork workflow approval requirement.
 - **Secrets stay safe.** Forks don't get write tokens or secrets.
 - **You're auto-requested as reviewer for everything.** Via CODEOWNERS.
-- **Nothing merges without green CI.** The 13 required status checks are enforced, admins included. (Approval-based gating is a *target*, not configured today — see Layer 2.)
+- **Nothing merges without green CI.** The 14 required status checks are enforced, admins included. (Approval-based gating is a *target*, not configured today — see Layer 2.)
 - **External contributors are routed to the right channel** — Issues, Discussions, or an ICP — via templates and config.yml.
 
 This is the right set of layers for a released, publicly developed OSS project.

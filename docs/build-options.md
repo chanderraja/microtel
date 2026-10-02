@@ -16,7 +16,7 @@ Declared in the top-level `CMakeLists.txt`.
 |---|---|---|
 | `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree (fetches GoogleTest). Set `OFF` for install-only or cross builds. |
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the programs under [`examples/`](../examples/). |
-| `MICROTEL_USE_SPDLOG` | `ON` | spdlog for internal diagnostics. `OFF` uses a minimal stderr logger instead; sink injection still works. |
+| `MICROTEL_USE_SPDLOG` | `ON` | Builds the opt-in spdlog log bridge, `microtel_spdlog_bridge` ([`src/adapters/spdlog/`](../src/adapters/spdlog/README.md)), which forwards an application's spdlog messages into microtel's OTLP logs. It does not change microtel's own diagnostics: those go to stderr, or to a `SetLogSink` callback, in every build. No installed archive references spdlog. `OFF` drops the bridge and the spdlog download. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | `ON` makes a configuration with `tls.insecure = true` fail `Build()` with `ConfigError::Kind::InsecureDisallowed`; default builds warn instead ([configuration.md](configuration.md) §3.5). |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp API shim, source-only ([ICP 0014](icps/0014-otelcpp-shim-and-rule-13.md), [migration guide](migration-from-otel-cpp.md)). |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests ([`src/adapters/glog/`](../src/adapters/glog/README.md)). Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |

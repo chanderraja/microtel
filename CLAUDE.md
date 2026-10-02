@@ -22,9 +22,13 @@ Durable rules-of-engagement for Claude Code (and any other AI coding agent) work
 
 ### Authoritative documents
 
-- **`microtel-spec.md`** — the v1 specification. Source of truth for everything in v1.0.
-- **`microtel-roadmap.md`** — multi-year roadmap, v1.0 → v3.0. Source of truth for what's deferred and when.
+- **The design docs in `docs/`** — [`docs/architecture.md`](docs/architecture.md), the threading, memory and error models, [`docs/grpc-wire-protocol.md`](docs/grpc-wire-protocol.md), and the metrics, logs and leaf / concentrator design docs. [`docs/README.md`](docs/README.md) indexes them.
 - **`docs/interfaces.md`** — internal interface contracts. Created in M0; sign-off required before M1 begins.
+- **`docs/configuration.md`** — every setting, its sources and precedence.
+- **`docs/icps/`** — the Interface Change Proposals: every decision made since M0, and how each changed the documents above.
+- **`microtel-roadmap.md`** — multi-year roadmap, v1.0 → v3.0. Source of truth for what's deferred and when.
+
+The original v1.0 design specification was retired by [ICP 0037](docs/icps/0037-retire-the-v1-spec.md); it is archived at the `v1.2.1` tag ([`microtel-spec.md`](https://github.com/chanderraja/microtel/blob/v1.2.1/microtel-spec.md)). "spec §N" citations inside ICPs refer to it; [`docs/README.md`](docs/README.md) maps each section to its current home.
 
 ---
 
@@ -145,7 +149,7 @@ After M2 lands the project skeleton, each `src/<directory>/` is owned per `CODEO
 1. Run `git status` and `git log --oneline -20`.
 2. Read this file (CLAUDE.md).
 3. Determine the current phase (see "Current phase" above).
-4. Read the spec section relevant to the phase you're in.
+4. Read the design doc for the area you're touching (see "Authoritative documents").
 5. If working in `src/`, read that directory's `README.md`.
 6. If touching an interface, read its entry in `docs/interfaces.md`.
 
@@ -218,7 +222,7 @@ If a new header or library is needed (e.g., a new `apt` package), add it to **al
 ## Working with the user
 
 - **Iterate.** Propose, get feedback, revise. Don't try to ship multi-component changes in one shot.
-- **Ask clarifying questions** when the spec is ambiguous, before writing code.
+- **Ask clarifying questions** when the design docs are ambiguous, before writing code.
 - **Surface decisions, don't make them silently.** If a change requires picking between two reasonable approaches, ask which the user prefers.
 - **Use the ICP process** for interface changes — don't argue them in PR comments.
 - **Keep ICPs short.** A few paragraphs. They're heads-up documents, not multi-week reviews.

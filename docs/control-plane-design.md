@@ -24,7 +24,7 @@ attached to when it will be.
 
 **Why deferred.** M10 has not shipped. Nothing is packageable, and nothing is
 deployed. An operator-facing administrative interface designed with zero
-operational feedback — and then frozen under spec §19's compatibility policy —
+operational feedback — and then frozen under the compatibility policy in `RELEASING.md` §7 —
 is a bad trade. The signal that would justify building it is concrete: a real
 user reporting that they could not turn up sampling during an incident. That
 signal cannot exist yet, because there are no users in production to produce
@@ -46,19 +46,21 @@ incident response. It is also all of it.
 **Revisit trigger.** Real deployment feedback after v1.0 asking for runtime
 reconfiguration. Not a date, and not a milestone slot.
 
-**On the spec and roadmap.** `microtel-spec.md` and `microtel-roadmap.md` are
-deliberately **not** amended to match this document. §3 (wire format), §5
-(client language), and §9 (fourth thread role) are design-doc decisions whose
-ICPs were never filed; with implementation deferred, those ICPs stay unfiled
-and the spec keeps saying what it has always said — a Go `microtelctl`,
+**On the roadmap.** `microtel-roadmap.md` is deliberately **not** amended to
+match this document, and neither was the v1.0 design specification while it
+was in the tree (it was retired by
+[ICP 0037](icps/0037-retire-the-v1-spec.md)). §3 (wire format), §5 (client
+language), and §9 (fourth thread role) are design-doc decisions whose ICPs
+were never filed; with implementation deferred, those ICPs stay unfiled and
+the roadmap keeps saying what the v1.0 design said — a Go `microtelctl`,
 length-prefixed JSON, three thread roles. **The divergence between this
-document and the spec is therefore deliberate and unresolved, not an
+document and the roadmap is therefore deliberate and unresolved, not an
 oversight.** Anyone reconciling the two later should start by filing the three
-ICPs, not by editing the spec to match this file.
+ICPs, not by editing the roadmap to match this file.
 
 This document settles the decisions M15 (control plane + hot reload) cannot be
 built without, the same way `docs/metrics-design.md` preceded M12 and
-`docs/logs-design.md` preceded M14. Spec §18.1 defers the control plane's
+`docs/logs-design.md` preceded M14. The v1.0 design deferred the control plane's
 *"scope and threat model"* to "v1.1 design", and `docs/configuration.md:228`
 forward-references *"the v1.1 control-plane design doc when written"* — this is
 that document.
@@ -164,7 +166,7 @@ socket (§8); it is **not** deferred with the rest of M15 and has its own issue
 
 ## §1 Prerequisite: M15's dependency has not shipped
 
-Spec §13 lists M15's "Depends on" as **M10 — v1.0 traces release**. M10 has
+The v1.0 milestone plan listed M15's "Depends on" as **M10 — v1.0 traces release**. M10 has
 not happened: the newest tag is `v0.2.0-m2`, and there are **zero `install()`
 rules in the build** — nothing is packageable today. That matters directly,
 because `microtel-roadmap.md:91` specifies `microtelctl` ships as
@@ -174,7 +176,7 @@ packaging machinery does not exist for *any* target (issue #19).
 A control plane is an operator-facing surface. Its value is administering a
 deployed process; nothing is deployed. Building it now means designing an
 administrative interface with zero operational feedback, then supporting it
-under the §19 compatibility policy.
+under the compatibility policy (`RELEASING.md` §7).
 
 **Decision.** M15 proceeds **design-only**: this document is the deliverable,
 and implementation waits on either (a) M10 shipping, or (b) an explicit
@@ -185,7 +187,7 @@ draft over-reached. It is **not** that §3 and §5 inform M10's scope — they d
 not. The control plane is off by default and not in the v1.0 cut, so neither
 the wire format nor the client language touches what M10 ships. The actual
 reason is the one above: an administrative interface designed with zero
-operational feedback, then frozen under §19's compatibility policy, is a bad
+operational feedback, then frozen under that compatibility policy, is a bad
 trade that gets worse the longer it is supported.
 
 Note this defers the socket work only. The two prerequisites that were
@@ -336,7 +338,7 @@ socket travels to v1.4 rather than being cancelled.
 
 ## §3 Wire format: JSON needs a parser microtel does not have
 
-Spec §18.1 specifies "length-prefixed JSON wire". **There is no JSON parser in
+The v1.0 design specified a "length-prefixed JSON wire". **There is no JSON parser in
 the dependency closure.** CLAUDE.md rule 12 fixes that closure at nghttp2,
 OpenSSL, upb, zlib, and optional spdlog; `third_party/` holds `tl-expected`,
 `upb`, `utf8_range`, and toml++. upb's `upb/json/` is explicitly **not
@@ -397,7 +399,7 @@ little left to find.
 
 ## §4 Threat model
 
-Spec §19 lists the threat model as *"initial: enumerated for the v1.1 control
+The v1.0 governance section listed the threat model as *"initial: enumerated for the v1.1 control
 plane"* — this is the first time it is written down, and
 `microtel-roadmap.md:93` makes *"control plane has a documented threat model"*
 a ship gate.
@@ -414,7 +416,7 @@ read back its resolved config and health.
 |---|---|
 | Any local user connects and reconfigures the process | Socket mode `0600` owned by the process UID, **and** an `SO_PEERCRED` check rejecting any UID that is neither the process UID nor root. Both, not either. |
 | Socket path predictable or squatted before bind | **The path is required configuration with no default** — see below. Bind to a temp name and `rename()` into place; refuse to unlink an existing path that is not a socket we own. |
-| Secret disclosure via read-back | §12.6 redaction applies unconditionally to every response. There is **no control-plane equivalent of `--show-secrets`** — secrets are never readable over the socket at any privilege level. |
+| Secret disclosure via read-back | Secret redaction (`configuration.md` §5) applies unconditionally to every response. There is **no control-plane equivalent of `--show-secrets`** — secrets are never readable over the socket at any privilege level. |
 | Malformed frame → parser exploit | §3's restricted grammar, pre-parse size cap, dedicated fuzz harness (§10). |
 | Resource exhaustion (connection flood, slowloris) | Single-threaded accept loop, max 4 concurrent connections, per-connection idle timeout, bounded read buffer. Reject rather than queue. |
 | **`SIGPIPE` kills the process** | **Live hazard, not hypothetical.** A UDS write to a client that has hung up — trivially triggered by Ctrl-C'ing `microtelctl` — would terminate the host application. Every control-plane `send` must use `MSG_NOSIGNAL`. The transport settled this for its own sockets in issue #177 and the precedent is `src/transport/nosignal_io.hpp`: per-write suppression, no process-global disposition anywhere. Process-wide `SIG_IGN` remains the alternative and remains a library imposing policy on its host, which would need its own ICP. |
@@ -449,8 +451,8 @@ a hardening nicety.
 
 ## §5 `microtelctl`: Go or C++
 
-The spec and roadmap say Go in **four places** — `microtel-spec.md:659`,
-`:923`, `microtel-roadmap.md:85`, and `:91` — and `:91` further specifies it
+The v1.0 design and the roadmap said Go in **four places** — twice in the
+v1.0 design, and at `microtel-roadmap.md:85` and `:91` — and `:91` further specifies it
 ships as a standalone binary in `.deb`/`.rpm`/`.tar.gz` *"separate from the
 core runtime package"*. Reversing this is a real decision, not a detail.
 
@@ -516,7 +518,7 @@ Two rules matter more than the table:
 
 ## §7 Multi-profile
 
-"Multi-profile within one process" (spec §12.8, §18.1) means several named
+"Multi-profile within one process" (a v1.0 design item deferred to v1.1) means several named
 config profiles with one active at a time.
 
 This touches a **LOCKED** constraint: `docs/threading-model.md:44` states
@@ -541,7 +543,7 @@ transport re-establishment and defers to whichever milestone solves reconnect.
 
 ## §8 `SIGHUP`, and an unimplemented prerequisite
 
-Spec §923 scopes "config reload via SIGHUP" into the control plane.
+The v1.0 design scoped "config reload via SIGHUP" into the control plane.
 
 **microtel installs no signal handlers today** — no `signal(`, no `sigaction`,
 and no `SIGHUP` anywhere in `src/`, and `threading-model.md` §7.1 makes that a
@@ -687,7 +689,7 @@ M15**:
 
 | Increment | Scope | State |
 |---|---|---|
-| L1 | ICPs: §3 wire, §5 client language, §9 threading-model amendment, §12.8 anti-goal lift | deferred |
+| L1 | ICPs: §3 wire, §5 client language, §9 threading-model amendment, lifting the v1.0 "not in v1" items (hot reload, multi-profile) | deferred |
 | L2 | Request tokenizer + response serializer + fuzz harness. No socket. | deferred |
 | L3 | `UniqueUnixListener`, UDS server, §4 controls, required-path config | deferred |
 | L4 | Tier-1 setters (batch/interval) + `status`/`get`/`set`/`flush` dispatch | deferred |
@@ -701,7 +703,7 @@ LOCKED audit** (§0).
 
 ## References
 
-- `microtel-spec.md` §12.8, §18.1, §19, §13; `microtel-roadmap.md:85,91,93`
+- The v1.0 design specification (retired by [ICP 0037](icps/0037-retire-the-v1-spec.md); [`README.md`](README.md) maps its sections to their current homes); `microtel-roadmap.md:85,91,93`
 - `docs/metrics-design.md`, `docs/logs-design.md` — the precedent this follows
 - `docs/configuration.md:228` — forward-reference to this document
 - `docs/icps/0017-lazy-transport-connect.md` — the silent-no-op failure mode §6 avoids repeating

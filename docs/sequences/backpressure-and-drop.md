@@ -1,7 +1,7 @@
 # Sequence: Backpressure and Drop
 
 **Status:** M0 deliverable. Normative timeline for queue overflow under sustained load.
-**See also:** `microtel-spec.md` §5.4, `memory-model.md` §6, `error-model.md` §3, `threading-model.md` §3.1.
+**See also:** `configuration.md` §3.7 (`drop_policy`), `memory-model.md` §6, `error-model.md` §3, `threading-model.md` §3.1.
 
 This is the sequence operators care about most: what does microtel do when telemetry production exceeds export throughput?
 

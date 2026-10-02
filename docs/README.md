@@ -35,14 +35,14 @@ public headers in [`include/microtel/`](../include/microtel/).
 
 ## Contributing and design
 
-A note on the spec: [`microtel-spec.md`](../microtel-spec.md) is the original
-v1.0 design specification. The implementation has run ahead of it (its own
-§13 says so); later behaviour is recorded in the design documents and ICPs
-below.
+The design documents below, the ICPs and [`interfaces.md`](interfaces.md)
+are the working record. The original v1.0 design specification was retired by
+[ICP 0037](icps/0037-retire-the-v1-spec.md); [where its sections live
+now](#where-the-v10-specifications-sections-live-now) is at the end of this
+page.
 
 | Document | What it is for |
 |---|---|
-| [microtel-spec.md](../microtel-spec.md) | The original v1.0 specification. |
 | [microtel-roadmap.md](../microtel-roadmap.md) | What ships in which release, v1.0 onward. |
 | [architecture.md](architecture.md) | The layered structure of the runtime: what each layer owns and how they connect. |
 | [interfaces.md](interfaces.md) | The locked contracts for every internal interface in `include/microtel/internal/`. |
@@ -81,3 +81,29 @@ SVGs.
 
 Also see [`CONTRIBUTING.md`](../CONTRIBUTING.md), [`RELEASING.md`](../RELEASING.md)
 and, for AI coding agents, [`CLAUDE.md`](../CLAUDE.md).
+
+## Where the v1.0 specification's sections live now
+
+"spec §N" citations inside the ICPs refer to the v1.0 design specification,
+archived at
+<https://github.com/chanderraja/microtel/blob/v1.2.1/microtel-spec.md>
+([ICP 0037](icps/0037-retire-the-v1-spec.md)). The ICPs are append-only, so
+their citations stay as written; this table is the key to where each topic
+lives now.
+
+| Spec | Now lives in |
+|---|---|
+| §1–§4 Summary, goals, non-goals, motivation | [README "Why it exists"](../README.md#why-it-exists); [roadmap](../microtel-roadmap.md) §8 anti-goals |
+| §2.2 Compatibility tiers | [compatibility-matrix.md](compatibility-matrix.md) §7 |
+| §5 Architecture | [architecture.md](architecture.md), the [threading](threading-model.md), [memory](memory-model.md) and [error](error-model.md) models |
+| §6 API, §8 SDK features | the public headers' Doxygen in [`include/microtel/`](../include/microtel/), [interfaces.md](interfaces.md), [README "Status"](../README.md#status) |
+| §7 Wire protocols | [grpc-wire-protocol.md](grpc-wire-protocol.md) |
+| §9 Build & dependencies | [build-options.md](build-options.md); [`CLAUDE.md`](../CLAUDE.md) rules 12–13 |
+| §10 Performance targets | [bench-spec.md](bench-spec.md) §14 |
+| §11 Project structure | [repository-layout.md](repository-layout.md) |
+| §12 Configuration | [configuration.md](configuration.md) |
+| §13, §16–§18 Roadmap, risks, open questions, future | [microtel-roadmap.md](../microtel-roadmap.md) and the design docs |
+| §14 Engineering practices | [`CONTRIBUTING.md`](../CONTRIBUTING.md), [coding-standards.md](coding-standards.md), [ci-architecture.md](ci-architecture.md) |
+| §15 Compatibility & interop | [compatibility-matrix.md](compatibility-matrix.md), [interop-matrix.md](interop-matrix.md) |
+| §19 Versioning, ABI, cadence | [`RELEASING.md`](../RELEASING.md) §7 |
+| §19 DCO, security, CODEOWNERS, CI quality gates | [`CONTRIBUTING.md`](../CONTRIBUTING.md), [`SECURITY.md`](../SECURITY.md), [`CODEOWNERS`](../CODEOWNERS), [ci-architecture.md](ci-architecture.md) |

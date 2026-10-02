@@ -485,7 +485,7 @@ Highlights for users: [configuration](docs/configuration.md),
 [error](docs/error-model.md), [threading](docs/threading-model.md) and
 [memory](docs/memory-model.md) models.
 
-Highlights for contributors: the [specification](microtel-spec.md), the
+Highlights for contributors: the
 [roadmap](microtel-roadmap.md), [architecture](docs/architecture.md), the
 locked [interface contracts](docs/interfaces.md),
 [metrics design](docs/metrics-design.md),

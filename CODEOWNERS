@@ -37,7 +37,7 @@
 /include/microtel/                      @chanderraja
 
 # ----------------------------------------------------------------------
-# Track-owned source directories (per spec §13.1)
+# Track-owned source directories (tracks: docs/development.md)
 # Each track gets its own CODEOWNERS line as the project grows.
 # ----------------------------------------------------------------------
 
@@ -118,5 +118,4 @@
 /CLAUDE.md                              @chanderraja
 /SECURITY.md                            @chanderraja
 /CODEOWNERS                             @chanderraja
-/microtel-spec.md                       @chanderraja
 /microtel-roadmap.md                    @chanderraja

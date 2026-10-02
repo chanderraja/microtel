@@ -1,7 +1,7 @@
 # Sequence: Connection Establishment
 
 **Status:** M0 deliverable. Normative timeline for the first request after `Provider::Build()` returns.
-**See also:** `architecture.md` §3.6 (Transport), `threading-model.md` §2.3 (I/O thread), `interfaces.md` §4.1 (`ITransport`), `microtel-spec.md` §5.
+**See also:** `architecture.md` §3.6 (Transport), `threading-model.md` §2.3 (I/O thread), `interfaces.md` §4.1 (`ITransport`).
 
 ---
 
@@ -69,7 +69,7 @@ Caller          Exporter Worker    I/O Thread          DNS          Peer
 4. ALPN negotiates `h2`. If the peer does not select `h2`, the transport returns `Error::Kind::Network` from `Connect` with a diagnostic explaining the ALPN failure.
 5. Once SETTINGS ACKs are exchanged in both directions, the connection is `Connected` and ready for `Send` calls. The exporter worker is started by the SDK after `Connect` returns success.
 
-**Timeouts** apply per spec §7.3:
+**Timeouts** apply per `configuration.md` §3.4:
 
 | Stage | Timeout |
 |---|---|

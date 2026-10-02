@@ -2,7 +2,7 @@
 
 **Status:** M0 deliverable. Normative for the layered structure of v1.
 **Companion documents:** `threading-model.md`, `memory-model.md`, `error-model.md`, `interfaces.md`, `grpc-wire-protocol.md`, and `sequences/*.md`.
-**Source of truth for rationale:** `microtel-spec.md` §5.
+**Source of truth for rationale:** this document, the models listed above for their topics, and the ICPs in [`icps/`](icps/README.md).
 
 ---
 
@@ -111,7 +111,7 @@ The deeper implementation notes for the gRPC codec — state machine, byte-level
 
 **Absent with an application `ExportTransport`.** `Build()` constructs no `Http2Transport` and no reactor, so there is no I/O thread, and `Provider::Connect()` succeeds without doing anything. The library still links nghttp2, OpenSSL and zlib; compiling them out belongs to ICP 0030's feature selection ([ICP 0036](icps/0036-custom-export-transport.md) Decision 5).
 
-**Connection policy.** One HTTP/2 connection per `(endpoint, protocol)` tuple by default. Optional experimental coalescing for shared HTTP+gRPC endpoints is gated behind explicit config and a startup preflight; off by default. See `microtel-spec.md` §5.2.
+**Connection policy.** One HTTP/2 connection per `(endpoint, protocol)` tuple by default. Real infrastructure (collectors, gateways, proxies, meshes, load balancers) often routes 4317 and 4318 differently, so microtel never shares one connection between OTLP/HTTP and OTLP/gRPC, even when the endpoint is the same.
 
 ### 3.7 Common — `src/common/`
 
@@ -120,7 +120,7 @@ A small set of shared, layer-independent services:
 - **`src/common/raii/`** — `UniqueFd`, `SslCtx`, `SslSession`, `Nghttp2Session`. Each is move-only, has a `noexcept` destructor, and exposes `Release()` for explicit ownership transfer. (`UpbArena` follows the same contract but lives in `src/wire/encoder/`, since including it means including upb.)
 - **`src/common/config/`** (Track E) — `microtel.toml` parser, env-var resolution, validation. Returns a frozen, validated `Config` value to the SDK.
 - **Logging** — spdlog-by-default (header-only, `SPDLOG_USE_STD_FORMAT`), with a minimal stderr fallback when `MICROTEL_USE_SPDLOG=OFF`. Sink injection via `LogSink` (public). Internal diagnostics are **never** routed back through microtel's own OTLP exporter — see `error-model.md` §9.
-- **Errors and limits** — `microtel::Error`, `ConfigError`, the lifecycle `Status` enum, the byte / record / response / trailer / decompression budget constants from `microtel-spec.md` §5.5.
+- **Errors and limits** — `microtel::Error`, `ConfigError`, the lifecycle `Status` enum, the byte / record / response / trailer / decompression budget constants from `memory-model.md` §6.
 - **Clocks** — `IClock` and `ISteadyClock`. Tests inject fakes; production uses `std::chrono::system_clock` and `std::chrono::steady_clock`.
 - **Diagnostics** — `IDiagnosticsSink` collects per-reason drop counters, batch counters, last-error timestamps, and is the backing store behind `Provider::GetExporterHealth()`.
 
@@ -148,7 +148,7 @@ Steps 1–7 as above. At step 8, the response is `503 Service Unavailable` with 
 
 8. The HTTP wire codec classifies the response: `success=false`, `retryable=true`, `retry_after=2s`. Returns `WireResult` to the exporter. The codec also captures the (capped) response body for diagnostics.
 9. Exporter records the failure in `IDiagnosticsSink` with the retryable-classification reason.
-10. Exporter sleeps until `retry_after` elapses (jitter applied per `microtel-spec.md` §5).
+10. Exporter sleeps until `retry_after` elapses (jittered backoff per the retry matrix in `error-model.md` §7; the shape is in `sequences/retry-after-failure.md`).
 11. Exporter calls `IOtlpEncoder::Encode(batch)` **again**. A fresh arena, a fresh `EncodedPayload`. The original `EncodedPayload` was released after step 8 — encoded bytes do not survive across retries by design (`memory-model.md` §3 records the rationale).
 12. Send succeeds on the retry. Drop counter for retryable-recovered increments.
 
@@ -160,7 +160,7 @@ A non-retryable failure (e.g., 415 Unsupported Media Type, or gRPC `RESOURCE_EXH
 
 ## 5. Cross-cutting concerns
 
-**Diagnostics.** Every component reports drop reasons, batch counts, and last-error timestamps to a single `IDiagnosticsSink`. The sink is the backing store behind `Provider::GetExporterHealth()` (spec §6.4). Internal diagnostic logs are emitted via spdlog (or the stderr fallback) and are **never** recursively exported through microtel's own OTLP exporter — preventing the failure loop where a broken exporter generates more telemetry it can't ship.
+**Diagnostics.** Every component reports drop reasons, batch counts, and last-error timestamps to a single `IDiagnosticsSink`. The sink is the backing store behind `Provider::GetExporterHealth()` (`error-model.md` §9.1). Internal diagnostic logs are emitted via spdlog (or the stderr fallback) and are **never** recursively exported through microtel's own OTLP exporter — preventing the failure loop where a broken exporter generates more telemetry it can't ship.
 
 **Drop accounting.** Reasons are explicit: `queue_full`, `record_too_large`, `span_attribute_limit`, `span_event_limit`, `span_link_limit`, `response_too_large`, `partial_success_rejection`, `retry_budget_exhausted`, `non_retryable_failure`, `post_shutdown`. Counters are per-reason, exposed in health and rate-limited in logs. Definitions and which layer increments each are pinned in `error-model.md`.
 

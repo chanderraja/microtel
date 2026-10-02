@@ -2,10 +2,10 @@
 
 ## 1. Purpose
 
-The pinned-version registry behind the conformance gates in
-[`microtel-spec.md`](../microtel-spec.md) §13.5. Those gates say trace export
-"passes integration tests against the pinned OpenTelemetry Collector matrix" —
-this file is what "pinned" means, in one place, so a version bump is a
+The pinned-version registry behind the conformance gates
+([`ci-architecture.md`](ci-architecture.md), `conformance`). Those gates say
+export "passes integration tests against the pinned OpenTelemetry Collector
+matrix" — this file is what "pinned" means, in one place, so a version bump is a
 reviewable diff rather than an archaeology exercise across three trees.
 
 Two readers:

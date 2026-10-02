@@ -76,7 +76,7 @@ here. Adding or renaming a check changes what can land.
 This table targets "Require linear history ✅", and Layer 3 targets "Allow merge
 commits ❌". Neither is configured, and current practice is the opposite —
 history is a series of `Merge pull request #NNN` commits, and
-[CLAUDE.md](../../CLAUDE.md) documents the merge-via-PR workflow. Either the
+[CLAUDE.md](../CLAUDE.md) documents the merge-via-PR workflow. Either the
 target should change to match practice or practice should change to match the
 target; leaving both recorded as ✅ while doing neither is the drift this section
 exists to stop.
@@ -167,7 +167,7 @@ Under **Settings → Actions → General → Fork pull request workflows:**
 
 `.github/ISSUE_TEMPLATE/config.yml` is configured to redirect common questions:
 
-- **Spec questions** → microtel-spec.md
+- **Questions about current behaviour** → docs/README.md (the documentation index)
 - **Roadmap questions** → microtel-roadmap.md
 - **Contribution questions** → CONTRIBUTING.md
 - **Security issues** → SECURITY.md (private disclosure)

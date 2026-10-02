@@ -2,9 +2,10 @@
 
 ## 1. Purpose
 
-[`microtel-spec.md`](../microtel-spec.md) §15.1 in operational form, and the
-"explicitly marked unsupported in the compatibility matrix" escape hatch that
-§13.5's release gates point at. Two questions, answered in one place:
+What microtel supports, signal by signal and protocol by protocol, with the
+evidence for each row, and the ledger of transport and security features that
+are either tested or explicitly marked unsupported. Two questions, answered in
+one place:
 
 - **Does microtel do this?** — and if so, what test says so.
 - **What does *not* work**, stated plainly, so nobody discovers it against a
@@ -16,7 +17,7 @@ Nothing reads either mechanically.
 
 ---
 
-## 2. Signals and protocols (spec §15.1)
+## 2. Signals and protocols
 
 | Area | v1 status | Evidence |
 |---|---|---|
@@ -33,7 +34,7 @@ Nothing reads either mechanically.
 | Collector versions | Pinned matrix | [`interop-matrix.md`](interop-matrix.md) §2 |
 
 The metrics row is where this file is deliberately at odds with the
-spec's "Planned": the code exists and is unit-tested, but no test has ever
+v1.0 design's "Planned": the code exists and is unit-tested, but no test has ever
 asked a real collector to decode a microtel metric payload, so nothing
 here claims one will. Logs left that state in v1.2 (issue #303), when the
 conformance suites started asserting on what the collector decodes from
@@ -41,11 +42,11 @@ microtel's log exports.
 
 ---
 
-## 3. Transport and security ledger (spec §13.5)
+## 3. Transport and security ledger
 
-Spec §13.5 gates v1.0 on TLS system trust, custom CA, mTLS, static headers,
-auth callback, and proxy behaviour each either passing integration tests **or
-being explicitly marked unsupported here**. This is that ledger.
+TLS system trust, custom CA, mTLS, static headers, auth callback, and proxy
+behaviour each either pass integration tests **or are explicitly marked
+unsupported here**; v1.0 was gated on exactly that. This is that ledger.
 
 | Capability | Status | Evidence |
 |---|---|---|
@@ -53,7 +54,7 @@ being explicitly marked unsupported here**. This is that ledger.
 | TLS with a custom CA (`ca_bundle`) | Supported | `TlsCustomCa`, `UntrustedCaFails` in `tests/conformance/{http,grpc}/tls_test.cpp` |
 | mTLS (`client_cert` + `client_key`) | Supported | `MutualTls`, `MutualTlsWithoutClientCertFails`, both suites |
 | SNI override | Supported | `SniOverride`, both suites; [ICP 0022](icps/0022-tls-peer-verification.md) |
-| **TLS 1.0 / 1.1 receivers** | **UNSUPPORTED** | microtel sets `SSL_CTX_set_min_proto_version(TLS1_2_VERSION)` itself rather than inheriting the linked OpenSSL's floor, so a receiver below TLS 1.2 fails the handshake on every build alike; there is no option to lower it. TLS 1.3 is preferred where the receiver offers it. Spec §12.3; issue #216. Evidence: `TlsFloor_ServerLimitedToTls11_ConnectFails` and `TlsFloor_Tls12Server_StillConnects` in `tests/integration/transport/http2_tls_connect_test.cpp`. The negative test is only decisive on an OpenSSL that would otherwise permit the downgrade — a host whose own crypto policy already pins TLS 1.2 (Fedora and Ubuntu both) refuses ahead of microtel. |
+| **TLS 1.0 / 1.1 receivers** | **UNSUPPORTED** | microtel sets `SSL_CTX_set_min_proto_version(TLS1_2_VERSION)` itself rather than inheriting the linked OpenSSL's floor, so a receiver below TLS 1.2 fails the handshake on every build alike; there is no option to lower it. TLS 1.3 is preferred where the receiver offers it. Issue #216. Evidence: `TlsFloor_ServerLimitedToTls11_ConnectFails` and `TlsFloor_Tls12Server_StillConnects` in `tests/integration/transport/http2_tls_connect_test.cpp`. The negative test is only decisive on an OpenSSL that would otherwise permit the downgrade — a host whose own crypto policy already pins TLS 1.2 (Fedora and Ubuntu both) refuses ahead of microtel. |
 | Static auth headers | Supported | `StaticBearerHeader`, both suites |
 | Auth callback (`WithAuthProvider`) | Supported | `AuthCallback` + `WrongTokenRejected`, both suites; TTL caching in `tests/unit/common/auth/auth_providers_test.cpp`. Recipes and execution-context caveats: [`auth-callback-recipes.md`](auth-callback-recipes.md) |
 | **AWS SigV4 in-process** | **UNSUPPORTED** | `AuthCallback` sets one header, takes no arguments, and runs before the payload is attached; SigV4 needs a per-request `x-amz-date`, a per-request payload hash, and the request body. Sign at a sidecar — [`auth-callback-recipes.md`](auth-callback-recipes.md) §5. |
@@ -63,8 +64,8 @@ being explicitly marked unsupported here**. This is that ledger.
 | A peer that hangs up under an in-flight write | Survivable: the export fails, the host process does not | `SIGPIPE` is suppressed per write — `MSG_NOSIGNAL` on plaintext sends, and a custom `BIO` carrying the same flag for TLS, covering `SSL_write` and the handshake writes inside `SSL_connect`. The host needs no `signal(SIGPIPE, SIG_IGN)` of its own, and microtel installs no handler and changes no process-wide disposition (`threading-model.md` §7.1). Evidence: `NoSignalIoTest` / `NoSignalBioTest` in `tests/unit/transport/nosignal_io_test.cpp`, plus the peer-reset tests in `tests/integration/transport/`. Issue #177. |
 | gzip request compression | Supported | conformance suites, both protocols |
 | Response decompression (`grpc-encoding` / `content-encoding: gzip`) | Supported, bounded by `max_decompressed_bytes` | `tests/unit/wire/grpc/`, `tests/unit/wire/http/`, `tests/fuzz/response_decompression_fuzz.cpp` |
-| HTTP/3 | Out of scope for v1 | spec §17; v1.6 experiment per roadmap |
-| Windows | Out of scope | spec §3 |
+| HTTP/3 | Out of scope for v1 | v1.6 experiment per [roadmap](../microtel-roadmap.md) §4 |
+| Windows | Out of scope | a hard non-goal: [roadmap](../microtel-roadmap.md) §8 and §12 |
 
 ---
 
@@ -148,7 +149,7 @@ open at the time of writing.
   The storage sits behind a `shared_ptr` to an immutable list so that
   `SpanContext`'s copy stays `noexcept` inside
   `Span::GetContext() const noexcept`; that made it the v1.0 → v1.1 ABI event
-  sanctioned by `microtel-spec.md` §19 and specified in
+  sanctioned by the ABI policy in [`RELEASING.md`](../RELEASING.md) §7 and specified in
   [ICP 0025](icps/0025-propagation-core.md) §1. Consumers recompile; no
   consumer source changes. Evidence: `tests/unit/api/trace_state_test.cpp`
   (W3C vector suite), `tests/unit/api/propagator_test.cpp`,

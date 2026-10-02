@@ -1,7 +1,7 @@
 # Sequence: Partial Success Handling
 
 **Status:** M0 deliverable. Normative timeline for OTLP partial-success responses. **Most counterintuitive rule in the error model — has its own diagram for that reason.**
-**See also:** `error-model.md` §6, `microtel-spec.md` §7.3, `interfaces.md` §3.2.
+**See also:** `error-model.md` §6, `interfaces.md` §3.2.
 
 ---
 
@@ -110,7 +110,7 @@ Per the OTLP spec, this is the receiver's way of warning the client of a non-fat
 - `partial_success_rejection` counter is **not** incremented (no items rejected).
 - The `error_message` is logged at `info` level once per session (rate-limited; not per batch).
 
-This case is rare in practice but legal per the spec. Tests cover it explicitly.
+This case is rare in practice but legal per the OTLP specification. Tests cover it explicitly.
 
 ---
 

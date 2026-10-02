@@ -1,6 +1,6 @@
 # microtel CI Architecture
 
-This document describes the CI pipeline structure. The actual workflow files live under `.github/workflows/`. The CI architecture is informed by the requirements in `microtel-spec.md` §14 (Engineering Practices) — the gates listed there are not aspirational; they're the contract.
+This document describes the CI pipeline structure. The actual workflow files live under `.github/workflows/`. The gates it runs are the ones `CLAUDE.md` (hard rules) and [`CONTRIBUTING.md`](../CONTRIBUTING.md) require of every PR — they are not aspirational; they're the contract.
 
 CI runs on **GitHub Actions** for the OSS path. A self-hosted Jenkins line may be added later for users who fork microtel into private CI environments.
 
@@ -119,7 +119,7 @@ Three sanitizer build configurations, run separately because they're slow and so
 
 ### `coverage` (job in `.github/workflows/ci.yml`)
 
-Two independent coverage measurements, both against the same filtered lcov tracefile: **aggregate** (the whole tree must meet the spec §14.2 floors) and **diff** (the lines this PR touched must be covered).
+Two independent coverage measurements, both against the same filtered lcov tracefile: **aggregate** (the whole tree must meet the floors in the table below) and **diff** (the lines this PR touched must be covered).
 
 **Steps:**
 1. Checkout at `fetch-depth: 0` — the diff gate needs `origin/master` as a base.
@@ -134,17 +134,17 @@ Two independent coverage measurements, both against the same filtered lcov trace
    Nothing that survives the tracefile filter is exempt. A path matching neither rule is gated as `sdk-encoder` — the stricter floor — and named in the output, so a new directory cannot dodge the gate by going unmentioned.
 4. `diff-cover` (pip, PR events only) against the same tracefile with `--compare-branch origin/<base>` and `--fail-under=80`.
 
-**Branch coverage is enforced** (issue #198). It was not, under gcov: gcov records an edge for the unwind path out of every potentially-throwing call, so `include/microtel/meter.hpp` measured 100% line and 50% branch with its "uncovered" branches on lines holding no conditional at all, and whole-tree branch coverage read 57.8% against 91.0% line. Clang's source-based coverage attaches counters to source *regions* the front end knows about — the same `meter.hpp` now reports **0 branch records**, because it contains no conditional — so the §14.2 branch floor measures program logic and fails the job like the line floors do. The 85% threshold was never lowered while it was unenforceable, and it is not raised now. Spec §13.5 gate 11 is discharged for line and branch.
+**Branch coverage is enforced** (issue #198). It was not, under gcov: gcov records an edge for the unwind path out of every potentially-throwing call, so `include/microtel/meter.hpp` measured 100% line and 50% branch with its "uncovered" branches on lines holding no conditional at all, and whole-tree branch coverage read 57.8% against 91.0% line. Clang's source-based coverage attaches counters to source *regions* the front end knows about — the same `meter.hpp` now reports **0 branch records**, because it contains no conditional — so the 85% branch floor measures program logic and fails the job like the line floors do. The 85% threshold was never lowered while it was unenforceable, and it is not raised now. The coverage gate is enforced for line and branch.
 
 **Why clang-only.** The gate's numbers are the compiler's numbers, so the compiler is part of the gate. `coverage.sh` refuses to run under gcc rather than silently measuring something else, and checks its llvm tools rather than surfacing a version skew as a corrupt-looking file three steps later.
 
-**Why the exporter is newer than the compiler** (issue #236). The build uses Ubuntu's `clang-18`, the same compiler as the `compile` matrix; the export uses `llvm-cov` **21** from `apt.llvm.org`, and `coverage.sh` refuses to run below that. Up to `llvm-cov` 20, `export` emits one set of branch records per *template instantiation* while emitting line records already merged across them — so the gate would compare a merged line percentage against a per-instantiation branch percentage, which §14.2 states as if the two were commensurable. `llvm-cov` 21 applies the same merge to both. Bisected on one `clang-19` object and profile, a function template with one `if` instantiated twice: `llvm-cov` 19 and 20 emit 4 `BRDA` records, 21 and 22 emit 2. On this tree that is `sdk-encoder` reading 81.48% (1219/1496) versus 85.59% (1099/1284) branch, from identical line coverage of 4757/5189. Newer llvm tools read older coverage-mapping and profile formats, so the built code is unchanged.
+**Why the exporter is newer than the compiler** (issue #236). The build uses Ubuntu's `clang-18`, the same compiler as the `compile` matrix; the export uses `llvm-cov` **21** from `apt.llvm.org`, and `coverage.sh` refuses to run below that. Up to `llvm-cov` 20, `export` emits one set of branch records per *template instantiation* while emitting line records already merged across them — so the gate would compare a merged line percentage against a per-instantiation branch percentage, as if the two were commensurable. `llvm-cov` 21 applies the same merge to both. Bisected on one `clang-19` object and profile, a function template with one `if` instantiated twice: `llvm-cov` 19 and 20 emit 4 `BRDA` records, 21 and 22 emit 2. On this tree that is `sdk-encoder` reading 81.48% (1219/1496) versus 85.59% (1099/1284) branch, from identical line coverage of 4757/5189. Newer llvm tools read older coverage-mapping and profile formats, so the built code is unchanged.
 
 `llvm-profdata`, by contrast, must match the compiler **exactly**: it reads the *raw* profiles the instrumented binaries write, and that format is locked to the compiler's release in both directions — `llvm-profdata-21` rejects `clang-18`'s raw version 9 with "raw profile version mismatch … expected version = 10" and then "no profile can be merged". So the job installs `clang-18`, `llvm-18` and `llvm-21`, and pairs `clang-18` + `llvm-profdata-18` + `llvm-cov-21`. `llvm-cov` reads the *indexed* profile and the coverage mapping, both of which a newer reader accepts.
 
 The LLVM apt repository is added to the two jobs that run `coverage.sh` — `coverage` here and `scan` in `sonarqube.yml` — and deliberately to no others; `clang-format` and `clang-tidy` stay on their pinned Ubuntu 18 packages. The tradeoff is that `apt.llvm.org` becomes a network dependency of a required check: if it flakes, re-run the job.
 
-**Why `--fail-under=80` when §14.2 names two diff thresholds.** `diff-cover` takes a single threshold and does not partition by path. 80 is the floor that holds everywhere; the 90 for SDK/encoder is carried by the aggregate gate in step 3, which *is* measured per group. A PR that drags `sdk-encoder` below 90 fails step 3 whatever step 4 reports.
+**Why `--fail-under=80` when CLAUDE.md rule 3 names two diff thresholds.** `diff-cover` takes a single threshold and does not partition by path. 80 is the floor that holds everywhere; the 90 for SDK/encoder is carried by the aggregate gate in step 3, which *is* measured per group. A PR that drags `sdk-encoder` below 90 fails step 3 whatever step 4 reports.
 
 `diff-cover` is a pip package installed in the job and used only at test time. It is not part of microtel's runtime dependency closure (CLAUDE.md rule 12).
 
@@ -198,7 +198,7 @@ Mechanical enforcement of the dependency closure, in several passes (the script 
 
 **Pass 1 — forbidden namespaces.** No shipped artifact defines **or references**
 a symbol from gRPC, abseil, or the protobuf C++ runtime. This is the test behind
-CLAUDE.md rule 13 and spec §3 — the closure claim is the project's reason to
+CLAUDE.md rules 12 and 13 — the closure claim is the project's reason to
 exist, so it is verified rather than asserted.
 
 Undefined (`U`) references count as violations alongside defined symbols: a
@@ -347,8 +347,8 @@ in the top-level `CMakeLists.txt`, which is the authority. The literals are
 `include/microtel/version.hpp`, the gRPC `kUserAgent` in
 `src/wire/grpc/grpc_wire_codec.cpp`, and `kVersion` in
 `tools/preflight/preflight.cpp`. The last two reach collectors — as the
-`user-agent` export header (spec §7.2) and the `microtel.version` span attribute
-(spec §6.4) — which is why drift is a wire-visible bug and not bookkeeping.
+`user-agent` export header (`grpc-wire-protocol.md` §2.1) and the preflight
+span's `microtel.version` attribute — which is why drift is a wire-visible bug and not bookkeeping.
 
 **It is a check, not a generator.** Deriving `version.hpp` from `PROJECT_VERSION`
 at configure time would turn a public header into a build artifact that the
@@ -397,7 +397,7 @@ of artifacts while still reporting green.
 
 ### `conformance` (job in `.github/workflows/ci.yml`)
 
-The spec §13.5 Tier 1 gate: a real OpenTelemetry Collector accepts what
+The Tier 1 gate ([`compatibility-matrix.md`](compatibility-matrix.md) §7): a real OpenTelemetry Collector accepts what
 microtel emits, and what the collector decodes is what microtel meant. A mock
 cannot discharge that claim — it is about a receiver microtel's authors did not
 write — so the collector is as much the system under test as microtel is. The
@@ -439,8 +439,8 @@ failure rather than a skip
 **Not currently a required status check.** The required list is in
 [`branch-protection.md`](branch-protection.md) and `conformance` is not on it,
 so a Tier 1 wire regression can merge today. Whether to require it is an open
-decision: the argument for is that Tier 1 is the compatibility promise spec
-§2.2 makes testable, and the argument against is making every PR depend on
+decision: the argument for is that Tier 1 is the compatibility promise
+[`compatibility-matrix.md`](compatibility-matrix.md) §7 makes testable, and the argument against is making every PR depend on
 pulling a third-party container image.
 
 ### `.github/workflows/license-scan.yml`
@@ -476,11 +476,11 @@ Runs **SonarQube Cloud** on the project's OSS tier — free for public/open-sour
 
 **Pass condition:** SonarQube Cloud quality gate passes — no critical or blocker issues introduced by the PR.
 
-**When `SONAR_TOKEN` is absent the job exits 0 but is no longer silent.** Requiring the secret would block every PR on a maintainer-only setup step, so the job stays green — but a green check that means "nothing ran" is worse than no check, because it reads as "analysed and clean". The skip now emits a `::warning::` annotation and writes a **NO SONAR SCAN RAN** heading to `$GITHUB_STEP_SUMMARY` stating that spec §13.5 gate 13 is UNMEASURED, with the maintainer steps to fix it. The scanned path writes its own counterpart heading, so the two outcomes are distinguishable from the summary alone.
+**When `SONAR_TOKEN` is absent the job exits 0 but is no longer silent.** Requiring the secret would block every PR on a maintainer-only setup step, so the job stays green — but a green check that means "nothing ran" is worse than no check, because it reads as "analysed and clean". The skip now emits a `::warning::` annotation and writes a **NO SONAR SCAN RAN** heading to `$GITHUB_STEP_SUMMARY` stating that the SonarQube gate is UNMEASURED, with the maintainer steps to fix it. The scanned path writes its own counterpart heading, so the two outcomes are distinguishable from the summary alone.
 
 The workflow also carries a `workflow_dispatch` trigger, so a scan can be fired from the Actions tab the moment the secret lands, rather than waiting for the next merge to `master`.
 
-`ci/scripts/coverage.sh` runs here with `MICROTEL_COVERAGE_ENFORCE=0`: this job wants the tracefile, not a second opinion on the §14.2 floors. The `coverage` job owns that gate, and letting a shortfall abort this job too would suppress the Sonar scan exactly when the code most needs looking at.
+`ci/scripts/coverage.sh` runs here with `MICROTEL_COVERAGE_ENFORCE=0`: this job wants the tracefile, not a second opinion on the coverage floors. The `coverage` job owns that gate, and letting a shortfall abort this job too would suppress the Sonar scan exactly when the code most needs looking at.
 
 **Coverage import (issue #211).** The tracefile is *not* handed to the C++ analyzer. It is converted by `ci/scripts/lcov-to-sonar.py` into SonarQube's [generic test coverage XML](https://docs.sonarsource.com/sonarqube-cloud/enriching/test-coverage/generic-test-data/) and imported via `sonar.coverageReportPaths`. The previous configuration passed the lcov `.info` to `sonar.cfamily.llvm-cov.reportPath`, which names an *llvm-cov* report: the sensor parsed the file in ~81 ms, imported nothing, and warned about nothing, so the whole project read 0.0% coverage against `coverage.sh`'s measured ~91% and the default gate's `new_coverage ≥ 80` condition failed on every PR. Compounding it, the tracefile carries absolute `SF:` paths that do not match the repo-relative keys SonarQube indexes files under; the converter rebases them. It emits **lines only**. That used to be because gcov's branch data was an artefact; since issue #198 the `BRDA` records are real, and what remains is that importing conditions moves SonarQube's own `coverage` measure and its new-code gate — a separate decision from the CI gate, left open in the converter's header. `--include src --include include` mirrors `sonar.sources`. The converter exits non-zero rather than writing an empty report, so the silent-zero failure mode cannot recur unnoticed.
 
@@ -546,7 +546,7 @@ ci/scripts/test-presence.sh origin/master
 # ... simulating the [refactor] label
 MICROTEL_PR_LABELS='[refactor]' ci/scripts/test-presence.sh origin/master
 
-# coverage build + the aggregate §14.2 gate (10-15 min). Clang only, and
+# coverage build + the aggregate coverage gate (10-15 min). Clang only, and
 # llvm-profdata / llvm-cov must be at least the compiler's major version.
 CC=clang CXX=clang++ ci/scripts/coverage.sh build/coverage
 
@@ -567,6 +567,6 @@ The `ci/scripts/` directory holds the shared scripts called by both the workflow
 ## What's NOT in CI
 
 - **GUI / GUI-test runs.** No GUI in microtel.
-- **Performance benchmarks.** Live in the separate `microtel-bench` repo (per spec M7); not part of per-PR CI.
+- **Performance benchmarks.** Live in the separate `microtel-bench` repo; not part of per-PR CI.
 - **macOS / Windows builds.** Out of scope for v1; not in the matrix.
 - **End-to-end integration with downstream backends** (Datadog, New Relic). The `tests/conformance/` job runs against an OTel Collector only.

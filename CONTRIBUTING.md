@@ -21,7 +21,7 @@ Where the project most wants help:
 | Conformance and interop coverage for metrics and logs (implemented, not yet conformance-tested — see [docs/compatibility-matrix.md](docs/compatibility-matrix.md) §2) | Large features that aren't on the [roadmap](microtel-roadmap.md) — file a feature request so scope is agreed before you write code |
 | Platform, compiler and toolchain ports | Vendor-specific exporters — better as your own repo than as a fork of this one |
 | Comparison data with `opentelemetry-cpp` for benchmarks | Style / formatting PRs that don't change correctness — `clang-format` owns that, and CI runs it |
-| Issues for spec ambiguities or contradictions | |
+| Issues for ambiguities or contradictions in the design docs | |
 | Typo fixes and doc improvements | |
 
 The [roadmap](microtel-roadmap.md) says what's coming and roughly when. If you want something that isn't on it, file an Issue with the feature-request template — well-argued requests shape what a release includes.
@@ -31,7 +31,7 @@ The [roadmap](microtel-roadmap.md) says what's coming and roughly when. If you w
 ## Before you start
 
 1. **Read [CLAUDE.md](CLAUDE.md).** It's titled for AI coding agents but it's the durable rules document for everyone — humans and agents alike. The hard rules are the same regardless of who's typing.
-2. **Read the relevant spec section.** [microtel-spec.md](microtel-spec.md) is the contract. If you're touching trace SDK code, read §5–§6. If you're touching wire codecs, read §7. If you're touching config, read §12.
+2. **Read the design docs for the area you're touching.** They, the [ICPs](docs/icps/) and the public headers' Doxygen are the contract. Trace SDK code: [architecture](docs/architecture.md), the [threading](docs/threading-model.md), [memory](docs/memory-model.md) and [error](docs/error-model.md) models, and the [interface contracts](docs/interfaces.md). Wire codecs: [gRPC wire protocol](docs/grpc-wire-protocol.md) and the retry matrix in [error-model.md](docs/error-model.md) §7. Configuration: [configuration.md](docs/configuration.md). Metrics, logs, leaf: [metrics](docs/metrics-design.md), [logs](docs/logs-design.md) and [leaf / concentrator](docs/leaf-concentrator-design.md) design. What is planned and out of scope: the [roadmap](microtel-roadmap.md).
 3. **Read [docs/coding-standards.md](docs/coding-standards.md).** This is the SonarQube-aligned ruleset CI enforces.
 
 ---
@@ -58,7 +58,7 @@ The project uses pull requests on GitHub. The same process applies to everyone, 
 
 1. Fork the repo and create a feature branch.
 2. Follow the [coding standards](docs/coding-standards.md) — CI will reject PRs that don't.
-3. **Tests first.** TDD compliance is mechanically enforced (per spec §14.2):
+3. **Tests first.** TDD compliance is mechanically enforced (CLAUDE.md rule 3; the gates are described in [ci-architecture.md](docs/ci-architecture.md)):
    - **Diff coverage gate:** every changed source line in your PR must be covered by a test in the same PR. Threshold: 90% on SDK and encoder; 80% on transport and exporter. The per-PR check (`diff-cover`) enforces the 80% floor across the whole diff; the 90% for SDK and encoder is enforced by the aggregate gate in the same job, which measures each area separately.
    - **Test-presence gate:** any change to `src/**/*.{cpp,hpp}` requires a corresponding change to `tests/**/*.{cpp,hpp}` unless your PR has the `[refactor]` label. The label is spelled with the brackets, applied to the PR (not written in a commit message), and is the manual override for comment-only and formatting-only changes as well — the gate does not try to detect those on its own. Deleting code needs no accompanying test and is exempt automatically. Applying `[refactor]` to a change that is not behaviour-preserving is a CLAUDE.md violation, and reviewers are expected to check the diff rather than the label.
 4. **RAII discipline.** No raw `new`/`delete`. Every resource is owned by an RAII type.

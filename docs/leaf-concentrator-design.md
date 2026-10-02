@@ -8,7 +8,7 @@ ship gate is met (§7, "Ship gates").
 **Implements:** [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) (scope,
 backends, nanopb, decode-into-the-pipeline), with the release renumbered to
 v1.2 by [ICP 0032](icps/0032-release-reorder-v1.1.1.md).
-**Companion documents:** `microtel-spec.md` §18.4 and §12,
+**Companion documents:** `docs/configuration.md` (§3.14 for the concentrator),
 `microtel-roadmap.md` v1.2, `docs/architecture.md`, `docs/interfaces.md`,
 `docs/threading-model.md`, `docs/memory-model.md`, `docs/error-model.md`.
 
@@ -34,7 +34,7 @@ In scope for v1.2 (experimental):
 - **Fan-in**: spans from many leaves leave the concentrator in one export
   request per batch, one `ResourceSpans` per leaf (§3.6.1). Without it a
   fleet-sized concentrator sends one request per leaf per batch.
-- The three time modes of spec §18.4.
+- The three time modes (§5).
 - The ship gates of ICP 0031: fuzzed ingest, end-to-end tests per backend and
   protocol (which, per §7.5, also check that many leaves share one export
   request), published footprints with a Cortex-M CI job, and an example under
@@ -43,7 +43,7 @@ In scope for v1.2 (experimental):
 If v1.2 scope has to be cut, the boot-relative time mode goes first; fan-in
 and streaming encode stay (§3.6.1).
 
-Out of scope, unchanged from spec §18.4 and ICP 0031 Decision 1:
+Out of scope, unchanged from the v1.0 design and ICP 0031 Decision 1:
 
 - RTOS ports, reliable delivery on the leaf-to-concentrator link, time
   synchronisation beyond the three modes, leaf-side sampling.
@@ -97,7 +97,7 @@ against the pinned sources; both were ticked when implementation verified it
 
 ### 1.1 Design constraints
 
-These come from spec §18.4 and ICP 0031 Decision 3 and are not re-decided
+These come from the v1.0 design and ICP 0031 Decision 3 and are not re-decided
 here:
 
 - C, not C++. No C++ runtime, no exceptions, no RTTI.
@@ -815,7 +815,7 @@ decided at review because it differs from the upb precedent (§9, decision 9).
 | receiver | `src/sdk/leaf_receiver.{hpp,cpp}`, `src/sdk/leaf_table.{hpp,cpp}`, `src/sdk/leaf_time.{hpp,cpp}` | validation, Resource resolution, time correction, pipeline entry |
 | config | `src/common/config/` | the `[concentrator]` table (§4.2) |
 
-Naming. The spec calls the seam a `Receiver` and the process role a
+Naming. The v1.0 design called the seam a `Receiver` and the process role a
 concentrator. The proposed public type is **`LeafReceiver`**: the first and
 only receiver, named for what it receives. A general `IReceiver` abstraction
 waits until a second receiver exists. The build option keeps the
@@ -1143,7 +1143,7 @@ For each span, in payload order:
    `resource` member set to the leaf's resolved Resource (§4), and the leaf's
    scope.
 
-**Why every span is sampled as a root.** A leaf does no sampling (spec §18.4),
+**Why every span is sampled as a root.** A leaf does no sampling (Scope, above),
 so it has no sampled flag to pass down, and a parent-based decision at the
 concentrator would have nothing to inherit. Treating each span as a root means
 a trace-id-based sampler (`TraceIdRatio`, or `ParentBased` whose root is
@@ -1183,7 +1183,7 @@ that leaf and by the leaf table, and a record must keep its Resource alive
 after the leaf's table entry is evicted (§4.5). `SpanRecord` is an internal
 value type, not one of the locked interfaces; `docs/interfaces.md` §3.3 gets
 the new member in the packet that adds it. This is the "late Resource
-enrichment" seam of spec §18.4, realised.
+enrichment" seam the v1.0 design reserved, realised.
 
 *Alternative considered:* a new `ISpanProcessor::OnEndWithResource`. It keeps
 `SpanRecord` unchanged but changes a locked interface (an ICP) and every
@@ -1207,7 +1207,7 @@ their encoded bytes:
   resource_spans = 1`. Protobuf defines the parse of two concatenated encodings
   of a message as the merge of the two, and merging appends repeated fields.
   So `Encode(A) ++ Encode(B)` is, exactly, a valid request whose
-  `resource_spans` are A's followed by B's. The spec §18.4 caveat that
+  `resource_spans` are A's followed by B's. The v1.0 design's caveat that
   concatenated OTLP bytes are "not guaranteed semantically valid in general"
   is about arbitrary messages; for this one it is guaranteed by the protobuf
   encoding rules. Each leaf's spans become their own `ResourceSpans`, which is
@@ -1464,8 +1464,8 @@ in its Resource are ignored, and keys over the entry's budget
 the default makes the leaf `unix`, §4.5) are dropped into
 `resource_attributes_dropped`, since an answer cannot be refused at `Build()`.
 
-**Precedence** is spec §12.1, per setting, and per key within every table
-(#257, `docs/configuration.md` §1):
+**Precedence** is `docs/configuration.md` §1, per setting, and per key within every table
+(#257):
 
 - scalars: code > env > file > default
 - `leaf_defaults.resource`: merged per key, code over env over file
@@ -1508,7 +1508,7 @@ Why this order:
   firmware that knows better.
 - **Per-leaf config sits above the leaf.** An operator who names a specific
   device in config is correcting or enriching that device, which is the
-  `device-id → service.*` mapping of spec §18.4. Firmware is harder to change
+  `device-id → service.*` mapping the v1.0 design described. Firmware is harder to change
   than config.
 - **The leaf id is the ceiling.** It sits above the leaf's own Resource for
   the same reason per-leaf config does: the transport-derived id is the one the
@@ -2249,7 +2249,7 @@ sources:
 - [ICP 0023](icps/0023-span-processor-scope.md): per-scope batching.
 - [ICP 0030](icps/0030-compile-time-feature-selection.md): `MICROTEL_WITH_*`
   options (draft).
-- `microtel-spec.md` §5.4, §5.5, §5.6, §12, §18.4.
+- `docs/memory-model.md` §6–§7, `docs/sequences/backpressure-and-drop.md`, `docs/configuration.md`.
 - `microtel-roadmap.md` v1.2, v2.0, v2.1, §6.
 - `docs/metrics-design.md`: structure this document follows.
 - `src/common/config/table_merge.hpp`, `include/microtel/resource.hpp`

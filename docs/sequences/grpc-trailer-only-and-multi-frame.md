@@ -51,7 +51,7 @@ I/O Thread        nghttp2                        Peer
 
 1. **Trailer-only is recognised by `END_STREAM=1` on the first HEADERS frame** combined with the presence of `grpc-status` in those headers. (`grpc-wire-protocol.md` §2.5.)
 2. **The parser does not enter the DATA-reading states.** It transitions directly from `STREAMING` to `STATUS_ONLY` to `COMPLETE`.
-3. **HTTP `:status` is captured for diagnostics** but classification follows `grpc-status`. (LOCKED — gRPC spec §3.)
+3. **HTTP `:status` is captured for diagnostics** but classification follows `grpc-status`, as the gRPC HTTP/2 protocol requires. (LOCKED — cites `src/wire/grpc/grpc_wire_codec.cpp:ClassifyResponse`)
 
 ---
 

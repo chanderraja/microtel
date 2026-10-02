@@ -18,7 +18,7 @@ sites doing `tracer->StartSpan(...)`, `meter->CreateUInt64Counter(...)`,
 `logger->EmitLogRecord(...)` — and you want microtel's runtime and OTLP
 exporter underneath it, without the gRPC / protobuf / abseil dependency tree
 opentelemetry-cpp's SDK and exporters bring in. This is Tier 3 in
-`microtel-spec.md` §2.2 ("API-adapter compatibility"), **experimental**: the
+[`compatibility-matrix.md`](compatibility-matrix.md) §7 ("API-adapter compatibility"), **experimental**: the
 supported subset is exactly what this document and `src/adapters/otelcpp/`
 implement, no more.
 
@@ -248,4 +248,5 @@ Run `ctest --test-dir build -R otelcpp` after configuring with
 - **A Tier-1/Tier-2 compatibility matrix** against specific collector or
   backend versions — that's [`docs/interop-matrix.md`](interop-matrix.md).
 - **Auto-instrumentation.** Both opentelemetry-cpp and microtel are manual
-  instrumentation only in v1 (spec §3).
+  instrumentation only in v1; microtel's auto-instrumentation is planned for
+  v1.5 in the [roadmap](../microtel-roadmap.md).

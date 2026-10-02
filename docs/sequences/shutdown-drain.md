@@ -1,7 +1,7 @@
 # Sequence: Shutdown Drain
 
 **Status:** M0 deliverable. Normative timeline for `Provider::Shutdown(timeout)`.
-**See also:** `threading-model.md` §5, §6, `error-model.md` §2.3, `interfaces.md` §4.4, `microtel-spec.md` §5.3.
+**See also:** `threading-model.md` §5, §6, `error-model.md` §2.3, `interfaces.md` §4.4.
 
 ---
 
@@ -98,7 +98,7 @@ Caller       m_state    Exporter Worker        I/O Thread
   |  if needed; eventually m_state -> Closed.         |
 ```
 
-A `TimedOut` shutdown leaves the system in a defined state: `m_state` is `Draining`; the threads are still running and will eventually reach `Closed` on their own. The destructor of `Provider` invokes a final `Shutdown` with a small bounded timeout (per `microtel-spec.md` §5.3) to ensure cleanup before destruction returns.
+A `TimedOut` shutdown leaves the system in a defined state: `m_state` is `Draining`; the threads are still running and will eventually reach `Closed` on their own. The destructor of `Provider` invokes a final `Shutdown` with a small bounded timeout (`threading-model.md` §6.2) to ensure cleanup before destruction returns.
 
 If the destructor's final `Shutdown` also times out, the destructor logs a diagnostic and returns. **The destructor never blocks indefinitely.** (LOCKED — `threading-model.md` §6.2.)
 

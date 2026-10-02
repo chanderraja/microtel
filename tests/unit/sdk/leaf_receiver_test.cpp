@@ -187,6 +187,8 @@ class RecordingSampler : public mti::ISampler
 {
 public:
     mti::SamplingDecision decision = mti::SamplingDecision::RecordAndSample;
+    std::vector<mt::KeyValue> additional_attributes;
+    std::optional<mt::TraceState> trace_state;
     mutable std::vector<mt::SpanContext> parents;
     mutable std::vector<mt::TraceId> trace_ids;
     mutable std::vector<std::string> names;
@@ -197,8 +199,9 @@ public:
         parents.push_back(ctx.parent);
         trace_ids.push_back(ctx.trace_id);
         names.emplace_back(ctx.span_name);
-        return mti::SamplingResult{
-            .decision = decision, .additional_attributes = {}, .trace_state = {}};
+        return mti::SamplingResult{.decision = decision,
+                                   .additional_attributes = additional_attributes,
+                                   .trace_state = trace_state};
     }
 
     [[nodiscard]] std::string_view Description() const noexcept override
@@ -904,6 +907,65 @@ TEST_F(LeafReceiverTest, SampledSpansAreMarkedSampled)
 
     ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
     EXPECT_TRUE(processor.received_spans[0].context.trace_flags.IsSampled());
+}
+
+// §3.6 step 3: `additional_attributes` and `trace_state` apply "as for an
+// in-process root" (issue #340). The attributes are appended after the span
+// limits have trimmed the leaf's own, under the same limits and counters.
+TEST_F(LeafReceiverTest, SamplerAttributesAreAppendedUnderTheSpanLimits)
+{
+    limits.attribute_count_limit = 2;
+    limits.attribute_value_length_limit = 3;
+    sampler.additional_attributes = {{.key = "s1", .value = std::string{"abcdef"}},
+                                     {.key = "s2", .value = std::int64_t{2}}};
+    auto rx = Make();
+    auto span = LeafSpan(1, 1);
+    span.attributes = {{.key = "a", .value = std::int64_t{1}}};
+    Decodes(Payload(Reserved(), {std::move(span)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    const auto& rec = processor.received_spans.at(0);
+    ASSERT_EQ(rec.attributes.size(), 2U);
+    EXPECT_EQ(rec.attributes[0].key, "a");
+    EXPECT_EQ(rec.attributes[1].key, "s1");
+    EXPECT_EQ(std::get<std::string>(rec.attributes[1].value), "abc");
+    EXPECT_EQ(Drops(sink, mt::DropReason::SpanAttributeLimit), 1U);
+    EXPECT_EQ(Drops(sink, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+TEST_F(LeafReceiverTest, SamplerAttributesAreNotProcessedForASampledOutSpan)
+{
+    limits.attribute_value_length_limit = 3;
+    sampler.decision = mti::SamplingDecision::Drop;
+    sampler.additional_attributes = {{.key = "s1", .value = std::string{"abcdef"}}};
+    auto rx = Make();
+    Decodes(Payload(Reserved(), {LeafSpan(1, 1)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).spans_sampled_out, 1U);
+    EXPECT_EQ(TotalDrops(sink), 0U);
+}
+
+TEST_F(LeafReceiverTest, SamplerTraceStateReplacesTheLeafSpansTraceState)
+{
+    sampler.trace_state = mt::TraceState::FromHeader("vendor=sampled");
+    auto rx = Make();
+    auto span = LeafSpan(1, 1);
+    span.context.trace_state = mt::TraceState::FromHeader("vendor=leaf");
+    Decodes(Payload(Reserved(), {std::move(span)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(processor.received_spans.at(0).context.trace_state.ToHeader(), "vendor=sampled");
+}
+
+TEST_F(LeafReceiverTest, WithoutASamplerTraceStateTheLeafSpanKeepsItsOwn)
+{
+    auto rx = Make();
+    auto span = LeafSpan(1, 1);
+    span.context.trace_state = mt::TraceState::FromHeader("vendor=leaf");
+    Decodes(Payload(Reserved(), {std::move(span)}));
+
+    ASSERT_EQ(rx->Ingest(Request()).status, mt::IngestStatus::Accepted);
+    EXPECT_EQ(processor.received_spans.at(0).context.trace_state.ToHeader(), "vendor=leaf");
 }
 
 // ---------------------------------------------------------------------------

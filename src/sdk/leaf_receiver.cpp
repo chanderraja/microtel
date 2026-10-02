@@ -556,7 +556,8 @@ void SdkLeafReceiver::EnqueueSpan(internal::SpanRecord& span,
     // Every span is sampled as a root (§3.6): a leaf does no sampling, so
     // there is no parent decision to inherit, and a trace-id sampler then
     // decides the same for every span of a trace. As for an in-process root,
-    // only the decision is used.
+    // a kept span takes the sampler's additional attributes, under the span
+    // limits, and its trace state when it sets one (#340).
     const internal::SamplingContext ctx{
         .parent = {},
         .span_kind = span.kind,
@@ -565,10 +566,17 @@ void SdkLeafReceiver::EnqueueSpan(internal::SpanRecord& span,
         .links = span.links,
         .trace_id = span.context.trace_id,
     };
-    if (m_deps.sampler->ShouldSample(ctx).decision != internal::SamplingDecision::RecordAndSample)
+    const internal::SamplingResult sampling = m_deps.sampler->ShouldSample(ctx);
+    if (sampling.decision != internal::SamplingDecision::RecordAndSample)
     {
         ++result.spans_sampled_out;
         return;
+    }
+    AppendAttributes(
+        span.attributes, sampling.additional_attributes, m_deps.span_limits, m_deps.diagnostics);
+    if (sampling.trace_state.has_value())
+    {
+        span.context.trace_state = *sampling.trace_state;
     }
     span.context.trace_flags = TraceFlags{TraceFlags::kSampled};
     span.resource = resource;

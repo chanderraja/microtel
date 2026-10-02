@@ -48,21 +48,41 @@ microtel::TraceId GenerateTraceId() noexcept
     return microtel::TraceId{bytes};
 }
 
-/// @brief Put `StartSpanOptions::attributes` on @p span (issue #265).
+/// @brief Put start-time attributes on @p span: `StartSpanOptions::attributes`
+///        (issue #265), then the sampler's `additional_attributes` (#340).
 ///
 /// They go on through `SetAttribute` rather than straight into the record so
 /// that one count budget, one value-length clip and one set of drop counters
-/// cover initial and later attributes alike. Per attribute this costs exactly
-/// what a `SetAttribute` call costs: the key copy and the value copy.
+/// cover initial, sampler and later attributes alike. Per attribute this costs
+/// exactly what a `SetAttribute` call costs: the key copy and the value copy.
 ///
-/// Called only on the sampled path, after the sampler's drop decision — the
+/// Called only on the recorded path, after the sampler's drop decision — the
 /// unsampled path stays allocation-free (`docs/memory-model.md` §8.1).
-void SeedInitialAttributes(microtel::Span& span, microtel::AttributeSpan attributes) noexcept
+void SeedAttributes(microtel::Span& span, microtel::AttributeSpan attributes) noexcept
 {
     for (const microtel::KeyValue& kv : attributes)
     {
         span.SetAttribute(kv.key, kv.value);
     }
+}
+
+/// @brief The new span's trace state (#340): the sampler's if it set one,
+///        otherwise the parent's — `SamplingResult::trace_state` "overrides
+///        parent state if set". A root has no parent state to keep.
+///
+/// The copy is a refcount bump (ICP 0025 §1), so this does not allocate.
+microtel::TraceState ResolveTraceState(const microtel::internal::SamplingResult& result,
+                                       const microtel::SpanContext& parent) noexcept
+{
+    if (result.trace_state.has_value())
+    {
+        return *result.trace_state;
+    }
+    if (parent.IsValid())
+    {
+        return parent.trace_state;
+    }
+    return {};
 }
 
 }  // namespace
@@ -116,7 +136,7 @@ SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
         .trace_id = trace_id,
         .span_id = span_id,
         .trace_flags = sampled ? TraceFlags{TraceFlags::kSampled} : TraceFlags{0},
-        .trace_state = {},
+        .trace_state = ResolveTraceState(result, parent_ctx),
         .remote = false,
     };
 
@@ -150,7 +170,8 @@ SpanHandle SdkTracer::StartSpanInternal(std::string_view name,
 
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) — intentional: this IS the owning deleter
     SpanHandle handle{raw, internal::SpanDeleter{[](Span* s) noexcept { delete s; }}};
-    SeedInitialAttributes(*raw, opts.attributes);
+    SeedAttributes(*raw, opts.attributes);
+    SeedAttributes(*raw, result.additional_attributes);
 
     // The Context handed to OnStart carries the resolved parent — explicit if
     // the caller supplied one, otherwise the thread's current span — and the

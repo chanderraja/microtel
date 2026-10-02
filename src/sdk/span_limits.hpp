@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace microtel::sdk
 {
@@ -46,5 +47,25 @@ namespace microtel::sdk
 void ApplySpanLimits(internal::SpanRecord& record,
                      const SpanLimitOptions& limits,
                      internal::IDiagnosticsSink* diag) noexcept;
+
+/// @brief Append @p extra to a built span's @p attributes the way
+///        `SdkSpan::SetAttribute` would: past `attribute_count_limit` an
+///        attribute is dropped and counted (`span_attribute_limit`), and a
+///        long string value is truncated and counted
+///        (`attribute_value_truncated`).
+///
+/// The leaf receiver uses it for the sampler's `additional_attributes`
+/// (`docs/leaf-concentrator-design.md` §3.6 step 3, issue #340). It copies
+/// each appended attribute, so it allocates; an attribute that cannot be
+/// allocated is dropped, as `SdkSpan` drops a field (`error-model.md` §2.2).
+///
+/// @param attributes the span's attributes, appended to in place.
+/// @param extra      the attributes to append, in order.
+/// @param limits     the Provider's limits.
+/// @param diag       borrowed sink for the counts, or nullptr for none.
+void AppendAttributes(std::vector<KeyValue>& attributes,
+                      AttributeSpan extra,
+                      const SpanLimitOptions& limits,
+                      internal::IDiagnosticsSink* diag) noexcept;
 
 }  // namespace microtel::sdk

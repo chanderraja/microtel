@@ -9,9 +9,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -67,6 +69,27 @@ template <typename T>
         truncated += TruncateStrings(kv.value, limit);
     }
     return truncated;
+}
+
+/// Append a clipped copy of @p kv to @p attributes; return how many strings
+/// were clipped. An allocation failure drops the attribute and returns 0.
+[[nodiscard]] std::uint64_t AppendOne(std::vector<KeyValue>& attributes,
+                                      const KeyValue& kv,
+                                      std::size_t limit) noexcept
+{
+    try
+    {
+        KeyValue copy = kv;
+        const std::uint64_t truncated = TruncateStrings(copy.value, limit);
+        attributes.push_back(std::move(copy));
+        return truncated;
+    }
+    // Dropping the attribute IS the documented behaviour (error-model.md
+    // §2.2), as in SdkSpan; rethrowing from a noexcept frame would terminate.
+    catch (const std::exception&)
+    {
+        return 0;
+    }
 }
 
 }  // namespace
@@ -129,6 +152,26 @@ void ApplySpanLimits(internal::SpanRecord& record,
     }
     Count(diag, DropReason::LinkAttributeLimit, link_attrs);
 
+    Count(diag, DropReason::AttributeValueTruncated, truncated);
+}
+
+void AppendAttributes(std::vector<KeyValue>& attributes,
+                      AttributeSpan extra,
+                      const SpanLimitOptions& limits,
+                      internal::IDiagnosticsSink* diag) noexcept
+{
+    std::uint64_t over_limit = 0;
+    std::uint64_t truncated = 0;
+    for (const KeyValue& kv : extra)
+    {
+        if (attributes.size() >= limits.attribute_count_limit)
+        {
+            ++over_limit;
+            continue;
+        }
+        truncated += AppendOne(attributes, kv, limits.attribute_value_length_limit);
+    }
+    Count(diag, DropReason::SpanAttributeLimit, over_limit);
     Count(diag, DropReason::AttributeValueTruncated, truncated);
 }
 

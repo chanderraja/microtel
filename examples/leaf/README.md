@@ -658,11 +658,11 @@ its own unbatched receiver and a file exporter.
 ## Exit codes
 
 The concentrator returns `0` on success, `1` if `Build()` fails or the port
-can't be bound, and `2` if `ForceFlush` did not complete or a batch failed.
+can't be bound, and `2` if `ForceFlush` did not complete, a batch failed, or the collector rejected spans via OTLP partial success.
 The leaf returns `0` on success, `1` if the leaf or its socket can't be set
 up, `2` for bad arguments, and `3` if an encode or a send failed or, in
 command mode, if no valid command arrived within 30 seconds. The full node returns `0` on success,
 `1` if one of its sockets can't be set up or `Build()` fails, and `2` if
-`ForceFlush` did not complete or a batch failed. A command it can't send marks
+`ForceFlush` did not complete, a batch failed, or the collector rejected spans via OTLP partial success. A command it can't send marks
 that cycle's `irrigation.check` as an error and does not change the exit
 code.

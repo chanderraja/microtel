@@ -8,10 +8,12 @@
 
 #include "preflight/preflight.hpp"
 
+#include "microtel/provider.hpp"
 #include "microtel/version.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <sstream>
 #include <vector>
 
@@ -246,6 +248,24 @@ TEST(PreflightReportExportTest, CompletedFlushWithFailedBatch_ReportsRuntimeErro
     EXPECT_EQ(out.str().find("export OK"), std::string::npos);
     EXPECT_EQ(err.str().rfind("error: ", 0), 0U);
     EXPECT_NE(err.str().find("UNIMPLEMENTED (12): unknown service"), std::string::npos);
+}
+
+TEST(PreflightReportExportTest, CompletedFlushWithPartialSuccessRejection_ReportsRuntimeError)
+{
+    // OTLP partial success: the collector answered success but rejected the
+    // span. The exporter counts the batch as sent, so batches_failed stays 0;
+    // the rejection shows only in the PartialSuccessRejection drop counter.
+    std::ostringstream out;
+    std::ostringstream err;
+    microtel::HealthSnapshot health;
+    health.batches_sent = 1;
+    health.drop_counters[static_cast<std::size_t>(microtel::DropReason::PartialSuccessRejection)] =
+        1;
+    EXPECT_EQ(tools::ReportExport(microtel::Status::Completed, health, out, err),
+              tools::kExitRuntime);
+    EXPECT_TRUE(out.str().empty());
+    EXPECT_EQ(err.str(),
+              "error: export failed: the collector rejected 1 span(s) via OTLP partial success\n");
 }
 
 TEST(PreflightReportExportTest, TimedOutFlush_ReportsRuntimeError)

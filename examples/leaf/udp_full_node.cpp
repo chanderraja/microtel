@@ -55,6 +55,14 @@
 namespace
 {
 
+/// @brief Items the collector rejected via OTLP partial success. It answered
+///        success, so their batch counts as sent, never as failed.
+std::uint64_t PartialSuccessRejected(const microtel::HealthSnapshot& health)
+{
+    return health
+        .drop_counters[static_cast<std::size_t>(microtel::DropReason::PartialSuccessRejection)];
+}
+
 constexpr std::uint16_t kDefaultConcentratorPort{9310};
 constexpr std::uint16_t kDefaultSourcePort{9313};
 constexpr int kDefaultCycles{5};
@@ -365,5 +373,7 @@ int main(int argc, char** argv)
               << "batches_sent=" << health.batches_sent
               << " batches_failed=" << health.batches_failed << '\n';
     std::cout << "Shutdown: " << StatusName(provider->Shutdown(kShutdownTimeout)) << '\n';
-    return flush == microtel::Status::Completed && health.batches_failed == 0 ? 0 : 2;
+    const bool delivered = flush == microtel::Status::Completed && health.batches_failed == 0 &&
+                           PartialSuccessRejected(health) == 0;
+    return delivered ? 0 : 2;
 }

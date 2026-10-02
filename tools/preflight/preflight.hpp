@@ -65,15 +65,23 @@ struct SpanIdentity
 
 /// @brief Process exit codes returned by `RunPreflight`.
 inline constexpr int kExitOk = 0;
-inline constexpr int kExitUsage = 1;    ///< bad argument / missing flag
-inline constexpr int kExitConfig = 2;   ///< configuration validation failure
-inline constexpr int kExitRuntime = 3;  ///< connect failed, or export failed or was rejected
+inline constexpr int kExitUsage = 1;   ///< bad argument / missing flag
+inline constexpr int kExitConfig = 2;  ///< configuration validation failure
+/// connect failed, or export failed or was rejected (a failed batch, or a
+/// span the collector rejected via OTLP partial success)
+inline constexpr int kExitRuntime = 3;
 
 /// @brief Turn an export run's flush status and exporter health into the
 ///        `--preflight=export` verdict, printed to @p out or @p err.
 ///
 /// The seam between the run and its verdict, so a unit test can hand it a
 /// rejected batch without a collector that rejects one.
+///
+/// `export OK` requires all three: the flush returned `Completed`,
+/// `batches_failed` is 0, and the `PartialSuccessRejection` drop counter is 0.
+/// A collector answering OTLP partial success accepts the request but rejects
+/// some or all of its items; the exporter counts that batch as sent, so only
+/// the drop counter shows the rejection.
 ///
 /// @param flush   what `Provider::ForceFlush()` returned.
 /// @param health  `Provider::GetExporterHealth()`, read after the flush.
@@ -93,7 +101,8 @@ inline constexpr int kExitRuntime = 3;  ///< connect failed, or export failed or
 /// - **connect**: calls `Provider::Connect()` and prints the outcome.
 /// - **export**: calls `Provider::Connect()`, sends one synthetic span, calls
 ///   `Provider::ForceFlush()`, and prints the outcome (see `ReportExport`):
-///   OK only if the flush completed and no batch failed.
+///   OK only if the flush completed, no batch failed, and the collector
+///   rejected no span via OTLP partial success.
 ///
 /// @param argc  argument count (same as `main`'s argc).
 /// @param argv  argument vector (same as `main`'s argv).

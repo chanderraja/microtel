@@ -322,7 +322,7 @@ the read above the span, with a comment saying why.
 ## Exit codes
 
 Both binaries return `0` on success, `1` if `Build()` fails, `2` if
-`ForceFlush` did not complete or a batch failed, and `3` if the hand-off itself did not happen:
+`ForceFlush` did not complete, a batch failed, or the collector rejected spans via OTLP partial success, and `3` if the hand-off itself did not happen:
 nothing accepted the connection, the peer hung up, or no reply was sent or
 received. The receiver also returns `1` if it can't accept a connection on its
 port (usually because something else is bound to it).

@@ -4,6 +4,7 @@
 #include "preflight/preflight.hpp"
 
 #include "microtel/protocol.hpp"
+#include "microtel/provider.hpp"
 #include "microtel/sdk_builder.hpp"
 #include "microtel/span.hpp"
 #include "microtel/status.hpp"
@@ -15,6 +16,8 @@
 #include "common/config/toml_loader.hpp"
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -155,6 +158,19 @@ int ReportExport(microtel::Status flush,
     {
         err << "error: export failed: the collector did not accept the batch: "
             << health.last_error_message << "\n";
+        return kExitRuntime;
+    }
+
+    // OTLP partial success: the collector answered success but rejected some
+    // or all of the items. The batch counts as sent, so it never reaches
+    // batches_failed; the rejected count is only in this drop counter.
+    const std::uint64_t rejected =
+        health
+            .drop_counters[static_cast<std::size_t>(microtel::DropReason::PartialSuccessRejection)];
+    if (rejected != 0)
+    {
+        err << "error: export failed: the collector rejected " << rejected
+            << " span(s) via OTLP partial success\n";
         return kExitRuntime;
     }
 

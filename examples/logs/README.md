@@ -171,8 +171,10 @@ Shutdown: Completed
 ```
 
 The program exits with status 2. It exits 0 only when `ForceFlush` returns
-`Completed` **and** `batches_failed` is 0: `Completed` means the queues
-drained, which is also true when the collector rejected a batch. Against a
+`Completed` **and** `batches_failed` is 0 **and** the `PartialSuccessRejection`
+drop counter is 0: `Completed` means the queues drained, which is also true
+when the collector rejected a batch, and a collector answering OTLP partial
+success counts the batch as sent while rejecting some or all of its items. Against a
 collector with no logs pipeline (traces only), the flush completes but the
 log batch fails, and the program exits 2:
 

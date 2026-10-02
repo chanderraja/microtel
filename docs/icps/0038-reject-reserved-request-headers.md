@@ -1,6 +1,6 @@
 # ICP 0038: `Build()` rejects user headers that HTTP/2 forbids or that microtel sets itself
 
-**Status:** Draft
+**Status:** Accepted — 2026-10-02. Open questions resolved as proposed: values out of scope, gRPC `user-agent` rejected.
 **Affected interfaces / docs:**
 - `src/common/config/config_validator.cpp` (`Validate` gains a header check)
 - `include/microtel/sdk_builder.hpp` (Doxygen on `WithHeaders` and
@@ -151,7 +151,7 @@ but configurations that built before can now fail.
   `Build()` sees everything the codec would, and it fails once, early,
   with a `field` path.
 
-## Open questions
+## Open questions (resolved at acceptance, as proposed)
 
 1. **Value checks.** Should `Build()` also reject header values containing
    CR, LF or NUL? RFC 9113 §8.2.1 makes them malformed. The #408 probe did

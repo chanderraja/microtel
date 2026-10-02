@@ -194,6 +194,9 @@ header can come from `WithHeaders`, `OTEL_EXPORTER_OTLP_HEADERS` or
   and `grpc-accept-encoding`. On HTTP/protobuf it is `content-type`,
   `content-length`, `content-encoding` and `accept-encoding`. Compression is
   `WithCompressionGzip` / `OTEL_EXPORTER_OTLP_COMPRESSION`.
+- **If you see** `header "content-length" cannot be fixed on gRPC, where every request body has its own length`
+  **→** remove it. microtel sends no `content-length` on gRPC, and a fixed
+  value would be wrong for every batch but one.
 - **If you see** `header "<name>" is set by the WithAuthProvider callback; set one or the other`
   **→** a static `authorization` header and `WithAuthProvider` would send two
   `authorization` headers. Keep one; the static header may be coming from

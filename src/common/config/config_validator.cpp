@@ -326,6 +326,9 @@ constexpr std::array<std::string_view, 4> kGrpcCodecHeaders{
 constexpr std::array<std::string_view, 4> kHttpCodecHeaders{
     "content-type", "content-length", "content-encoding", "accept-encoding"};
 
+/// Not sent on gRPC, whose body length varies per request; a fixed value
+/// would contradict every body but one (ICP 0038 amendment).
+constexpr std::string_view kContentLengthHeader = "content-length";
 constexpr std::string_view kHostHeader = "host";
 constexpr std::string_view kAuthorizationHeader = "authorization";
 constexpr std::string_view kHeadersFieldPrefix = "exporter.headers.";
@@ -364,6 +367,29 @@ template <std::size_t N>
                                [name](std::string_view s) { return EqualsIgnoreCase(name, s); });
 }
 
+/// The protocol-specific half of `HeaderNameFault`.
+[[nodiscard]] std::optional<std::string_view> ProtocolHeaderFault(std::string_view name,
+                                                                  Protocol protocol) noexcept
+{
+    if (protocol == Protocol::Http)
+    {
+        if (IsOneOf(name, kHttpCodecHeaders))
+        {
+            return "is set by microtel for this protocol";
+        }
+        return std::nullopt;
+    }
+    if (IsOneOf(name, kGrpcCodecHeaders))
+    {
+        return "is set by microtel for this protocol";
+    }
+    if (EqualsIgnoreCase(name, kContentLengthHeader))
+    {
+        return "cannot be fixed on gRPC, where every request body has its own length";
+    }
+    return std::nullopt;
+}
+
 /// @return Why @p name cannot be a static header under @p protocol, or
 ///         `std::nullopt` if it can.
 [[nodiscard]] std::optional<std::string_view> HeaderNameFault(std::string_view name,
@@ -381,13 +407,7 @@ template <std::size_t N>
     {
         return "is set by microtel from the endpoint, as :authority";
     }
-    const bool owned = (protocol == Protocol::Grpc) ? IsOneOf(name, kGrpcCodecHeaders)
-                                                    : IsOneOf(name, kHttpCodecHeaders);
-    if (owned)
-    {
-        return "is set by microtel for this protocol";
-    }
-    return std::nullopt;
+    return ProtocolHeaderFault(name, protocol);
 }
 
 /// The error for header @p name; the value is never included (it may be a

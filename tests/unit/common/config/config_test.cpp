@@ -913,6 +913,12 @@ std::vector<HeaderNameCase> HeaderNameCases()
     {
         cases.push_back({.name = name, .protocol = mt::Protocol::Grpc, .rejected = true});
     }
+    // Not sent on gRPC, where a fixed length contradicts every body but one
+    // (ICP 0038 amendment).
+    for (const std::string_view name : {"content-length", "Content-Length"})
+    {
+        cases.push_back({.name = name, .protocol = mt::Protocol::Grpc, .rejected = true});
+    }
     // Set by the HTTP codec.
     for (const std::string_view name : {"content-type",
                                         "content-length",

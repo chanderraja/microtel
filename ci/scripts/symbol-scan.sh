@@ -191,15 +191,16 @@ NM_VENDORED_FLAGS=(-A -C -g)
 # deliberately excluded — it is never shipped.
 #
 # In prefix mode the search is confined to the install tree's lib*/ and bin/
-# (libdir is `lib` or `lib64` depending on the distribution), so it can only
-# find artifacts that `cmake --install` actually placed there. In build mode it
+# (libdir is `lib` or `lib64` depending on the distribution), plus tools/,
+# where a vcpkg install puts the preflight binary (tools/microtel/), so it can
+# only find artifacts that an install actually placed there. In build mode it
 # sweeps the whole build directory, which is why an intermediate archive that
 # never ships can still be scanned — harmless, but it is the looser check.
 if [[ "$SCAN_MODE" == "prefix" ]]; then
     mapfile -t ARTIFACTS < <(
         {
             find "$SCAN_ROOT"/lib* -type f -name "libmicrotel_*.a"
-            find "$SCAN_ROOT"/bin -type f -perm -u+x -name "microtel-preflight"
+            find "$SCAN_ROOT"/bin "$SCAN_ROOT"/tools -type f -perm -u+x -name "microtel-preflight"
         } 2>/dev/null | sort
     )
 else

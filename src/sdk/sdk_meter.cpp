@@ -117,15 +117,18 @@ std::vector<StreamSpec> ResolveStreamSpecs(const std::string& instrument_name,
 // Each adapter holds one StorageSlot per matching view. An empty slot list
 // makes the instrument a no-op (all views dropped). When a slot has an
 // allowlist, attrs are filtered before forwarding to storage; otherwise the
-// original span is used directly (zero-copy hot path).
+// original span is used directly (zero-copy hot path). Each adapter also
+// shares the MetricProducer, which owns the storage the slots point into, so
+// an instrument stays usable after its meter and provider are gone (#259).
 // Hot-path methods are noexcept: OOM in FilterAttrs → std::terminate per policy.
 
 template <typename T>
 class SdkCounter final : public microtel::Counter<T>
 {
 public:
-    explicit SdkCounter(std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
-        : m_slots(std::move(slots))
+    SdkCounter(std::shared_ptr<MetricProducer> producer,
+               std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+        : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
@@ -147,6 +150,8 @@ public:
     }
 
 private:
+    /// Owns the storage `m_slots` points into (issue #259).
+    std::shared_ptr<MetricProducer> m_producer;
     std::vector<StorageSlot<SumStorage<T>>> m_slots;
 };
 
@@ -154,8 +159,9 @@ template <typename T>
 class SdkUpDownCounter final : public microtel::UpDownCounter<T>
 {
 public:
-    explicit SdkUpDownCounter(std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
-        : m_slots(std::move(slots))
+    SdkUpDownCounter(std::shared_ptr<MetricProducer> producer,
+                     std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+        : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
@@ -177,6 +183,8 @@ public:
     }
 
 private:
+    /// Owns the storage `m_slots` points into (issue #259).
+    std::shared_ptr<MetricProducer> m_producer;
     std::vector<StorageSlot<SumStorage<T>>> m_slots;
 };
 
@@ -184,8 +192,9 @@ template <typename T>
 class SdkGauge final : public microtel::Gauge<T>
 {
 public:
-    explicit SdkGauge(std::vector<StorageSlot<GaugeStorage<T>>> slots) noexcept
-        : m_slots(std::move(slots))
+    SdkGauge(std::shared_ptr<MetricProducer> producer,
+             std::vector<StorageSlot<GaugeStorage<T>>> slots) noexcept
+        : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
@@ -207,6 +216,8 @@ public:
     }
 
 private:
+    /// Owns the storage `m_slots` points into (issue #259).
+    std::shared_ptr<MetricProducer> m_producer;
     std::vector<StorageSlot<GaugeStorage<T>>> m_slots;
 };
 
@@ -214,8 +225,9 @@ template <typename T>
 class SdkHistogram final : public microtel::Histogram<T>
 {
 public:
-    explicit SdkHistogram(std::vector<StorageSlot<HistogramStorage<T>>> slots) noexcept
-        : m_slots(std::move(slots))
+    SdkHistogram(std::shared_ptr<MetricProducer> producer,
+                 std::vector<StorageSlot<HistogramStorage<T>>> slots) noexcept
+        : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
@@ -237,6 +249,8 @@ public:
     }
 
 private:
+    /// Owns the storage `m_slots` points into (issue #259).
+    std::shared_ptr<MetricProducer> m_producer;
     std::vector<StorageSlot<HistogramStorage<T>>> m_slots;
 };
 
@@ -244,9 +258,9 @@ template <typename T>
 class SdkExponentialHistogram final : public microtel::ExponentialHistogram<T>
 {
 public:
-    explicit SdkExponentialHistogram(
-        std::vector<StorageSlot<ExponentialHistogramStorage<T>>> slots) noexcept
-        : m_slots(std::move(slots))
+    SdkExponentialHistogram(std::shared_ptr<MetricProducer> producer,
+                            std::vector<StorageSlot<ExponentialHistogramStorage<T>>> slots) noexcept
+        : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
@@ -268,6 +282,8 @@ public:
     }
 
 private:
+    /// Owns the storage `m_slots` points into (issue #259).
+    std::shared_ptr<MetricProducer> m_producer;
     std::vector<StorageSlot<ExponentialHistogramStorage<T>>> m_slots;
 };
 
@@ -347,7 +363,7 @@ std::shared_ptr<microtel::Counter<std::int64_t>> SdkMeter::DoCreateCounterI64(
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkCounter<std::int64_t>>(std::move(slots));
+    return std::make_shared<SdkCounter<std::int64_t>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::string name,
@@ -368,7 +384,7 @@ std::shared_ptr<microtel::Counter<double>> SdkMeter::DoCreateCounterDouble(std::
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkCounter<double>>(std::move(slots));
+    return std::make_shared<SdkCounter<double>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownCounterI64(
@@ -388,7 +404,7 @@ std::shared_ptr<microtel::UpDownCounter<std::int64_t>> SdkMeter::DoCreateUpDownC
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkUpDownCounter<std::int64_t>>(std::move(slots));
+    return std::make_shared<SdkUpDownCounter<std::int64_t>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounterDouble(
@@ -408,7 +424,7 @@ std::shared_ptr<microtel::UpDownCounter<double>> SdkMeter::DoCreateUpDownCounter
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkUpDownCounter<double>>(std::move(slots));
+    return std::make_shared<SdkUpDownCounter<double>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::string name,
@@ -429,7 +445,7 @@ std::shared_ptr<microtel::Gauge<std::int64_t>> SdkMeter::DoCreateGaugeI64(std::s
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkGauge<std::int64_t>>(std::move(slots));
+    return std::make_shared<SdkGauge<std::int64_t>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::string name,
@@ -450,7 +466,7 @@ std::shared_ptr<microtel::Gauge<double>> SdkMeter::DoCreateGaugeDouble(std::stri
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkGauge<double>>(std::move(slots));
+    return std::make_shared<SdkGauge<double>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI64(
@@ -470,7 +486,7 @@ std::shared_ptr<microtel::Histogram<std::int64_t>> SdkMeter::DoCreateHistogramI6
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkHistogram<std::int64_t>>(std::move(slots));
+    return std::make_shared<SdkHistogram<std::int64_t>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
@@ -490,7 +506,7 @@ std::shared_ptr<microtel::Histogram<double>> SdkMeter::DoCreateHistogramDouble(
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkHistogram<double>>(std::move(slots));
+    return std::make_shared<SdkHistogram<double>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::ExponentialHistogram<std::int64_t>>
@@ -514,7 +530,7 @@ SdkMeter::DoCreateExponentialHistogramI64(std::string name,
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkExponentialHistogram<std::int64_t>>(std::move(slots));
+    return std::make_shared<SdkExponentialHistogram<std::int64_t>>(m_producer, std::move(slots));
 }
 
 std::shared_ptr<microtel::ExponentialHistogram<double>>
@@ -538,7 +554,7 @@ SdkMeter::DoCreateExponentialHistogramDouble(std::string name,
         slots.push_back({.storage = &stream->Storage(), .allowlist = spec.allowlist});
         m_producer->AddStream(m_scope, std::move(stream));
     }
-    return std::make_shared<SdkExponentialHistogram<double>>(std::move(slots));
+    return std::make_shared<SdkExponentialHistogram<double>>(m_producer, std::move(slots));
 }
 
 microtel::ObservableCounter<std::int64_t> SdkMeter::DoCreateObservableCounterI64(

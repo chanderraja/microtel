@@ -39,6 +39,9 @@ struct TracePipeline
 {
     /// Every drop counter of the provider, not only the trace side's: the
     /// exporters, the metric storage and the log processors borrow it too.
+    /// The `MetricProducer` holds this pipeline through an aliasing
+    /// `shared_ptr` to the sink, so the metric storage keeps it alive
+    /// (issue #259).
     std::unique_ptr<DiagnosticsCounters> diagnostics;
     /// Fixed for the pipeline's life; hot reload retunes its ratio in place
     /// (ICP 0026).

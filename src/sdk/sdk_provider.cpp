@@ -415,7 +415,12 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
     const std::scoped_lock lk{m_meter_mu};
     if (!m_metric_producer)
     {
-        m_metric_producer = std::make_shared<MetricProducer>(m_resource);
+        // The aliasing constructor shares m_trace's ownership, so the sink
+        // lives while any meter or instrument does (issue #259) — the same
+        // way it does for tracers (issue #285).
+        m_metric_producer = std::make_shared<MetricProducer>(
+            m_resource,
+            std::shared_ptr<internal::IDiagnosticsSink>{m_trace, m_trace->diagnostics.get()});
         // Same reasoning as GetLogger: no new reader thread after Shutdown.
         // The meter itself is still returned so callers do not have to
         // null-check, but nothing collects from it. There is no NoopMeter to
@@ -442,9 +447,9 @@ std::shared_ptr<microtel::Meter> SdkProvider::GetMeter(std::string_view name,
                                            .version = std::string{version}},
             m_metric_producer,
             m_metric_max_cardinality,
-            m_trace->diagnostics.get(),
+            m_metric_producer->Diagnostics(),
             m_view_registry,
-            &m_current_span_source);
+            m_metric_producer->SpanSource());
     }
     return entry;
 }

@@ -31,8 +31,10 @@ class ViewRegistry;
 /// `Add()`/`Record()` straight to the underlying storage.
 ///
 /// Instrument lifetime: the `MetricProducer` owns the streams (and therefore
-/// the storage); instruments hold non-owning raw pointers into that storage.
-/// An instrument must not be used after the provider that owns it is destroyed.
+/// the storage), and the diagnostics sink and current-span source the storage
+/// borrows. The meter and every synchronous instrument it creates share the
+/// producer, so either may outlive the provider; once the provider is gone
+/// their measurements are recorded but never collected (issue #259).
 ///
 /// @threadsafety Thread-safe for concurrent `Add()`/`Record()` calls, and for
 ///               concurrent `Create*()` calls. `Create*()` registers the new
@@ -51,14 +53,16 @@ public:
     ///
     /// @param max_cardinality Per-instrument cardinality cap; defaults to
     ///        `kDefaultMaxCardinality` (2000).
-    /// @param diag Non-owning pointer to the provider's diagnostics sink;
-    ///        null disables overflow drop accounting. Lifetime: the owning
-    ///        provider outlives every SdkMeter it creates.
-    /// @param span_source Non-owning pointer to the provider's current-span
-    ///        source; null disables exemplar capture. Forwarded to the
-    ///        `StorageOptions` of every stream this meter registers
+    /// @param diag Non-owning pointer to the diagnostics sink; null disables
+    ///        overflow drop accounting. Must stay valid as long as
+    ///        @p producer does — `SdkProvider` passes
+    ///        `MetricProducer::Diagnostics()`.
+    /// @param span_source Non-owning pointer to the current-span source; null
+    ///        disables exemplar capture. Forwarded to the `StorageOptions` of
+    ///        every stream this meter registers
     ///        ([ICP 0025](../../docs/icps/0025-propagation-core.md) §3).
-    ///        Same lifetime rule as @p diag.
+    ///        Same lifetime rule as @p diag; `SdkProvider` passes
+    ///        `MetricProducer::SpanSource()`.
     explicit SdkMeter(internal::InstrumentationScope scope,
                       std::shared_ptr<MetricProducer> producer,
                       std::size_t max_cardinality = kDefaultMaxCardinality,

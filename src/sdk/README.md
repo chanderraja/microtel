@@ -113,7 +113,8 @@ compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
 - [`noop_leaf_receiver.hpp`](noop_leaf_receiver.hpp): what `GetLeafReceiver`
   returns when the concentrator is off or not compiled in. Always built.
 - [`span_limits.{hpp,cpp}`](span_limits.hpp): the span-limit helpers `SdkSpan`
-  and the leaf receiver share (`TruncateStrings`, `ApplySpanLimits`).
+  and the leaf receiver share (`TruncateStrings`, `ApplySpanLimits`,
+  `AppendAttributes`).
 
 Logs ([`docs/logs-design.md`](../../docs/logs-design.md)):
 

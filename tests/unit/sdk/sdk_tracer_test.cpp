@@ -3,13 +3,15 @@
 //
 // Unit tests for SdkTracer: sampling decisions, ID generation, explicit and
 // implicit parent propagation, and StartAsCurrentSpan's ScopedSpan semantics
-// (issue #221, ICP 0025 §3).
+// (issue #221, ICP 0025 §3), and the sampler's additional attributes and
+// trace state (issue #340).
 
 #include "sdk/sdk_tracer.hpp"
 
 #include "microtel/attribute.hpp"
 #include "microtel/baggage.hpp"
 #include "microtel/context.hpp"
+#include "microtel/internal/sampler.hpp"
 #include "microtel/propagator.hpp"
 #include "microtel/provider.hpp"
 #include "microtel/sampler.hpp"
@@ -19,6 +21,7 @@
 
 #include "fakes/fake_diagnostics_sink.hpp"
 #include "fakes/fake_span_processor.hpp"
+#include "mocks/mock_sampler.hpp"
 
 #include <gtest/gtest.h>
 
@@ -28,6 +31,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -35,6 +39,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace mt = microtel;
 namespace mtfk = microtel::testing;
@@ -881,4 +886,200 @@ TEST(SdkTracerTest, AlwaysOff_InitialAttributes_AreNeitherRecordedNorProcessed)
     EXPECT_TRUE(f.proc.received_spans.empty());
     EXPECT_EQ(DropCount(f.diag, mt::DropReason::AttributeValueTruncated), 0U);
     EXPECT_EQ(DropCount(f.diag, mt::DropReason::SpanAttributeLimit), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// The sampler's additional attributes and trace state (issue #340)
+//
+// `SamplingResult` documents `additional_attributes` as appended to the span
+// and `trace_state` as overriding the parent's state, but only the decision
+// used to be read. The attributes now go on after the initial ones, through
+// `SetAttribute`, so they share its count budget, value clipping and drop
+// counters; the span's trace state is the sampler's when set and otherwise
+// the parent's.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// A `MockSampler` handle that returns @p decision with @p attributes and
+/// @p trace_state on every call.
+mt::SamplerHandle SamplerReturning(mt::internal::SamplingDecision decision,
+                                   std::vector<mt::KeyValue> attributes,
+                                   std::optional<mt::TraceState> trace_state)
+{
+    auto sampler = std::make_unique<mtfk::MockSampler>();
+    sampler->result_to_return = mt::internal::SamplingResult{
+        .decision = decision,
+        .additional_attributes = std::move(attributes),
+        .trace_state = std::move(trace_state),
+    };
+    return mt::SamplerHandle{std::move(sampler)};
+}
+
+/// `MakeParentContext(seed)` carrying @p header as its trace state.
+mt::SpanContext ParentWithTraceState(std::uint8_t seed, std::string_view header)
+{
+    mt::SpanContext parent = MakeParentContext(seed);
+    parent.trace_state = mt::TraceState::FromHeader(header);
+    return parent;
+}
+
+}  // namespace
+
+TEST(SdkTracerTest, SamplerAttributes_ReachTheRecordAfterTheInitialAttributes)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(
+        SamplerReturning(mt::internal::SamplingDecision::RecordAndSample,
+                         {mt::KeyValue{.key = "sampler.rule", .value = std::string{"checkout"}}},
+                         std::nullopt));
+
+    const std::array<mt::KeyValue, 1> attrs{
+        mt::KeyValue{.key = "http.method", .value = std::string{"POST"}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 2U);
+    EXPECT_EQ(recorded[0].key, "http.method");
+    EXPECT_EQ(recorded[1].key, "sampler.rule");
+    EXPECT_EQ(std::get<std::string>(recorded[1].value), "checkout");
+}
+
+TEST(SdkTracerTest, SamplerAttributes_ShareTheCountBudgetAndAreCounted)
+{
+    TracerFixture f;
+    f.limits.attribute_count_limit = 2;
+    auto t = f.MakeTracer(SamplerReturning(mt::internal::SamplingDecision::RecordAndSample,
+                                           {mt::KeyValue{.key = "s1", .value = std::int64_t{1}},
+                                            mt::KeyValue{.key = "s2", .value = std::int64_t{2}}},
+                                           std::nullopt));
+
+    const std::array<mt::KeyValue, 1> attrs{mt::KeyValue{.key = "a", .value = std::int64_t{0}}};
+    {
+        auto h = t.StartSpan("op",
+                             {.kind = mt::SpanKind::Internal,
+                              .parent = {},
+                              .start_time = {},
+                              .attributes = mt::AttributeSpan{attrs}});
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 2U);
+    EXPECT_EQ(recorded[0].key, "a");
+    EXPECT_EQ(recorded[1].key, "s1");
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::SpanAttributeLimit), 1U);
+}
+
+TEST(SdkTracerTest, SamplerAttributes_OverValueLengthLimit_AreTruncatedAndCounted)
+{
+    TracerFixture f;
+    f.limits.attribute_value_length_limit = 4;
+    auto t =
+        f.MakeTracer(SamplerReturning(mt::internal::SamplingDecision::RecordAndSample,
+                                      {mt::KeyValue{.key = "s", .value = std::string{"abcdefgh"}}},
+                                      std::nullopt));
+    {
+        auto h = t.StartSpan("op");
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    const auto& recorded = f.proc.received_spans[0].attributes;
+    ASSERT_EQ(recorded.size(), 1U);
+    EXPECT_EQ(std::get<std::string>(recorded[0].value), "abcd");
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::AttributeValueTruncated), 1U);
+}
+
+TEST(SdkTracerTest, SamplerAttributes_AreNotProcessedWhenTheSpanIsDropped)
+{
+    TracerFixture f;
+    f.limits.attribute_value_length_limit = 4;
+    auto t =
+        f.MakeTracer(SamplerReturning(mt::internal::SamplingDecision::Drop,
+                                      {mt::KeyValue{.key = "s", .value = std::string{"abcdefgh"}}},
+                                      std::nullopt));
+    {
+        auto h = t.StartSpan("op");
+        h->End();
+    }
+
+    EXPECT_TRUE(f.proc.received_spans.empty());
+    EXPECT_EQ(DropCount(f.diag, mt::DropReason::AttributeValueTruncated), 0U);
+}
+
+TEST(SdkTracerTest, SamplerTraceState_BecomesTheRootSpansTraceState)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(SamplerReturning(mt::internal::SamplingDecision::RecordAndSample,
+                                           {},
+                                           mt::TraceState::FromHeader("vendor=sampled")));
+    {
+        auto h = t.StartSpan("op");
+        EXPECT_EQ(h->GetContext().trace_state.ToHeader(), "vendor=sampled");
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    EXPECT_EQ(f.proc.received_spans[0].context.trace_state.ToHeader(), "vendor=sampled");
+}
+
+TEST(SdkTracerTest, SamplerTraceState_OverridesTheParentsTraceState)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(SamplerReturning(mt::internal::SamplingDecision::RecordAndSample,
+                                           {},
+                                           mt::TraceState::FromHeader("vendor=sampled")));
+    const mt::StartSpanOptions opts{.kind = mt::SpanKind::Internal,
+                                    .parent = ParentWithTraceState(7, "vendor=parent"),
+                                    .start_time = {},
+                                    .attributes = {}};
+
+    const auto h = t.StartSpan("child", opts);
+
+    EXPECT_EQ(h->GetContext().trace_state.ToHeader(), "vendor=sampled");
+}
+
+// The contract says "overrides parent state if set": when the sampler leaves
+// it unset, the span keeps the parent's, so a vendor's tracestate survives a
+// microtel hop (extract, child span, inject).
+TEST(SdkTracerTest, NoSamplerTraceState_TheChildKeepsTheParentsTraceState)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(mt::MakeAlwaysOnSampler());
+    const mt::StartSpanOptions opts{.kind = mt::SpanKind::Internal,
+                                    .parent = ParentWithTraceState(7, "vendor=parent"),
+                                    .start_time = {},
+                                    .attributes = {}};
+    {
+        auto h = t.StartSpan("child", opts);
+        EXPECT_EQ(h->GetContext().trace_state.ToHeader(), "vendor=parent");
+        h->End();
+    }
+
+    ASSERT_EQ(f.proc.received_spans.size(), 1U);
+    EXPECT_EQ(f.proc.received_spans[0].context.trace_state.ToHeader(), "vendor=parent");
+}
+
+// A dropped span still publishes its context for its children (ICP 0025 §3
+// contract 3), and that context carries the trace state too.
+TEST(SdkTracerTest, StartAsCurrentSpan_Dropped_InstallsTheSamplersTraceState)
+{
+    TracerFixture f;
+    auto t = f.MakeTracer(SamplerReturning(
+        mt::internal::SamplingDecision::Drop, {}, mt::TraceState::FromHeader("vendor=dropped")));
+
+    const auto scoped = t.StartAsCurrentSpan("op");
+
+    EXPECT_EQ(mt::CurrentContext().active_span_context.trace_state.ToHeader(), "vendor=dropped");
 }

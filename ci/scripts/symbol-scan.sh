@@ -36,7 +36,7 @@
 #      expected: they are the header-only inline functions.
 #
 # This is the mechanical backing for CLAUDE.md rule 13 ("No gRPC library, no
-# abseil, no protobuf-cpp runtime. Ever.") and for spec §3's dependency-closure
+# abseil, no protobuf-cpp runtime. Ever.") and for rule 12's dependency-closure
 # claim. The claim is the project's whole reason to exist, so it is tested
 # rather than asserted.
 #
@@ -187,7 +187,7 @@ NM_VENDORED_FLAGS=(-A -C -g)
 
 # Shipped artifacts. `libmicrotel_*.a` covers every component archive including
 # the vendored upb runtime and utf8_range; the preflight binary is the shipped
-# CLI from spec §6.4. `microtel_header_check` is the M0 compile check and is
+# operator CLI. `microtel_header_check` is the M0 compile check and is
 # deliberately excluded — it is never shipped.
 #
 # In prefix mode the search is confined to the install tree's lib*/ and bin/
@@ -410,7 +410,7 @@ fi
 if [[ $forbidden_violations -ne 0 ]]; then
     echo >&2
     echo "symbol-scan: $forbidden_violations artifact(s) violate the dependency closure." >&2
-    echo "symbol-scan: see CLAUDE.md rule 13 and microtel-spec.md §3." >&2
+    echo "symbol-scan: see CLAUDE.md rules 12-13 and docs/ci-architecture.md (symbol-scan)." >&2
 fi
 
 if [[ $unprefixed_violations -ne 0 ]]; then

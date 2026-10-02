@@ -34,8 +34,8 @@ tracks A, B, C and E could unblock).
 
 ## Dependencies
 
-- nghttp2 (system `libnghttp2.so`, ≥ 1.50 per spec §9.1)
-- OpenSSL (system, ≥ 1.1.1 per spec §9.1)
+- nghttp2 (system `libnghttp2.so`, ≥ 1.50)
+- OpenSSL (system, ≥ 1.1.1)
 - The RAII wrappers in [`src/common/raii/`](../common/raii/): `UniqueFd`,
   `SslCtx`, `SslSession`, `Nghttp2Session`, `BioMethod`. Per ICP 0003 §3.1,
   `SslCtx` is per-`Transport`, not process-shared.

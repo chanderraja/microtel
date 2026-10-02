@@ -27,7 +27,7 @@ struct SpanIdentity
 {
     /// @brief `service.name` placed on the span's resource.
     ///
-    /// Always `"microtel-preflight"` per `microtel-spec.md` §6.4 — the value
+    /// Always `"microtel-preflight"` — the value
     /// exists so a collector rule can drop preflight traffic, which it cannot
     /// do if the config file under test is allowed to rename it.
     std::string service_name;
@@ -48,7 +48,7 @@ struct SpanIdentity
     std::string version;
 };
 
-/// @brief Resolve what spec §6.4 requires the synthetic span to report.
+/// @brief Resolve what the synthetic span reports.
 ///
 /// Runs the same file → environment → validate chain `SdkBuilder::Build()`
 /// runs, because there is no way to ask the built `Provider` what it resolved.

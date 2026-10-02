@@ -8,13 +8,13 @@ has started a collector and exported the environment contract below.
 
 ## What this proves
 
-Tier 1 of the four-tier compatibility model in `microtel-spec.md` §2.2:
+Tier 1 of the four-tier compatibility model in `docs/compatibility-matrix.md` §7:
 payloads emitted by microtel are accepted by receivers implementing the
 pinned OTLP specification version, over both OTLP/HTTP-protobuf and
 OTLP/gRPC. Traces and logs are covered; metrics are not yet (see
 "Deliberately excluded").
 
-This is a release gate per spec §13.5:
+This is the gate the `conformance` CI job runs (`docs/ci-architecture.md`):
 
 > OTLP/HTTP trace export passes integration tests against the pinned
 > OpenTelemetry Collector matrix.

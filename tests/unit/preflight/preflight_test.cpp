@@ -125,7 +125,7 @@ TEST(PreflightTest, ConnectMode_MalformedEndpointViaEnv_ReturnsConfigError)
 }
 
 // ---------------------------------------------------------------------------
-// Synthetic span identity — spec §6.4, issue #209
+// Synthetic span identity — issue #209
 //
 // These assert on `ResolveSpanIdentity` rather than on an exported span
 // because `Provider` has no accessor for its resolved config and no seam

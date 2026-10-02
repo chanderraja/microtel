@@ -1,7 +1,7 @@
 // Copyright (c) 2026 The microtel Authors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The spec §12.7 resource composition. Kept out of sdk_builder.cpp so that the
+// The resource composition (docs/configuration.md §3.2). Kept out of sdk_builder.cpp so that the
 // ordering — the part with actual semantics — is unit-testable without
 // standing up a whole Provider.
 
@@ -81,14 +81,15 @@ namespace
     return "resource detector \"" + std::string{detector.Name()} + "\" failed: " + error.message;
 }
 
-// --- The resolved-Resource log line (spec §12.7, issue #284) ---------------
+// --- The resolved-Resource log line (configuration.md §5, issue #284) ------
 
 constexpr std::string_view kRedacted = "<redacted>";
 constexpr std::string_view kEllipsis = "...";
 
 /// Key fragments whose values the log line never prints. There is no general
 /// redaction code in microtel yet (docs/configuration.md §5); this applies the
-/// spec §12.6 rule — `Authorization`, client secrets, token-provider outputs —
+/// redaction rule described there — `Authorization`, client secrets,
+/// token-provider outputs —
 /// by key, matched case-insensitively anywhere in the attribute key.
 constexpr std::array<std::string_view, 8> kSecretKeyFragments = {
     "authorization", "secret", "token", "password", "passwd", "credential", "api_key", "apikey"};

@@ -37,14 +37,15 @@ constexpr std::string_view kGrpcTracesPath =
     "/opentelemetry.proto.collector.trace.v1.TraceService/Export";
 constexpr std::string_view kRetryInfoTypeUrl = "type.googleapis.com/google.rpc.RetryInfo";
 
-// `microtel-cpp/<version>`, required by spec §7.2. Spelled as a literal rather
+// `microtel-cpp/<version>`, required by grpc-wire-protocol.md §2.1. Spelled as a literal rather
 // than assembled at runtime — this is on the per-export header path — with the
 // version half checked against `kVersionString` at compile time. It had read
 // "microtel-cpp/0.1.0" since M4 with nothing to catch the drift.
 constexpr std::string_view kUserAgentPrefix = "microtel-cpp/";
 constexpr std::string_view kUserAgent = "microtel-cpp/1.2.1";
 static_assert(kUserAgent.substr(kUserAgentPrefix.size()) == kVersionString,
-              "gRPC user-agent must carry microtel::kVersionString (spec §7.2)");
+              "gRPC user-agent must carry microtel::kVersionString "
+              "(grpc-wire-protocol.md §2.1)");
 
 // ---------------------------------------------------------------------------
 // Base64 alphabet position constants (RFC 4648 §5)

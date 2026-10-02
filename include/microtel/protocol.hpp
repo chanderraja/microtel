@@ -11,7 +11,7 @@ namespace microtel
 /// @brief OTLP wire protocol selector.
 ///
 /// One transport is opened per `(endpoint, protocol)` tuple per
-/// `microtel-spec.md` §5.2. The choice is fixed at `Provider::Build` time;
+/// `docs/architecture.md` §3.6. The choice is fixed at `Provider::Build` time;
 /// there is no runtime switching in v1.
 enum class Protocol : std::uint8_t
 {

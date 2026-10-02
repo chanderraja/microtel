@@ -4,7 +4,7 @@
 // Behavioural tests for the AlwaysOn sampler.
 //
 // First production-code-driven test in microtel — kicks off the M3 TDD
-// cadence per `microtel-spec.md` §14.2 / `docs/coding-standards.md` §11.
+// cadence per `CLAUDE.md` rule 3 / `docs/coding-standards.md` §11.
 
 #include "microtel/internal/sampler.hpp"
 #include "microtel/sampler.hpp"

@@ -3,7 +3,7 @@
 //
 // Behavioural tests for SimpleSpanProcessor.
 //
-// Per spec §8: "Simple (non-batched) processor — for tests/debug." Each
+// Per docs/interfaces.md §4.6: synchronous, "for tests". Each
 // `OnEnd` synchronously hands a single-span batch to the configured
 // exporter; no buffering, no thread, no retry. Lifecycle methods
 // (`ForceFlush`, `Shutdown`) are trivial — `ForceFlush` is a no-op

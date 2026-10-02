@@ -26,7 +26,7 @@ immediately, providing minimal processing overhead.  It exposes `/stats`
 (spans received, bytes received) and `/reset` over HTTP on port 19080.
 
 `bytes_received` is available in blackhole mode and is used for the
-wire-bytes correctness check (bench-spec §6.2 step 2 / ICP 0006 §7):
+wire-bytes correctness check (`bench-spec.md` §6.2 step 2 / ICP 0006 §7):
 after each sample the driver asserts that `sink.bytes_received` equals the
 SUT's reported `bytes_sent`.  This check is a **release gate**.
 

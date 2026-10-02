@@ -732,7 +732,7 @@ TEST(GrpcWireCodecTest, Send_BuildsRequiredGrpcHeaders)
     EXPECT_FALSE(FindHeader(headers, "user-agent").empty());
 }
 
-// The user-agent is the release version as collectors see it (spec §7.2), and a
+// The user-agent is the release version as collectors see it (grpc-wire-protocol.md §2.1), and a
 // release bump edits the literal by hand. `kUserAgent` carries a static_assert
 // against `kVersionString`, but that only proves the *constant* is coherent —
 // nothing proved the header actually emitted carries it, so a codec that built

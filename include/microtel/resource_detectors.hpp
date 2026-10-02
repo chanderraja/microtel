@@ -37,7 +37,7 @@ namespace microtel
 /// @return an owning detector, ready to pass to
 ///         `SdkBuilder::WithResourceDetector`.
 ///
-/// @see microtel-spec.md §12.7, docs/interfaces.md §4.10
+/// @see docs/configuration.md §3.2, docs/interfaces.md §4.10
 [[nodiscard]] std::unique_ptr<internal::IResourceDetector> MakeProcessDetector(
     std::filesystem::path root = "/");
 
@@ -63,7 +63,7 @@ namespace microtel
 /// @return an owning detector, ready to pass to
 ///         `SdkBuilder::WithResourceDetector`.
 ///
-/// @see microtel-spec.md §12.7, docs/interfaces.md §4.10
+/// @see docs/configuration.md §3.2, docs/interfaces.md §4.10
 [[nodiscard]] std::unique_ptr<internal::IResourceDetector> MakeHostDetector(
     std::filesystem::path root = "/");
 

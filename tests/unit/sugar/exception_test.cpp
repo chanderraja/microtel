@@ -15,8 +15,8 @@
 // the helper.
 //
 // Setting `Error` status is a deliberate divergence from
-// opentelemetry-cpp's `Span::RecordException`, which does not. Spec §18.1
-// excludes sugar from conformance testing, so nothing measures this helper
+// opentelemetry-cpp's `Span::RecordException`, which does not. Sugar is
+// excluded from conformance testing, so nothing measures this helper
 // against the OTel API surface (ICP 0028, "Restated exclusions").
 
 #include "microtel/sugar/exception.hpp"

@@ -1,7 +1,7 @@
 # `tests/`
 
 All of microtel's tests. The layout follows the test taxonomy in
-`microtel-spec.md` §14.2 and `docs/coding-standards.md` §11.
+`docs/coding-standards.md` §11 and `docs/ci-architecture.md`.
 
 ## Subdirectory map
 
@@ -9,7 +9,7 @@ All of microtel's tests. The layout follows the test taxonomy in
 |---|---|
 | [`unit/`](unit/) | gtest unit tests, mirroring `src/`, one file per type or behaviour. Under 1 ms each. |
 | [`integration/`](integration/) | Real components wired together, with fakes or an in-process server at the system boundary. |
-| [`conformance/`](conformance/) | End-to-end against a real OpenTelemetry Collector. Checks wire-protocol compliance (spec §2.2, Tier 1). |
+| [`conformance/`](conformance/) | End-to-end against a real OpenTelemetry Collector. Checks wire-protocol compliance (`docs/compatibility-matrix.md` §7, Tier 1). |
 | [`wire/`](wire/) | Index of the byte-level encoder and OTLP/HTTP codec coverage. Holds no tests itself; the tests live under `unit/wire/`. |
 | [`grpc-wire/`](grpc-wire/) | The same index for the gRPC response corpus in `docs/grpc-wire-protocol.md` §7. |
 | [`fuzz/`](fuzz/) | libFuzzer harnesses: TOML parser, gRPC response parser, response decompression, OTLP response parser, and the v1.1 baggage and `Provider`-setter harnesses. |
@@ -22,7 +22,7 @@ All of microtel's tests. The layout follows the test taxonomy in
 
 - Mocks are dumb. They return what they're configured to return and do
   nothing else. If you need logic, write a fake. A "smart mock" is a
-  code smell (`CLAUDE.md` rule 4, spec §14.2).
+  code smell (`CLAUDE.md` rule 4).
 - Fakes have logic. A fake clock advances on demand, a fake reactor
   scripts events, and a fake transport serves scripted results.
 - Each locked interface in [`docs/interfaces.md`](../docs/interfaces.md)
@@ -37,8 +37,8 @@ All of microtel's tests. The layout follows the test taxonomy in
     where the construct exists for testability.
 - Every test file starts with the SPDX header (`coding-standards.md`
   §8.4).
-- Two coverage gates apply to every PR (`coding-standards.md` §14.2,
-  spec §14.2):
+- Two coverage gates apply to every PR (`CLAUDE.md` rule 3;
+  `ci-architecture.md`, `coverage` and `test-presence`):
   - Diff coverage: at least 90% on SDK and encoder code and 80% on
     transport and exporter code. Every line a PR adds or modifies must
     be exercised by a test in the same PR.
@@ -49,8 +49,8 @@ All of microtel's tests. The layout follows the test taxonomy in
 ## Build
 
 The tree is gated behind `MICROTEL_BUILD_TESTS`, which defaults to `ON`.
-Set it to `OFF` for cross-compilation or constrained builds (spec
-§14.2). Tests are registered with ctest under the labels `unit`,
+Set it to `OFF` for cross-compilation or constrained builds (`docs/build-options.md`).
+Tests are registered with ctest under the labels `unit`,
 `integration` and `conformance`, so `ctest -L unit` runs one tier.
 The fuzz harnesses build separately, under `MICROTEL_BUILD_FUZZ=ON`
 (see [`fuzz/`](fuzz/)).

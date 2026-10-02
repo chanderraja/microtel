@@ -26,7 +26,7 @@ inline constexpr std::size_t kMaxLoggedResourceAttributes = 32;
 /// keeps; a longer value is cut (never inside an escape) and ends in "...".
 inline constexpr std::size_t kMaxLoggedResourceValueChars = 128;
 
-/// @brief Compose the `Provider`'s Resource per `microtel-spec.md` §12.7.
+/// @brief Compose the `Provider`'s Resource per `docs/configuration.md` §3.2.
 ///
 /// Four layers, merged left to right so that a later one overrides an earlier
 /// one key by key (`Resource::Merge`):
@@ -43,12 +43,10 @@ inline constexpr std::size_t kMaxLoggedResourceValueChars = 128;
 /// contract in `docs/interfaces.md` §4.10.
 ///
 /// On success the composed Resource is logged once at `Info` through
-/// `internal::LogImpl` (spec §12.7, "the resolved Resource is logged at
-/// init"): keys sorted, keys and string values escaped (backslash, double
-/// quote, control characters) so none can split the line, values of
-/// secret-looking keys redacted, at most
-/// `kMaxLoggedResourceAttributes` pairs and `kMaxLoggedResourceValueChars`
-/// characters per value.
+/// `internal::LogImpl` (`docs/configuration.md` §5, "the resolved Resource"): keys sorted, keys and
+/// string values escaped (backslash, double quote, control characters) so none can split the line,
+/// values of secret-looking keys redacted, at most `kMaxLoggedResourceAttributes` pairs and
+/// `kMaxLoggedResourceValueChars` characters per value.
 ///
 /// @param cfg the resolved, validated configuration. Borrowed; read only.
 /// @param detectors registration-ordered detectors. Borrowed; each is invoked

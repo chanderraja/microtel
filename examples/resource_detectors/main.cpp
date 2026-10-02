@@ -14,7 +14,7 @@
 // of the shared examples stack, started with:
 //   examples/stack/up.sh
 //
-// Precedence (microtel-spec.md §12.7) runs defaults -> detectors -> environment
+// Precedence (docs/configuration.md §3.2) runs defaults -> detectors -> environment
 // -> file/code, each layer overriding the one before it. To watch the
 // environment beat a detector, run it again with:
 //

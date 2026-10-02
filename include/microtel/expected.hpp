@@ -8,8 +8,8 @@
 /// the `microtel` namespace.
 ///
 /// `std::expected` is a C++23 feature. microtel's compiler floor is C++20
-/// (per `microtel-spec.md` §1, to preserve the RHEL 8 + devtoolset-11
-/// target). Until the project moves to C++23, the public API and internal
+/// (per ICP 0002 and `docs/coding-standards.md` §4.1, to preserve the RHEL 8 +
+/// devtoolset-11 target). Until the project moves to C++23, the public API and internal
 /// interfaces use `microtel::Expected<T, E>`, which:
 ///
 /// - Aliases to `std::expected<T, E>` when compiled under C++23 with a

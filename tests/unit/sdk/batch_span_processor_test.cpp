@@ -345,7 +345,7 @@ TEST(BatchSpanProcessorTest, Diagnostics_NullSink_IsNotDereferenced)
 }
 
 // ---------------------------------------------------------------------------
-// Record-size limit — spec §13.5, issue #181. `max_record_bytes` was declared
+// Record-size limit — memory-model.md §6, issue #181. `max_record_bytes` was declared
 // in `MemoryLimitOptions` and enforced nowhere, and `record_too_large` was one
 // of the six counters error-model.md §3 marked *(not yet produced)* for want of
 // a detection point. `OnEnd` is that point: the record is measured before it is
@@ -509,7 +509,7 @@ TEST(BatchSpanProcessorTest, RecordTooLarge_WithoutSink_IsStillDropped)
 }
 
 // ---------------------------------------------------------------------------
-// Aggregate queue-byte budget — spec §13.5, part of issue #181.
+// Aggregate queue-byte budget — memory-model.md §6, part of issue #181.
 // `max_total_queue_bytes` was declared in `MemoryLimitOptions` and enforced
 // nowhere, so `max_queue_size` bounded the queue in *records* only: 2048 fat
 // records still fit whatever their size. `OnEnd` is the detection point, next

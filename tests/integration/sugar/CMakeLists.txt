@@ -3,7 +3,7 @@
 #
 # tests/integration/sugar/ — the single sugar integration test (ICP 0028 §3).
 #
-# Sugar is excluded from conformance testing by microtel-spec.md §18.1, so
+# Sugar is excluded from conformance testing (ICP 0028), so
 # this one test is the whole of its non-unit coverage: a sugar-written call
 # tree exported through a real SdkTracer + BatchSpanProcessor.
 

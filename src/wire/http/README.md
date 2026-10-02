@@ -63,7 +63,7 @@ Track B — OTLP/HTTP wire codec.
   with `/v1/traces` appended. A non-empty `signal_path` replaces all of that
   and is used as the `:path` verbatim.
 - **Compression:** `compression_gzip` gzips the request body and sets
-  `content-encoding: gzip` (spec §7.1). It is off by default for the low-CPU
+  `content-encoding: gzip` (`docs/configuration.md` §3.3). It is off by default for the low-CPU
   profile. Response inflation is independent: `accept-encoding: gzip` is
   always sent, and inflation stops at `max_decompressed_bytes`.
 - **Response handling:** capture the body for diagnostics. It arrives already

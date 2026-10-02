@@ -25,7 +25,7 @@ namespace microtel::internal
 {
 
 /// @brief Inputs to `ITransport::Connect`. Six independent timeouts per
-/// `microtel-spec.md` §7.3 (the connect-relevant subset is on this struct;
+/// `docs/configuration.md` §3.4 (the connect-relevant subset is on this struct;
 /// others live on the exporter's per-request `RequestSpec`).
 struct ConnectOptions
 {

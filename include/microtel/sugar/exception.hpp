@@ -40,7 +40,7 @@ constexpr std::string_view kExceptionMessageKey{"exception.message"};
 /// Setting `Error` status is a deliberate divergence from
 /// opentelemetry-cpp's similarly-named `Span::RecordException`, which does
 /// not. `microtel-roadmap.md` §5 v1.1 specifies both halves, and
-/// `microtel-spec.md` §18.1 excludes sugar from conformance testing, so this
+/// sugar is excluded from conformance testing (ICP 0028), so this
 /// helper is not measured against the OTel API surface.
 ///
 /// @param span    borrowed; not retained.

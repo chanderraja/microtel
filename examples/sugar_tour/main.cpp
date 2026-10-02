@@ -207,8 +207,8 @@ std::int64_t ReserveInventory(microtel::Tracer& tracer)
 //
 // Setting `Error` status is a deliberate divergence from opentelemetry-cpp's
 // similarly-named `Span::RecordException`, which does not: roadmap §5 v1.1
-// specifies both halves, and spec §18.1 excludes sugar from conformance
-// testing, so this helper is not measured against the OTel API surface.
+// specifies both halves, and sugar is excluded from conformance testing
+// (ICP 0028), so this helper is not measured against the OTel API surface.
 bool ChargeCard(microtel::Tracer& tracer, std::string_view order_id)
 {
     // mt::Span's inline attributes. `attributes` is viewed, not owned: the

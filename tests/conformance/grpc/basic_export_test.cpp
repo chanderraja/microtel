@@ -17,7 +17,7 @@
 // Nothing below trusts microtel's own accounting for the round trip — the
 // assertions read the collector's output file, which is downstream of the
 // collector's protobuf decode, so a payload it rejected or misread cannot pass.
-// That is what makes this the spec §13.5 gate rather than a restatement of the
+// That is what makes this the Tier 1 conformance gate rather than a restatement of the
 // codec's unit tests.
 //
 // Why the PLAINTEXT endpoint here, where the HTTP suite needs TLS

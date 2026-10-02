@@ -154,7 +154,7 @@ bool BatchSpanProcessor::Enqueue(internal::SpanRecord&& record,
     if (record_bytes > m_max_record_bytes)
     {
         // Refused before it is queued, so an oversized record never occupies
-        // the queue it would otherwise dominate (issue #181, spec §5.5). The
+        // the queue it would otherwise dominate (issue #181, memory-model.md §6). The
         // limit is a ceiling the record may reach: only `>` drops.
         RecordDropped(DropReason::RecordTooLarge);
         return false;
@@ -176,8 +176,8 @@ bool BatchSpanProcessor::Enqueue(internal::SpanRecord&& record,
 bool BatchSpanProcessor::MakeRoomFor(std::size_t record_bytes) noexcept
 {
     // Two caps, one queue: `max_queue_size` counts records and
-    // `max_total_queue_bytes` counts their estimated bytes (issue #181, spec
-    // §5.5). Whichever fills first refuses the record, and both report it as
+    // `max_total_queue_bytes` counts their estimated bytes (issue #181,
+    // `memory-model.md` §6). Whichever fills first refuses the record, and both report it as
     // `QueueFull` — the queue is full, and a new `DropReason` would be an ICP
     // (`docs/interfaces.md` §3.5) for a distinction an operator reads the same
     // way. The byte cap can need more than one eviction, so this loops where

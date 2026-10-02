@@ -41,11 +41,11 @@ Provider and builder:
 
 Resource:
 
-- `microtel::Resource` and the resource-merging pipeline (spec §12.7).
+- `microtel::Resource` and the resource-merging pipeline (`docs/configuration.md` §3.2).
 - `internal::IResourceDetector`: the `process` and `host` detectors in
   [`resource_detectors.cpp`](resource_detectors.cpp), behind the public
-  `MakeProcessDetector` / `MakeHostDetector` factories. The spec §12.7
-  composition that merges them with the config lives in
+  `MakeProcessDetector` / `MakeHostDetector` factories. The composition
+  (`docs/configuration.md` §3.2) that merges them with the config lives in
   [`resource_builder.cpp`](resource_builder.cpp), which also logs the
   resolved Resource once per `Build()` at `Info` (sorted, escaped, redacted, capped;
   issue #284). k8s and cloud detectors are future work.

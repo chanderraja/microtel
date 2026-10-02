@@ -1,7 +1,6 @@
 # `tests/grpc-wire/`
 
-The gRPC response corpus from `docs/grpc-wire-protocol.md` §7.2 and spec
-§13.5. This directory holds no fixture files. Every entry in the corpus
+The gRPC response corpus from `docs/grpc-wire-protocol.md` §7.2. This directory holds no fixture files. Every entry in the corpus
 is covered by a test that builds the response in code, and the table
 below says which one.
 

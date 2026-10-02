@@ -10,7 +10,7 @@ microtel_add_integration_test(
 
 # microtel_grpc_wire is linked for the split-DATA-frame tests: the
 # accumulation they exercise lives in the transport, but the assertion that it
-# worked is the codec parsing the reassembled message (spec §7.2).
+# worked is the codec parsing the reassembled message (grpc-wire-protocol.md §2.3).
 microtel_add_integration_test(
     NAME    http2_send_test
     SOURCES http2_send_test.cpp

@@ -17,7 +17,7 @@ C resource.
 
 ## What it implements
 
-The wrappers required by `microtel-spec.md` §14.3 and listed in
+The wrappers required by `CLAUDE.md` rule 9 and listed in
 `docs/memory-model.md` §4.2, plus a few that arrived later:
 
 | Wrapper | Header | Owns | Destructor calls |

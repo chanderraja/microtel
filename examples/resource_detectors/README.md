@@ -99,7 +99,7 @@ failure fail `Build()` instead.
 ## Precedence: detector → env → user
 
 `Build()` merges four layers key by key, each overriding the one before it
-(`microtel-spec.md` §12.7, [`docs/configuration.md`](../../docs/configuration.md)):
+([`docs/configuration.md`](../../docs/configuration.md) §3.2):
 
 1. Built-in defaults: the `unknown_service` placeholder, used only when nothing
    configured a service name.
@@ -157,7 +157,7 @@ no reason to, since the detectors do it. It's only here so you can compare the
 console with the span without having to trust either one alone.
 
 Nothing in the program reads the merged `Resource`. There's no public accessor
-for it, but `Build()` logs it once at `Info` (spec §12.7), so the merged
+for it, but `Build()` logs it once at `Info` ([`docs/configuration.md`](../../docs/configuration.md) §5), so the merged
 result shows up on stderr, or in your `LogSink` if you installed one:
 
 ```

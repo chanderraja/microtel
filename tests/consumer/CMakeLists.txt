@@ -40,6 +40,11 @@ add_executable(microtel_consumer_smoke main.cpp)
 # and its link order, from the real dependency graph.
 target_link_libraries(microtel_consumer_smoke PRIVATE microtel::microtel)
 
+# The version find_package() matched against (microtelConfigVersion.cmake),
+# handed to main.cpp so it can be checked against the installed version.hpp.
+target_compile_definitions(microtel_consumer_smoke
+    PRIVATE MICROTEL_CONSUMER_PACKAGE_VERSION="${microtel_VERSION}")
+
 # The installed package describes how it was configured. Printing it makes a CI
 # log say which prefix was consumed rather than leaving it to be inferred.
 message(STATUS "microtel_DIR=${microtel_DIR} version=${microtel_VERSION} "

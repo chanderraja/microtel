@@ -117,22 +117,28 @@ std::vector<StreamSpec> ResolveStreamSpecs(const std::string& instrument_name,
 // Each adapter holds one StorageSlot per matching view. An empty slot list
 // makes the instrument a no-op (all views dropped). When a slot has an
 // allowlist, attrs are filtered before forwarding to storage; otherwise the
-// original span is used directly (zero-copy hot path). Each adapter also
-// shares the MetricProducer, which owns the storage the slots point into, so
-// an instrument stays usable after its meter and provider are gone (#259).
+// original span is used directly (zero-copy hot path).
 // Hot-path methods are noexcept: OOM in FilterAttrs → std::terminate per policy.
 
-template <typename T>
-class SdkCounter final : public microtel::Counter<T>
+// The slots one instrument fans a measurement out to, and the MetricProducer
+// that owns the storage they point into. Sharing the producer keeps that
+// storage, and the sink and span source it borrows, alive for as long as the
+// instrument is, so an instrument stays usable after its meter and provider
+// are gone (issue #259).
+template <typename StorageT>
+class InstrumentSlots
 {
 public:
-    SdkCounter(std::shared_ptr<MetricProducer> producer,
-               std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+    InstrumentSlots(std::shared_ptr<MetricProducer> producer,
+                    std::vector<StorageSlot<StorageT>> slots) noexcept
         : m_producer(std::move(producer)), m_slots(std::move(slots))
     {
     }
 
-    void Add(T value, microtel::AttributeSpan attrs) noexcept override
+    // Calls record(storage, attrs) once per slot, with attrs filtered by the
+    // slot's allowlist when it has one.
+    template <typename RecordFn>
+    void ForEach(microtel::AttributeSpan attrs, const RecordFn& record) const noexcept
     {
         std::vector<microtel::KeyValue> filter_buf;
         for (const auto& slot : m_slots)
@@ -140,19 +146,39 @@ public:
             if (slot.allowlist.has_value())
             {
                 FilterAttrs(attrs, *slot.allowlist, filter_buf);
-                slot.storage->Add(value, microtel::AttributeSpan{filter_buf});
+                record(*slot.storage, microtel::AttributeSpan{filter_buf});
             }
             else
             {
-                slot.storage->Add(value, attrs);
+                record(*slot.storage, attrs);
             }
         }
     }
 
 private:
-    /// Owns the storage `m_slots` points into (issue #259).
     std::shared_ptr<MetricProducer> m_producer;
-    std::vector<StorageSlot<SumStorage<T>>> m_slots;
+    std::vector<StorageSlot<StorageT>> m_slots;
+};
+
+template <typename T>
+class SdkCounter final : public microtel::Counter<T>
+{
+public:
+    SdkCounter(std::shared_ptr<MetricProducer> producer,
+               std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
+        : m_slots(std::move(producer), std::move(slots))
+    {
+    }
+
+    void Add(T value, microtel::AttributeSpan attrs) noexcept override
+    {
+        m_slots.ForEach(attrs,
+                        [value](SumStorage<T>& storage, microtel::AttributeSpan a)
+                        { storage.Add(value, a); });
+    }
+
+private:
+    InstrumentSlots<SumStorage<T>> m_slots;
 };
 
 template <typename T>
@@ -161,31 +187,19 @@ class SdkUpDownCounter final : public microtel::UpDownCounter<T>
 public:
     SdkUpDownCounter(std::shared_ptr<MetricProducer> producer,
                      std::vector<StorageSlot<SumStorage<T>>> slots) noexcept
-        : m_producer(std::move(producer)), m_slots(std::move(slots))
+        : m_slots(std::move(producer), std::move(slots))
     {
     }
 
     void Add(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        std::vector<microtel::KeyValue> filter_buf;
-        for (const auto& slot : m_slots)
-        {
-            if (slot.allowlist.has_value())
-            {
-                FilterAttrs(attrs, *slot.allowlist, filter_buf);
-                slot.storage->Add(value, microtel::AttributeSpan{filter_buf});
-            }
-            else
-            {
-                slot.storage->Add(value, attrs);
-            }
-        }
+        m_slots.ForEach(attrs,
+                        [value](SumStorage<T>& storage, microtel::AttributeSpan a)
+                        { storage.Add(value, a); });
     }
 
 private:
-    /// Owns the storage `m_slots` points into (issue #259).
-    std::shared_ptr<MetricProducer> m_producer;
-    std::vector<StorageSlot<SumStorage<T>>> m_slots;
+    InstrumentSlots<SumStorage<T>> m_slots;
 };
 
 template <typename T>
@@ -194,31 +208,19 @@ class SdkGauge final : public microtel::Gauge<T>
 public:
     SdkGauge(std::shared_ptr<MetricProducer> producer,
              std::vector<StorageSlot<GaugeStorage<T>>> slots) noexcept
-        : m_producer(std::move(producer)), m_slots(std::move(slots))
+        : m_slots(std::move(producer), std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        std::vector<microtel::KeyValue> filter_buf;
-        for (const auto& slot : m_slots)
-        {
-            if (slot.allowlist.has_value())
-            {
-                FilterAttrs(attrs, *slot.allowlist, filter_buf);
-                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
-            }
-            else
-            {
-                slot.storage->Record(value, attrs);
-            }
-        }
+        m_slots.ForEach(attrs,
+                        [value](GaugeStorage<T>& storage, microtel::AttributeSpan a)
+                        { storage.Record(value, a); });
     }
 
 private:
-    /// Owns the storage `m_slots` points into (issue #259).
-    std::shared_ptr<MetricProducer> m_producer;
-    std::vector<StorageSlot<GaugeStorage<T>>> m_slots;
+    InstrumentSlots<GaugeStorage<T>> m_slots;
 };
 
 template <typename T>
@@ -227,31 +229,19 @@ class SdkHistogram final : public microtel::Histogram<T>
 public:
     SdkHistogram(std::shared_ptr<MetricProducer> producer,
                  std::vector<StorageSlot<HistogramStorage<T>>> slots) noexcept
-        : m_producer(std::move(producer)), m_slots(std::move(slots))
+        : m_slots(std::move(producer), std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        std::vector<microtel::KeyValue> filter_buf;
-        for (const auto& slot : m_slots)
-        {
-            if (slot.allowlist.has_value())
-            {
-                FilterAttrs(attrs, *slot.allowlist, filter_buf);
-                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
-            }
-            else
-            {
-                slot.storage->Record(value, attrs);
-            }
-        }
+        m_slots.ForEach(attrs,
+                        [value](HistogramStorage<T>& storage, microtel::AttributeSpan a)
+                        { storage.Record(value, a); });
     }
 
 private:
-    /// Owns the storage `m_slots` points into (issue #259).
-    std::shared_ptr<MetricProducer> m_producer;
-    std::vector<StorageSlot<HistogramStorage<T>>> m_slots;
+    InstrumentSlots<HistogramStorage<T>> m_slots;
 };
 
 template <typename T>
@@ -260,31 +250,19 @@ class SdkExponentialHistogram final : public microtel::ExponentialHistogram<T>
 public:
     SdkExponentialHistogram(std::shared_ptr<MetricProducer> producer,
                             std::vector<StorageSlot<ExponentialHistogramStorage<T>>> slots) noexcept
-        : m_producer(std::move(producer)), m_slots(std::move(slots))
+        : m_slots(std::move(producer), std::move(slots))
     {
     }
 
     void Record(T value, microtel::AttributeSpan attrs) noexcept override
     {
-        std::vector<microtel::KeyValue> filter_buf;
-        for (const auto& slot : m_slots)
-        {
-            if (slot.allowlist.has_value())
-            {
-                FilterAttrs(attrs, *slot.allowlist, filter_buf);
-                slot.storage->Record(value, microtel::AttributeSpan{filter_buf});
-            }
-            else
-            {
-                slot.storage->Record(value, attrs);
-            }
-        }
+        m_slots.ForEach(attrs,
+                        [value](ExponentialHistogramStorage<T>& storage, microtel::AttributeSpan a)
+                        { storage.Record(value, a); });
     }
 
 private:
-    /// Owns the storage `m_slots` points into (issue #259).
-    std::shared_ptr<MetricProducer> m_producer;
-    std::vector<StorageSlot<ExponentialHistogramStorage<T>>> m_slots;
+    InstrumentSlots<ExponentialHistogramStorage<T>> m_slots;
 };
 
 // ── Public-to-internal ObservableResult bridge ────────────────────────────────

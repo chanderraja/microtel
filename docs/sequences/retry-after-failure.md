@@ -1,7 +1,7 @@
 # Sequence: Retry After Failure
 
 **Status:** M0 deliverable. Normative timeline for the retry path on a retryable export failure.
-**See also:** `error-model.md` §7 (retry classification), `interfaces.md` §4.3, §4.4, `microtel-spec.md` §7.
+**See also:** `error-model.md` §7 (retry classification), `interfaces.md` §4.3, §4.4, `grpc-wire-protocol.md` §4.
 
 ---
 
@@ -108,7 +108,7 @@ Exporter Worker (loop iteration N where retry_after > remaining_budget)
    | exit loop, return ExportResult::Failure
 ```
 
-`retry_budget` covers all retries of a single batch (default 60s, spec §7.3). If exceeded, the batch is dropped non-retryably. The application observes this only via `GetExporterHealth()`; `Export()` itself returned `Success` long ago when the batch was first accepted.
+`retry_budget` covers all retries of a single batch (default 60s, `configuration.md` §3.4). If exceeded, the batch is dropped non-retryably. The application observes this only via `GetExporterHealth()`; `Export()` itself returned `Success` long ago when the batch was first accepted.
 
 ---
 

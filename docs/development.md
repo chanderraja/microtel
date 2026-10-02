@@ -1,7 +1,7 @@
 # microtel Development — Track-to-Directory Atlas
 
 **Status:** M0 deliverable. Answers "which track owns this code?" for contributors and AI agents.
-**Companion:** `architecture.md` §7 (track ↔ component map), `microtel-spec.md` §13.1 and §13.3.
+**Companion:** `architecture.md` §7 (track ↔ component map), `CODEOWNERS` (review routing).
 
 This document is an index, not a design doc. The substantive content lives in the per-track READMEs under each `src/<dir>/README.md`, which land in M2 (Skeleton & contracts). Until M2, this atlas is the only map.
 
@@ -25,7 +25,7 @@ After M2, each `src/<dir>/README.md` carries the directory-local detail; this do
 
 ## 2. The six tracks
 
-Defined in spec §13.1.
+This table is the definition of the tracks.
 
 | Track | Theme | Foundational? |
 |---|---|---|
@@ -68,7 +68,7 @@ Defined in spec §13.1.
 - `tests/conformance/` end-to-end against a real OpenTelemetry Collector.
 
 **Read before editing:**
-- `microtel-spec.md` §6 (API surface), §8 (SDK features).
+- The public headers' Doxygen under `include/microtel/` (API surface) and the README "Status" section (SDK features).
 - `architecture.md` §3.1–§3.3.
 - `threading-model.md` §2.1, §2.2 (caller-thread and worker-thread contracts).
 - `memory-model.md` §8.1 (zero-allocation unsampled-span rule).
@@ -98,7 +98,7 @@ Defined in spec §13.1.
 - `tests/conformance/` (shared with Track C).
 
 **Read before editing:**
-- `microtel-spec.md` §7.1, §7.3.
+- `src/wire/http/README.md` (the codec) and `grpc-wire-protocol.md` §8 (what the HTTP and gRPC codecs share).
 - `error-model.md` §7.1 (HTTP retry classification matrix).
 - `interfaces.md` §4.3.
 
@@ -123,7 +123,7 @@ Defined in spec §13.1.
 - `tests/fuzz/grpc_codec_fuzz.cpp`.
 
 **Read before editing:**
-- `microtel-spec.md` §7.2, §7.3.
+- `configuration.md` §3.4 (the six timeouts).
 - `error-model.md` §7.2 (gRPC retry classification matrix).
 - **`grpc-wire-protocol.md` in full.**
 - `interfaces.md` §4.3.
@@ -145,7 +145,7 @@ Defined in spec §13.1.
 
 **Consumes:**
 - OpenSSL (system library).
-- nghttp2 (system library; minimum version pinned per spec §9.1).
+- nghttp2 (system library, found through pkg-config).
 - `IDiagnosticsSink` (fake during track work).
 
 **Tests:**
@@ -155,7 +155,7 @@ Defined in spec §13.1.
 - `tests/fuzz/` — response-size and trailer-parser fuzzers (Track C uses these too).
 
 **Read before editing:**
-- `microtel-spec.md` §5.2, §5.3.
+- `threading-model.md` §6, §7 (`Shutdown` lifecycle and fork).
 - `architecture.md` §3.6.
 - `threading-model.md` §2.3, §3.2, §3.3, §5.
 - `memory-model.md` §4.2 (RAII wrapper contract).
@@ -185,7 +185,6 @@ Defined in spec §13.1.
 - `tests/fuzz/toml_fuzz.cpp` (M9 hardening).
 
 **Read before editing:**
-- `microtel-spec.md` §12.
 - **`configuration.md` in full** — every new setting takes a row.
 - `error-model.md` §8 (init-failure taxonomy).
 - `interfaces.md` §4.9.
@@ -213,10 +212,10 @@ Defined in spec §13.1.
 **Tests:**
 - `tests/unit/wire/encoder/`.
 - `tests/wire/encoder/` — encoded-byte fixtures verified against canonical upstream encoders.
-- A regen-determinism test in CI: `make regen-protos` against the pinned upb + opentelemetry-proto must produce a zero-diff result (spec §9.3).
+- A regen-determinism test in CI: `make regen-protos` against the pinned upb + opentelemetry-proto must produce a zero-diff result (`ci-architecture.md`, `regen-check`).
 
 **Read before editing:**
-- `microtel-spec.md` §7.3 (shared encoder for both wire protocols).
+- `architecture.md` §3.4 (one shared encoder for both wire protocols).
 - `memory-model.md` §3 (per-encode arena, `EncodedPayload`, the encoder containment rule).
 - `interfaces.md` §4.2.
 
@@ -254,15 +253,15 @@ For trivial work (typo fix, comment update, single-line bug fix in one file), sk
 
 ## 11. CODEOWNERS
 
-`CODEOWNERS` at the repo root is the authoritative routing table for review requests. Per spec §13.3:
+`CODEOWNERS` at the repo root is the authoritative routing table for review requests:
 
 - Each `src/<dir>/` has an owner (one or more GitHub handles, plus organisation teams once a maintainer model is established).
-- `docs/` and `microtel-spec.md` and `microtel-roadmap.md` have a separate set of owners.
-- `third_party/upb/` and `gen/` have specific owners because vendored-dependency updates have their own review checklist (spec §9.6).
+- `docs/` and `microtel-roadmap.md` have a separate set of owners.
+- `third_party/upb/` and `gen/` have specific owners because vendored-dependency updates carry their own pin and provenance (each directory's README).
 
 A solo project before v1.0 has every owner pointing to the project lead. The structure exists so that as the project grows, ownership can fan out without changing the routing mechanism.
 
-A CI check that fails PRs touching files outside the author's claimed track is **deferred** until collision incidents prove the lighter tools insufficient (spec §13.3). For now, CODEOWNERS plus this atlas plus per-directory READMEs are sufficient.
+A CI check that fails PRs touching files outside the author's claimed track is **deferred** until collision incidents prove the lighter tools insufficient. For now, CODEOWNERS plus this atlas plus per-directory READMEs are sufficient.
 
 ---
 
@@ -293,7 +292,7 @@ target_link_libraries(my_app PRIVATE microtel::microtel)
 | `<includedir>/microtel/` | Public headers, plus `internal/` and `adapters/`. |
 | `<includedir>/microtel/vendor/tl/` | The vendored `tl::expected` (ICP 0002). |
 | `<includedir>/microtel-shim/adapters/otelcpp/` | The opentelemetry-cpp shim's headers. |
-| `<bindir>/microtel-preflight` | The operator CLI (spec §6.4). |
+| `<bindir>/microtel-preflight` | The operator CLI ([`troubleshooting.md`](troubleshooting.md), exit codes). |
 
 ### Rules worth knowing before you change any of it
 

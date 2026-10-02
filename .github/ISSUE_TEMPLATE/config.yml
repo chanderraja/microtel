@@ -16,13 +16,13 @@ contact_links:
     url: https://github.com/chanderraja/microtel/blob/master/docs/icps/README.md
     about: For breaking changes to locked interfaces, use the ICP process — not an issue.
 
-  - name: Spec
-    url: https://github.com/chanderraja/microtel/blob/master/microtel-spec.md
-    about: For questions about what's in or out of v1, read the spec first.
+  - name: Documentation index
+    url: https://github.com/chanderraja/microtel/blob/master/docs/README.md
+    about: For questions about what microtel does today, start from the design docs and the README Status section.
 
   - name: Roadmap
     url: https://github.com/chanderraja/microtel/blob/master/microtel-roadmap.md
-    about: For questions about what's coming after v1.0, see the roadmap.
+    about: For questions about what's planned and what's out of scope, see the roadmap.
 
   - name: Contributing
     url: https://github.com/chanderraja/microtel/blob/master/CONTRIBUTING.md

@@ -1,6 +1,6 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
-**Companion to:** `microtel-spec.md` (v0.10, the v1 spec)
+**Companion to:** the design documents indexed in [`docs/README.md`](docs/README.md)
 **Status:** Draft v0.1. Implementation status updated 2026-09-27 against v1.2.0.
 **Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
 
@@ -39,9 +39,9 @@ different name, the bullet has been corrected to the shipped name.
 
 This is a **theme-based roadmap**, not a dated commitment. Each minor release advances one cohesive theme; major versions bump when public C++ API or wire-level promises break. Effort estimates from the v1 spec are realistic ranges; v1.x and beyond are intentionally less precise because real signals from M0 and M1 will reshape them.
 
-The roadmap is the source of truth for **what's deferred from v1**. Anything called out as "v1.1" or "v2.0" in the main spec is described here in detail. If a feature isn't on this roadmap, it isn't on the project's plan; new ideas land in §11 first and graduate to a milestone if they survive review.
+The roadmap is the source of truth for **what's deferred from v1**. Anything called out as "v1.1" or "v2.0" in the design documents is described here in detail. If a feature isn't on this roadmap, it isn't on the project's plan; new ideas land in §11 first and graduate to a milestone if they survive review.
 
-The spec (`microtel-spec.md`) covers v1.0 in full. This document is brief on v1.0 and detailed on everything after.
+v1.0 has shipped; the README and the design documents describe it. This document is brief on v1.0 and detailed on everything after.
 
 ---
 
@@ -50,14 +50,14 @@ The spec (`microtel-spec.md`) covers v1.0 in full. This document is brief on v1.
 - **Semantic versioning** for the public C++ API and `microtel.toml` schema.
 - **Wire compatibility** is tracked against a pinned OTel spec version, called out per release.
 - **One LTS line per major version.** When v2.0 ships, the v1.x line gets security fixes and OTel-spec updates for **18 months**. After that, v1.x is end-of-life. The deprecation calendar lives in `docs/release-policy.md`.
-- **Pre-1.0 ABI is unstable**, period. Post-1.0 source compat within major; binary best-effort within minor (§18 of spec).
+- **Pre-1.0 ABI is unstable**, period. Post-1.0 source compat within major; binary best-effort within minor ([`RELEASING.md`](RELEASING.md) §7).
 - **Compat shims** version independently from microtel core. A shim `0.x` may target microtel `1.5` and remain experimental even as microtel itself is stable.
 
 ---
 
 ## 3. Compatibility tier progression
 
-Each release advances along the four-tier model from spec §2.2. The progression below is the planned path; tier promotions require the gates listed in §10 to pass first.
+Each release advances along the four-tier model defined in [`docs/compatibility-matrix.md`](docs/compatibility-matrix.md) §7. The progression below is the planned path; tier promotions require the gates listed in §10 to pass first.
 
 | Release | Tier 1 (wire) | Tier 2 (data-model) | Tier 3 (API-adapter) | Tier 4 (SDK conformance) |
 |---|---|---|---|---|
@@ -97,7 +97,7 @@ The leaf ships as experimental in v1.2 with both encoder backends ([ICP 0031](do
 
 **Status:** done. Open work is bug fixes (#271, #223).
 
-Covered in detail in `microtel-spec.md` §13. Brief recap:
+Brief recap:
 
 - C++20 trace SDK (Tracer, Span, W3C Trace Context, AlwaysOn / AlwaysOff / TraceIdRatio / ParentBased samplers, BatchSpanProcessor)
 - OTLP/HTTP and OTLP/gRPC over nghttp2, no gRPC library
@@ -108,7 +108,7 @@ Covered in detail in `microtel-spec.md` §13. Brief recap:
 
 Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, covering all three signals, per [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
 
-**v1.0 release gates** are listed in spec §13.5.
+**v1.0 release gates** were met; the CI jobs that keep enforcing them are described in [`docs/ci-architecture.md`](docs/ci-architecture.md).
 
 ---
 
@@ -156,7 +156,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Compatibility tier:** Tier 1 and Tier 2 add logs; metrics follow in v1.3. The Tier 3 shim is already experimental for all three signals.
 
-**Leaf / concentrator (experimental).** Moved from v2.0. Covered in detail in `microtel-spec.md` §18.4. *(Done, experimental: [`docs/leaf-concentrator-design.md`](docs/leaf-concentrator-design.md) describes what shipped. The C leaf with both backends, the ingest path, the `[concentrator]` configuration and the three time modes are in, and the ICP's ship gates are met: fuzzed ingest, a collector end-to-end test per backend and protocol, published footprints with a Cortex-M CI job ([`docs/bench-results/leaf-footprint.md`](docs/bench-results/leaf-footprint.md)), and [`examples/leaf/`](examples/leaf/).)*
+**Leaf / concentrator (experimental).** Moved from v2.0. *(Done, experimental: [`docs/leaf-concentrator-design.md`](docs/leaf-concentrator-design.md) describes what shipped. The C leaf with both backends, the ingest path, the `[concentrator]` configuration and the three time modes are in, and the ICP's ship gates are met: fuzzed ingest, a collector end-to-end test per backend and protocol, published footprints with a Cortex-M CI job ([`docs/bench-results/leaf-footprint.md`](docs/bench-results/leaf-footprint.md)), and [`examples/leaf/`](examples/leaf/).)*
 
 - **microtel-leaf**, a pure-C library for constrained embedded systems. No threading, no batching, no retries, no TLS, no HTTP. Encodes OTLP messages and hands the bytes to an application-supplied transport.
 - **Two encoder backends from the first release**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. upb covers Linux-on-ARM, OpenWrt-class and Cortex-A/R targets (`< 30 KB` flash target); nanopb covers Cortex-M (`< 15 KB` flash target). Same leaf API and identical OTLP bytes from both. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf only.
@@ -353,7 +353,7 @@ The shipped names are in `microtel::sugar` ([ICP 0028](docs/icps/0028-sugar-surf
 
 ## 6. Performance and footprint trajectory
 
-The v1.0 footprint targets in spec §10.5 are stretch numbers pending prototype. The trajectory across releases:
+The v1.0 footprint targets in [`docs/bench-spec.md`](docs/bench-spec.md) §14.5 are stretch numbers pending prototype. The trajectory across releases:
 
 *(Status: the table below was written assuming shared libraries. microtel ships static archives only (`libmicrotel_*.a` behind `microtel::microtel`), and per-library sizes have not been measured or published yet; release notes so far report only the benchmark binary size. ICP 0030 (PR #293) proposes the CI size report that would fill this in.)*
 
@@ -482,7 +482,7 @@ Brief notes on decisions whose rationale spans multiple releases and influences 
 | Leaf encoder is upb first, nanopb later | v0.5 spec | Larger embedded targets are most of the addressable audience and reuse microtel's existing encoder closure. nanopb adds reach to true MCU class. | v2.0, v2.1 |
 | Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](docs/icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
 | Metrics, logs and the otel-cpp shim built ahead of their themes, shipped as experimental | M12–M17 | The code was ready before the release themes that name it. Shipping it marked experimental lets people use it now, while the v1.2 and v1.3 themes keep the job of stabilizing it: closing the gaps, adding conformance tests, and making the compatibility promise. | v1.2, v1.3, Tier 3 |
-| Leaf / concentrator in v1.3 as experimental, with upb **and** nanopb leaf backends | [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Reverses the release target of §18.4 and the "upb first, nanopb later" row above. The leaf is the strongest pitch for IoT fleets, and most of those devices are Cortex-M, which only nanopb reaches. Nothing in the design needed a major version: the receiver and enrichment hooks never existed as internal interfaces, so they arrive as new API. v2.0 becomes the release where that API goes stable. | v1.3, v2.0, v2.1 |
+| Leaf / concentrator in v1.3 as experimental, with upb **and** nanopb leaf backends | [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Reverses the v1.0 design's release target for the leaf (v2.0) and the "upb first, nanopb later" row above. The leaf is the strongest pitch for IoT fleets, and most of those devices are Cortex-M, which only nanopb reaches. Nothing in the design needed a major version: the receiver and enrichment hooks never existed as internal interfaces, so they arrive as new API. v2.0 becomes the release where that API goes stable. | v1.3, v2.0, v2.1 |
 | v1.1.1 patch for the concentrator's prerequisites; release order becomes v1.2 logs + leaf, v1.3 metrics, v1.4 control plane, v1.5 conformance push, v1.6 performance | [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md) | Only #257 and #222 block the concentrator, so they ship first as a patch. Metrics and the control plane share no code and have very different amounts of work left, so they no longer share a release. Earlier rows keep the numbers they were decided under. | v1.1.1–v1.6 |
 
 This log is appended to, never rewritten. When a decision is reversed, the original entry stays and a new entry records the reversal with rationale — the control-plane deferral is the first.
@@ -502,7 +502,7 @@ This log is appended to, never rewritten. When a decision is reversed, the origi
 
 ## 13. References
 
-- `microtel-spec.md` (v1 spec)
+- [`docs/README.md`](docs/README.md) (the design documents)
 - `docs/bench-spec.md` (benchmark harness)
 - [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/)
 - [OpenTelemetry SDK Specification](https://opentelemetry.io/docs/specs/otel/sdk/)

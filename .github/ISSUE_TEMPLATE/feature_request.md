@@ -6,8 +6,8 @@ labels: enhancement
 ---
 
 <!--
-Before filing: please check microtel-spec.md (v1 scope) and microtel-roadmap.md
-(post-v1 plans). Many features you might want are already on the roadmap.
+Before filing: please check the README "Status" section (what ships today) and
+microtel-roadmap.md (planned releases and anti-goals). Many features you might want are already on the roadmap.
 -->
 
 ## Use case
@@ -28,7 +28,7 @@ Before filing: please check microtel-spec.md (v1 scope) and microtel-roadmap.md
 
 <!-- Where does this fit relative to what's already planned? -->
 
-- [ ] In scope for v1 per `microtel-spec.md`
+- [ ] Already supported or documented (README Status, `docs/`)
 - [ ] On the roadmap (`microtel-roadmap.md`) for a later version
 - [ ] Not currently planned — proposing to add it
 - [ ] Unsure / want to discuss

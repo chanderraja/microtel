@@ -141,7 +141,7 @@ Process starts → first byte received at sink. Measures **library init cost + f
 Idle baseline punctuated by 1-second bursts at 50k spans/sec every 10s for 5 minutes. Measures **queue overflow behavior, drop rate, and recovery.**
 
 ### 4.5 `large-attributes`
-Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attributes. Measures **encoding cost on big payloads.** This profile intentionally exercises the `attribute_value_length_limit` truncation path (spec §5.6); truncation behavior and its effect on encoding cost are part of what is measured.
+Spans with 20 attributes, mean 256 bytes each, including some 4 KB string attributes. Measures **encoding cost on big payloads.** This profile intentionally exercises the `attribute_value_length_limit` truncation path ([`memory-model.md`](memory-model.md) §7); truncation behavior and its effect on encoding cost are part of what is measured.
 
 ### 4.6 `binary-size` (static, no execution)
 Build all three SUTs, measure stripped shared library size, statically-linked dep closure size, and `.text` / `.rodata` section sizes via `size` and `bloaty`. Pure static measurement; no runs.
@@ -340,7 +340,7 @@ run; it does not block PR merges.
 
 ## 13. References
 
-- microtel core spec (`microtel-spec.md`) and `docs/bench-spec.md` (this document)
+- `docs/bench-spec.md` (this document); the performance targets are §14
 - [HdrHistogram](https://github.com/HdrHistogram/HdrHistogram_c) — for percentile recording in the SUT
 - [bloaty](https://github.com/google/bloaty) — for binary size analysis
 - [Brendan Gregg, "Systems Performance" Ch. 12](https://www.brendangregg.com/sysperfbook.html) — methodology references

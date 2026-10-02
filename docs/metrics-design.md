@@ -242,7 +242,7 @@ example trace.
 - Env vars honored: `OTEL_METRIC_EXPORT_INTERVAL`,
   `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`,
   `OTEL_METRICS_EXEMPLAR_FILTER`.
-- Compatibility tiers (`microtel-spec.md` §2.2): **Tier 1 and Tier 2 advance to
+- Compatibility tiers (`docs/compatibility-matrix.md` §7): **Tier 1 and Tier 2 advance to
   include metrics**; the Tier 3 shim gains metric instruments (still
   experimental). The interop matrix (`.github/workflows/interop.yml`) gains a
   metrics-export check against otel-collector.
@@ -263,8 +263,9 @@ example trace.
 ## References
 
 - `microtel-roadmap.md` §1.2 — v1.2 scope; M11 prerequisite.
-- `microtel-spec.md` — M11/M12 milestone table; "one signal at a time" rule;
-  compatibility tiers (§2.2).
+- `docs/compatibility-matrix.md` §7 — compatibility tiers. (The M11/M12
+  milestone table and the "one signal at a time" rule were in the v1.0 design
+  specification, retired by ICP 0037.)
 - `docs/interfaces.md` — the locked trace contracts this doc parallels for metrics.
 - `docs/error-model.md` — `DropReason` / `Status` taxonomy to extend.
 - `docs/memory-model.md`, `docs/threading-model.md` — hot-path and allocation rules.

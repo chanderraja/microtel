@@ -1,8 +1,8 @@
 # microtel Internal Interfaces
 
-**Status:** M0 deliverable. **Sign-off required before M1 begins.** Per spec §13.2, every interface here is reviewed from the perspective of every downstream track that consumes it; the reviewer surfaces consumer/producer misalignment before code is written.
+**Status:** M0 deliverable. **Sign-off required before M1 begins.** Every interface here is reviewed from the perspective of every downstream track that consumes it; the reviewer surfaces consumer/producer misalignment before code is written.
 **Companion documents:** `architecture.md`, `threading-model.md`, `memory-model.md`, `error-model.md`. Detail in those documents is referenced rather than restated.
-**Source of truth for rationale:** `microtel-spec.md` §13.2.
+**Source of truth for rationale:** this document and the ICPs that amended it (`docs/icps/`).
 **Change control:** after M0 sign-off, breaking changes go through the ICP process (`docs/icps/README.md`).
 
 ---
@@ -35,7 +35,7 @@ findings; those land as numbered entries under `docs/icps/`.
 
 ## 2. How to read this document
 
-Every interface is documented along **six axes** (per spec §13.2):
+Every interface is documented along **six axes**:
 
 1. **Purpose** — one or two sentences.
 2. **Contract** — preconditions, postconditions, invariants.
@@ -155,7 +155,7 @@ struct HealthSnapshot
 
 ## 4. The interfaces
 
-Fourteen interfaces. Tagged by track per spec §13.1. The last two arrived in v1.2 with the concentrator and are additive: no interface above them changed.
+Fourteen interfaces. Tagged by track per `development.md` §2. The last two arrived in v1.2 with the concentrator and are additive: no interface above them changed.
 
 | # | Interface | Header | Track |
 |---|---|---|---|
@@ -209,7 +209,7 @@ public:
 };
 ```
 
-Where `ConnectOptions` carries endpoint, TLS material, ALPN preference, timeout taxonomy (six timeouts per spec §7.3), and the response memory budget the transport enforces while accumulating a response (`max_response_bytes`, `max_trailer_bytes` — `memory-model.md` §6; per-connection rather than per-request because the buffers they bound are the connection's); `RequestSpec` carries HTTP/2 headers, the borrowed payload span, and a per-request deadline; `RequestHandle` is a small move-only token paired with a future-like completion observable by the codec.
+Where `ConnectOptions` carries endpoint, TLS material, ALPN preference, timeout taxonomy (six timeouts, `configuration.md` §3.4), and the response memory budget the transport enforces while accumulating a response (`max_response_bytes`, `max_trailer_bytes` — `memory-model.md` §6; per-connection rather than per-request because the buffers they bound are the connection's); `RequestSpec` carries HTTP/2 headers, the borrowed payload span, and a per-request deadline; `RequestHandle` is a small move-only token paired with a future-like completion observable by the codec.
 
 **Preconditions.** `Connect` must be called and return success before `Send` is called. After `Close` returns `Completed` or `TimedOut`, no further `Send` is permitted.
 
@@ -700,7 +700,7 @@ Created by `ITransport` at `Connect`. Owned by the transport. Destroyed at `Clos
 
 #### Purpose
 
-Per spec §12.5, supplies the `Authorization` header value for each export batch. v1 supports two implementations: `StaticHeadersAuthProvider` (returns a constant) and `CallbackAuthProvider` (calls user code with a TTL cache).
+Supplies the `Authorization` header value (`WithAuthProvider`; recipes and caveats in `auth-callback-recipes.md`) for each export batch. v1 supports two implementations: `StaticHeadersAuthProvider` (returns a constant) and `CallbackAuthProvider` (calls user code with a TTL cache).
 
 #### Contract
 
@@ -754,7 +754,7 @@ Created by `SdkBuilder::Build()`. Owned by the `Provider`. The `CallbackAuthProv
 
 #### Purpose
 
-Produces a partial `Resource` at SDK initialisation. The interface was locked in M0 so that later detectors would not break the contract, and they have not: v1.1 added the `process` and `host` detectors (`microtel::MakeProcessDetector` / `MakeHostDetector`, registered through `SdkBuilder::WithResourceDetector`) against this same signature. k8s and cloud detectors remain future work. Environment variables and explicit configuration are not detectors — the config layer resolves them, and `sdk::BuildResource` merges them *above* every detector per spec §12.7.
+Produces a partial `Resource` at SDK initialisation. The interface was locked in M0 so that later detectors would not break the contract, and they have not: v1.1 added the `process` and `host` detectors (`microtel::MakeProcessDetector` / `MakeHostDetector`, registered through `SdkBuilder::WithResourceDetector`) against this same signature. k8s and cloud detectors remain future work. Environment variables and explicit configuration are not detectors — the config layer resolves them, and `sdk::BuildResource` merges them *above* every detector per `configuration.md` §3.2.
 
 #### Contract
 
@@ -772,7 +772,7 @@ public:
 
 **Preconditions.** Called at most once per detector instance, during `SdkBuilder::Build()`.
 
-**Postconditions.** Returns a partial `Resource`. Conflicts between detectors are resolved by the precedence in spec §12.7.
+**Postconditions.** Returns a partial `Resource`. Conflicts between detectors are resolved by the precedence in `configuration.md` §3.2.
 
 **Invariants.** Detection is one-shot; no live updates in v1.
 
@@ -991,7 +991,7 @@ None shared: the one test that needs it defines a recording exporter implementin
 
 ## 5. Mock and fake conventions
 
-Restating the rule from `CLAUDE.md` rule §4 and spec §14.2:
+Restating the rule from `CLAUDE.md` rule 4:
 
 - **Mocks are dumb.** They return what they're configured to return. No logic. Live in `tests/mocks/`.
 - **Fakes have logic.** When a test requires non-trivial behaviour (a fake server, a fake clock that advances, a fake reactor that scripts events), it's a fake, not a "smart mock". Live in `tests/fakes/`.
@@ -1003,11 +1003,11 @@ Every interface in this document has a mock or a fake (sometimes both). The sele
 - Public-API headers (`include/microtel/`) — see the headers themselves; the interfaces here are internal.
 - Implementation choices left to M3 (queue data structure, exact backoff formula) — see the relevant model document.
 - Auth providers beyond static + callback (OAuth2, SigV4) — v1.1+; will gain new sub-interfaces under `IAuthProvider` if needed.
-- The receiver of the leaf/concentrator role (spec §18.4) is realised as the public `microtel::LeafReceiver` in `include/microtel/leaf_receiver.hpp`, obtained from `Provider::GetLeafReceiver()` ([ICP 0034](icps/0034-leaf-receiver-api.md); contract in [`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.2–§3.3). It is public API, not an internal interface, so it is documented in its header; the spec's general `IReceiver` abstraction waits until a second receiver exists (design §3.1). Its decoder is §4.13 above.
+- The receiver of the leaf/concentrator role ([`leaf-concentrator-design.md`](leaf-concentrator-design.md), Scope) is realised as the public `microtel::LeafReceiver` in `include/microtel/leaf_receiver.hpp`, obtained from `Provider::GetLeafReceiver()` ([ICP 0034](icps/0034-leaf-receiver-api.md); contract in [`leaf-concentrator-design.md`](leaf-concentrator-design.md) §3.2–§3.3). It is public API, not an internal interface, so it is documented in its header; the v1.0 design's general `IReceiver` abstraction waits until a second receiver exists (design §3.1). Its decoder is §4.13 above.
 
 ## 7. Sign-off log
 
-Each row is locked once a reviewer signs and dates it. Per spec §13.2,
+Each row is locked once a reviewer signs and dates it. Per CLAUDE.md rule 2,
 breaking changes after a row is locked require an ICP. The "Locked"
 column records the M0 sign-off date.
 

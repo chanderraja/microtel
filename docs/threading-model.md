@@ -2,7 +2,7 @@
 
 **Status:** M0 deliverable. Normative for which threads exist, what they own, and how data crosses them in v1.
 **Companion documents:** `architecture.md` (layered structure), `memory-model.md` (resource ownership), `error-model.md` (no-exceptions-across-threads rule), `interfaces.md` (per-method threading tags).
-**Source of truth for rationale:** `microtel-spec.md` §5.1, §5.3.
+**Source of truth for rationale:** this document and the ICPs it cites (ICP 0021, ICP 0027).
 **Citation policy:** complete — per ICP 0021, every LOCKED marker below cites the code that makes it true, or is marked `intent`. Enforced by `ci/scripts/citation-check.py`.
 
 ---
@@ -142,9 +142,9 @@ Three channels, in canonical order. Each has a fixed shape, owner, and synchroni
 **Producer:** any caller thread, on `End()`.
 **Consumer:** the **processor** worker (`BatchSpanProcessor`), in batches — not the exporter worker, which sits one queue further down (§2.2). This section named the exporter worker until ICP 0021.
 
-**Shape.** Bounded MPSC queue. Capacity is `max_queue_size` from the batch processor configuration (default 8192 records; spec §6.1).
+**Shape.** Bounded MPSC queue. Capacity is `max_queue_size` from the batch processor configuration (default 8192 records; `configuration.md` §3.7).
 
-**Backpressure** (LOCKED — cites `src/sdk/batch_span_processor.cpp:OnEnd`). When the queue is full, the producer **drops the incoming record** by default (`drop_newest`). The producer never blocks. The drop is recorded against the `queue_full` counter (`error-model.md` §3). Drop-oldest is an opt-in alternative (spec §5.4); when configured, the worker thread (not the producer) is responsible for shedding the oldest entry on overflow.
+**Backpressure** (LOCKED — cites `src/sdk/batch_span_processor.cpp:OnEnd`). When the queue is full, the producer **drops the incoming record** by default (`drop_newest`). The producer never blocks. The drop is recorded against the `queue_full` counter (`error-model.md` §3). Drop-oldest is an opt-in alternative (`drop_policy`, `configuration.md` §3.7); when configured, the worker thread (not the producer) is responsible for shedding the oldest entry on overflow.
 
 **Producer-side synchronisation contract.** The enqueue path:
 
@@ -159,7 +159,7 @@ The exact data-structure choice (lock-free atomic ring vs. mutex-protected ring 
 - **Producer never holds a lock spanning the move-into-slot step** if a mutex implementation is chosen — the lock window is bounded to slot acquisition, not the move payload work.
 - **Allocation in the producer path is bounded to `O(1)` and may be zero** depending on implementation; see `memory-model.md` §8.2.
 
-**Consumer-side semantics.** The worker drains up to `max_export_batch_size` records (default 512; spec §6.1) per batch cycle. Drain is non-blocking with respect to producers — the worker never blocks producers, even briefly. After drain the worker releases the slots back for re-use.
+**Consumer-side semantics.** The worker drains up to `max_export_batch_size` records (default 512; `configuration.md` §3.7) per batch cycle. Drain is non-blocking with respect to producers — the worker never blocks producers, even briefly. After drain the worker releases the slots back for re-use.
 
 **Wakeup primitive.** A `std::condition_variable` paired with the queue's mutex if the implementation uses one, or a `eventfd(2)` on Linux / pipe-pair on BSD that the worker waits on alongside its deadline timer. Implementation choice is M3-era; the contract is "the worker can sleep until either an enqueue or a deadline fires."
 

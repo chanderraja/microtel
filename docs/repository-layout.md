@@ -46,7 +46,6 @@ Top-level files:
 | `SECURITY.md` | Vulnerability disclosure policy. |
 | `CODEOWNERS` | Review routing. |
 | `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md` | Apache-2.0, attributions, and the licenses of vendored code. |
-| `microtel-spec.md` | The original v1.0 design specification. |
 | `microtel-roadmap.md` | The roadmap, v1.0 onward. |
 | `sonar-project.properties` | SonarQube Cloud configuration. |
 | `.clang-format`, `.clang-tidy`, `.clangd`, `.editorconfig` | Formatting, lint and editor settings. |

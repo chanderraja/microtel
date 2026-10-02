@@ -2,7 +2,7 @@
 
 **Status:** M0 deliverable. Normative for resource ownership and byte budgets in v1.
 **Companion documents:** `architecture.md` (layered structure), `threading-model.md` (where ownership transfers cross threads), `error-model.md` (what happens when a budget is exceeded), `interfaces.md` (per-interface allocation behavior).
-**Source of truth for rationale:** `microtel-spec.md` §5.5 and §5.6, `CLAUDE.md` Hard rules §RAII discipline.
+**Source of truth for rationale:** this document, ICP 0001, `CLAUDE.md` Hard rules §RAII discipline.
 
 ---
 
@@ -45,7 +45,7 @@ This section is the most consequential set of rules in the document. They are th
 
 **upb arenas never escape `src/wire/encoder/`.** No upb type, no `upb_Arena*`, no upb-allocated string view appears in any header outside that directory. No pointer derived from an arena outlives the `Encode()` call that produced the arena. (LOCKED.)
 
-Rationale recorded in ICP 0001 and `microtel-spec.md` §5.5:
+Rationale recorded in ICP 0001:
 
 - Re-encoding on retry costs well under 1% of export-batch CPU. Transport dominates. Optimising encoding to dodge a re-encode buys ~nothing.
 - Per-batch arenas would cross the encoder/exporter and exporter/transport thread boundaries. `upb_Arena` is not thread-safe by default; sharing it requires synchronisation that undoes the savings.
@@ -159,7 +159,7 @@ All in `src/common/raii/`. Each is move-only, has a `noexcept` destructor, and e
 | Exporter worker thread | `BatchSpanProcessor` | Joined in `Shutdown()`. |
 | I/O thread | `Transport` | Joined in `Transport::Close()`. |
 
-Threads are owned by the component that started them. Both threads are joined before the owner's destructor returns. `Shutdown(timeout)` is the documented way to bound this — destructors invoke `Shutdown` with a finite timeout if not already shut down (`microtel-spec.md` §5.3).
+Threads are owned by the component that started them. Both threads are joined before the owner's destructor returns. `Shutdown(timeout)` is the documented way to bound this — destructors invoke `Shutdown` with a finite timeout if not already shut down (`threading-model.md` §6.2).
 
 ### 4.4 Callback registrations
 
@@ -292,7 +292,7 @@ This said "one per process" until v1.1, contradicting §4.2's table two sections
 
 ## 6. Memory budgets
 
-The byte budgets from `microtel-spec.md` §5.5 are normative. Each value has a default and a configurable override; defaults are listed.
+These byte budgets are normative; their settings are in `configuration.md` §3.8. Each value has a default and a configurable override; defaults are listed.
 
 | Budget | Default | Layer that enforces | What happens at boundary |
 |---|---|---|---|
@@ -318,7 +318,7 @@ The diagnostic surface for each of these — drop counter increment, rate-limite
 
 ## 7. Span structural limits
 
-The span limits from `microtel-spec.md` §5.6 are normative.
+These span limits are normative; their settings are in `configuration.md` §3.9.
 
 | Limit | Default |
 |---|---|

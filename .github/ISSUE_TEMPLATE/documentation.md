@@ -11,7 +11,7 @@ labels: documentation
 
 <!--
 Path to the affected file (or URL if it's on a website):
-  - microtel-spec.md §X.Y
+  - docs/configuration.md §X.Y
   - docs/coding-standards.md
   - README.md
   - etc.

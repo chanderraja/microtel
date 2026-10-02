@@ -1,7 +1,7 @@
 # microtel Configuration
 
 **Status:** M0 deliverable. Documents precedence rules and per-setting resolution.
-**Companion:** `microtel-spec.md` §12 (canonical for setting names and semantics), `error-model.md` §8 (init-failure taxonomy).
+**Authority:** this document is canonical for setting names and semantics. **Companion:** `error-model.md` §8 (init-failure taxonomy).
 **Troubleshooting:** for the message each `Build()` failure prints and what to change, see [`troubleshooting.md`](troubleshooting.md).
 **Maintenance:** the precedence rules in §1 are stable; the per-setting tables in §3 are appended to as new settings land in M3+. New settings without a row here are a documentation bug.
 **Last verified against source:** the v1.0 release cut — every setter name below checked against [`include/microtel/sdk_builder.hpp`](../include/microtel/sdk_builder.hpp), every TOML key against [`src/common/config/toml_loader.cpp`](../src/common/config/toml_loader.cpp), and every environment variable against [`src/common/config/env_resolver.cpp`](../src/common/config/env_resolver.cpp) (issues #194, #196). Sections that describe an *intended* surface rather than a built one now say so explicitly.
@@ -10,7 +10,7 @@
 
 ## 1. Precedence
 
-Resolved precedence, **highest to lowest** (LOCKED — spec §12.1):
+Resolved precedence, **highest to lowest** (LOCKED — cites `src/sdk/sdk_builder.cpp:LoadConfig`):
 
 ```
 1. Explicit code options (e.g., SdkBuilder::WithEndpoint)
@@ -23,7 +23,7 @@ Resolved precedence, **highest to lowest** (LOCKED — spec §12.1):
 
 **Each key of a table is its own setting.** For the table-valued settings — `[resource]` / `WithResource` / `OTEL_RESOURCE_ATTRIBUTES` (§3.2) and `[exporter.headers]` / `WithHeaders` / `OTEL_EXPORTER_OTLP_HEADERS` (§3.3) — a higher-precedence source overrides only the keys it names; every other key survives from the lower-precedence sources. `OTEL_RESOURCE_ATTRIBUTES=host.rack=b12` over a `[resource]` table that sets `deployment.environment` and `service.namespace` resolves to all three. No source replaces a whole table (issue #257; changed in v1.1.1, before which a higher source replaced the table wholesale).
 
-**OTel-standard `OTEL_*` env vars are honoured alongside microtel-specific `MICROTEL_*` ones.** Where both an OTEL and a MICROTEL env var name the same setting, MICROTEL wins (it is more specific to this implementation). v1 does not currently define any such overlap; if one is added later it must be called out here.
+**OTel-standard `OTEL_*` env vars are honoured alongside microtel's own `MICROTEL_*` ones.** Where both an OTEL and a MICROTEL env var name the same setting, MICROTEL wins (it is more specific to this implementation). v1 does not currently define any such overlap; if one is added later it must be called out here.
 
 **Strict-by-default unknown keys.** Unknown keys in `microtel.toml` raise `ConfigError::Kind::UnknownKey` at `Build()` time. Mixed-version deployments may relax via:
 
@@ -79,7 +79,7 @@ Compiled into the library. Lowest precedence; the only source guaranteed to be p
 
 ## 3. Per-setting precedence tables
 
-Each row covers one setting. Columns: TOML key, equivalent code call (where applicable), OTEL env var (if any), MICROTEL env var (if any), default, validation, owning section in spec.
+Each row covers one setting. Columns: TOML key, equivalent code call (where applicable), OTEL env var (if any), MICROTEL env var (if any), default, validation.
 
 Rows are alphabetised within each subsection.
 
@@ -87,8 +87,8 @@ Rows are alphabetised within each subsection.
 
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
-| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | `"unknown_service"` | spec §12.7 |
-| `service.version` | `WithServiceVersion(s)` | (in `OTEL_RESOURCE_ATTRIBUTES`) | — | empty | spec §12.7 |
+| `service.name` | `WithServiceName(s)` | `OTEL_SERVICE_NAME` | — | `"unknown_service"` | §3.2 |
+| `service.version` | `WithServiceVersion(s)` | (in `OTEL_RESOURCE_ATTRIBUTES`) | — | empty | §3.2 |
 
 The `service.name` resource attribute is always present. When nothing supplies
 a value, `config::Validate` resolves it to `unknown_service`, the placeholder
@@ -107,7 +107,7 @@ entirely.)
 
 | TOML | Code | OTEL env | MICROTEL env | Default | Notes |
 |---|---|---|---|---|---|
-| `[resource]` table | `WithResource({...})` | `OTEL_RESOURCE_ATTRIBUTES` (csv `k=v,k=v`) | — | empty | Merged per key across sources (§1): each source overrides only the keys it names. Keys compare exactly (case-sensitive). Detector contributions sit below all of them (spec §12.7). |
+| `[resource]` table | `WithResource({...})` | `OTEL_RESOURCE_ATTRIBUTES` (csv `k=v,k=v`) | — | empty | Merged per key across sources (§1): each source overrides only the keys it names. Keys compare exactly (case-sensitive). Detector contributions sit below all of them. |
 | — | `WithResourceDetector(d)` | — | — | no detectors | Registration order is significant; a later detector overrides an earlier one. |
 | `sdk.resource_detectors_strict` | — | — | `MICROTEL_RESOURCE_DETECTORS_STRICT` | `false` (lenient) | `true`/`1` or `false`/`0`; any other env value is `ConfigError::EnvParseFailure`. |
 
@@ -176,7 +176,7 @@ and `field = "exporter.protocol"`. The two statements contradict each other and
 microtel resolves the contradiction in neither direction. Use an `http://` or
 `https://` endpoint for OTLP/HTTP, or drop the explicit protocol.
 
-Spec §12.2 still calls `https://` plus an explicit `protocol` the canonical
+`https://` plus an explicit `protocol` is still the canonical
 form, and it remains the unambiguous spelling; the shorthand is a convenience,
 not a replacement. (Before #203 landed, the shorthand was normalised for TLS
 only and left `protocol` at its default, so `grpc://` silently spoke OTLP/HTTP
@@ -189,7 +189,7 @@ a `_TRACES_` variable changes no behaviour and produces no warning. Per §2.2
 that silence is deliberate for signals microtel does not implement; for traces
 it is a gap, not a policy.
 
-### 3.4 Exporter — timeouts (six independent, spec §7.3)
+### 3.4 Exporter — timeouts (six independent)
 
 All six are set in code through the single `WithTimeouts(TimeoutOptions)` setter
 — there are no per-axis `With…Timeout` methods — and in TOML under one
@@ -267,7 +267,7 @@ is the one TLS env var that works.
 endpoint. There is no TOML or code surface, and the environment variables below
 are **reserved names, read by nothing** — setting one changes no behaviour and
 produces no warning. Deferred; see [`microtel-roadmap.md`](../microtel-roadmap.md)
-and [`compatibility-matrix.md`](compatibility-matrix.md) §3. (Spec §12.4.)
+and [`compatibility-matrix.md`](compatibility-matrix.md) §3.
 
 | Variable | Effect in v1 | Intended effect |
 |---|---|---|
@@ -298,7 +298,8 @@ drop_policy = "oldest"
 
 `drop_policy` takes `"newest"` or `"oldest"` in TOML (any other value is
 `ConfigError::InvalidValue` on field `sdk.drop_policy`) and
-`DropPolicy::DropNewest` / `DropPolicy::DropOldest` in code. Spec §5.4.
+`DropPolicy::DropNewest` / `DropPolicy::DropOldest` in code. The drop path is
+[`sequences/backpressure-and-drop.md`](sequences/backpressure-and-drop.md).
 
 `Build()` rejects an incoherent combination with `ConfigError::InvalidValue`,
 naming the first field at fault, whether it came from code or from TOML:
@@ -323,7 +324,7 @@ key is `schedule_delay_ms` (integer milliseconds), not `schedule_delay`; and
 there is no `WithDropPolicy` setter — it is a `BatchOptions` field. The
 `OTEL_BSP_*` env vars listed here are read by nothing.
 
-### 3.8 Memory budgets (spec §5.5; `memory-model.md` §6)
+### 3.8 Memory budgets (`memory-model.md` §6)
 
 **Code-only in v1.** All five are fields of `MemoryLimitOptions`, set through
 `WithMemoryLimits(MemoryLimitOptions)`. There is no `[limits]` TOML table and no
@@ -343,7 +344,7 @@ the SI-suffix parsing (`"16MiB"`, `"4MB"`) was never implemented. A TOML surface
 for these is deferred; adding one means a `[limits]` entry in the top-level
 known-key list in `src/common/config/toml_loader.cpp` and a row in this table.
 
-### 3.9 Span structural limits (spec §5.6; `memory-model.md` §7)
+### 3.9 Span structural limits (`memory-model.md` §7)
 
 **Code-only in v1**, through `WithSpanLimits(SpanLimitOptions)`. No TOML table,
 no environment variables.
@@ -442,7 +443,7 @@ Correction (#196), still standing for the rest of the section: the
 `MICROTEL_LOG_FILE` env vars are read by nothing, and neither the `journald`
 nor the `syslog` sink once named here exists. They are the sink's business
 rather than the level's, and ICP 0026 retires the correction for
-`logging.level` only. Spec §9.4 describes the intended surface; this section
+`logging.level` only. The v1.0 design named a wider surface; this section
 describes the built one.
 
 ### 3.12 Configuration meta
@@ -613,7 +614,7 @@ The other exporter settings have no meaning on this path:
 Distinct from runtime configuration: build options are set with CMake at compile
 time, never appear in `microtel.toml`, and have no environment-variable
 equivalents. They are properties of the binary, not of the runtime
-configuration. (Spec §9.2.)
+configuration.
 
 Every option, with its default, is in [build-options.md](build-options.md).
 The two that change runtime behaviour described in this document are
@@ -628,7 +629,7 @@ redacted nor otherwise. The two `Warn` lines it can emit (plaintext OTLP/HTTP,
 and `insecure=true`) are the whole of what `Build()` says about the resolved
 configuration, and neither carries a header value, a credential or a path.
 
-The one exception is the resolved Resource (spec §12.7, issue #284). Each
+The one exception is the resolved Resource (§3.2, issue #284). Each
 `Build()` logs it once at `Info`, as a single line through the internal log
 path (so a `LogSink` receives it and `logging.level` filters it):
 
@@ -645,10 +646,10 @@ most 32 attributes are listed, then `...and N more`, and a value longer than
 `...`. A value whose key
 contains `authorization`, `secret`, `token`, `password`, `passwd`,
 `credential`, `api_key` or `apikey` (any case) is printed as `<redacted>`.
-That list is the §12.6 rule applied by key; it is the only redaction code in
+That list is the redaction rule below, applied by key; it is the only redaction code in
 microtel.
 
-Spec §12.6 describes the intended design: an `info`-level dump at `Build()`
+The v1.0 design called for more: an `info`-level dump at `Build()`
 success with `Authorization` headers and client-secret-shaped values redacted,
 private-key *paths* preserved, token-provider outputs never logged, and an
 opt-in `--show-secrets` CLI flag gated by a build-time

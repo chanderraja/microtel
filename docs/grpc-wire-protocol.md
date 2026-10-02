@@ -1,10 +1,10 @@
 # gRPC Wire Protocol on nghttp2 — Implementation Notes
 
 **Status:** M0 deliverable. Implementation notes for the OTLP/gRPC codec under `src/wire/grpc/`. Companion to `interfaces.md` (the `IWireCodec` contract) and `error-model.md` §7.2 (the gRPC retry classification matrix).
-**Source of truth for rationale:** `microtel-spec.md` §7.2.
+**Source of truth for rationale:** this document; the retry matrix is `error-model.md` §7.2.
 **Audience:** the contributor or AI agent picking up Track C (OTLP/gRPC wire) at M3 onward.
 
-This document goes deeper than spec §7.2. It pins the exact codec state machine, byte-level edge cases, the `RetryInfo` decode path, and the malformed-server failure modes that production gRPC traffic actually exhibits.
+This document is the specification of microtel's OTLP/gRPC wire behaviour. It pins the exact codec state machine, byte-level edge cases, the `RetryInfo` decode path, and the malformed-server failure modes that production gRPC traffic actually exhibits.
 
 ---
 
@@ -24,7 +24,7 @@ Plus, in v1.2+, the metrics and logs analogues (same shape).
 
 ### 1.2 Explicit non-goals
 
-Per spec §7.2:
+Not implemented, and not needed for OTLP unary:
 
 - **Server-streaming, client-streaming, bidi-streaming RPCs.** OTLP is unary-only. The codec rejects any response that delivers more than one DATA-frame message before END_STREAM as malformed.
 - **Service config / retry policy JSON.** Retry policy is microtel's, not negotiated.
@@ -60,7 +60,7 @@ Plus any user-configured static headers (`exporter.headers` in `microtel.toml`) 
 
 **Header rules.** Header values are HPACK-encoded by nghttp2; microtel constructs them as `std::string_view` plus copy where nghttp2 needs an owning view. No header is rejected at the codec layer — validation is HPACK's responsibility — but oversized headers are caught by HTTP/2's own limits (`SETTINGS_MAX_HEADER_LIST_SIZE`).
 
-`:authority` is built from the configured endpoint, **not** from the user's `host` header if any. A user-supplied `host` is rejected at config-load time per spec §12.
+`:authority` is built from the configured endpoint, **not** from the user's `host` header if any. (This document used to say a user-supplied `host` header is rejected at config-load time; nothing does that today.)
 
 ### 2.2 Request DATA frames — gRPC framing
 
@@ -85,7 +85,7 @@ DATA frames are sent with `END_STREAM=1` on the final frame so the server sees a
 
 ### 2.3 Response DATA frames — parsing
 
-The codec receives an arbitrary stream of DATA bytes from nghttp2. **The parser must not assume a gRPC message corresponds to a single HTTP/2 DATA frame.** (LOCKED — spec §7.2)
+The codec receives an arbitrary stream of DATA bytes from nghttp2. **The parser must not assume a gRPC message corresponds to a single HTTP/2 DATA frame.** (LOCKED — cites `src/wire/grpc/grpc_wire_codec.cpp:DecodeResponseFrame`)
 
 Three concrete cases the parser handles:
 
@@ -123,7 +123,7 @@ Specifically for `RESOURCE_EXHAUSTED (8)`, the codec attempts to decode `grpc-st
 2. Parse as `google.rpc.Status` via upb.
 3. Iterate `details[]`. Each entry is `google.protobuf.Any`; the codec inspects `type_url` and decodes `RetryInfo` (`type_url == "type.googleapis.com/google.rpc.RetryInfo"`) explicitly.
 4. If `RetryInfo` is present and has `retry_delay`, the codec returns `retryable=true, retry_after=<delay>`.
-5. If `RetryInfo` is absent, the codec returns `retryable=false`. (LOCKED — spec §7.2)
+5. If `RetryInfo` is absent, the codec returns `retryable=false`. (LOCKED — cites `src/wire/grpc/grpc_wire_codec.cpp:ResourceExhaustedWithoutRetryInfo`)
 6. Other `Any` types are not interpreted in v1; their presence is logged at `debug` for diagnostics.
 
 `google.rpc.Status` and `RetryInfo` are vendored under `proto/` and generated under `gen/` alongside the OTLP protos. Updating the vendored `googleapis` set is an ICP.
@@ -217,7 +217,7 @@ Pinned in `error-model.md` §7.2 (the matrix). This document does not duplicate 
 
 ### 4.1 Status priority
 
-When both an HTTP `:status` and `grpc-status` are present, the codec uses `grpc-status` for retry classification. (LOCKED — gRPC spec §3.) The HTTP `:status` is captured for diagnostics only.
+When both an HTTP `:status` and `grpc-status` are present, the codec uses `grpc-status` for retry classification, as the gRPC HTTP/2 protocol requires. (LOCKED — cites `src/wire/grpc/grpc_wire_codec.cpp:ClassifyResponse`) The HTTP `:status` is captured for diagnostics only.
 
 ### 4.2 Missing `grpc-status` (malformed servers / proxies)
 
@@ -260,7 +260,7 @@ If both `grpc-message` and `grpc-status-details-bin` carry information about ret
 
 ### 5.1 Request compression
 
-Configured by `[exporter] compression = "gzip"`. Default off (low-CPU profile, per spec §7.1).
+Configured by `[exporter] compression = "gzip"`. Default off, for a low-CPU profile (`configuration.md` §3.3).
 
 When on:
 
@@ -368,7 +368,7 @@ End-to-end against a real OpenTelemetry Collector container. Validates the codec
 
 libFuzzer harness over the response-parser entry point. Inputs: arbitrary byte sequences claiming to be HTTP/2 frames containing gRPC payloads. Goal: zero crashes, zero ASAN/UBSAN findings, bounded memory growth even on adversarial inputs.
 
-Required for v1.0 release per spec §13.5.
+Was a v1.0 release gate; runs in CI as `fuzz-smoke` on every PR and `fuzz-soak` nightly (`ci-architecture.md`).
 
 ---
 
@@ -400,7 +400,7 @@ Real-world gRPC traffic encounters proxies, service meshes, and load balancers t
 |---|---|---|
 | Trailer-only responses without `grpc-status` | nginx/envoy aborting upstream connection | §4.2 fallback to HTTP `:status`; `warn` diagnostic on first occurrence |
 | `Connection: close` on HTTP/2 | non-compliant intermediary | nghttp2 surfaces as connection error; reconnect with backoff |
-| HTTP/1.1 `Upgrade: h2c` proxy stripping `te: trailers` | corporate proxies | spec §7.2: explicit failure with diagnostic; not retried |
+| HTTP/1.1 `Upgrade: h2c` proxy stripping `te: trailers` | corporate proxies | explicit failure with diagnostic; not retried |
 | Transparent gzip middlebox compressing already-compressed gRPC | rare, broken middleboxes | decompression error → `malformed_response` |
 | Keep-alive PING flood DoS-protection blocking microtel | mTLS + paranoid LB | use nghttp2's PING-rate limits; document tuning if needed |
 
@@ -412,5 +412,5 @@ These hazards inform the §7 test corpus. Each hazard has at least one fixture o
 
 - The gRPC-side encoding of OTLP **request** payloads — that's the encoder's job (`interfaces.md` §4.2).
 - HTTP/2 transport details (TLS, ALPN, reconnect) — that's the transport's job (`architecture.md` §3.6, `interfaces.md` §4.1).
-- The decision to treat `RESOURCE_EXHAUSTED` without `RetryInfo` as non-retryable — recorded in `error-model.md` §7.2 and `microtel-spec.md` §7.2.
+- The decision to treat `RESOURCE_EXHAUSTED` without `RetryInfo` as non-retryable — recorded in `error-model.md` §7.2.
 - Implementation details of the upb code generation (`gen/` directory contents) — that's the encoder's local concern.

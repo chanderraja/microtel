@@ -1,7 +1,7 @@
 # Sequence: Fork Survival
 
 **Status:** M0 deliverable. Normative timeline for `fork()` in a process running microtel.
-**See also:** `threading-model.md` §7, `microtel-spec.md` §5.3.
+**See also:** `threading-model.md` §7.
 
 ---
 

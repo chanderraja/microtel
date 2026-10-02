@@ -21,8 +21,8 @@ commit:
 | [`CMakeLists.txt`](CMakeLists.txt) | `project(microtel VERSION …)` | `PROJECT_VERSION`, and through it `microtelConfigVersion.cmake` — what `find_package(microtel …)` matches against |
 | [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionString` | public API |
 | [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionMajor` / `kVersionMinor` / `kVersionPatch` | public API |
-| [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export (spec §7.2) |
-| [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version (spec §6.4) |
+| [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export ([`grpc-wire-protocol.md`](docs/grpc-wire-protocol.md) §2.1) |
+| [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version |
 | [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
 | [`leaf/CMakeLists.txt`](leaf/CMakeLists.txt) | `project(microtel_leaf VERSION …)` | the standalone leaf build's `PROJECT_VERSION`; read 1.1.1 through the v1.2.0 release until `version-drift-check.sh` started checking it |
 

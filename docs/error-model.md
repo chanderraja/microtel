@@ -2,7 +2,7 @@
 
 **Status:** M0 deliverable. Normative for the three error regimes, the drop-counter enum, the retry-classification matrix, and the diagnostic surface in v1.
 **Companion documents:** `architecture.md`, `threading-model.md` (no-exceptions-across-threads), `memory-model.md` (which budget enforcement triggers which drop), `interfaces.md` (per-method error annotation).
-**Source of truth for rationale:** `microtel-spec.md` §6.1, §6.4, §7.2, §7.3.
+**Source of truth for rationale:** this document and the ICPs it cites; the gRPC wire detail is in `grpc-wire-protocol.md`.
 
 ---
 
@@ -106,7 +106,7 @@ Each drop reason maps to exactly one counter. The counter is incremented exactly
 - **Final-outcome counters** (`partial_success_rejection`, `non_retryable_failure`, `retry_budget_exhausted`, `retryable_failure_recovered`) are recorded by the *exporter*, once per batch, after every retry has resolved. The wire codec still owns the classification (§7, ICP 0001) — the exporter reads `WireResult` without reinterpreting it. Recording in the codec instead would count every retry attempt as a separate outcome.
 - **Observation counters** (everything else) are recorded at the site that detects the drop.
 
-**One counter has no producer yet** and is marked *(not yet produced)* above. It is enumerated because `DropReason`'s order is a locked part of the public health surface; it awaits the feature whose limit it reports, not a wiring fix — `metric_callback_timeout` needs the per-collection async-callback deadline of ICP 0008, which is v1.3 metrics work. Every other counter in the table left that list as the §13.5 limits gate closed (issue #181): `record_too_large` at `BatchSpanProcessor::OnEnd`, `response_too_large` (and `max_trailer_bytes`) in the transport, `decompression_too_large` in the gzip inflate path, `attribute_value_truncated` in the SDK's attribute copies, `transport_busy` at the transport's bounded request queue. `max_total_queue_bytes` is enforced at `BatchSpanProcessor::OnEnd` too, and needs no counter of its own: a record refused for it is `queue_full`.
+**One counter has no producer yet** and is marked *(not yet produced)* above. It is enumerated because `DropReason`'s order is a locked part of the public health surface; it awaits the feature whose limit it reports, not a wiring fix — `metric_callback_timeout` needs the per-collection async-callback deadline of ICP 0008, which is v1.3 metrics work. Every other counter in the table left that list as the v1.0 limits gate closed (issue #181): `record_too_large` at `BatchSpanProcessor::OnEnd`, `response_too_large` (and `max_trailer_bytes`) in the transport, `decompression_too_large` in the gzip inflate path, `attribute_value_truncated` in the SDK's attribute copies, `transport_busy` at the transport's bounded request queue. `max_total_queue_bytes` is enforced at `BatchSpanProcessor::OnEnd` too, and needs no counter of its own: a record refused for it is `queue_full`.
 
 **Adding a new counter is an ICP** because every counter is part of `GetExporterHealth()`'s public surface. Renaming a counter is an ICP. Re-attributing an existing counter to a different layer is not — the counter's meaning is what is locked, not which file writes it.
 
@@ -196,8 +196,6 @@ Three concrete consequences:
 
 ## 6. Partial success (LOCKED — never retried)
 
-Per `microtel-spec.md` §7.3:
-
 When the wire codec parses an OTLP response that includes `partial_success` with a non-zero rejected count:
 
 1. The codec records `partial_success_rejection` with the rejected count on `IDiagnosticsSink`.
@@ -274,7 +272,7 @@ here while OTLP/HTTP returned `true` for the identical failure).
 
 `UNKNOWN (2)` and `ALREADY_EXISTS (6)` were absent from this table until issue #171; they are listed now because the codec's status table covers the whole `0..16` range and the matrix is what that table is checked against. Both were already non-retryable in the shipped code — they fell off the end of its retryable list — so the rows record existing behaviour rather than change it. A `grpc-status` outside `0..16` has no row and is non-retryable, reported as `UNRECOGNIZED (<code>)`.
 
-The `RESOURCE_EXHAUSTED` row is the most important non-obvious entry — it is documented separately in `microtel-spec.md` §7.2 and has acceptance test coverage requirements per the M4 milestone in spec §13.
+The `RESOURCE_EXHAUSTED` row is the most important non-obvious entry — its decode path is in `grpc-wire-protocol.md` §2.4, and the tests that cover it are listed in `grpc-wire-protocol.md` §7.
 
 ### 7.3 Application `ExportTransport` (ICP 0036)
 
@@ -315,7 +313,7 @@ The exact `message` text each of these produces, and what to do about it, is col
 
 An endpoint is validated after the sources are merged, so a malformed `OTEL_EXPORTER_OTLP_ENDPOINT` is reported like any other malformed endpoint: `EndpointMalformed` on field `exporter.endpoint`. Timeout values (`[timeouts]`, `OTEL_EXPORTER_OTLP_TIMEOUT`) are parsed but not range-checked in this release.
 
-**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by the `microtel-preflight` tool, `--preflight=connect` / `--preflight=export` (spec §6.4) — never as a side effect of constructing a `Provider`.
+**Network preflight is not part of `Build()`.** `Build()` does not open sockets. Network reachability is validated by the `microtel-preflight` tool, `--preflight=connect` / `--preflight=export` ([`troubleshooting.md`](troubleshooting.md#microtel-preflight-exit-codes)) — never as a side effect of constructing a `Provider`.
 
 ---
 
@@ -347,7 +345,7 @@ Routed through the injected `LogSink` (§9.3) when one is installed, and to a mi
 
 - `error` — non-retryable failures, init failures, internal-failure recovery, `connect_failure` after reconnect-budget elapsed.
 - `warn` — retryable failures, `partial_success_rejection`, `force_flush_timeout`, `shutdown_timeout`.
-- `info` — `Build()` resolved-config dump (with secrets redacted per §6.6 of spec), connect / disconnect transitions.
+- `info` — `Build()` resolved-config dump (with secrets redacted per `configuration.md` §5), connect / disconnect transitions.
 - `debug` — per-batch send / receive summary, per-stream lifecycle.
 - `trace` — per-frame nghttp2 events (rare; primarily for development).
 
@@ -365,7 +363,7 @@ microtel::SetLogSink([](microtel::LogLevel lvl, std::string_view msg) {
 });
 ```
 
-Sink injection is available in both `MICROTEL_USE_SPDLOG=ON` and `=OFF` builds (spec §9.4) — and, per §9.2, it is now the only route microtel offers. The option gates the `microtel_spdlog_bridge` adapter, not anything inside `microtel_common`.
+Sink injection is available in both `MICROTEL_USE_SPDLOG=ON` and `=OFF` builds — and, per §9.2, it is now the only route microtel offers. The option gates the `microtel_spdlog_bridge` adapter, not anything inside `microtel_common`.
 
 ### 9.4 Never-recursive-export rule (LOCKED)
 

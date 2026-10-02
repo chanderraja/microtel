@@ -1,7 +1,7 @@
 # microtel Coding Standards
 
 **Status:** First draft (M0 deliverable)
-**Authority:** This document is the source of truth for code style and structural rules. Where the spec or CLAUDE.md overlap with this document, this document is canonical for the *details*; the spec is canonical for the *rationale*.
+**Authority:** This document is the source of truth for code style and structural rules. Where CLAUDE.md overlaps with this document, this document is canonical for the *details*; CLAUDE.md and the ICPs are canonical for the *rationale*.
 
 ---
 
@@ -100,7 +100,7 @@ if (m_queue.full()) DropRecord(record);
 
 ### 4.1 C++ version
 
-- C++20 throughout. C++17 fallback is evaluated post-prototype only if needed (per spec §1).
+- C++20 throughout. There is no C++17 fallback.
 - Prefer modern idioms: `std::span`, `microtel::Expected`, `std::string_view`, designated initializers, structured bindings, concepts, `consteval` / `constexpr`. `microtel::Expected` is a project-local alias (`include/microtel/expected.hpp`) that resolves to `std::expected` when the floor moves to C++23; on C++20 it aliases the vendored `tl::expected`. See [`docs/icps/0002-vendor-tl-expected.md`](icps/0002-vendor-tl-expected.md).
 
 ### 4.2 Banned constructs
@@ -156,7 +156,7 @@ private:
 
 ### 4.5 Exceptions
 
-Per spec §6.1:
+Per CLAUDE.md rules 14–16 and [`error-model.md`](error-model.md) §2:
 
 - **Initialization paths can throw** or, preferred, return `microtel::Expected<T, Error>` (alias — see ICP 0002).
 - **Hot-path methods are `noexcept`.** Drop the record, increment diagnostics, return.
@@ -168,7 +168,7 @@ Per spec §6.1:
 
 ## 5. RAII discipline
 
-The full RAII rules are in spec §14.3 and CLAUDE.md. Recap:
+The full RAII rules are CLAUDE.md rules 5–11. Recap:
 
 - **Every resource** (heap memory, file descriptors, sockets, mutexes, threads, OpenSSL contexts, nghttp2 sessions, upb arenas, callback registrations) is owned by an RAII type.
 - **No raw `new`/`delete`** in production code.
@@ -422,7 +422,7 @@ The SonarQube config lives at `sonar-project.properties` at the repo root — th
 
 ## 14. Review checklist
 
-For non-trivial PRs the reviewer (per spec §14.5) walks this checklist mentally:
+For non-trivial PRs the reviewer walks this checklist mentally:
 
 - [ ] Tests exist and exercise the new behavior (CI gate also enforces).
 - [ ] RAII discipline followed (no raw new/delete, ownership clear).

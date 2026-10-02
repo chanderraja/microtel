@@ -1,7 +1,7 @@
 # Sequence: GOAWAY Handling
 
 **Status:** M0 deliverable. Normative timeline for HTTP/2 GOAWAY received mid-batch.
-**See also:** `grpc-wire-protocol.md` §6.2, `architecture.md` §3.6, `microtel-spec.md` §5.2.
+**See also:** `grpc-wire-protocol.md` §6.2, `architecture.md` §3.6.
 
 ---
 

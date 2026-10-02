@@ -716,7 +716,8 @@ jobs:
           packages: >-
             clang-18 llvm-18 llvm-21 cmake ninja-build libssl-dev libnghttp2-dev
             zlib1g-dev libgoogle-glog-dev liblog4cxx-dev
-      # coverage.sh enforces all three spec §14.2 aggregate floors — ≥ 90% line
+      # coverage.sh enforces all three aggregate floors (docs/ci-architecture.md,
+      # `coverage`) — ≥ 90% line
       # and ≥ 85% branch on sdk-encoder, ≥ 80% line on transport-exporter — and
       # fails the job on a shortfall.
       - name: Run coverage script
@@ -734,10 +735,10 @@ jobs:
             -DMICROTEL_BUILD_LEAF=ON -DMICROTEL_LEAF_ENCODER=upb
             -DMICROTEL_WITH_CONCENTRATOR=ON
         run: ci/scripts/coverage.sh build
-      # The other half of §14.2: every line this PR adds or modifies must be
+      # The other half of the coverage gate: every line this PR adds or modifies must be
       # covered by a test in the same PR.
       #
-      # §14.2 states two diff thresholds — 90% on SDK/encoder, 80% on
+      # The gate states two diff thresholds (CONTRIBUTING.md) — 90% on SDK/encoder, 80% on
       # transport/exporter — but diff-cover takes a single --fail-under. We
       # pick the 80 floor: it is the one that holds everywhere, and the 90 for
       # SDK/encoder is already carried by the aggregate gate above, which is
@@ -774,7 +775,8 @@ jobs:
             build/coverage.profdata
           retention-days: 14
 
-  # The TDD test-presence half of spec §14.2. Separate from `coverage` because
+  # The TDD test-presence gate (CONTRIBUTING.md; docs/ci-architecture.md,
+  # `test-presence`). Separate from `coverage` because
   # it needs a git diff rather than a 10-minute instrumented build: a PR that
   # forgot its tests should hear about it in seconds.
   #

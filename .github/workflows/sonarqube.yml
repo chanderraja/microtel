@@ -16,7 +16,8 @@
 # every PR on a maintainer-only setup step — but it is no longer silent. The
 # skip writes a heading to the job summary and emits a `::warning::`
 # annotation, so "green" and "scanned" cannot be confused by reading the
-# checks list. Spec §13.5 gate 13 is not discharged by a skipped scan.
+# checks list. A skipped scan does not discharge the SonarQube gate (no
+# blocker/critical issues; docs/ci-architecture.md).
 
 name: sonarqube
 
@@ -75,7 +76,7 @@ jobs:
 
           # A silent green check is worse than no check: it reads as "SonarQube
           # analysed this and found nothing". Say plainly that nothing ran.
-          echo "::warning title=NO SONAR SCAN RAN::SONAR_TOKEN is not configured for this repository. No SonarQube analysis was performed — this job is green only because it did nothing. Spec §13.5 gate 13 is UNMEASURED."
+          echo "::warning title=NO SONAR SCAN RAN::SONAR_TOKEN is not configured for this repository. No SonarQube analysis was performed — this job is green only because it did nothing. The SonarQube gate is UNMEASURED."
 
           {
             echo "## :rotating_light: NO SONAR SCAN RAN"
@@ -85,7 +86,7 @@ jobs:
             echo "blocked on a maintainer-only setup step — it is **not** evidence that"
             echo "the code is clean."
             echo
-            echo "Spec §13.5 gate 13 (\"SonarQube Cloud: no blocker/critical issues\")"
+            echo "The SonarQube gate (\"SonarQube Cloud: no blocker/critical issues\")"
             echo "is **UNMEASURED** until the secret exists."
             echo
             echo "To fix, a maintainer must:"
@@ -127,7 +128,7 @@ jobs:
             zlib1g-dev
 
       # MICROTEL_COVERAGE_ENFORCE=0 because this job wants the tracefile, not a
-      # second opinion on the §14.2 floors. The `coverage` job in ci.yml owns
+      # second opinion on the coverage floors. The `coverage` job in ci.yml owns
       # that gate; letting a shortfall abort this job too would suppress the
       # Sonar scan exactly when the code most needs looking at.
       #

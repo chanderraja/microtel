@@ -4,7 +4,7 @@
 encode OTLP messages. We vendor a pinned subset of it instead of depending
 on an installed protobuf C++ runtime, which keeps the runtime dependency
 closure to nghttp2, OpenSSL, zlib, optional spdlog, and this directory
-(spec §9.1; the vendoring rules are in §9.6).
+([CLAUDE.md](../../CLAUDE.md) rules 12 and 13).
 
 ## Pin
 

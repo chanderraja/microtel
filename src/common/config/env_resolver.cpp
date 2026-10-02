@@ -103,14 +103,17 @@ constexpr int kHexBase = 16;
 /// metadata (issue #413): whitespace around each key and value is dropped, and
 /// values are percent-decoded after trimming, so `%20` survives as a space.
 /// Keys are not decoded. Each token must contain a '='; empty tokens are
-/// skipped. A malformed escape is `EnvParseFailure`, naming the key but not
-/// the value, which may be a secret.
+/// skipped. Both errors are `EnvParseFailure` and never echo a value, which may
+/// be a secret: a missing '=' names the entry's 1-based position in the list,
+/// a malformed escape names the key.
 [[nodiscard]] microtel::Expected<std::vector<KeyValue>, ConfigError> ParseKeyValueList(
     std::string_view sv, const char* var_name)
 {
     std::vector<KeyValue> result;
+    std::size_t entry = 0;
     while (!sv.empty())
     {
+        ++entry;
         const auto comma = sv.find(',');
         const std::string_view token = TrimOws(sv.substr(0, comma));
         sv = (comma == std::string_view::npos) ? std::string_view{} : sv.substr(comma + 1);
@@ -121,11 +124,11 @@ constexpr int kHexBase = 16;
         const auto eq = token.find('=');
         if (eq == std::string_view::npos)
         {
-            return microtel::make_unexpected(ConfigError{
-                .kind = ConfigError::Kind::EnvParseFailure,
-                .field = var_name,
-                .message = std::string{var_name} +
-                           ": malformed key=value pair (missing '='): " + std::string{token}});
+            return microtel::make_unexpected(
+                ConfigError{.kind = ConfigError::Kind::EnvParseFailure,
+                            .field = var_name,
+                            .message = std::string{var_name} + ": entry " + std::to_string(entry) +
+                                       " is not a key=value pair (missing '=')"});
         }
         const std::string_view key = TrimOws(token.substr(0, eq));
         auto value = PercentDecode(TrimOws(token.substr(eq + 1)));

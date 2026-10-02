@@ -31,6 +31,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -39,6 +40,14 @@
 
 namespace
 {
+
+/// @brief Items the collector rejected via OTLP partial success. It answered
+///        success, so their batch counts as sent, never as failed.
+std::uint64_t PartialSuccessRejected(const microtel::HealthSnapshot& health)
+{
+    return health
+        .drop_counters[static_cast<std::size_t>(microtel::DropReason::PartialSuccessRejection)];
+}
 
 constexpr std::chrono::seconds kFlushTimeout{5};
 constexpr std::chrono::seconds kShutdownTimeout{5};
@@ -204,7 +213,7 @@ microtel::Expected<std::shared_ptr<microtel::Provider>, microtel::ConfigError> B
 }
 
 /// @brief Flush, report health, shut down. True if the flush completed with
-///        no failed batch.
+///        no failed batch and no item rejected via OTLP partial success.
 bool Finish(microtel::Provider& provider)
 {
     const microtel::Status flush = provider.ForceFlush(kFlushTimeout);
@@ -222,8 +231,10 @@ bool Finish(microtel::Provider& provider)
     }
 
     // Completed only means the queues drained; a batch the collector rejected
-    // still counts as drained. Success needs no failed batch as well.
-    return flush == microtel::Status::Completed && health.batches_failed == 0;
+    // still counts as drained, and so does one it answered with partial
+    // success. Success needs no failed batch and no rejected item as well.
+    return flush == microtel::Status::Completed && health.batches_failed == 0 &&
+           PartialSuccessRejected(health) == 0;
 }
 
 /// @brief Phase 1 — the first-match chain.

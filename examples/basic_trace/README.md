@@ -69,9 +69,11 @@ carries on, so the full lifecycle still runs with nothing listening, and
 what those calls are for.
 
 The program exits 0 only when `ForceFlush` returns `Completed` **and**
-`batches_failed` is 0, 1 if `Build()` fails, and 2 otherwise. `Completed`
-means the queue drained, which is also true when the collector rejected the
-batch. Against a collector with no traces pipeline, the flush completes but
+`batches_failed` is 0 **and** the collector rejected no span via OTLP partial
+success (the `PartialSuccessRejection` drop counter is 0), 1 if `Build()`
+fails, and 2 otherwise. `Completed` means the queue drained, which is also true
+when the collector rejected the batch, and a partial-success rejection counts
+the batch as sent, not failed. Against a collector with no traces pipeline, the flush completes but
 the batch fails, and the program exits 2:
 
 ```

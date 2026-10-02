@@ -140,7 +140,8 @@ struct TlsPhase
 };
 
 /// @brief Build a provider, emit one span, flush, and report health.
-/// @return true when the batch reached the collector.
+/// @return true when the batch reached the collector and it rejected no span
+///         via OTLP partial success.
 bool RunPhase(const TlsPhase& phase)
 {
     std::cout << "\n=== " << phase.label << " ===\n  endpoint: " << phase.endpoint
@@ -193,7 +194,8 @@ bool RunPhase(const TlsPhase& phase)
     PrintHealth(health);
     std::cout << "  Shutdown: " << StatusToString(provider->Shutdown(kShutdownTimeout)) << '\n';
 
-    return health.batches_sent > 0 && health.batches_failed == 0;
+    return health.batches_sent > 0 && health.batches_failed == 0 &&
+           DropCount(health, microtel::DropReason::PartialSuccessRejection) == 0;
 }
 
 std::vector<TlsPhase> MakePhases(const std::string& grpc_endpoint,

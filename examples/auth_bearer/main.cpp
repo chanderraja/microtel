@@ -148,7 +148,8 @@ struct Phase
 };
 
 /// @brief Build a provider, emit one span, flush, and report health.
-/// @return true when the batch was accepted (batches_sent moved, none failed).
+/// @return true when the batch was accepted (batches_sent moved, none failed,
+///         no span rejected via OTLP partial success).
 bool RunPhase(const Phase& phase, const std::string& endpoint)
 {
     std::cout << "\n=== " << phase.label << " ===\n";
@@ -194,7 +195,8 @@ bool RunPhase(const Phase& phase, const std::string& endpoint)
     PrintHealth(health);
     std::cout << "  Shutdown: " << StatusToString(provider->Shutdown(kShutdownTimeout)) << '\n';
 
-    return health.batches_sent > 0 && health.batches_failed == 0;
+    return health.batches_sent > 0 && health.batches_failed == 0 &&
+           DropCount(health, microtel::DropReason::PartialSuccessRejection) == 0;
 }
 
 }  // namespace

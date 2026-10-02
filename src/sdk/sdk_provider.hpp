@@ -20,8 +20,8 @@
 #include "microtel/sampler.hpp"
 #include "microtel/sdk_builder.hpp"
 
-#include "sdk/current_span_source.hpp"
 #include "sdk/diagnostics_counters.hpp"
+#include "sdk/log_pipeline.hpp"
 #include "sdk/metric_attribute_set.hpp"
 #include "sdk/trace_pipeline.hpp"
 #include "sdk/view_registry.hpp"
@@ -185,7 +185,9 @@ public:
     /// Lazily builds the log pipeline (a `BatchLogRecordProcessor` around the
     /// configured log exporter) on the first call, and caches an `SdkLogger`
     /// per `(name, version)`. Returns a shared no-op logger when no log
-    /// exporter is configured.
+    /// exporter is configured. Every `SdkLogger` shares the `LogPipeline`, so
+    /// it may outlive this provider; its records then drop as `PostShutdown`
+    /// (issue #417).
     [[nodiscard]] std::shared_ptr<microtel::Logger> GetLogger(
         std::string_view name, std::string_view version = {}) override;
 
@@ -349,7 +351,8 @@ private:
     std::unique_ptr<internal::IExporter> m_exporter;
     // Metric exporter thread; must outlive m_metric_reader.
     std::unique_ptr<internal::IMetricExporter> m_metric_exporter;
-    // Log exporter thread; must outlive m_log_processor.
+    // Log exporter thread. The log processor that borrows it may outlive it
+    // (LogPipeline), so ~SdkProvider joins that processor's worker first.
     std::unique_ptr<internal::ILogExporter> m_log_exporter;
     // Guarded by m_meter_mu: the seed a later GetMeter builds the reader from,
     // and the value SetMetricInterval writes (ICP 0026 §4).
@@ -365,9 +368,15 @@ private:
     BatchSpanProcessor* m_batch_span_processor;
     // Metric reader thread — declared last → destroyed first (before metric exporter).
     std::unique_ptr<PeriodicExportingMetricReader> m_metric_reader;
-    // Log processor thread — lazily created; destroyed before m_log_exporter.
-    std::unique_ptr<internal::ILogRecordProcessor> m_log_processor;
-    // Borrowed alias of m_log_processor, published by GetLogger under
+    // The log processor (its thread), span source and sink every SdkLogger
+    // borrows — lazily created by the first GetLogger. Shared with each
+    // logger, so a logger may outlive this provider (issue #417); the
+    // aliasing pointer to the sink inside shares m_trace's ownership, so the
+    // refcount is touched once per logger created, never per Emit. Released
+    // before m_log_exporter; ~SdkProvider has shut the processor down and
+    // joined its worker by then, so a late Emit never reaches the exporter.
+    std::shared_ptr<LogPipeline> m_log_pipeline;
+    // Borrowed alias of m_log_pipeline->processor, published by GetLogger under
     // m_logger_mu where the owning unique_ptr is assigned, and read under the
     // same lock. Unlike the span-side alias this one is written after
     // construction, so it is not lock-free.
@@ -378,13 +387,6 @@ private:
     internal::ConnectOptions m_connect_opts;
 
     std::shared_ptr<ViewRegistry> m_view_registry;
-
-    // The ICurrentSpanSource the log trace-correlation seam reads (ICP 0025
-    // §3). Stateless and declared before the logger block below, so it
-    // outlives every SdkLogger that borrows it. The metric streams read the
-    // MetricProducer's own copy instead, which lives as long as they do
-    // (issue #259).
-    CurrentSpanSource m_current_span_source;
 
     // Metrics pipeline: lazily initialised on first GetMeter() call.
     std::mutex m_meter_mu;
@@ -397,7 +399,7 @@ private:
     std::atomic<bool> m_warned_metrics_off{false};
     std::atomic<bool> m_warned_logs_off{false};
 
-    // Logs pipeline: m_log_processor is lazily initialised on first GetLogger().
+    // Logs pipeline: m_log_pipeline is lazily initialised on first GetLogger().
     std::mutex m_logger_mu;
     std::unordered_map<std::string, std::shared_ptr<microtel::Logger>> m_loggers;
     std::shared_ptr<microtel::Logger> m_noop_logger;

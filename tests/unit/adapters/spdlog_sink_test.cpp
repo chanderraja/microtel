@@ -11,6 +11,7 @@
 #include "microtel/logger.hpp"
 
 #include "fakes/fake_logger.hpp"
+#include "helpers/log_bridge_harness.hpp"
 
 #include <gtest/gtest.h>
 #include <spdlog/common.h>
@@ -98,6 +99,18 @@ TEST(SpdlogSinkTest, RespectsSpdlogLevelFilter)
 
     ASSERT_EQ(fake->emitted.size(), 1U);
     EXPECT_EQ(std::get<std::string>(fake->emitted[0].body), "kept");
+}
+
+TEST(SpdlogSinkTest, SinkOutlivesProvider_RecordIsDroppedAndCounted)
+{
+    mtk::LogBridgeHarness h;
+    const auto logger = MakeSpdlogLogger(h.provider->GetLogger("spdlog"));
+    const auto drops_before = h.PostShutdownDrops();
+
+    h.provider.reset();  // issue #417: the sink's Logger keeps what it reads alive
+    logger->info("after the provider");
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
 }
 
 }  // namespace

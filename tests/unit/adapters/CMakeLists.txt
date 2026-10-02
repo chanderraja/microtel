@@ -1,9 +1,10 @@
-# M14 L6 — spdlog bridge sink.
+# M14 L6 — spdlog bridge sink. microtel_sdk backs the test that runs a real
+# provider (a sink that outlives it, issue #417).
 if(MICROTEL_USE_SPDLOG)
     microtel_add_test(
         NAME    spdlog_sink_test
         SOURCES spdlog_sink_test.cpp
-        LIBS    microtel_spdlog_bridge)
+        LIBS    microtel_spdlog_bridge microtel_sdk)
     target_include_directories(spdlog_sink_test
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src

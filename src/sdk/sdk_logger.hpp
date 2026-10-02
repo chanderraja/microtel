@@ -11,6 +11,7 @@
 #include "microtel/logger.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace microtel::sdk
 {
@@ -29,10 +30,13 @@ struct LogLimitOptions
 /// `Emit` stamps `observed_time` when unset, fills trace context from the active
 /// span when `trace_id` is the invalid default, enforces the per-record
 /// attribute limit, and hands the record to the processor tagged with this
-/// logger's scope. All references are borrowed — the `Provider` (or test
-/// fixture) keeps the processor, current-span source, and diagnostics sink alive
-/// for the logger's lifetime. The current-span source and diagnostics sink may
-/// be null (correlation / drop accounting disabled respectively).
+/// logger's scope. The processor, current-span source and diagnostics sink are
+/// reached through raw pointers, kept alive by `owner`, which the logger holds.
+/// `SdkProvider` passes its `LogPipeline`, which is what lets a logger outlive
+/// the provider: its records then drop as `PostShutdown` (issue #417). A test
+/// fixture that keeps the pointees alive itself may pass `nullptr`. The
+/// current-span source and diagnostics sink may be null (correlation / drop
+/// accounting disabled respectively).
 ///
 /// @threadsafety Thread-safe when the processor, span source, and sink are.
 /// @noexcept `Emit` never throws (failures are counted, not reported).
@@ -40,11 +44,18 @@ struct LogLimitOptions
 class SdkLogger final : public microtel::Logger
 {
 public:
+    /// @param processor, current_span_source, diagnostics borrowed; kept
+    ///        alive by @p owner.
+    /// @param owner shared owner of what the three pointers point at, or
+    ///        `nullptr` when the caller guarantees they outlive the logger.
+    ///        Type-erased: the logger only holds it. Touched once, here — the
+    ///        `Emit` path pays no reference-count traffic.
     SdkLogger(internal::ILogRecordProcessor* processor,
               internal::InstrumentationScope scope,
               const internal::ICurrentSpanSource* current_span_source,
               internal::IDiagnosticsSink* diagnostics,
-              LogLimitOptions limits) noexcept;
+              LogLimitOptions limits,
+              std::shared_ptr<const void> owner = nullptr) noexcept;
 
     ~SdkLogger() noexcept override = default;
 
@@ -64,6 +75,7 @@ private:
     const internal::ICurrentSpanSource* m_current_span_source;
     internal::IDiagnosticsSink* m_diagnostics;
     LogLimitOptions m_limits;
+    std::shared_ptr<const void> m_owner;
 };
 
 }  // namespace microtel::sdk

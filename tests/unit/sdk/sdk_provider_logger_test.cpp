@@ -10,7 +10,10 @@
 //    Emit does not crash / exports nothing.
 //  - Emitting through a logger reaches the configured exporter after ForceFlush.
 //  - ForceFlush / Shutdown flush / shut down the log exporter.
+//  - A logger that outlives its provider drops its records as PostShutdown
+//    rather than reaching freed memory (issue #417).
 
+#include "microtel/context.hpp"
 #include "microtel/internal/sampler.hpp"
 #include "microtel/log_record.hpp"
 #include "microtel/logger.hpp"
@@ -20,6 +23,7 @@
 #include "microtel/status.hpp"
 
 #include "fakes/fake_log_exporter.hpp"
+#include "helpers/log_bridge_harness.hpp"
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
@@ -28,6 +32,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace mt = microtel;
@@ -133,6 +138,41 @@ TEST(SdkProviderLoggerTest, ShutdownShutsDownLogExporter)
     (void)provider->GetLogger("my.lib");
     EXPECT_EQ(provider->Shutdown(500ms), mt::Status::Completed);
     EXPECT_GE(exp_ptr->shutdown_call_count, 1);
+}
+
+// ── A logger outlives its provider — issue #417 ──────────────────────────────
+// `GetLogger` hands out a `shared_ptr`, which a caller reads as "this keeps
+// itself alive". `Emit` reads the current-span source, the log processor and
+// the diagnostics sink, so they must stay allocated as long as any logger
+// does. Under ASAN the pre-fix code fails both tests with heap-use-after-free.
+
+constexpr std::uint8_t kSpanSeed = 0x41;
+
+TEST(SdkProviderLoggerTest, LoggerOutlivesProvider_RecordIsDroppedAndCounted)
+{
+    mtm::LogBridgeHarness h;
+    const auto logger = h.provider->GetLogger("outlives");
+    const auto drops_before = h.PostShutdownDrops();
+
+    h.provider.reset();
+    logger->Emit(mt::LogRecord{});
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
+}
+
+TEST(SdkProviderLoggerTest, LoggerOutlivesProvider_RecordInsideActiveSpanIsDroppedAndCounted)
+{
+    mtm::LogBridgeHarness h;
+    const auto logger = h.provider->GetLogger("outlives");
+    const auto drops_before = h.PostShutdownDrops();
+
+    h.provider.reset();
+    {
+        const mt::ScopedContext scope{mt::Context{mtm::MakeSampledSpanContext(kSpanSeed)}};
+        logger->Emit(mt::LogRecord{});
+    }
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
 }
 
 }  // namespace

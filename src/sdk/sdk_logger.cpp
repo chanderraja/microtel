@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 namespace microtel::sdk
@@ -18,12 +19,14 @@ SdkLogger::SdkLogger(internal::ILogRecordProcessor* processor,
                      internal::InstrumentationScope scope,
                      const internal::ICurrentSpanSource* current_span_source,
                      internal::IDiagnosticsSink* diagnostics,
-                     LogLimitOptions limits) noexcept
+                     LogLimitOptions limits,
+                     std::shared_ptr<const void> owner) noexcept
     : m_processor(processor),
       m_scope(std::move(scope)),
       m_current_span_source(current_span_source),
       m_diagnostics(diagnostics),
-      m_limits(limits)
+      m_limits(limits),
+      m_owner(std::move(owner))
 {
 }
 

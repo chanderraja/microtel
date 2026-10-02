@@ -11,9 +11,9 @@ namespace microtel
 /// @brief Issues log records for one instrumentation scope.
 ///
 /// Obtained from `Provider::GetLogger(name, version)` (wired in v1.3 M14-L5).
-/// The logger holds a non-owning back-reference to the provider; the
-/// application must not hold a `Logger` past the provider's shutdown or
-/// destruction.
+/// The logger keeps alive the part of the provider's pipeline it uses, so it
+/// may outlive the provider: after the provider is shut down or destroyed,
+/// `Emit()` drops every record as `post_shutdown`.
 ///
 /// `Emit()` is the hot-path entry point — `noexcept` and never blocks on I/O.
 /// If the SDK is shut down or the export pipeline is overloaded, `Emit()`

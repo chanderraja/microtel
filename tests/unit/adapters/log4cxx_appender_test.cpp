@@ -301,4 +301,16 @@ TEST(Log4cxxAppenderTest, RecordAfterProviderShutdownIsDroppedAndCounted)
     EXPECT_TRUE(h.Exported().empty());
 }
 
+TEST(Log4cxxAppenderTest, AppenderOutlivesProvider_RecordIsDroppedAndCounted)
+{
+    mtk::LogBridgeHarness h;
+    const AttachedAppender a{"microtel.test.outlives", h.provider->GetLogger("log4cxx")};
+    const auto drops_before = h.PostShutdownDrops();
+
+    h.provider.reset();  // issue #417: the appender's Logger keeps what it reads alive
+    LOG4CXX_INFO(a.Logger(), "after the provider");
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
+}
+
 }  // namespace

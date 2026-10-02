@@ -102,8 +102,8 @@ namespace microtel::adapters
 /// **Supported log4cxx versions:** 1.1 and later (`std::shared_ptr`-based
 /// appenders; built and tested against 1.1 and 1.8).
 ///
-/// **Lifetime:** remove the appender (or `close()` it) before the provider
-/// that issued its `Logger` is destroyed (see `Logger`).
+/// **Lifetime:** the appender may outlive the provider that issued its
+/// `Logger`; its records then drop as `post_shutdown` (see `Logger`).
 ///
 /// @threadsafety Thread-safe. `AppenderSkeleton::doAppend` serialises calls
 ///               to `append`, and `close()` may race with it safely.

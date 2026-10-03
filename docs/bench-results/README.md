@@ -24,13 +24,25 @@ governor, SMT on).
 
 | Metric | microtel (HTTP) | microtel (gRPC) | otelcpp (gRPC) | otelcpp (HTTP) |
 |---|---|---|---|---|
-| StartSpan p50 | **217 ns** | **218 ns** | 832 ns | 804 ns |
-| StartSpan p95 | **478 ns** | **474 ns** | 3 246 ns | 2 738 ns |
+| Span emit p50 | **217 ns** | **218 ns** | 832 ns | 804 ns |
+| Span emit p95 | **478 ns** | **474 ns** | 3 246 ns | 2 738 ns |
 | Spans / sec | **1 540 963** | 1 232 937 | 715 498 | 810 803 |
 | Flush p50 | 2.7 ms | 4.3 ms | 2.0 ms | 1.9 ms |
 | Delivery rate | **100%** | **100%** | 95.2% | 97.0% |
 | Wire bytes / span | **62.2** | **62.2** | 68.1 | 68.1 |
 | Benchmark binary size | **17.5 MB** | **17.5 MB** | 43.1 MB | 19.3 MB |
+
+**Span emit** times one whole `EmitSpan()` call of the benchmark app
+([`control_socket.cpp`](../../bench/emit-app/src/control_socket.cpp), the
+`WorkerThread` loop). That is `StartSpan` and `End()` plus the harness's own
+overhead: a virtual call, a relaxed counter increment and two
+`steady_clock` reads. This profile sets no attributes. It is not the latency
+of `StartSpan` alone, although the harness and [results.md](results.md) label
+the row "StartSpan".
+
+**Benchmark binary size** is the size of each whole benchmark executable: the
+same emit app linked against each SDK and its exporter. It is not the size of
+the library or its dependency closure.
 
 The methodology is in [docs/bench-spec.md](../bench-spec.md), and
 [plots.html](plots.html) has interactive plots and the raw
@@ -50,7 +62,7 @@ The leaf's flash, RAM and stack on Cortex-M0+, Cortex-M4 and aarch64 are in
 
 Throughput is within this host's spread: microtel +2.6% (1,540,963 spans/sec),
 microtel-grpc −5.1%, and the unchanged otelcpp SUTs −5.6% (gRPC) and −4.2%
-(HTTP). StartSpan p50 is 217 ns for microtel against 832 ns for otelcpp-gRPC,
+(HTTP). Span emit p50 is 217 ns for microtel against 832 ns for otelcpp-gRPC,
 a 3.8× ratio.
 
 **The benchmark binary size row is not comparable with the previous
@@ -59,7 +71,8 @@ snapshot.** Every SUT's binary grew, the unchanged otelcpp ones included
 benchmark app itself gained two workloads in v1.2: the logs workload
 ([#305](https://github.com/chanderraja/microtel/issues/305)), which links each
 library's logs SDK, and the leaf fan-in workload (#344). The comparison within
-this run still holds: otelcpp-gRPC is 2.5× the size of microtel. microtel's own
+this run still holds: the otelcpp-gRPC benchmark executable is 2.5× the size of
+the microtel one. microtel's own
 library size is measured separately; see [`leaf-footprint.md`](leaf-footprint.md)
 for the leaf and the Cortex-M figures.
 

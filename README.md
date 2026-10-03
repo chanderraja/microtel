@@ -12,8 +12,9 @@ use day to day: tracers, spans, context, W3C propagation, samplers, a batch
 processor and resources, plus an OTLP exporter. Both OTLP protocols run over a
 single nghttp2 HTTP/2 transport. The gRPC side is a small unary-RPC layer on
 that transport, so picking gRPC over HTTP costs nothing extra in binary size.
-In the project's benchmark against opentelemetry-cpp it starts a span about
-**4× faster** and sustains roughly **twice the throughput**;
+In the project's benchmark against opentelemetry-cpp, a timed call that creates
+and ends a span takes about **a quarter of the time** at the median, and microtel
+sustains roughly **twice the throughput**;
 [Performance](#performance) has the full comparison and its caveats.
 
 ## Who is this for?
@@ -58,8 +59,27 @@ cmake --build build -j"$(nproc)"
 ./build/examples/microtel_example_console_trace   # prints the spans it exported
 ```
 
-[`examples/console_trace/`](examples/console_trace/) shows the output and how
-it works: the real pipeline, with the last hop swapped for a transport that
+An excerpt of what it prints (IDs and durations differ every run):
+
+```
+--- export request: 512 bytes of OTLP protobuf
+resource service.name="microtel-console-example"
+resource service.version="1.0.0"
+scope microtel-console-example
+  span example.db.query  kind=Internal  status=Unset  duration=3.062 ms
+    …
+  span example.request  kind=Server  status=Ok  duration=4.124 ms
+    trace_id  78261a78b727de9cee8b30704a3d0032
+    span_id   2c8a3578c5abc093
+    attr      http.request.method="GET"
+    attr      url.path="/api/widgets"
+    attr      http.response.status_code=200
+ForceFlush: Completed
+batches_sent=1 batches_failed=0 rejected=0
+```
+
+[`examples/console_trace/`](examples/console_trace/) shows the full output and
+how it works: the real pipeline, with the last hop swapped for a transport that
 prints.
 
 **C++ tracing:**
@@ -475,11 +495,21 @@ default and effect.
 
 ## Performance
 
-In the project's benchmark against opentelemetry-cpp on the same host,
-microtel starts a span about **4× faster** at the median (about 6× at p95),
-sustains roughly **twice the span throughput**, and its benchmark binary is
-about **2.5× smaller** than one using opentelemetry-cpp's OTLP/gRPC exporter.
-opentelemetry-cpp flushes somewhat faster.
+In the project's benchmark against opentelemetry-cpp on the same host:
+
+- **Span emit time:** one timed call that creates and ends a span takes
+  217 ns at the median against 832 ns, about **3.8× less** (478 ns against
+  3 246 ns, about 6.8×, at p95).
+  The timed call is the benchmark's whole `EmitSpan()`: `StartSpan`, `End()`
+  and the harness's own overhead (a virtual call, a counter increment and two
+  clock reads). The profile sets no attributes.
+- **Throughput:** microtel sustains roughly **twice the span throughput**.
+- **Executable size:** the benchmark executable built with microtel is
+  17.5 MB, against 43.1 MB for the same benchmark built with
+  opentelemetry-cpp's OTLP/gRPC exporter, about **2.5× smaller** (and 19.3 MB,
+  1.1×, with its OTLP/HTTP exporter). That compares whole executables, not
+  library or dependency size.
+- **Flush:** opentelemetry-cpp flushes somewhat faster.
 
 Those figures come from hot-loop traces with a blackhole sink (no network) on
 one host. [docs/bench-results/](docs/bench-results/README.md) has the summary

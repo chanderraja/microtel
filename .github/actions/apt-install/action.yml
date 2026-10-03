@@ -1,0 +1,68 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+name: apt-install
+description: >-
+  Install apt packages, from a cache when one exists. CI's installs used to
+  stall in `apt-get update` on the Ubuntu mirror, sometimes for hours. A cache
+  hit installs from saved package lists and .deb files with no network at all;
+  a miss installs from the mirror (with retries and timeouts) and, on master,
+  saves the cache for every later run. See apt-install.sh.
+
+inputs:
+  packages:
+    description: Space-separated apt packages to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # One cache per runner image and package set: a new runner image starts a
+    # new cache, so cached lists never disagree with what the image installed.
+    - name: Cache key
+      id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        # shellcheck disable=SC2086  # word-splitting the package list is the point
+        sorted="$(printf '%s\n' $PACKAGES | sort -u | tr '\n' ' ')"
+        hash="$(printf '%s' "$sorted" | sha256sum | cut -c1-16)"
+        echo "key=apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-${hash}" >> "$GITHUB_OUTPUT"
+        echo "packages=${sorted}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the package cache
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/microtel-apt
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Install
+      id: install
+      shell: bash
+      env:
+        PACKAGES: ${{ steps.key.outputs.packages }}
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+        SCRIPT: ${{ github.action_path }}/apt-install.sh
+      run: |
+        cache="$HOME/.cache/microtel-apt"
+        # shellcheck disable=SC2086
+        if [[ "$HIT" == "true" ]] && "$SCRIPT" offline "$cache" $PACKAGES; then
+          echo "apt-install: installed from the cache, no network used"
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        else
+          [[ "$HIT" == "true" ]] && echo "apt-install: cache unusable, falling back to the mirror"
+          "$SCRIPT" online "$cache" $PACKAGES
+          echo "save=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Saved only from master. PRs restore master's caches but never write their
+    # own, which would duplicate the large toolchain caches per PR and push the
+    # repository past its cache quota.
+    - name: Save the package cache
+      if: steps.install.outputs.save == 'true' && github.ref == 'refs/heads/master'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/microtel-apt
+        key: ${{ steps.key.outputs.key }}

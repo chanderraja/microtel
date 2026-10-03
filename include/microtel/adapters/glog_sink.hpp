@@ -122,10 +122,11 @@ using GlogSeverity = glog_detail::FirstParam<decltype(&google::GetLogSeverityNam
 /// **Supported glog versions:** 0.6.x and 0.7.x (both declare the
 /// `LogMessageTime` overload of `LogSink::send` this overrides).
 ///
-/// **Lifetime:** destroy the sink before the provider that issued its
-/// `Logger` is destroyed (see `Logger`). A `LOG(FATAL)` is emitted like any
-/// other record, but glog aborts the process straight after the sinks run, so
-/// it is only exported if the log pipeline exports synchronously.
+/// **Lifetime:** the sink may outlive the provider that issued its `Logger`;
+/// its records then drop as `post_shutdown` (see `Logger`). A `LOG(FATAL)` is
+/// emitted like any other record, but glog aborts the process straight after
+/// the sinks run, so it is only exported if the log pipeline exports
+/// synchronously.
 ///
 /// @threadsafety Thread-safe. glog may call `send` from any thread, and
 ///               concurrently; the sink holds no mutable state of its own.

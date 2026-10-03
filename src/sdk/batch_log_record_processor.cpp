@@ -34,6 +34,11 @@ constexpr auto kBlpDestructorTimeout = std::chrono::milliseconds(5000);
 BatchLogRecordProcessor::~BatchLogRecordProcessor() noexcept
 {
     (void)Shutdown(kBlpDestructorTimeout);
+    JoinWorker();
+}
+
+void BatchLogRecordProcessor::JoinWorker() noexcept
+{
     if (m_worker.joinable())
     {
         m_worker.join();

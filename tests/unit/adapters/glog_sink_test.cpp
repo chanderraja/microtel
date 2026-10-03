@@ -210,4 +210,16 @@ TEST(GlogSinkTest, RecordAfterProviderShutdownIsDroppedAndCounted)
     EXPECT_TRUE(h.Exported().empty());
 }
 
+TEST(GlogSinkTest, SinkOutlivesProvider_RecordIsDroppedAndCounted)
+{
+    mtk::LogBridgeHarness h;
+    const mta::GlogSink sink{h.provider->GetLogger("glog")};
+    const auto drops_before = h.PostShutdownDrops();
+
+    h.provider.reset();  // issue #417: the sink's Logger keeps what it reads alive
+    LOG(INFO) << "after the provider";
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
+}
+
 }  // namespace

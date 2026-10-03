@@ -76,10 +76,11 @@ Traces:
 - `internal::ICurrentSpanSource` as `CurrentSpanSource` in
   [`current_span_source.hpp`](current_span_source.hpp). It reads the API's
   thread-local context slot and applies the `trace_based` filter (valid and
-  sampled, otherwise an invalid context). `SdkProvider` owns one and lends it
-  to every `SdkMeter` (as `StorageOptions::span_source`, which turns on the
-  exemplar reservoirs) and every `SdkLogger` (log/trace correlation). See
-  issue #221 and [ICP 0025](../../docs/icps/0025-propagation-core.md) §3.
+  sampled, otherwise an invalid context). The `MetricProducer` owns one and
+  lends it to every `SdkMeter` (as `StorageOptions::span_source`, which turns
+  on the exemplar reservoirs); the provider's `LogPipeline` owns another for
+  every `SdkLogger` (log/trace correlation). See issue #221 and
+  [ICP 0025](../../docs/icps/0025-propagation-core.md) §3.
 
 Metrics ([`docs/metrics-design.md`](../../docs/metrics-design.md)):
 
@@ -118,7 +119,10 @@ compiled only with `MICROTEL_WITH_CONCENTRATOR=ON`):
 
 Logs ([`docs/logs-design.md`](../../docs/logs-design.md)):
 
-- `SdkLogger` and `NoopLogger`.
+- `SdkLogger` and `NoopLogger`. `SdkLogger` reaches the log processor,
+  current-span source and diagnostics sink through raw pointers kept alive by
+  the provider's shared [`LogPipeline`](log_pipeline.hpp), so a logger may
+  outlive the provider and drop as `PostShutdown` (issue #417).
 - [`noop_meter.hpp`](noop_meter.hpp): `NoopMeter`, what `GetMeter` returns when
   an application `ExportTransport` has metrics off (ICP 0036 Decision 3); the
   metric-side twin of `NoopLogger`.
@@ -204,6 +208,13 @@ no-op span here are what have to honour it.
   every `SdkMeter` and synchronous instrument; the sink is held through the
   provider's `TracePipeline`, as for tracers. Measurements made after the
   provider is gone are kept but never collected (issue #259).
+- **A logger may outlive its provider.** The log processor, the diagnostics
+  sink and the `ICurrentSpanSource` hang off the
+  [`LogPipeline`](log_pipeline.hpp), which the provider shares with every
+  `SdkLogger`; the sink is held through the provider's `TracePipeline`.
+  `~SdkProvider` shuts the processor down and joins its worker before the log
+  exporter goes, so records emitted after the provider is gone drop as
+  `PostShutdown` (issue #417).
 - **Provider holds a `unique_ptr<SslCtx>` indirectly via `Transport`**
   (ICP 0003 §3.1), so there is no shared ownership of TLS state. There is one
   per transport, which means a process running several named profiles has one

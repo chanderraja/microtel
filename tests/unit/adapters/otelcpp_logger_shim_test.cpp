@@ -5,15 +5,19 @@
 // LoggerProviderShim (name-defaults-to-logger_name per the reference SDK,
 // schema_url/attributes dropped, global registration end-to-end).
 
+#include "microtel/provider.hpp"
+
 #include "adapters/otelcpp/logger_shim.hpp"
 #include "adapters/otelcpp/shim_options.hpp"
 #include "fakes/fake_provider.hpp"
+#include "helpers/log_bridge_harness.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <variant>
 
 #include <opentelemetry/logs/provider.h>
@@ -130,6 +134,24 @@ TEST(OtelCppLoggerProviderShim, GlobalRegistrationRoutesOtelApiCallsToMicrotel)
     otel_logs::Provider::SetLoggerProvider(
         opentelemetry::nostd::shared_ptr<otel_logs::LoggerProvider>{
             std::make_shared<otel_logs::NoopLoggerProvider>()});
+}
+
+TEST(OtelCppLoggerProviderShim, LoggerOutlivesProviderAndShim_RecordIsDroppedAndCounted)
+{
+    microtel::testing::LogBridgeHarness h;
+    std::shared_ptr<microtel::Provider> provider = std::move(h.provider);
+    auto shim = std::make_unique<LoggerProviderShim>(provider);
+    auto logger = shim->GetLogger("app.logs");
+    const auto drops_before = h.PostShutdownDrops();
+
+    // issue #417: the otel-cpp Logger is all that is left holding the pipeline.
+    shim.reset();
+    provider.reset();
+    auto record = logger->CreateLogRecord();
+    record->SetBody(opentelemetry::common::AttributeValue{"after the provider"});
+    logger->EmitLogRecord(std::move(record));
+
+    EXPECT_EQ(h.PostShutdownDrops(), drops_before + 1);
 }
 
 }  // namespace

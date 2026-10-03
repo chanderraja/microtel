@@ -37,15 +37,17 @@ namespace microtel::sdk
 /// The logs analogue of `BatchSpanProcessor`, sharing its concurrency structure
 /// and reusing `BatchOptions` (queue / batch / delay / drop policy).
 ///
-/// **Lifetime.** The exporter and resource are non-owning references kept alive
-/// by the caller for the processor's lifetime.
+/// **Lifetime.** The exporter is a non-owning reference. The caller keeps it
+/// alive until the processor is shut down and `JoinWorker` has returned;
+/// after that the processor never reaches it, so it may outlive the exporter.
 ///
 /// @threadsafety Thread-safe — `OnEmit` / `ForceFlush` / `Shutdown` may be
 ///               called concurrently from multiple threads.
 class BatchLogRecordProcessor final : public internal::ILogRecordProcessor
 {
 public:
-    /// @param exporter non-owning; must outlive the processor.
+    /// @param exporter non-owning; must stay alive until `Shutdown` and
+    ///        `JoinWorker` have returned.
     /// @param resource shared with every batch this processor emits.
     /// @param opts queue capacity, batch size, schedule delay, drop policy.
     /// @param diag non-owning diagnostics sink, or `nullptr` to disable drop
@@ -80,6 +82,17 @@ public:
     /// @threadsafety Thread-safe.
     /// @noexcept
     void SetOptions(const BatchOptions& opts) noexcept;
+
+    /// @brief Wait, without a timeout, for the worker to exit.
+    ///
+    /// `Shutdown` waits only up to its timeout, so its worker may still be
+    /// inside the exporter when it returns. `SdkProvider` shares this
+    /// processor with its loggers (`LogPipeline`), so it may outlive the
+    /// exporter; `~SdkProvider` calls this before the exporter is destroyed.
+    /// Call only after `Shutdown`, or it blocks until someone else calls it.
+    ///
+    /// @threadsafety Not thread-safe with itself, nor with the destructor.
+    void JoinWorker() noexcept;
 
 private:
     /// A queued record paired with the scope of the logger that emitted it.

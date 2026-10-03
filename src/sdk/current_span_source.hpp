@@ -15,8 +15,8 @@ namespace microtel::sdk
 /// The seam metrics exemplars and log trace-correlation have always been
 /// declared against; `CurrentContext()` is the thing that finally answers it
 /// ([ICP 0025](../../docs/icps/0025-propagation-core.md) §3, "The exemplar
-/// payoff"). Owned by `SdkProvider`, borrowed by every `SdkMeter` and
-/// `SdkLogger` it creates.
+/// payoff"). The `MetricProducer` owns one for every `SdkMeter` and metric
+/// stream, and the provider's `LogPipeline` one for every `SdkLogger`.
 ///
 /// Stateless, so `GetCurrentSpan` costs a thread-local read and two flag
 /// checks — no lock, no allocation.

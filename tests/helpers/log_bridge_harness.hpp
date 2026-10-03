@@ -14,8 +14,10 @@
 #include "mocks/mock_exporter.hpp"
 #include "mocks/mock_span_processor.hpp"
 #include "mocks/mock_transport.hpp"
+#include "sdk/diagnostics_counters.hpp"
 #include "sdk/sdk_provider.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -41,7 +43,9 @@ struct LogBridgeHarness
         // Assigned field by field: SdkProviderArgs has many defaulted members
         // this harness has no opinion on.
         sdk::SdkProviderArgs args;
-        args.diagnostics = std::make_unique<sdk::DiagnosticsCounters>();
+        auto counters = std::make_unique<sdk::DiagnosticsCounters>();
+        diagnostics = counters.get();
+        args.diagnostics = std::move(counters);
         args.transport = std::make_unique<MockTransport>();
         args.exporter = std::make_unique<MockExporter>();
         args.processor = std::make_unique<MockSpanProcessor>();
@@ -67,14 +71,22 @@ struct LogBridgeHarness
         return out;
     }
 
+    /// @brief The provider's `PostShutdown` drop count.
+    ///
+    /// Read from the sink rather than the provider, so it stays readable after
+    /// `provider` is reset — for as long as a logger the provider handed out
+    /// is alive, since the logger keeps the sink alive (issue #417).
     [[nodiscard]] std::uint64_t PostShutdownDrops() const
     {
-        return provider->GetExporterHealth()
+        return diagnostics->Snapshot()
             .drop_counters[static_cast<std::size_t>(DropReason::PostShutdown)];
     }
 
     std::unique_ptr<sdk::SdkProvider> provider;
     const FakeLogExporter* log_exporter = nullptr;
+    /// The provider's diagnostics sink. Borrowed from it, so after `provider`
+    /// is reset it is valid only while a logger from it is alive.
+    const sdk::DiagnosticsCounters* diagnostics = nullptr;
 };
 
 /// @brief The string attribute `key` on `rec`, or `"<absent>"`.

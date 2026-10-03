@@ -151,6 +151,12 @@ SdkProvider::~SdkProvider() noexcept
     {
         m_batch_span_processor->JoinWorker();
     }
+    // Likewise the log processor, shared with the loggers (LogPipeline,
+    // issue #417). No lock: nothing else may touch a provider being destroyed.
+    if (m_log_batch_processor != nullptr)
+    {
+        m_log_batch_processor->JoinWorker();
+    }
 }
 
 void SdkProvider::MarkForkedChild() noexcept
@@ -278,7 +284,7 @@ PeriodicExportingMetricReader* SdkProvider::MetricReaderPtr() noexcept
 internal::ILogRecordProcessor* SdkProvider::LogProcessorPtr() noexcept
 {
     const std::scoped_lock lk{m_logger_mu};
-    return m_log_processor.get();
+    return m_log_pipeline != nullptr ? m_log_pipeline->processor.get() : nullptr;
 }
 
 BatchLogRecordProcessor* SdkProvider::SeedAndBorrowLogProcessor(const BatchOptions& opts) noexcept
@@ -472,12 +478,18 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     }
     const std::scoped_lock lk{m_logger_mu};
     BatchLogRecordProcessor* batch_processor = m_log_batch_processor;
-    if (!m_log_processor)
+    if (!m_log_pipeline)
     {
+        auto pipeline = std::make_shared<LogPipeline>();
+        // The aliasing constructor shares m_trace's ownership, so the sink
+        // lives while any logger does (issue #417) — as for tracers (#285).
+        pipeline->diagnostics =
+            std::shared_ptr<internal::IDiagnosticsSink>{m_trace, m_trace->diagnostics.get()};
         auto built = std::make_unique<BatchLogRecordProcessor>(
-            m_log_exporter.get(), m_resource, m_log_batch_opts, m_trace->diagnostics.get());
+            m_log_exporter.get(), m_resource, m_log_batch_opts, pipeline->diagnostics.get());
         batch_processor = built.get();
-        m_log_processor = std::move(built);
+        pipeline->processor = std::move(built);
+        m_log_pipeline = std::move(pipeline);
     }
     std::string key;
     key.reserve(name.size() + 1 + version.size());
@@ -490,13 +502,16 @@ std::shared_ptr<microtel::Logger> SdkProvider::GetLogger(std::string_view name,
     auto& entry = m_loggers[key];
     if (!entry)
     {
+        // The logger shares m_log_pipeline, so it keeps the processor, span
+        // source and sink alive past this provider (issue #417).
         entry = std::make_shared<SdkLogger>(
-            m_log_processor.get(),
+            m_log_pipeline->processor.get(),
             internal::InstrumentationScope{.name = std::string{name},
                                            .version = std::string{version}},
-            &m_current_span_source,  // trace-correlation seam (ICP 0025 §3)
-            m_trace->diagnostics.get(),
-            LogLimitOptions{});
+            &m_log_pipeline->span_source,  // trace-correlation seam (ICP 0025 §3)
+            m_log_pipeline->diagnostics.get(),
+            LogLimitOptions{},
+            m_log_pipeline);
     }
     return entry;
 }

@@ -170,3 +170,24 @@ checks it (python-h2) rejected the request, and microtel retried until the
 connection was lost. `Build()` now rejects `content-length` on gRPC as well,
 with its own message (`cannot be fixed on gRPC, where every request body has
 its own length`). HTTP/protobuf already rejected it as a codec-set header.
+
+## Amendment (2026-10-02): header values (#412)
+
+Open question 1 is reopened and settled: values are checked too. RFC 9113
+§8.2.1 makes a field value with NUL, CR or LF, or with SP or HTAB at either
+end, malformed. A probe showed nghttp2 sends such values unchanged.
+
+- **Static values** (`WithHeaders`, `[exporter.headers]`,
+  `OTEL_EXPORTER_OTLP_HEADERS`): `Build()` fails with `InvalidValue` on
+  `exporter.headers.<name>`, in the same pass as the name check. The
+  environment parser trims whitespace around values first (#413), so a
+  space after `=` there is not an error.
+- **The `WithAuthProvider` callback's value:** `CallbackAuthProvider`
+  checks it on each call, before caching. A bad value is an
+  `Error::Kind::Malformed`, which takes the existing callback-error path:
+  the batch is dropped, nothing reaches the wire, and it counts as one
+  `non_retryable_failure`. The value is not cached, so the next export
+  calls the callback again.
+
+No message includes the value.
+

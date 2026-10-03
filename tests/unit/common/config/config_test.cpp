@@ -1073,6 +1073,36 @@ TEST(ValidateTest, HeaderNames_FirstOffendingHeaderIsReported)
     EXPECT_EQ(result.error().field, "exporter.headers.upgrade");
 }
 
+// Issue #412: RFC 9113 §8.2.1 makes a field value with NUL, CR or LF, or
+// with leading or trailing SP / HTAB, malformed.
+TEST(ValidateTest, HeaderValues_RejectedPerRfc9113)
+{
+    const std::vector<std::string> rejected{
+        "a\nb", "a\rb", std::string{"a\0b", 3}, " lead", "trail ", "\tlead", "trail\t"};
+    for (const auto& value : rejected)
+    {
+        mc::Config cfg = MinimalValidConfig();
+        cfg.headers = {{.key = "x-v", .value = value}};
+        const auto result = mc::Validate(cfg);
+        ASSERT_FALSE(result.has_value()) << "accepted: " << value;
+        EXPECT_EQ(result.error().kind, mt::ConfigError::Kind::InvalidValue);
+        EXPECT_EQ(result.error().field, "exporter.headers.x-v");
+        EXPECT_EQ(result.error().message.find(value), std::string::npos)
+            << "the message leaks the value";
+    }
+}
+
+TEST(ValidateTest, HeaderValues_InnerWhitespaceAndEmptyAreAccepted)
+{
+    for (const std::string value : {"Bearer tok", "a\tb", "", "x"})
+    {
+        mc::Config cfg = MinimalValidConfig();
+        cfg.headers = {{.key = "x-v", .value = value}};
+        const auto result = mc::Validate(cfg);
+        EXPECT_TRUE(result.has_value()) << value << ": " << result.error().message;
+    }
+}
+
 TEST(CheckNoStaticAuthorizationTest, AuthorizationHeader_IsRejected)
 {
     const std::vector<mt::KeyValue> headers{

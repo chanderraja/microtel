@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <variant>
 #include <vector>
 
 namespace microtel::config
@@ -330,6 +331,10 @@ constexpr std::array<std::string_view, 4> kHttpCodecHeaders{
 /// would contradict every body but one (ICP 0038 amendment).
 constexpr std::string_view kContentLengthHeader = "content-length";
 constexpr std::string_view kHostHeader = "host";
+/// RFC 9113 §8.2.1: a field value never contains these, and never starts or
+/// ends with SP or HTAB.
+constexpr std::string_view kForbiddenValueChars{"\0\r\n", 3};
+constexpr std::string_view kValueEdgeWhitespace = " \t";
 constexpr std::string_view kAuthorizationHeader = "authorization";
 constexpr std::string_view kHeadersFieldPrefix = "exporter.headers.";
 /// RFC 9110 §5.6.2 `tchar`, less ALPHA and DIGIT.
@@ -419,11 +424,23 @@ template <std::size_t N>
                        .message = "header \"" + name + "\" " + std::string{reason}};
 }
 
-[[nodiscard]] microtel::Expected<void, ConfigError> ValidateHeaderNames(const Config& cfg)
+/// The value half of the header check (issue #412). A header whose value is
+/// not a string is dropped before the codec, so only strings are checked.
+[[nodiscard]] std::optional<std::string_view> HeaderValueFault(const AttributeValue& value) noexcept
+{
+    const auto* const str = std::get_if<std::string>(&value);
+    return (str == nullptr) ? std::nullopt : FieldValueFault(*str);
+}
+
+[[nodiscard]] microtel::Expected<void, ConfigError> ValidateHeaders(const Config& cfg)
 {
     for (const auto& header : cfg.headers)
     {
         if (const auto fault = HeaderNameFault(header.key, cfg.protocol))
+        {
+            return microtel::make_unexpected(HeaderError(header.key, *fault));
+        }
+        if (const auto fault = HeaderValueFault(header.value))
         {
             return microtel::make_unexpected(HeaderError(header.key, *fault));
         }
@@ -436,6 +453,21 @@ template <std::size_t N>
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+std::optional<std::string_view> FieldValueFault(std::string_view value) noexcept
+{
+    if (value.find_first_of(kForbiddenValueChars) != std::string_view::npos)
+    {
+        return "value contains CR, LF or NUL, which HTTP/2 forbids (RFC 9113 §8.2.1)";
+    }
+    if (!value.empty() && (kValueEdgeWhitespace.find(value.front()) != std::string_view::npos ||
+                           kValueEdgeWhitespace.find(value.back()) != std::string_view::npos))
+    {
+        return "value starts or ends with a space or tab, which HTTP/2 forbids "
+               "(RFC 9113 §8.2.1)";
+    }
+    return std::nullopt;
+}
 
 std::optional<BatchOptionsFault> CheckBatchOptions(const BatchOptions& opts) noexcept
 {
@@ -516,9 +548,9 @@ microtel::Expected<void, ConfigError> Validate(Config& cfg)
         return microtel::make_unexpected(tls_ok.error());
     }
 
-    // --- Static header names (ICP 0038): after the protocol is resolved,
-    // because the names the codec sets depend on it ---
-    if (auto headers_ok = ValidateHeaderNames(cfg); !headers_ok)
+    // --- Static headers (ICP 0038, issue #412): after the protocol is
+    // resolved, because the names the codec sets depend on it ---
+    if (auto headers_ok = ValidateHeaders(cfg); !headers_ok)
     {
         return microtel::make_unexpected(headers_ok.error());
     }

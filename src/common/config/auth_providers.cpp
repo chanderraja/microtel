@@ -7,6 +7,8 @@
 #include "microtel/expected.hpp"
 #include "microtel/internal/clock.hpp"
 
+#include "common/config/config_validator.hpp"
+
 #include <exception>
 #include <mutex>
 #include <optional>
@@ -21,6 +23,10 @@ namespace
 /// Prefix on every message built from a callback that threw, so an operator
 /// reading `last_error_message` sees the callback named and not just its text.
 constexpr std::string_view kThrewPrefix = "auth callback threw: ";
+/// Prefix on the error for a callback value HTTP/2 cannot carry (issue #412).
+/// The value itself is never included: it is a credential.
+constexpr std::string_view kBadValuePrefix =
+    "auth callback returned an invalid authorization header: ";
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -97,6 +103,14 @@ CallbackAuthProvider::GetAuthorization(internal::TimePointSteady now)
     if (!result)
     {
         return microtel::make_unexpected(result.error());
+    }
+    // Checked before caching, so the next export calls the callback again.
+    if (const auto fault = FieldValueFault(*result))
+    {
+        return microtel::make_unexpected(
+            microtel::Error{.kind = microtel::Error::Kind::Malformed,
+                            .message = std::string{kBadValuePrefix} + std::string{*fault},
+                            .os_errno = 0});
     }
 
     m_cached = std::move(*result);

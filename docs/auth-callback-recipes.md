@@ -115,6 +115,7 @@ did until issues #250 and #251 were fixed.
 |---|---|
 | Returns a value | `authorization: <value>` is appended to the batch's headers. |
 | Returns `make_unexpected(Error{…})` | **The batch is dropped, not sent** — sending without auth is worse than not sending. `BuildHeaders` fails in the codec, nothing reaches the wire, and the exporter records one `non_retryable_failure` plus one `batches_failed`. Your `Error`'s kind survives and its message reaches `GetExporterHealth().last_error_message`, prefixed `authorization header unavailable:` (#250). |
+| Returns a value HTTP/2 cannot carry (CR, LF or NUL anywhere; a space or tab at either end) | Handled like an error return: the batch is dropped and nothing reaches the wire. The value is not cached, so the next export calls the callback again. The kind is `Error::Kind::Malformed`; the message names the rule, never the value (#412). |
 | Throws | Caught at the provider boundary and converted to `Error::Kind::InternalFailure` carrying `what()`, then handled exactly as the row above. The rest of the drain still ships (#251). |
 
 Write your callback to these three rules:

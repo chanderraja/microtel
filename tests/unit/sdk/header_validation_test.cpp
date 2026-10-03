@@ -143,6 +143,15 @@ TEST(HeaderValidation, TomlTable_ReservedName_FailsBuild)
     ExpectRejected(result, "exporter.headers.connection");
 }
 
+// Issue #412: TOML escapes can put CR, LF or NUL into a value.
+TEST(HeaderValidation, TomlTable_MalformedValue_FailsBuild)
+{
+    const TomlFile file{R"("x-v" = "a\nb")"};
+    auto result =
+        mt::SdkBuilder().FromFile(file.Path()).WithEndpoint(std::string{kEndpoint}).Build();
+    ExpectRejected(result, "exporter.headers.x-v");
+}
+
 TEST(HeaderValidation, ProtocolOwnedName_FollowsTheResolvedProtocol)
 {
     // `user-agent` is set by the gRPC codec only.

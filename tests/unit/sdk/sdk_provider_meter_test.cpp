@@ -337,3 +337,90 @@ TEST(SdkProviderMeterTest, ObservableCardinalityCapEnforcedPerInstrument)
     constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
     EXPECT_EQ(health.drop_counters[kIdx], 1U);
 }
+
+// ── Meter and instruments outlive the provider — issue #259 ──────────────────
+// `GetMeter` and `Create*` hand out `shared_ptr`s, which a caller reads as
+// "this keeps itself alive". The metric storage writes through the
+// diagnostics sink and the current-span source, so those must stay allocated
+// as long as any meter or instrument does — not only as long as the provider.
+// Under ASAN the pre-fix code fails both tests with heap-use-after-free.
+
+namespace
+{
+
+/// A provider with a cardinality cap of 1, so the second distinct attribute
+/// set on any instrument records exactly one `CardinalityOverflow` drop.
+/// @p out_diag is the provider's diagnostics sink; reading it after the
+/// provider is gone is valid only because a live meter or instrument keeps
+/// the sink alive, which is the property under test.
+std::unique_ptr<mts::SdkProvider> MakeCapOneProvider(mts::DiagnosticsCounters** out_diag)
+{
+    auto diagnostics = std::make_unique<mts::DiagnosticsCounters>();
+    *out_diag = diagnostics.get();
+    return std::make_unique<mts::SdkProvider>(mts::SdkProviderArgs{
+        .diagnostics = std::move(diagnostics),
+        .encoder = nullptr,
+        .auth = nullptr,
+        .transport = std::make_unique<mtm::MockTransport>(),
+        .codec = nullptr,
+        .exporter = std::make_unique<mtm::MockExporter>(),
+        .processor = std::make_unique<mtm::MockSpanProcessor>(),
+        .resource = std::make_shared<mt::Resource>(),
+        .sampler = mt::MakeAlwaysOnSampler(),
+        .span_limits = {},
+        .connect_opts = {},
+        .metric_max_cardinality = 1,
+    });
+}
+
+std::uint64_t OverflowDrops(const mts::DiagnosticsCounters& diag)
+{
+    constexpr auto kIdx = static_cast<std::size_t>(mt::DropReason::CardinalityOverflow);
+    return diag.Snapshot().drop_counters.at(kIdx);
+}
+
+}  // namespace
+
+TEST(SdkProviderMeterTest, MeterOutlivesProvider_InstrumentCreatedAfterwardsIsUsable)
+{
+    const mt::KeyValue first{.key = "k", .value = std::int64_t{1}};
+    const mt::KeyValue second{.key = "k", .value = std::int64_t{2}};
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeCapOneProvider(&diag);
+    const std::shared_ptr<mt::Meter> meter = provider->GetMeter("outlives", "1.0");
+
+    provider.reset();
+
+    const auto counter = meter->CreateCounter<std::int64_t>("late");
+    counter->Add(1, {&first, 1});
+    counter->Add(1, {&second, 1});  // overflows: reaches the diagnostics sink
+    EXPECT_EQ(OverflowDrops(*diag), 1U);
+}
+
+TEST(SdkProviderMeterTest, InstrumentsOutliveMeterAndProvider_StayUsable)
+{
+    const mt::KeyValue first{.key = "k", .value = std::int64_t{1}};
+    const mt::KeyValue second{.key = "k", .value = std::int64_t{2}};
+    mts::DiagnosticsCounters* diag = nullptr;
+    auto provider = MakeCapOneProvider(&diag);
+    auto meter = provider->GetMeter("outlives", "1.0");
+    const auto counter = meter->CreateCounter<std::int64_t>("c");
+    const auto up_down = meter->CreateUpDownCounter<double>("u");
+    const auto gauge = meter->CreateGauge<std::int64_t>("g");
+    const auto histogram = meter->CreateHistogram<double>("h");
+    const auto exp_histogram = meter->CreateExponentialHistogram<std::int64_t>("e");
+
+    meter.reset();
+    provider.reset();
+
+    for (const auto* const kv : {&first, &second})
+    {
+        counter->Add(1, {kv, 1});
+        up_down->Add(1.0, {kv, 1});
+        gauge->Record(1, {kv, 1});
+        histogram->Record(1.0, {kv, 1});
+        exp_histogram->Record(1, {kv, 1});
+    }
+    constexpr std::uint64_t kInstruments = 5;
+    EXPECT_EQ(OverflowDrops(*diag), kInstruments);
+}

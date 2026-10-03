@@ -379,10 +379,11 @@ private:
 
     std::shared_ptr<ViewRegistry> m_view_registry;
 
-    // The ICurrentSpanSource both the metrics exemplar reservoirs and the log
-    // trace-correlation seam read (ICP 0025 §3). Stateless and declared before
-    // the meter and logger blocks below, so it outlives every SdkMeter,
-    // SdkLogger, and metric stream that borrows it.
+    // The ICurrentSpanSource the log trace-correlation seam reads (ICP 0025
+    // §3). Stateless and declared before the logger block below, so it
+    // outlives every SdkLogger that borrows it. The metric streams read the
+    // MetricProducer's own copy instead, which lives as long as they do
+    // (issue #259).
     CurrentSpanSource m_current_span_source;
 
     // Metrics pipeline: lazily initialised on first GetMeter() call.

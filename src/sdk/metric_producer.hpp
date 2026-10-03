@@ -3,10 +3,13 @@
 
 #pragma once
 
+#include "microtel/internal/diagnostics_sink.hpp"
+#include "microtel/internal/icurrent_span_source.hpp"
 #include "microtel/internal/metric_batch.hpp"
 #include "microtel/internal/metric_producer.hpp"
 #include "microtel/resource.hpp"
 
+#include "sdk/current_span_source.hpp"
 #include "sdk/metric_stream.hpp"
 
 #include <memory>
@@ -31,6 +34,12 @@ namespace microtel::sdk
 /// snapshot in `Collect` safe: a stream, once added, lives as long as the
 /// producer.
 ///
+/// The producer is also the owner of what the streams' storage borrows: the
+/// diagnostics sink and the current-span source. `SdkProvider`, every
+/// `SdkMeter` and every synchronous instrument share the producer, so a meter
+/// or instrument that outlives its provider still writes into live memory
+/// (issue #259). Nothing collects from it once the provider is gone.
+///
 /// @threadsafety Thread-safe. `AddStream` and `Collect` may be called
 /// concurrently from different threads. `Collect` snapshots the scope/stream
 /// structure under `m_mu`, releases it, and only then calls into each stream —
@@ -39,8 +48,12 @@ namespace microtel::sdk
 class MetricProducer : public internal::IMetricProducer
 {
 public:
-    explicit MetricProducer(std::shared_ptr<const Resource> resource) noexcept
-        : m_resource(std::move(resource))
+    /// @param diagnostics The sink the streams record drops into, kept alive
+    ///        for as long as this producer is; null disables drop accounting.
+    explicit MetricProducer(
+        std::shared_ptr<const Resource> resource,
+        std::shared_ptr<internal::IDiagnosticsSink> diagnostics = nullptr) noexcept
+        : m_resource(std::move(resource)), m_diagnostics(std::move(diagnostics))
     {
     }
 
@@ -58,6 +71,20 @@ public:
     [[nodiscard]] std::vector<internal::MetricBatchHandle> Collect(
         internal::AggregationTemporality temporality =
             internal::AggregationTemporality::Cumulative) override;
+
+    /// @brief The diagnostics sink passed at construction, or null.
+    ///        Borrowed; valid for as long as this producer is.
+    [[nodiscard]] internal::IDiagnosticsSink* Diagnostics() const noexcept
+    {
+        return m_diagnostics.get();
+    }
+
+    /// @brief The current-span source for exemplar capture. Borrowed; valid
+    ///        for as long as this producer is.
+    [[nodiscard]] const internal::ICurrentSpanSource* SpanSource() const noexcept
+    {
+        return &m_span_source;
+    }
 
 private:
     struct ScopeEntry
@@ -78,6 +105,9 @@ private:
     [[nodiscard]] std::vector<ScopeSnapshot> SnapshotScopes() const;
 
     std::shared_ptr<const Resource> m_resource;
+    // Declared before m_scopes, so they outlive the streams that borrow them.
+    std::shared_ptr<internal::IDiagnosticsSink> m_diagnostics;
+    CurrentSpanSource m_span_source;
     /// Guards `m_scopes`. Application threads append through `AddStream` while
     /// the reader thread walks it in `Collect`; without this, a `push_back`
     /// that reallocates invalidates the iterators `Collect` is holding.

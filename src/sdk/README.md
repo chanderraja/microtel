@@ -198,10 +198,12 @@ no-op span here are what have to honour it.
   recomposes its description after forwarding to its delegates. The TSAN
   hammer in `tests/unit/sdk/hot_reload_hammer_test.cpp` checks it;
   `MICROTEL_HAMMER_SECONDS` extends its default budget for a local run.
-- **An instrument must not be used after the provider that owns it is
-  destroyed.** `SdkMeter` borrows the diagnostics sink and the
-  `ICurrentSpanSource` from the provider by raw pointer
-  ([`sdk_meter.hpp`](sdk_meter.hpp)).
+- **A meter or instrument may outlive its provider.** The storage it writes
+  into, the diagnostics sink and the `ICurrentSpanSource` all hang off the
+  [`MetricProducer`](metric_producer.hpp), which the provider shares with
+  every `SdkMeter` and synchronous instrument; the sink is held through the
+  provider's `TracePipeline`, as for tracers. Measurements made after the
+  provider is gone are kept but never collected (issue #259).
 - **Provider holds a `unique_ptr<SslCtx>` indirectly via `Transport`**
   (ICP 0003 §3.1), so there is no shared ownership of TLS state. There is one
   per transport, which means a process running several named profiles has one

@@ -26,9 +26,11 @@ commit:
 | [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
 | [`leaf/CMakeLists.txt`](leaf/CMakeLists.txt) | `project(microtel_leaf VERSION …)` | the standalone leaf build's `PROJECT_VERSION`; read 1.1.1 through the v1.2.0 release until `version-drift-check.sh` started checking it |
 
-The README names the release in two prose places that no check reads: the
-Status section ("The current release is …") and the `git clone --branch` tag in
-Getting started. Update both in the same commit.
+The README names the release in two prose places: the Status section ("The
+current release is …") and the `git clone --branch` tag in Getting started.
+`CONTRIBUTING.md` names it once ("The current release is v…"). Update all three
+in the same commit. `version-drift-check.sh` does not read them, but
+`tests/unit/version_test.cpp` does (from v1.2.2), so a missed one fails `ctest`.
 
 Two of those seven have a history worth knowing:
 
@@ -52,7 +54,7 @@ check costs one CI job and changes nothing about what ships.
 ### Why `master` has no `-dev` suffix
 
 Between releases, `master` stays at the version that was last released — today,
-`1.2.1`. It is **not** bumped to `1.3.0-dev` or similar.
+`1.2.2`. It is **not** bumped to `1.3.0-dev` or similar.
 
 The reason is that the version is not only metadata: it goes out on the wire.
 `kUserAgent` becomes the gRPC `user-agent` header on every export, and `kVersion`

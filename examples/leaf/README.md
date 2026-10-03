@@ -517,7 +517,7 @@ Shutdown: Completed
 
 ```
 $ ./build/examples/microtel_example_leaf_udp_leaf stamped 9310 9311 3 command
-leaf 127.0.0.1:9311, time mode stamped, leaf library 1.2.1
+leaf 127.0.0.1:9311, time mode stamped, leaf library 1.2.2
 waiting for commands on 127.0.0.1:9311
 command 1: "irrigation.check traceparent=00-807175be716d2ef6fcc3286b303fff10-71461118183f8b6e-01"
 payload 1: 446 bytes, 1 span -> 127.0.0.1:9310

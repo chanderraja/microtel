@@ -6,7 +6,7 @@
 
 ---
 
-## Implementation status (as of v1.2.0)
+## Implementation status (as of v1.2.2)
 
 The release themes in §4 were planned as a sequence, but the code did not
 follow it exactly. Metrics, logs, the spdlog log bridge and the otel-cpp shim
@@ -17,11 +17,12 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 
 | Theme | Status | What remains |
 |---|---|---|
-| Trace runtime + OTLP exporter | Done | Open bugs only (#271, #223) |
+| Trace runtime + OTLP exporter | Done | None open. #271 and #223 are fixed, and v1.2.2 applies the sampler's attributes and trace state (#340) |
 | v1.1 Operational polish | Done, except the parts moved elsewhere | Python sugar (moved to M18); mTLS rotation (v1.4, #297) |
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
 | v1.2 Logs | Done, supported | Logs cookbook (docs only) |
 | v1.2 Leaf / concentrator | Done, experimental (ICP 0031, ICP 0036) | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
+| v1.2.2 Patch | Done | Request headers validated at `Build()` ([ICP 0038](docs/icps/0038-reject-reserved-request-headers.md), #412); OTel key=value env lists trimmed and percent-decoded (#413); a Meter, its instruments and a Logger may outlive the Provider (#259, #417) |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |

@@ -8,6 +8,10 @@ vcpkg.
 
 ## Install
 
+Use a checkout of `master`. The port there builds the latest release; a
+release tag's own copy of this port still names the release before it, because
+the port is bumped in a follow-up PR once the tag exists (`RELEASING.md` §4).
+
 Classic mode, from a microtel checkout:
 
 ```bash

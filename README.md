@@ -218,11 +218,14 @@ and run that last command with `sudo`.
 
 **Or install with vcpkg.** microtel isn't in vcpkg's curated registry yet; the
 repository carries its own overlay port, so vcpkg needs a checkout to read it
-from. vcpkg then builds microtel and its dependencies (OpenSSL, nghttp2, zlib,
-toml++, spdlog) from source, so the development packages above aren't needed:
+from. Clone `master`, not a release tag: the port on `master` builds the
+latest release, while a tag's own port still names the release before it,
+because the port is bumped right after tagging. vcpkg then builds microtel and
+its dependencies (OpenSSL, nghttp2, zlib, toml++, spdlog) from source, so the
+development packages above aren't needed:
 
 ```bash
-git clone --branch v1.2.2 https://github.com/chanderraja/microtel.git
+git clone https://github.com/chanderraja/microtel.git
 vcpkg install microtel --overlay-ports=microtel/packaging/vcpkg/ports
 ```
 

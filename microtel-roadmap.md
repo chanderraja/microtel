@@ -1,7 +1,7 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
 **Companion to:** the design documents indexed in [`docs/README.md`](docs/README.md)
-**Status:** Draft v0.1. Implementation status updated 2026-09-27 against v1.2.0.
+**Status:** Draft v0.1. Implementation status updated 2026-10-03 against v1.2.2.
 **Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
 
 ---
@@ -10,10 +10,12 @@
 
 The release themes in §4 were planned as a sequence, but the code did not
 follow it exactly. Metrics, logs, the spdlog log bridge and the otel-cpp shim
-were all built during the v1 milestones (M12–M17) and ship today as
-**experimental**: they work and are tested, but carry no compatibility promise
-and no collector conformance coverage yet. The v1.2 and v1.3 themes are
-therefore mostly about finishing and stabilizing that code, not writing it.
+were all built during the v1 milestones (M12–M17), ahead of their themes. Logs
+became supported in v1.2, with collector conformance tests, retry and three log
+bridges. Metrics and the otel-cpp shim still ship as **experimental**: they
+work and are tested, but carry no compatibility promise, and metrics have no
+collector conformance coverage yet. The v1.3 theme is therefore mostly about
+finishing and stabilizing that code, not writing it.
 
 | Theme | Status | What remains |
 |---|---|---|
@@ -22,7 +24,7 @@ therefore mostly about finishing and stabilizing that code, not writing it.
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
 | v1.2 Logs | Done, supported | Logs cookbook (docs only) |
 | v1.2 Leaf / concentrator | Done, experimental (ICP 0031, ICP 0036) | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
-| v1.2.2 Patch | Done | Request headers validated at `Build()` ([ICP 0038](docs/icps/0038-reject-reserved-request-headers.md), #412); OTel key=value env lists trimmed and percent-decoded (#413); a Meter, its instruments and a Logger may outlive the Provider (#259, #417) |
+| v1.2.2 Patch | Done | Static request headers validated at `Build()`, and the auth callback's value on each export ([ICP 0038](docs/icps/0038-reject-reserved-request-headers.md), #412); OTel key=value env lists trimmed and percent-decoded (#413); a Meter, its instruments and a Logger may outlive the Provider (#259, #417) |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
@@ -96,7 +98,7 @@ The leaf ships as experimental in v1.2 with both encoder backends ([ICP 0031](do
 
 **Theme:** Prove the wedge. Smallest credible OTel-compat trace runtime over OTLP/HTTP and OTLP/gRPC.
 
-**Status:** done. Open work is bug fixes (#271, #223).
+**Status:** done. The bugs once open here (#271, #223) are fixed.
 
 Brief recap:
 

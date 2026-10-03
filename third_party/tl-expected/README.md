@@ -15,8 +15,7 @@ that mirrors the C++23 standard library's `std::expected`. Header-only.
 
 ## Why microtel vendors this
 
-microtel's language floor is C++20, which keeps the RHEL 8 + devtoolset-11
-commitment in `microtel-spec.md` §1, but its public API and internal
+microtel's language floor is C++20, but its public API and internal
 interfaces return `expected`-shaped types. `std::expected` only arrived in
 C++23. [ICP 0002](../../docs/icps/0002-vendor-tl-expected.md) covers the
 decision.
@@ -32,7 +31,7 @@ floor to C++23 later needs no public-API change.
 ## Closure impact
 
 None. It is a single header with no runtime symbols and no shared library.
-The runtime closure pinned in `microtel-spec.md` §9.1 (nghttp2, OpenSSL, upb,
+The runtime closure fixed by [CLAUDE.md](../../CLAUDE.md) rule 12 (nghttp2, OpenSSL, upb,
 zlib, optional spdlog) is unchanged.
 
 The header is installed alongside microtel's own, as
@@ -44,7 +43,7 @@ for completeness.
 
 ## Update procedure
 
-Following the vendored-dependency policy in `microtel-spec.md` §9.6:
+Like every vendored dependency, this README carries the pin; to update it:
 
 1. Pick the new upstream tag.
 2. Update the pin in this README (tag, commit SHA, vendored-at date).

@@ -52,6 +52,10 @@ offline()
         echo "apt-install: no package lists in $CACHE" >&2
         return 1
     fi
+    # Replace the runner's lists, do not merge into them: an index the image
+    # shipped can name a different version than the cache holds, and apt would
+    # pick it and then find no archive for it.
+    $SUDO find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -type f -delete
     $SUDO cp -a "$CACHE/lists/." /var/lib/apt/lists/
     if compgen -G "$CACHE/archives/*.deb" >/dev/null; then
         $SUDO cp "$CACHE"/archives/*.deb /var/cache/apt/archives/
@@ -61,6 +65,10 @@ offline()
 
 online()
 {
+    # Start from no lists, so update downloads every index in full. Some
+    # runners answered "Hit" for noble-updates and kept the index their image
+    # shipped with, which named a .deb the mirror had already removed (404).
+    $SUDO find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -type f -delete
     $SUDO apt-get "${APT_NET_OPTS[@]}" "${APT_KEEP_OPTS[@]}" update
     $SUDO apt-get "${APT_NET_OPTS[@]}" "${APT_KEEP_OPTS[@]}" install -y "$@"
 

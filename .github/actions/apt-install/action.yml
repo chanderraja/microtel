@@ -17,8 +17,13 @@ inputs:
 runs:
   using: composite
   steps:
-    # One cache per runner image and package set: a new runner image starts a
-    # new cache, so cached lists never disagree with what the image installed.
+    # One cache per runner image, apt source configuration and package set. A
+    # new runner image starts a new cache, so cached lists never disagree with
+    # what the image installed. The sources are in the key because runners
+    # reporting the same image version do not all configure apt the same way
+    # (some use azure.archive.ubuntu.com directly, some mirror+file:): apt names
+    # its index files after the source, so lists cached from one never apply on
+    # the other, and the install resolved against the image's older lists.
     - name: Cache key
       id: key
       shell: bash
@@ -27,7 +32,9 @@ runs:
       run: |
         # shellcheck disable=SC2086  # word-splitting the package list is the point
         sorted="$(printf '%s\n' $PACKAGES | sort -u | tr '\n' ' ')"
-        hash="$(printf '%s' "$sorted" | sha256sum | cut -c1-16)"
+        sources="$(cat /etc/apt/sources.list /etc/apt/sources.list.d/* \
+          /etc/apt/apt-mirrors.txt 2>/dev/null | sha256sum | cut -c1-16)"
+        hash="$(printf '%s %s' "$sources" "$sorted" | sha256sum | cut -c1-16)"
         echo "key=apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-${hash}" >> "$GITHUB_OUTPUT"
         echo "packages=${sorted}" >> "$GITHUB_OUTPUT"
 

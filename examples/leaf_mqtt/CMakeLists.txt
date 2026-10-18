@@ -56,7 +56,7 @@ set_target_properties(microtel_example_leaf_mqtt_leaf PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/examples")
 target_compile_options(microtel_example_leaf_mqtt_leaf PRIVATE -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
 
 microtel_add_example(leaf_mqtt_concentrator SOURCES mqtt_concentrator.cpp)

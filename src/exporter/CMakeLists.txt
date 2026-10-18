@@ -18,7 +18,7 @@ target_link_libraries(microtel_exporter
     PRIVATE microtel_encoder)
 
 target_include_directories(microtel_exporter
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_exporter PUBLIC cxx_std_20)
 

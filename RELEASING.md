@@ -28,8 +28,11 @@ commit:
 
 The README names the release in two prose places: the Status section ("The
 current release is …") and the `git clone --branch` tag in Getting started.
-`CONTRIBUTING.md` names it once ("The current release is v…"). Update all three
-in the same commit. `version-drift-check.sh` does not read them, but
+`CONTRIBUTING.md` names it once ("The current release is v…"). The README's
+Install section pins it twice more: the FetchContent snippet's `GIT_TAG` and
+the CPM snippet's `gh:chanderraja/microtel@X.Y.Z`. Update all five in the same
+commit. At the first release after v1.2.2, also delete the Install section's
+note that v1.2.2 does not build as a subproject. `version-drift-check.sh` does not read them, but
 `tests/unit/version_test.cpp` does (from v1.2.2), so a missed one fails `ctest`.
 
 Two of those seven have a history worth knowing:
@@ -335,6 +338,7 @@ long-term-support window for a major line is in
 [ ] src/wire/grpc/grpc_wire_codec.cpp  kUserAgent
 [ ] tools/preflight/preflight.cpp  kVersion
 [ ] leaf/include/microtel/leaf.h  MICROTEL_LEAF_VERSION_MAJOR / _MINOR / _PATCH
+[ ] README (Status, git clone, FetchContent GIT_TAG, CPM @version) and CONTRIBUTING.md
 [ ] ci/scripts/version-drift-check.sh passes locally
 [ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)

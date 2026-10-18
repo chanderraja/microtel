@@ -7,8 +7,8 @@ if(MICROTEL_USE_SPDLOG)
         LIBS    microtel_spdlog_bridge microtel_sdk)
     target_include_directories(spdlog_sink_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
     target_compile_options(spdlog_sink_test PRIVATE
         -Wno-missing-field-initializers)
 endif()
@@ -23,8 +23,8 @@ if(MICROTEL_BUILD_GLOG_BRIDGE)
         LIBS    microtel_glog_bridge microtel_sdk)
     target_include_directories(glog_sink_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 endif()
 
 if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
@@ -34,8 +34,8 @@ if(MICROTEL_BUILD_LOG4CXX_BRIDGE)
         LIBS    microtel_log4cxx_bridge microtel_sdk)
     target_include_directories(log4cxx_appender_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 endif()
 
 # M17 L1 — pins the opentelemetry-cpp API configuration the shim is built
@@ -54,7 +54,7 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         SOURCES otelcpp_attribute_conversion_test.cpp
         LIBS    microtel_otelcpp_shim)
     target_include_directories(otelcpp_attribute_conversion_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
     # M17 L2 — TraceId / SpanId / SpanContext bridging, both directions.
     # microtel_api provides microtel::TraceState's out-of-line definitions,
@@ -65,7 +65,7 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         SOURCES otelcpp_context_conversion_test.cpp
         LIBS    microtel_otelcpp_shim microtel_api)
     target_include_directories(otelcpp_context_conversion_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
     # M17 L2 — SpanShim: otel-cpp trace::Span over a microtel SpanHandle.
     # microtel_sdk provides the out-of-line SpanDeleter::operator() the
@@ -76,8 +76,8 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim microtel_sdk)
     target_include_directories(otelcpp_span_shim_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 
     # M17 L2 — TracerShim / TracerProviderShim over microtel Tracer/Provider.
     microtel_add_test(
@@ -86,8 +86,8 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim microtel_sdk)
     target_include_directories(otelcpp_tracer_shim_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 
     # M17 L3 — MeterShim / MeterProviderShim over microtel Meter/Provider.
     microtel_add_test(
@@ -96,8 +96,8 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim microtel_sdk)
     target_include_directories(otelcpp_meter_shim_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 
     # ICP 0016 — shim-local diagnostics for adapter-level omissions. No
     # microtel core dependency at all; linking the shim is enough to resolve
@@ -113,7 +113,7 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         SOURCES otelcpp_log_record_shim_test.cpp
         LIBS    microtel_otelcpp_shim)
     target_include_directories(otelcpp_log_record_shim_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
     # M17 L4 — LoggerShim / LoggerProviderShim over microtel Logger/Provider.
     microtel_add_test(
@@ -122,8 +122,8 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim microtel_sdk)
     target_include_directories(otelcpp_logger_shim_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 
     # M17 L5 — RegisterGlobally/UnregisterGlobally: one-call startup wiring
     # all three signals over a single microtel::Provider.
@@ -133,8 +133,8 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
         LIBS    microtel_otelcpp_shim microtel_sdk)
     target_include_directories(otelcpp_global_registration_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/tests)
 
     # Regression test for the shim's public include path (see the test file's
     # own comment). Deliberately no target_include_directories call here —

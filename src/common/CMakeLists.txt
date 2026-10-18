@@ -14,7 +14,7 @@ target_link_libraries(microtel_common
     PUBLIC microtel_headers)
 
 target_include_directories(microtel_common
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_common PUBLIC cxx_std_20)
 

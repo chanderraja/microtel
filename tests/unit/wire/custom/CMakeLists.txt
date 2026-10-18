@@ -10,8 +10,8 @@ microtel_add_test(
 
 target_include_directories(export_transport_codec_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(export_transport_codec_test PRIVATE
     -Wno-missing-field-initializers)

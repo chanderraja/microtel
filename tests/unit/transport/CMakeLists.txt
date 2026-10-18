@@ -9,7 +9,7 @@ microtel_add_test(
     LIBS    microtel_transport)
 
 target_include_directories(connect_error_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    epoll_reactor_test
@@ -17,7 +17,7 @@ microtel_add_test(
     LIBS    microtel_transport)
 
 target_include_directories(epoll_reactor_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    http2_transport_test
@@ -25,7 +25,7 @@ microtel_add_test(
     LIBS    microtel_transport)
 
 target_include_directories(http2_transport_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # OpenSSL is linked explicitly: microtel_transport keeps it PRIVATE, and this
 # test drives the BIO through OpenSSL's own API.
@@ -35,4 +35,4 @@ microtel_add_test(
     LIBS    microtel_transport OpenSSL::SSL OpenSSL::Crypto)
 
 target_include_directories(nosignal_io_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)

@@ -25,8 +25,8 @@ function(microtel_add_integration_test)
         GTest::gtest_main
         ${MT_LIBS})
     target_include_directories(${MT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests
-        ${CMAKE_SOURCE_DIR}/src)
+        ${PROJECT_SOURCE_DIR}/tests
+        ${PROJECT_SOURCE_DIR}/src)
     target_compile_options(${MT_NAME} PRIVATE
         -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})

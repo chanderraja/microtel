@@ -17,7 +17,7 @@ target_link_libraries(microtel_preflight_lib
 
 target_include_directories(microtel_preflight_lib
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/..
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_preflight_lib PUBLIC cxx_std_20)
 

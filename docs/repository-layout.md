@@ -152,6 +152,7 @@ All tests; the taxonomy and conventions are in
 | `tests/leaf/` | Leaf test vectors (`vectors/`), the dual-backend shim (`dual/`), the differential program (`diff/`) and the cross-target project (`target/`, driven by `ci/scripts/leaf-target.sh`) | — |
 | `tests/consumer/` | External `find_package(microtel)` project driven by `ci/scripts/consumer-smoke.sh`; not part of the main build | — |
 | `tests/consumer_toml/` | External project linking installed microtel next to a compiled toml++ (`CONSUMER_TOML=1 ci/scripts/consumer-smoke.sh`) | — |
+| `tests/consumer_fetchcontent/`, `tests/consumer_cpm/` | External projects that add microtel as a FetchContent / CPM subproject and build `tests/consumer/main.cpp` (`ci/scripts/consumer-package.sh`) | — |
 | `tests/mocks/` | Dumb mocks, one per interface | [README](../tests/mocks/README.md) |
 | `tests/fakes/` | Test doubles with logic | [README](../tests/fakes/README.md) |
 | `tests/helpers/` | Shared test-only utilities | — |

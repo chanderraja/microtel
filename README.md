@@ -201,6 +201,58 @@ dependencies leave your link.
   <img alt="Using microtel through the opentelemetry-cpp shim: existing call sites keep calling the header-only opentelemetry-cpp API; startup.cpp builds a microtel Provider and calls RegisterGlobally, so, within the supported subset of the API, the API's global providers resolve to the microtel shim, which exports through microtel over OTLP. The opentelemetry-cpp SDK, its exporters, gRPC, protobuf, abseil and libcurl are no longer linked." src="docs/images/usage-otelcpp-shim.svg" width="860">
 </p>
 
+## Install
+
+Three ways to add microtel to a CMake project. Each one gives you the
+`microtel::microtel` target. To build from source and `cmake --install`
+instead, and for the system packages that FetchContent and CPM need (OpenSSL,
+nghttp2, zlib, pkg-config), see [Getting started](#getting-started).
+
+**vcpkg.** microtel isn't in the curated registry yet
+([submission plan](docs/packaging/PR_VCPKG.md)). Use the overlay port from a
+`master` checkout:
+
+```bash
+git clone https://github.com/chanderraja/microtel.git
+vcpkg install microtel --overlay-ports=microtel/packaging/vcpkg/ports
+```
+
+```cmake
+find_package(microtel CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE microtel::microtel)
+```
+
+**FetchContent.**
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    microtel
+    GIT_REPOSITORY https://github.com/chanderraja/microtel.git
+    GIT_TAG        v1.2.2
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(microtel)
+target_link_libraries(my_app PRIVATE microtel::microtel)
+```
+
+**CPM.cmake.**
+
+```cmake
+CPMAddPackage("gh:chanderraja/microtel@1.2.2")
+target_link_libraries(my_app PRIVATE microtel::microtel)
+```
+
+> **v1.2.2 does not build as a subproject.** FetchContent and CPM need the
+> release after it. Until that release is tagged, pin a `master` commit
+> instead: `GIT_TAG <sha>`, or
+> `CPMAddPackage(NAME microtel GITHUB_REPOSITORY chanderraja/microtel GIT_TAG <sha>)`.
+
+As a subproject, microtel builds only its libraries and `microtel-preflight`.
+Tests, the header check and the spdlog bridge default to `OFF`, and configure
+fetches only toml++. The usual options still apply: set them before
+`FetchContent_MakeAvailable` (`set(MICROTEL_BUILD_LEAF ON)`), or pass
+`OPTIONS "MICROTEL_BUILD_LEAF ON"` to `CPMAddPackage`.
+
 ## Getting started
 
 microtel runs on Linux only (the I/O thread uses `epoll`); CI builds it as

@@ -47,6 +47,10 @@ TEST(VersionTest, ReadmeNamesTheCurrentRelease)
         << "README Status section does not name v" << version;
     EXPECT_NE(readme.find("git clone --branch v" + version + " "), std::string::npos)
         << "README Getting started does not clone v" << version;
+    EXPECT_NE(readme.find("GIT_TAG        v" + version + "\n"), std::string::npos)
+        << "README Install FetchContent snippet does not pin v" << version;
+    EXPECT_NE(readme.find("\"gh:chanderraja/microtel@" + version + "\""), std::string::npos)
+        << "README Install CPM snippet does not pin " << version;
 }
 
 TEST(VersionTest, ContributingNamesTheCurrentRelease)

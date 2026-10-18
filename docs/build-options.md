@@ -12,11 +12,16 @@ are in [configuration.md](configuration.md).
 
 Declared in the top-level `CMakeLists.txt`.
 
+"Top level" defaults differ when microtel is built as a subproject
+(`add_subdirectory`, FetchContent, CPM): tests, the header check and the
+spdlog bridge default `OFF` there, so a parent's build compiles only the
+libraries and `microtel-preflight`. Set any of them `ON` to get them back.
+
 | Option | Default | Effect |
 |---|---|---|
-| `MICROTEL_BUILD_TESTS` | `ON` | Builds the test tree (fetches GoogleTest). Set `OFF` for install-only or cross builds. |
+| `MICROTEL_BUILD_TESTS` | `ON` at top level, `OFF` as a subproject | Builds the test tree (fetches GoogleTest). Set `OFF` for install-only or cross builds. |
 | `MICROTEL_BUILD_EXAMPLES` | `OFF` | Builds the programs under [`examples/`](../examples/). |
-| `MICROTEL_USE_SPDLOG` | `ON` | Builds the opt-in spdlog log bridge, `microtel_spdlog_bridge` ([`src/adapters/spdlog/`](../src/adapters/spdlog/README.md)), which forwards an application's spdlog messages into microtel's OTLP logs. It does not change microtel's own diagnostics: those go to stderr, or to a `SetLogSink` callback, in every build. No installed archive references spdlog. `OFF` drops the bridge and the spdlog download. |
+| `MICROTEL_USE_SPDLOG` | `ON` at top level, `OFF` as a subproject | Builds the opt-in spdlog log bridge, `microtel_spdlog_bridge` ([`src/adapters/spdlog/`](../src/adapters/spdlog/README.md)), which forwards an application's spdlog messages into microtel's OTLP logs. It does not change microtel's own diagnostics: those go to stderr, or to a `SetLogSink` callback, in every build. No installed archive references spdlog. `OFF` drops the bridge and the spdlog download. |
 | `MICROTEL_FORBID_INSECURE_TLS` | `OFF` | `ON` makes a configuration with `tls.insecure = true` fail `Build()` with `ConfigError::Kind::InsecureDisallowed`; default builds warn instead ([configuration.md](configuration.md) §3.5). |
 | `MICROTEL_BUILD_OTELCPP_SHIM` | `OFF` | Builds the experimental opentelemetry-cpp API shim, source-only ([ICP 0014](icps/0014-otelcpp-shim-and-rule-13.md), [migration guide](migration-from-otel-cpp.md)). |
 | `MICROTEL_BUILD_GLOG_BRIDGE` | `OFF` | Builds the header-only glog log bridge and its tests ([`src/adapters/glog/`](../src/adapters/glog/README.md)). Needs glog 0.6 or 0.7 installed (`find_package(glog)`). |
@@ -51,7 +56,7 @@ Declared in the top-level `CMakeLists.txt`. See
 
 | Option | Default | Effect |
 |---|---|---|
-| `MICROTEL_BUILD_HEADER_CHECK` | `ON` if `ci/` is present | Builds `ci/header_check.cpp`, which includes every public and internal header. Release archives leave out `ci/`, so it defaults `OFF` there. |
+| `MICROTEL_BUILD_HEADER_CHECK` | `ON` at top level if `ci/` is present | Builds `ci/header_check.cpp`, which includes every public and internal header. Release archives leave out `ci/`, so it defaults `OFF` there. |
 | `MICROTEL_BUILD_FUZZ` | `OFF` | Builds the libFuzzer harnesses (clang only, `-fsanitize=fuzzer`). |
 | `MICROTEL_BUILD_BENCH` | `OFF` | Builds the benchmark harness under [`bench/`](../bench/) (needs Docker or Podman). |
 | `MICROTEL_COVERAGE` | `OFF` | Builds instrumented for coverage: clang source-based (`-fprofile-instr-generate -fcoverage-mapping`), which is what `ci/scripts/coverage.sh` gates on, or gcov `--coverage` under gcc. |

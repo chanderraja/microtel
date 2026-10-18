@@ -12,7 +12,7 @@ add_library(microtel_grpc_wire STATIC
 target_link_libraries(microtel_grpc_wire
     PUBLIC microtel_headers microtel_otlp_response microtel_gzip microtel_common)
 
-target_include_directories(microtel_grpc_wire PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(microtel_grpc_wire PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_grpc_wire PUBLIC cxx_std_20)
 

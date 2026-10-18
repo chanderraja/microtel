@@ -30,7 +30,7 @@ function(microtel_add_test)
         ${MT_LIBS})
     # Tests include shared mocks/fakes via "mocks/..." and "fakes/...".
     target_include_directories(${MT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/tests)
     target_compile_options(${MT_NAME} PRIVATE
         -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})
@@ -60,8 +60,8 @@ if(MICROTEL_BASH AND MICROTEL_GNU_NM)
         set(MICROTEL_SYMBOL_SCAN_ARGS --instrumented)
     endif()
     add_test(NAME symbol_scan_build_tree
-        COMMAND ${MICROTEL_BASH} ${CMAKE_SOURCE_DIR}/ci/scripts/symbol-scan.sh
-                ${MICROTEL_SYMBOL_SCAN_ARGS} ${CMAKE_BINARY_DIR})
+        COMMAND ${MICROTEL_BASH} ${PROJECT_SOURCE_DIR}/ci/scripts/symbol-scan.sh
+                ${MICROTEL_SYMBOL_SCAN_ARGS} ${PROJECT_BINARY_DIR})
     set_tests_properties(symbol_scan_build_tree PROPERTIES
         LABELS "integration"
         ENVIRONMENT "NM=${MICROTEL_GNU_NM}")

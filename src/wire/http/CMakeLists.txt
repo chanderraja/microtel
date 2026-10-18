@@ -10,7 +10,7 @@ target_link_libraries(microtel_http_wire
     PUBLIC microtel_headers microtel_otlp_response microtel_gzip)
 
 target_include_directories(microtel_http_wire
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_http_wire PUBLIC cxx_std_20)
 

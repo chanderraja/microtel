@@ -12,7 +12,7 @@ add_library(microtel_custom_wire STATIC
 target_link_libraries(microtel_custom_wire
     PUBLIC microtel_headers microtel_common)
 
-target_include_directories(microtel_custom_wire PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(microtel_custom_wire PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_custom_wire PUBLIC cxx_std_20)
 

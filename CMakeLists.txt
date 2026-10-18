@@ -15,6 +15,15 @@ project(microtel
         LANGUAGES C CXX
         DESCRIPTION "Lightweight OpenTelemetry-compatible trace runtime built on nghttp2")
 
+# TRUE when microtel is the top-level project, FALSE under add_subdirectory()
+# or FetchContent. Developer-only parts (tests, the header check, the spdlog
+# fetch) default OFF in a parent's build. PROJECT_IS_TOP_LEVEL needs CMake 3.21.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(MICROTEL_IS_TOP_LEVEL ON)
+else()
+    set(MICROTEL_IS_TOP_LEVEL OFF)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -79,7 +88,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MicrotelWarnings.cmake)
 # Defaults OFF when ci/ is absent: .gitattributes marks it export-ignore, so
 # release archives (git archive, GitHub's tag archives) do not carry
 # ci/header_check.cpp, and a default configure of one must still succeed.
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/ci/header_check.cpp)
+# Also OFF as a subproject.
+if(MICROTEL_IS_TOP_LEVEL AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/ci/header_check.cpp)
     set(_microtel_header_check_default ON)
 else()
     set(_microtel_header_check_default OFF)
@@ -157,7 +167,10 @@ endif()
 # docs/build-options.md. microtel's own diagnostics go to stderr in every
 # build, and the public LogSink hook in include/microtel/log_sink.hpp lets
 # applications redirect them into their own logger (docs/error-model.md §9.3).
-option(MICROTEL_USE_SPDLOG "Build the opt-in spdlog log bridge (microtel_spdlog_bridge)" ON)
+# Default OFF as a subproject: nothing a parent links needs it (the bridge
+# header ships in include/ either way), and it would fetch a second spdlog.
+option(MICROTEL_USE_SPDLOG "Build the opt-in spdlog log bridge (microtel_spdlog_bridge)"
+       ${MICROTEL_IS_TOP_LEVEL})
 
 # Where toml++, spdlog and GoogleTest come from. OFF (the default) downloads
 # pinned versions with FetchContent at configure time. ON resolves each with
@@ -182,9 +195,12 @@ elseif(MICROTEL_USE_SPDLOG)
         GIT_SHALLOW    TRUE
     )
     # std::format mode — avoids a transitive fmt dependency, which is outside
-    # the dependency closure (CLAUDE.md rule 12).
-    set(SPDLOG_USE_STD_FORMAT ON CACHE BOOL "" FORCE)
-    set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+    # the dependency closure (CLAUDE.md rule 12). Normal variables, not FORCEd
+    # cache entries, here and for the other fetched projects below: option()
+    # honours them (CMP0077), and they stay in microtel's directory scope
+    # instead of overwriting a parent project's cache.
+    set(SPDLOG_USE_STD_FORMAT ON)
+    set(SPDLOG_INSTALL OFF)
     FetchContent_MakeAvailable(spdlog)
 endif()
 
@@ -203,7 +219,7 @@ else()
         GIT_TAG        v3.4.0
         GIT_SHALLOW    TRUE
     )
-    set(TOMLPLUSPLUS_INSTALL OFF CACHE BOOL "" FORCE)
+    set(TOMLPLUSPLUS_INSTALL OFF)
     FetchContent_MakeAvailable(tomlplusplus)
 endif()
 
@@ -339,7 +355,7 @@ endif()
 
 # Declared here, ahead of the blocks that use them further down, because the
 # leaf builds test-only libraries of both backends when either is ON.
-option(MICROTEL_BUILD_TESTS "Build the test tree" ON)
+option(MICROTEL_BUILD_TESTS "Build the test tree" ${MICROTEL_IS_TOP_LEVEL})
 option(MICROTEL_BUILD_FUZZ "Build libFuzzer harnesses (requires clang -fsanitize=fuzzer)" OFF)
 
 # nanopb is linked only into a nanopb leaf (ICP 0031 Decision 4). It is also
@@ -574,7 +590,7 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/microtel)
 
 # Test tree — gtest-based unit/integration/conformance/wire/grpc-wire/fuzz
-# per docs/coding-standards.md §11. Default ON; OFF skips the whole tree for
+# per docs/coding-standards.md §11. Default ON at the top level and OFF as a subproject; OFF skips the whole tree for
 # cross-compilation or constrained builds.
 option(MICROTEL_BUILD_BENCH "Build the benchmark harness (requires Docker)" OFF)
 
@@ -609,7 +625,7 @@ if(MICROTEL_BUILD_TESTS)
             GIT_SHALLOW    TRUE
         )
         # Don't install gtest as part of microtel's install target.
-        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        set(INSTALL_GTEST OFF)
         FetchContent_MakeAvailable(googletest)
     endif()
 

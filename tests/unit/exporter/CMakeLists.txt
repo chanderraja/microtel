@@ -10,8 +10,8 @@ microtel_add_test(
 
 target_include_directories(otlp_exporter_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(otlp_exporter_test PRIVATE
     -Wno-missing-field-initializers)
@@ -23,7 +23,7 @@ microtel_add_test(
 
 target_include_directories(retry_policy_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src)
+        ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    otlp_metric_exporter_test
@@ -32,8 +32,8 @@ microtel_add_test(
 
 target_include_directories(otlp_metric_exporter_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(otlp_metric_exporter_test PRIVATE
     -Wno-missing-field-initializers)
@@ -46,8 +46,8 @@ microtel_add_test(
 
 target_include_directories(otlp_log_exporter_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(otlp_log_exporter_test PRIVATE
     -Wno-missing-field-initializers)
@@ -60,8 +60,8 @@ microtel_add_test(
 
 target_include_directories(retry_engine_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(retry_engine_test PRIVATE
     -Wno-missing-field-initializers)

@@ -1,0 +1,87 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Release source archive — runs when a v* tag is pushed (RELEASING.md §4).
+#
+# Builds microtel-X.Y.Z.tar.gz from the tag with ci/scripts/source-archive.sh,
+# plus microtel-X.Y.Z.tar.gz.sha512, checks that the archive builds and
+# installs on its own (vendored upb included, no submodules, no ci/), and
+# attaches both files to the GitHub Release for the tag, creating the release
+# if it does not exist yet.
+#
+# workflow_dispatch rebuilds the archive for an existing tag, e.g. to attach
+# one to a release made before this workflow existed. git archive is
+# deterministic for a given tag, so a rebuild replaces the files with
+# identical bytes.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build the source archive for (e.g. v1.2.2)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  source-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      # The archive comes from the tag; the scripts below come from the same
+      # checkout.
+      - name: Build the archive and its SHA-512
+        run: ci/scripts/source-archive.sh "$TAG" dist
+      - name: Install toolchain
+        timeout-minutes: 20
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            clang-18 cmake ninja-build pkg-config libssl-dev libnghttp2-dev zlib1g-dev
+      # Build what a user downloads, not the checkout: extract the archive and
+      # configure it with tests off. The header check is turned off by name
+      # because tags made before this workflow existed default it ON even
+      # though the archive has no ci/.
+      - name: Build and install from the archive
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          (cd dist && sha512sum -c --strict "microtel-${TAG#v}.tar.gz.sha512")
+          mkdir -p "$RUNNER_TEMP/src"
+          tar -xzf "dist/microtel-${TAG#v}.tar.gz" -C "$RUNNER_TEMP/src"
+          cmake -S "$RUNNER_TEMP/src/microtel-${TAG#v}" -B "$RUNNER_TEMP/build" -G Ninja \
+            -DMICROTEL_BUILD_TESTS=OFF -DMICROTEL_BUILD_HEADER_CHECK=OFF
+          cmake --build "$RUNNER_TEMP/build"
+      - name: Build tests/consumer against the installed archive
+        run: ci/scripts/consumer-smoke.sh "$RUNNER_TEMP/build"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: dist/
+      - name: Attach to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --verify-tag \
+              --title "microtel $TAG" \
+              --notes "Release notes to follow. Source archive and SHA-512 attached."
+          fi

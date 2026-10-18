@@ -51,7 +51,7 @@ Declared in the top-level `CMakeLists.txt`. See
 
 | Option | Default | Effect |
 |---|---|---|
-| `MICROTEL_BUILD_HEADER_CHECK` | `ON` | Builds `ci/header_check.cpp`, which includes every public and internal header. |
+| `MICROTEL_BUILD_HEADER_CHECK` | `ON` if `ci/` is present | Builds `ci/header_check.cpp`, which includes every public and internal header. Release archives leave out `ci/`, so it defaults `OFF` there. |
 | `MICROTEL_BUILD_FUZZ` | `OFF` | Builds the libFuzzer harnesses (clang only, `-fsanitize=fuzzer`). |
 | `MICROTEL_BUILD_BENCH` | `OFF` | Builds the benchmark harness under [`bench/`](../bench/) (needs Docker or Podman). |
 | `MICROTEL_COVERAGE` | `OFF` | Builds instrumented for coverage: clang source-based (`-fprofile-instr-generate -fcoverage-mapping`), which is what `ci/scripts/coverage.sh` gates on, or gcov `--coverage` under gcc. |

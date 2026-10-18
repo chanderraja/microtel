@@ -75,7 +75,18 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/MicrotelWarnings.cmake)
 # Verifies every public and internal header compiles standalone with -Werror.
 # Per ICP 0001 this is the operational form of the rule "Both header trees
 # compile under an INTERFACE CMake target with -Werror. No implementations."
-option(MICROTEL_BUILD_HEADER_CHECK "Build the M0 header compile check" ON)
+#
+# Defaults OFF when ci/ is absent: .gitattributes marks it export-ignore, so
+# release archives (git archive, GitHub's tag archives) do not carry
+# ci/header_check.cpp, and a default configure of one must still succeed.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/ci/header_check.cpp)
+    set(_microtel_header_check_default ON)
+else()
+    set(_microtel_header_check_default OFF)
+endif()
+option(MICROTEL_BUILD_HEADER_CHECK "Build the M0 header compile check"
+       ${_microtel_header_check_default})
+unset(_microtel_header_check_default)
 
 if(MICROTEL_BUILD_HEADER_CHECK)
     add_executable(microtel_header_check ci/header_check.cpp)

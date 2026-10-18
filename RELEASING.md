@@ -147,11 +147,49 @@ Then tag the **merge commit on `master`**, not the branch head:
 git switch master && git pull
 git tag -a vX.Y.Z -m "microtel vX.Y.Z"
 git push origin vX.Y.Z
-gh release create vX.Y.Z --title "microtel vX.Y.Z" --notes "…"
+# wait for the release workflow (below), then:
+gh release edit vX.Y.Z --notes "…"
 ```
 
 Tag names are `vX.Y.Z`. Early development tags carried a milestone suffix
 (`v0.2.0-m2`); new tags don't.
+
+### The source archive
+
+Pushing the tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml).
+It uses [`ci/scripts/source-archive.sh`](ci/scripts/source-archive.sh) to build
+two files from the tag:
+
+- `microtel-X.Y.Z.tar.gz`, a `git archive` of the tag under a
+  `microtel-X.Y.Z/` directory. microtel has no submodules: upb, utf8_range,
+  nanopb, `tl::expected` and the generated protos are all committed, so the
+  archive is complete. The `export-ignore` paths in `.gitattributes` (`ci/`,
+  `.github/`, dotfiles) are left out.
+- `microtel-X.Y.Z.tar.gz.sha512`, its `sha512sum` line.
+
+The workflow fails if the tag is not `v` plus `project(microtel VERSION …)`.
+It then extracts the archive, builds and installs it, and runs
+`tests/consumer` against the install (`ci/scripts/consumer-smoke.sh`). Only
+then does it attach both files to the GitHub Release for the tag. If that
+release doesn't exist yet, the workflow creates it with placeholder notes.
+That is why the step above *edits* the release rather than creating it.
+If you run `gh release create` before the workflow finishes, the workflow
+uploads to your release instead.
+
+To attach an archive to a tag that predates the workflow, run it by hand with
+that tag (Actions → release → Run workflow, or
+`gh workflow run release.yml -f tag=vX.Y.Z`). `git archive` output is
+deterministic for a tag, so a rerun uploads identical bytes.
+
+Check the archive locally from any clone that has the tag:
+
+```bash
+ci/scripts/source-archive.sh vX.Y.Z /tmp/dist
+```
+
+The archive's SHA-512 is **not** the one vcpkg's port uses.
+`vcpkg_from_github` downloads GitHub's own `archive/vX.Y.Z.tar.gz`, which
+GitHub generates separately, so hash that URL for the ports (below).
 
 ### Update the vcpkg overlay port
 
@@ -302,7 +340,8 @@ long-term-support window for a major line is in
 [ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
-[ ] gh release created
+[ ] release workflow green; .tar.gz and .sha512 attached to the release
+[ ] release notes written (gh release edit)
 [ ] packaging/vcpkg/ports/microtel: version, REF and SHA512 updated (own PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)

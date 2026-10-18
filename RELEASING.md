@@ -214,6 +214,13 @@ the port submitted to microsoft/vcpkg, in the same PR. Once microtel is in the
 curated registry, follow the update steps in
 [`docs/packaging/PR_VCPKG.md`](docs/packaging/PR_VCPKG.md).
 
+In the same PR, add the version to the Conan recipe: a `sources` entry in
+[`packaging/conan/recipes/microtel/all/conandata.yml`](packaging/conan/recipes/microtel/all/conandata.yml)
+with the URL and its `sha256sum`, and the version in `config.yml` beside it.
+Check it with `conan create packaging/conan/recipes/microtel/all --version=X.Y.Z
+-s compiler.cppstd=20 --build=missing`
+([`docs/packaging/PR_CONAN.md`](docs/packaging/PR_CONAN.md)).
+
 ---
 
 ## 5. Refresh the published benchmark snapshot — in the release PR
@@ -352,6 +359,7 @@ long-term-support window for a major line is in
 [ ] release workflow green; .tar.gz and .sha512 attached to the release
 [ ] release notes written (gh release edit)
 [ ] packaging/vcpkg/ports/microtel and ports/microtel: version and SHA512 updated (own PR)
+[ ] packaging/conan/recipes/microtel: conandata.yml and config.yml entries added (same PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)
 ```

@@ -11,7 +11,12 @@ which answers §7 question 6 for vcpkg. It builds with `MICROTEL_USE_SYSTEM_DEPS
 a new dependency), `MICROTEL_WARNINGS_AS_ERRORS=OFF` (§5 item 3), and the
 `OpenSSL::Crypto` link (§5 item 4). It offers `leaf` and `concentrator` as
 opt-in features, and builds the `v1.2.2` release tarball. The curated-registry
-blockers in §3.3 still apply.
+blockers in §3.3 still apply. The port in curated-registry form is
+[`ports/microtel/`](../ports/microtel/), and a Conan 2 recipe in
+conan-center-index layout is under
+[`packaging/conan/`](../packaging/conan/README.md). Their submission steps are
+[`packaging/PR_VCPKG.md`](packaging/PR_VCPKG.md) and
+[`packaging/PR_CONAN.md`](packaging/PR_CONAN.md).
 
 ## 1. Summary and recommendation
 

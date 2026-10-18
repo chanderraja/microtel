@@ -1,6 +1,10 @@
 # vcpkg overlay port for microtel
 
-This directory is a vcpkg port that the repository hosts itself. vcpkg's
+This directory is a vcpkg port that the repository hosts itself. Its twin,
+[`ports/microtel/`](../../../../ports/microtel/), is the same port in the form
+submitted to the curated registry
+([`docs/packaging/PR_VCPKG.md`](../../../../docs/packaging/PR_VCPKG.md)): it
+has no README and no `MICROTEL_SOURCE_DIR` hook. Keep the two in step. vcpkg's
 curated registry doesn't carry microtel yet, so you point vcpkg at this
 directory with `--overlay-ports`. vcpkg then builds microtel from source like
 any other port, with nghttp2, OpenSSL, zlib, toml++ and spdlog taken from

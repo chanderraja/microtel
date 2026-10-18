@@ -1,0 +1,13 @@
+microtel provides CMake targets:
+
+    find_package(microtel CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE microtel::microtel)
+
+  microtel finds nghttp2 through pkg-config, so a pkg-config executable must
+  be on PATH (or PKG_CONFIG_EXECUTABLE set) when your project configures.
+
+  With the "leaf" feature, the C leaf library is also available:
+
+    target_link_libraries(firmware PRIVATE microtel::leaf)
+
+  The operator tool is installed as tools/microtel/microtel-preflight.

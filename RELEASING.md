@@ -206,6 +206,11 @@ curl -sL https://github.com/chanderraja/microtel/archive/vX.Y.Z.tar.gz | sha512s
 Then install it once with `vcpkg install microtel --overlay-ports=packaging/vcpkg/ports`
 to check that the hash matches and the port builds.
 
+Make the same two edits in [`ports/microtel/`](ports/microtel/), the copy of
+the port submitted to microsoft/vcpkg, in the same PR. Once microtel is in the
+curated registry, follow the update steps in
+[`docs/packaging/PR_VCPKG.md`](docs/packaging/PR_VCPKG.md).
+
 ---
 
 ## 5. Refresh the published benchmark snapshot — in the release PR
@@ -342,7 +347,7 @@ long-term-support window for a major line is in
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
 [ ] release workflow green; .tar.gz and .sha512 attached to the release
 [ ] release notes written (gh release edit)
-[ ] packaging/vcpkg/ports/microtel: version, REF and SHA512 updated (own PR)
+[ ] packaging/vcpkg/ports/microtel and ports/microtel: version and SHA512 updated (own PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)
 ```

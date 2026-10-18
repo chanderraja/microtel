@@ -64,4 +64,20 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/MicrotelTargets.cmake")
 
+# Optional parts, as find_package components:
+#
+#   find_package(microtel CONFIG REQUIRED COMPONENTS leaf)
+#
+# `leaf` is the microtel::leaf target (MICROTEL_BUILD_LEAF); `concentrator` is
+# the leaf receiver compiled into microtel::microtel (MICROTEL_WITH_CONCENTRATOR).
+# Both are experimental in v1.2. Without these, check_required_components()
+# would reject every requested component, installed or not.
+set(microtel_WITH_CONCENTRATOR @MICROTEL_WITH_CONCENTRATOR@)
+if(TARGET microtel::leaf)
+    set(microtel_leaf_FOUND TRUE)
+endif()
+if(microtel_WITH_CONCENTRATOR)
+    set(microtel_concentrator_FOUND TRUE)
+endif()
+
 check_required_components(microtel)

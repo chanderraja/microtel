@@ -8,4 +8,4 @@ microtel_add_test(
     SOURCES auth_providers_test.cpp
     LIBS    microtel_config)
 
-target_include_directories(auth_providers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(auth_providers_test PRIVATE ${PROJECT_SOURCE_DIR}/src)

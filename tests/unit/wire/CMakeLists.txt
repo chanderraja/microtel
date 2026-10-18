@@ -13,7 +13,7 @@ microtel_add_test(
     LIBS    microtel_gzip ZLIB::ZLIB)
 
 target_include_directories(gzip_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    otlp_response_test
@@ -21,7 +21,7 @@ microtel_add_test(
     LIBS    microtel_otlp_response)
 
 target_include_directories(otlp_response_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # UpbArena RAII wrapper. Links microtel_encoder for the upb runtime; the
 # wrapper itself is header-only.
@@ -32,8 +32,8 @@ microtel_add_test(
 
 target_include_directories(upb_arena_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 # Every TU that reaches a upb header needs the symbol-prefix header too, or it
 # emits references to the upstream names and fails to link against the renamed
@@ -50,9 +50,9 @@ microtel_add_test(
 # gen/ for the upb round-trip parser headers.
 target_include_directories(otlp_encoder_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 # C++20 designated initializers legitimately omit fields that have default
 # member initializers. GCC -Wextra fires -Wmissing-field-initializers for
@@ -68,9 +68,9 @@ microtel_add_test(
 
 target_include_directories(otlp_metric_encoder_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 target_compile_options(otlp_metric_encoder_test PRIVATE
     -include ${MICROTEL_UPB_RENAME_HEADER}
@@ -83,9 +83,9 @@ microtel_add_test(
 
 target_include_directories(otlp_log_encoder_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 target_compile_options(otlp_log_encoder_test PRIVATE
     -include ${MICROTEL_UPB_RENAME_HEADER}
@@ -100,9 +100,9 @@ microtel_add_test(
 
 target_include_directories(trace_request_concat_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 target_compile_options(trace_request_concat_test PRIVATE
     -include ${MICROTEL_UPB_RENAME_HEADER}
@@ -118,9 +118,9 @@ if(MICROTEL_WITH_CONCENTRATOR)
 
     target_include_directories(otlp_trace_decoder_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/gen
-            ${CMAKE_SOURCE_DIR}/third_party/upb)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/gen
+            ${PROJECT_SOURCE_DIR}/third_party/upb)
 
     target_compile_options(otlp_trace_decoder_test PRIVATE
         -include ${MICROTEL_UPB_RENAME_HEADER}

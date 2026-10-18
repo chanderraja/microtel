@@ -10,7 +10,7 @@
 
 add_library(microtel_spdlog_bridge INTERFACE)
 
-target_include_directories(microtel_spdlog_bridge INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(microtel_spdlog_bridge INTERFACE ${PROJECT_SOURCE_DIR}/include)
 
 target_link_libraries(microtel_spdlog_bridge INTERFACE spdlog::spdlog)
 

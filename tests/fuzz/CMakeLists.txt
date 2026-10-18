@@ -45,8 +45,8 @@ function(microtel_add_fuzz_target)
         ${MF_LIBS})
 
     target_include_directories(${MF_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 
 microtel_add_fuzz_target(
@@ -82,7 +82,7 @@ microtel_add_fuzz_target(
     SOURCES provider_setters_fuzz.cpp
     LIBS    microtel_sdk microtel_common)
 
-target_include_directories(provider_setters_fuzz PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(provider_setters_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # SdkProviderArgs bundles every pipeline; this harness names only the ones it
 # varies and lets the rest default, the same waiver the sdk_provider tests take.
@@ -97,18 +97,18 @@ target_compile_options(provider_setters_fuzz PRIVATE
 if(TARGET microtel_leaf_dual_fuzz)
     set(MICROTEL_LEAF_DIFF_SOURCES
         leaf_backend_diff_fuzz.cpp
-        ${CMAKE_SOURCE_DIR}/tests/leaf/diff/leaf_diff_program.cpp)
+        ${PROJECT_SOURCE_DIR}/tests/leaf/diff/leaf_diff_program.cpp)
     microtel_add_fuzz_target(
         NAME    leaf_backend_diff_fuzz
         SOURCES ${MICROTEL_LEAF_DIFF_SOURCES}
-                ${CMAKE_SOURCE_DIR}/tests/leaf/vectors/leaf_vectors.c
+                ${PROJECT_SOURCE_DIR}/tests/leaf/vectors/leaf_vectors.c
         LIBS    microtel_leaf_dual_fuzz microtel_upb_gen)
 
     # The interpreter decodes each payload with upb: gen/ and the upb runtime
     # headers, with the rename header forced in as for every upb consumer.
     target_include_directories(leaf_backend_diff_fuzz PRIVATE
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
     set_source_files_properties(${MICROTEL_LEAF_DIFF_SOURCES} PROPERTIES
         COMPILE_OPTIONS "-include;${MICROTEL_UPB_RENAME_HEADER}")
 elseif(MICROTEL_BUILD_LEAF)

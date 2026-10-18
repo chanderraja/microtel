@@ -22,8 +22,8 @@ add_library(microtel_otelcpp_shim INTERFACE)
 # be on the public include path for a consumer linking only this target to
 # reach them — not just include/, which carries microtel's own public API.
 target_include_directories(microtel_otelcpp_shim INTERFACE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src)
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src)
 
 # microtel_otelcpp_api carries the include path and the load-bearing
 # OPENTELEMETRY_STL_VERSION=2020 definition (see the root CMakeLists).

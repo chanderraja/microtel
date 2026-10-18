@@ -16,9 +16,9 @@ if(MICROTEL_BUILD_OTELCPP_SHIM)
     # tests/unit/wire/otlp_encoder_test.cpp).
     target_include_directories(otelcpp_wire_conformance_test
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/gen
-            ${CMAKE_SOURCE_DIR}/third_party/upb)
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/gen
+            ${PROJECT_SOURCE_DIR}/third_party/upb)
 
     # -include: this TU reaches upb headers, so it needs the symbol-prefix
     # header to resolve against the renamed runtime. See

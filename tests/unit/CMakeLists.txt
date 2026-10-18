@@ -30,7 +30,7 @@ microtel_add_test(
     NAME    log_sink_test
     SOURCES log_sink_test.cpp
     LIBS    microtel_common)
-target_include_directories(log_sink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(log_sink_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # kVersionString against kVersionMajor/Minor/Patch (both in the public
 # include/microtel/version.hpp), and against the release named in README.md and
@@ -39,8 +39,8 @@ microtel_add_test(
     NAME    version_test
     SOURCES version_test.cpp)
 target_compile_definitions(version_test PRIVATE
-    MICROTEL_README_PATH="${CMAKE_SOURCE_DIR}/README.md"
-    MICROTEL_CONTRIBUTING_PATH="${CMAKE_SOURCE_DIR}/CONTRIBUTING.md")
+    MICROTEL_README_PATH="${PROJECT_SOURCE_DIR}/README.md"
+    MICROTEL_CONTRIBUTING_PATH="${PROJECT_SOURCE_DIR}/CONTRIBUTING.md")
 
 # M3 — Track A unit tests. Mirrors src/sdk/.
 add_subdirectory(sdk)

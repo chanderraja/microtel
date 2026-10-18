@@ -113,6 +113,14 @@ dependency of `microtel::microtel`):
 cmake -S . -B build -DMICROTEL_BUILD_LEAF=ON [-DMICROTEL_LEAF_ENCODER=upb]
 ```
 
+From an installed tree, ask for it as a component, so that configure fails
+when the package was built without the leaf:
+
+```cmake
+find_package(microtel CONFIG REQUIRED COMPONENTS leaf)
+target_link_libraries(firmware PRIVATE microtel::leaf)
+```
+
 ### Without CMake
 
 Compile as C11, with include paths `leaf/include` and `leaf/src`, and

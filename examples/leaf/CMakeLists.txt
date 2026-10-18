@@ -19,7 +19,7 @@ if(TARGET microtel_leaf)
             C_STANDARD 11
             C_STANDARD_REQUIRED ON
             C_EXTENSIONS OFF
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")
+            RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/examples")
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     endforeach()
     # The probe's upb build takes caller-owned encode scratch (size_probe.c).

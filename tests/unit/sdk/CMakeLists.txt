@@ -18,7 +18,7 @@ microtel_add_test(
     LIBS    microtel_sdk)
 # Reaches into src/sdk/metric_attribute_set.hpp directly (internal header).
 target_include_directories(metric_attribute_set_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — Sum aggregation storage.
 microtel_add_test(
@@ -26,7 +26,7 @@ microtel_add_test(
     SOURCES metric_sum_storage_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_sum_storage_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — Gauge (last-value) aggregation storage.
 microtel_add_test(
@@ -34,7 +34,7 @@ microtel_add_test(
     SOURCES metric_gauge_storage_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_gauge_storage_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — explicit-bucket Histogram aggregation storage.
 microtel_add_test(
@@ -42,7 +42,7 @@ microtel_add_test(
     SOURCES metric_histogram_storage_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_histogram_storage_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — base-2 exponential Histogram aggregation storage.
 microtel_add_test(
@@ -50,7 +50,7 @@ microtel_add_test(
     SOURCES metric_exp_histogram_storage_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_exp_histogram_storage_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — MetricProducer: IMetricProducer impl that assembles MetricBatchHandles.
 microtel_add_test(
@@ -58,7 +58,7 @@ microtel_add_test(
     SOURCES metric_producer_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_producer_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — Concrete IMetricStream implementations (one per storage kind).
 microtel_add_test(
@@ -66,7 +66,7 @@ microtel_add_test(
     SOURCES metric_stream_impls_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_stream_impls_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — Meter: instrument factory wrapping MetricProducer.
 microtel_add_test(
@@ -74,7 +74,7 @@ microtel_add_test(
     SOURCES meter_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(meter_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — Observable instruments (callback-driven streams + Meter factories).
 microtel_add_test(
@@ -82,7 +82,7 @@ microtel_add_test(
     SOURCES metric_observable_instruments_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(metric_observable_instruments_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — PeriodicExportingMetricReader: background-thread push-model reader.
 microtel_add_test(
@@ -90,7 +90,7 @@ microtel_add_test(
     SOURCES periodic_exporting_metric_reader_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(periodic_exporting_metric_reader_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — SynchronousMetricReader: collect + export pipeline (pull-on-demand).
 microtel_add_test(
@@ -98,7 +98,7 @@ microtel_add_test(
     SOURCES synchronous_metric_reader_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(synchronous_metric_reader_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    always_off_sampler_test
@@ -123,7 +123,7 @@ microtel_add_test(
     SOURCES sampler_chain_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sampler_chain_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+    PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 
 # v1.1 — the no-allocation half of the sampler-chain contract. Replaces global
 # operator new with a counting one, which is process-wide, so it needs its own
@@ -143,35 +143,35 @@ microtel_add_test(
 # Test reaches into src/sdk/simple_span_processor.hpp directly (it's an
 # internal header, not a public-API surface). Add src/ to the include path.
 target_include_directories(simple_span_processor_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    noop_span_test
     SOURCES noop_span_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(noop_span_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    sdk_span_test
     SOURCES sdk_span_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_span_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    sdk_tracer_test
     SOURCES sdk_tracer_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_tracer_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    batch_span_processor_test
     SOURCES batch_span_processor_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(batch_span_processor_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — SdkProvider::GetMeter: meter factory + scope caching.
 microtel_add_test(
@@ -180,8 +180,8 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_meter_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(sdk_provider_meter_test PRIVATE
     -Wno-missing-field-initializers)
@@ -193,8 +193,8 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_logger_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(sdk_provider_logger_test PRIVATE
     -Wno-missing-field-initializers)
@@ -212,8 +212,8 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(export_transport_builder_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 target_compile_options(export_transport_builder_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -241,8 +241,8 @@ microtel_add_test(
 
 target_include_directories(sdk_provider_race_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(sdk_provider_race_test PRIVATE
     -Wno-missing-field-initializers)
@@ -257,8 +257,8 @@ microtel_add_test(
 
 target_include_directories(provider_setters_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(provider_setters_test PRIVATE
     -Wno-missing-field-initializers)
@@ -275,8 +275,8 @@ microtel_add_test(
 
 target_include_directories(hot_reload_hammer_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(hot_reload_hammer_test PRIVATE
     -Wno-missing-field-initializers)
@@ -289,8 +289,8 @@ microtel_add_test(
 
 target_include_directories(metric_producer_race_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(metric_producer_race_test PRIVATE
     -Wno-missing-field-initializers)
@@ -312,8 +312,8 @@ microtel_add_test(
 
 target_include_directories(noexcept_alloc_failure_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(noexcept_alloc_failure_test PRIVATE
     -Wno-missing-field-initializers)
@@ -330,8 +330,8 @@ microtel_add_test(
 
 target_include_directories(provider_registry_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(provider_registry_test PRIVATE
     -Wno-missing-field-initializers)
@@ -346,8 +346,8 @@ microtel_add_test(
 
 target_include_directories(provider_registry_race_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(provider_registry_race_test PRIVATE
     -Wno-missing-field-initializers)
@@ -361,8 +361,8 @@ microtel_add_test(
 
 target_include_directories(fork_safety_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(fork_safety_test PRIVATE
     -Wno-missing-field-initializers)
@@ -373,8 +373,8 @@ microtel_add_test(
     LIBS    microtel_sdk)
 target_include_directories(sdk_provider_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(sdk_provider_test PRIVATE
     -Wno-missing-field-initializers)
@@ -385,7 +385,7 @@ microtel_add_test(
     SOURCES drop_reason_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(drop_reason_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M12 — DiagnosticsCounters: production IDiagnosticsSink (atomic counters).
 microtel_add_test(
@@ -393,7 +393,7 @@ microtel_add_test(
     SOURCES diagnostics_counters_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(diagnostics_counters_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # M14 — OTel Logs API surface (M14 increment 2).
 microtel_add_test(
@@ -401,7 +401,7 @@ microtel_add_test(
     SOURCES log_api_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(log_api_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(log_api_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -411,7 +411,7 @@ microtel_add_test(
     SOURCES attribute_allowlist_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(attribute_allowlist_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(attribute_allowlist_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -421,7 +421,7 @@ microtel_add_test(
     SOURCES observable_allowlist_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(observable_allowlist_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(observable_allowlist_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -431,7 +431,7 @@ microtel_add_test(
     SOURCES sdk_logger_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(sdk_logger_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(sdk_logger_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -441,7 +441,7 @@ microtel_add_test(
     SOURCES simple_log_record_processor_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(simple_log_record_processor_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(simple_log_record_processor_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -451,7 +451,7 @@ microtel_add_test(
     SOURCES batch_log_record_processor_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(batch_log_record_processor_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(batch_log_record_processor_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -461,7 +461,7 @@ microtel_add_test(
     SOURCES view_wiring_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(view_wiring_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(view_wiring_test PRIVATE
     -Wno-missing-field-initializers)
 
@@ -471,7 +471,7 @@ microtel_add_test(
     SOURCES view_registry_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(view_registry_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 # Partial designated initializers are intentional: tests verify that nullopt
 # fields in InstrumentSelector and ViewTransform match any value.
 target_compile_options(view_registry_test PRIVATE
@@ -493,7 +493,7 @@ microtel_add_test(
     SOURCES resource_builder_test.cpp
     LIBS    microtel_sdk)
 target_include_directories(resource_builder_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # v1.2 — SdkBuilder::WithLeafReceiver (ICP 0034, docs/leaf-concentrator-design.md
 # §4.3, §6.2). Built in both configurations of MICROTEL_WITH_CONCENTRATOR, and
@@ -516,7 +516,7 @@ if(MICROTEL_WITH_CONCENTRATOR)
         SOURCES leaf_receiver_test.cpp
         LIBS    microtel_sdk)
     target_include_directories(leaf_receiver_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_options(leaf_receiver_test PRIVATE
         -Wno-missing-field-initializers)
 
@@ -525,12 +525,12 @@ if(MICROTEL_WITH_CONCENTRATOR)
         SOURCES leaf_table_test.cpp
         LIBS    microtel_sdk)
     target_include_directories(leaf_table_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
     microtel_add_test(
         NAME    leaf_time_test
         SOURCES leaf_time_test.cpp
         LIBS    microtel_sdk)
     target_include_directories(leaf_time_test
-        PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        PRIVATE ${PROJECT_SOURCE_DIR}/src)
 endif()

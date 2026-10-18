@@ -15,7 +15,7 @@ target_link_libraries(microtel_api
     PUBLIC microtel_headers)
 
 target_include_directories(microtel_api
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_api PUBLIC cxx_std_20)
 

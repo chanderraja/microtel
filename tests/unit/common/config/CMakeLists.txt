@@ -8,7 +8,7 @@ microtel_add_test(
     SOURCES config_test.cpp
     LIBS    microtel_config)
 
-target_include_directories(config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(config_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # Issue #200 — the ON half of the MICROTEL_FORBID_INSECURE_TLS gate.
 #
@@ -25,9 +25,9 @@ target_include_directories(config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 microtel_add_test(
     NAME    forbid_insecure_tls_test
     SOURCES forbid_insecure_tls_test.cpp
-            ${CMAKE_SOURCE_DIR}/src/common/config/config_validator.cpp)
+            ${PROJECT_SOURCE_DIR}/src/common/config/config_validator.cpp)
 
-target_include_directories(forbid_insecure_tls_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(forbid_insecure_tls_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_compile_definitions(forbid_insecure_tls_test PRIVATE MICROTEL_FORBID_INSECURE_TLS=1)
 
 # v1.2 — the concentrator's [concentrator] table, MICROTEL_CONCENTRATOR_*
@@ -39,4 +39,4 @@ microtel_add_test(
     SOURCES concentrator_config_test.cpp
     LIBS    microtel_config)
 
-target_include_directories(concentrator_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(concentrator_config_test PRIVATE ${PROJECT_SOURCE_DIR}/src)

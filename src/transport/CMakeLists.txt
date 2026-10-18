@@ -21,7 +21,7 @@ target_link_libraries(microtel_transport
             PkgConfig::NGHTTP2)
 
 target_include_directories(microtel_transport
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_transport PUBLIC cxx_std_20)
 target_compile_options(microtel_transport PRIVATE

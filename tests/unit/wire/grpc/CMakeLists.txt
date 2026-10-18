@@ -9,7 +9,7 @@ microtel_add_test(
     LIBS    microtel_grpc_wire)
 
 target_include_directories(grpc_status_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 microtel_add_test(
     NAME    grpc_wire_codec_test
@@ -18,8 +18,8 @@ microtel_add_test(
 
 target_include_directories(grpc_wire_codec_test
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/tests)
 
 target_compile_options(grpc_wire_codec_test PRIVATE
     -Wno-missing-field-initializers)

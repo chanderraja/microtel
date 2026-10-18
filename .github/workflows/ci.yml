@@ -549,6 +549,59 @@ jobs:
           CONSUMER_TOML: "1"
         run: ci/scripts/consumer-smoke.sh build
 
+  # The README's Install routes other than `cmake --install`: microtel as a
+  # FetchContent subproject, through CPM.cmake, and through the vcpkg overlay
+  # port. Each builds and runs tests/consumer/main.cpp against this checkout
+  # (ci/scripts/consumer-package.sh). The subproject cells are what catch a
+  # CMAKE_SOURCE_DIR that should be PROJECT_SOURCE_DIR, or a default that
+  # drags tests into a parent's build.
+  consumer-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    name: consumer-package (${{ matrix.method }})
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [fetchcontent, cpm, vcpkg]
+    env:
+      # The vcpkg commit the overlay port was last verified against.
+      VCPKG_COMMIT: bf19794383e8fb95eba5aa553235bc8ec2271688
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        timeout-minutes: 20
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            clang-18 cmake ninja-build pkg-config libssl-dev libnghttp2-dev zlib1g-dev
+      - name: Build and run the consumer (subproject)
+        if: matrix.method != 'vcpkg'
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: ci/scripts/consumer-package.sh ${{ matrix.method }}
+      # vcpkg builds OpenSSL and the other dependencies from source, so they
+      # come from a binary cache keyed on the vcpkg commit. microtel itself is
+      # always rebuilt from this checkout. The runner's default GCC 13 is the
+      # compiler vcpkg's own CI uses.
+      - name: Fetch vcpkg
+        if: matrix.method == 'vcpkg'
+        run: |
+          git clone --filter=tree:0 https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout --quiet "$VCPKG_COMMIT"
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+      - name: vcpkg binary cache
+        if: matrix.method == 'vcpkg'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT }}
+      - name: Build and run the consumer (vcpkg)
+        if: matrix.method == 'vcpkg'
+        run: VCPKG_ROOT="$RUNNER_TEMP/vcpkg" ci/scripts/consumer-package.sh vcpkg
+
   corpus-check:
     runs-on: ubuntu-latest
     timeout-minutes: 45

@@ -13,7 +13,7 @@
 
 add_library(microtel_log4cxx_bridge INTERFACE)
 
-target_include_directories(microtel_log4cxx_bridge INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(microtel_log4cxx_bridge INTERFACE ${PROJECT_SOURCE_DIR}/include)
 
 # log4cxx's CMake package names its imported target plain `log4cxx`.
 target_link_libraries(microtel_log4cxx_bridge INTERFACE log4cxx)

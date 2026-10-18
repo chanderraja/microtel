@@ -22,9 +22,9 @@ target_link_libraries(microtel_encoder
 # third_party/upb and the generated accessors rooted at gen/.
 target_include_directories(microtel_encoder
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/gen
-        ${CMAKE_SOURCE_DIR}/third_party/upb)
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/gen
+        ${PROJECT_SOURCE_DIR}/third_party/upb)
 
 target_compile_features(microtel_encoder PUBLIC cxx_std_20)
 

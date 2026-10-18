@@ -29,7 +29,7 @@ target_link_libraries(microtel_config
 
 # src/ is on the private include path so #include "config/..." resolves.
 target_include_directories(microtel_config
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 target_compile_features(microtel_config PUBLIC cxx_std_20)
 

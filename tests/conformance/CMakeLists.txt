@@ -6,7 +6,7 @@
 # so a plain `ctest` on a developer box stays green.
 #
 # Mirrors tests/integration/CMakeLists.txt with one deliberate difference:
-# ${CMAKE_SOURCE_DIR}/src is NOT on the include path.  Conformance tests assert
+# ${PROJECT_SOURCE_DIR}/src is NOT on the include path.  Conformance tests assert
 # what microtel *ships* — if a test needs an internal header to make its point,
 # it belongs in the integration tier instead.
 
@@ -32,7 +32,7 @@ function(microtel_add_conformance_test)
         ${MT_LIBS})
     # Public headers only, plus tests/ for the shared support headers.
     target_include_directories(${MT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests)
+        ${PROJECT_SOURCE_DIR}/tests)
     target_compile_options(${MT_NAME} PRIVATE
         -Wall -Wextra -Wpedantic ${MICROTEL_WERROR})
     add_test(NAME ${MT_NAME} COMMAND ${MT_NAME})

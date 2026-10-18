@@ -9,4 +9,4 @@ microtel_add_test(
     LIBS    microtel_http_wire ZLIB::ZLIB)
 
 target_include_directories(http_wire_codec_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    PRIVATE ${PROJECT_SOURCE_DIR}/src)

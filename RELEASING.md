@@ -28,8 +28,11 @@ commit:
 
 The README names the release in two prose places: the Status section ("The
 current release is …") and the `git clone --branch` tag in Getting started.
-`CONTRIBUTING.md` names it once ("The current release is v…"). Update all three
-in the same commit. `version-drift-check.sh` does not read them, but
+`CONTRIBUTING.md` names it once ("The current release is v…"). The README's
+Install section pins it twice more: the FetchContent snippet's `GIT_TAG` and
+the CPM snippet's `gh:chanderraja/microtel@X.Y.Z`. Update all five in the same
+commit. At the first release after v1.2.2, also delete the Install section's
+note that v1.2.2 does not build as a subproject. `version-drift-check.sh` does not read them, but
 `tests/unit/version_test.cpp` does (from v1.2.2), so a missed one fails `ctest`.
 
 Two of those seven have a history worth knowing:
@@ -147,11 +150,49 @@ Then tag the **merge commit on `master`**, not the branch head:
 git switch master && git pull
 git tag -a vX.Y.Z -m "microtel vX.Y.Z"
 git push origin vX.Y.Z
-gh release create vX.Y.Z --title "microtel vX.Y.Z" --notes "…"
+# wait for the release workflow (below), then:
+gh release edit vX.Y.Z --notes "…"
 ```
 
 Tag names are `vX.Y.Z`. Early development tags carried a milestone suffix
 (`v0.2.0-m2`); new tags don't.
+
+### The source archive
+
+Pushing the tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml).
+It uses [`ci/scripts/source-archive.sh`](ci/scripts/source-archive.sh) to build
+two files from the tag:
+
+- `microtel-X.Y.Z.tar.gz`, a `git archive` of the tag under a
+  `microtel-X.Y.Z/` directory. microtel has no submodules: upb, utf8_range,
+  nanopb, `tl::expected` and the generated protos are all committed, so the
+  archive is complete. The `export-ignore` paths in `.gitattributes` (`ci/`,
+  `.github/`, dotfiles) are left out.
+- `microtel-X.Y.Z.tar.gz.sha512`, its `sha512sum` line.
+
+The workflow fails if the tag is not `v` plus `project(microtel VERSION …)`.
+It then extracts the archive, builds and installs it, and runs
+`tests/consumer` against the install (`ci/scripts/consumer-smoke.sh`). Only
+then does it attach both files to the GitHub Release for the tag. If that
+release doesn't exist yet, the workflow creates it with placeholder notes.
+That is why the step above *edits* the release rather than creating it.
+If you run `gh release create` before the workflow finishes, the workflow
+uploads to your release instead.
+
+To attach an archive to a tag that predates the workflow, run it by hand with
+that tag (Actions → release → Run workflow, or
+`gh workflow run release.yml -f tag=vX.Y.Z`). `git archive` output is
+deterministic for a tag, so a rerun uploads identical bytes.
+
+Check the archive locally from any clone that has the tag:
+
+```bash
+ci/scripts/source-archive.sh vX.Y.Z /tmp/dist
+```
+
+The archive's SHA-512 is **not** the one vcpkg's port uses.
+`vcpkg_from_github` downloads GitHub's own `archive/vX.Y.Z.tar.gz`, which
+GitHub generates separately, so hash that URL for the ports (below).
 
 ### Update the vcpkg overlay port
 
@@ -167,6 +208,18 @@ curl -sL https://github.com/chanderraja/microtel/archive/vX.Y.Z.tar.gz | sha512s
 
 Then install it once with `vcpkg install microtel --overlay-ports=packaging/vcpkg/ports`
 to check that the hash matches and the port builds.
+
+Make the same two edits in [`ports/microtel/`](ports/microtel/), the copy of
+the port submitted to microsoft/vcpkg, in the same PR. Once microtel is in the
+curated registry, follow the update steps in
+[`docs/packaging/PR_VCPKG.md`](docs/packaging/PR_VCPKG.md).
+
+In the same PR, add the version to the Conan recipe: a `sources` entry in
+[`packaging/conan/recipes/microtel/all/conandata.yml`](packaging/conan/recipes/microtel/all/conandata.yml)
+with the URL and its `sha256sum`, and the version in `config.yml` beside it.
+Check it with `conan create packaging/conan/recipes/microtel/all --version=X.Y.Z
+-s compiler.cppstd=20 --build=missing`
+([`docs/packaging/PR_CONAN.md`](docs/packaging/PR_CONAN.md)).
 
 ---
 
@@ -292,6 +345,7 @@ long-term-support window for a major line is in
 [ ] src/wire/grpc/grpc_wire_codec.cpp  kUserAgent
 [ ] tools/preflight/preflight.cpp  kVersion
 [ ] leaf/include/microtel/leaf.h  MICROTEL_LEAF_VERSION_MAJOR / _MINOR / _PATCH
+[ ] README (Status, git clone, FetchContent GIT_TAG, CPM @version) and CONTRIBUTING.md
 [ ] ci/scripts/version-drift-check.sh passes locally
 [ ] test-presence satisfied by a real test, not the [refactor] label
 [ ] COMPATIBILITY mode still right (major bumps only)
@@ -302,8 +356,10 @@ long-term-support window for a major line is in
 [ ] measurement-vs-performance shifts annotated where a reader will see them
 [ ] release PR merged with CI green
 [ ] annotated tag vX.Y.Z on the master merge commit, pushed
-[ ] gh release created
-[ ] packaging/vcpkg/ports/microtel: version, REF and SHA512 updated (own PR)
+[ ] release workflow green; .tar.gz and .sha512 attached to the release
+[ ] release notes written (gh release edit)
+[ ] packaging/vcpkg/ports/microtel and ports/microtel: version and SHA512 updated (own PR)
+[ ] packaging/conan/recipes/microtel: conandata.yml and config.yml entries added (same PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)
 ```

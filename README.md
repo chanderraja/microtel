@@ -134,7 +134,7 @@ requires an [ICP](docs/icps/).
 
 ## Status
 
-The current release is **v1.2.2**, and the project follows SemVer.
+The current release is **v1.2.3**, and the project follows SemVer.
 [SECURITY.md](SECURITY.md) lists which versions get fixes.
 
 | Area | Status |
@@ -229,7 +229,7 @@ include(FetchContent)
 FetchContent_Declare(
     microtel
     GIT_REPOSITORY https://github.com/chanderraja/microtel.git
-    GIT_TAG        v1.2.2
+    GIT_TAG        v1.2.3
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(microtel)
 target_link_libraries(my_app PRIVATE microtel::microtel)
@@ -238,14 +238,9 @@ target_link_libraries(my_app PRIVATE microtel::microtel)
 **CPM.cmake.**
 
 ```cmake
-CPMAddPackage("gh:chanderraja/microtel@1.2.2")
+CPMAddPackage("gh:chanderraja/microtel@1.2.3")
 target_link_libraries(my_app PRIVATE microtel::microtel)
 ```
-
-> **v1.2.2 does not build as a subproject.** FetchContent and CPM need the
-> release after it. Until that release is tagged, pin a `master` commit
-> instead: `GIT_TAG <sha>`, or
-> `CPMAddPackage(NAME microtel GITHUB_REPOSITORY chanderraja/microtel GIT_TAG <sha>)`.
 
 As a subproject, microtel builds only its libraries and `microtel-preflight`.
 Tests, the header check and the spdlog bridge default to `OFF`, and configure
@@ -271,7 +266,7 @@ Get the latest release, then build and install it under your home directory,
 which needs no `sudo`:
 
 ```bash
-git clone --branch v1.2.2 https://github.com/chanderraja/microtel.git
+git clone --branch v1.2.3 https://github.com/chanderraja/microtel.git
 cd microtel
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMICROTEL_BUILD_TESTS=OFF
 cmake --build build -j"$(nproc)"

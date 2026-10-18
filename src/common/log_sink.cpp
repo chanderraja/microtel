@@ -22,7 +22,9 @@
 
 #include "common/internal_log.hpp"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
@@ -94,6 +96,100 @@ const char* LevelTag(LogLevel level) noexcept
     }
     return "?";
 }
+
+/// Size of the stack buffer the stderr fallback assembles its line in. A
+/// longer record goes out in several writes; nothing is truncated.
+constexpr std::size_t kFallbackBufferSize = 512;
+
+/// Below this byte value is the C0 control range.
+constexpr unsigned char kFirstPrintable = 0x20;
+
+/// DEL, the one control character above the C0 range.
+constexpr unsigned char kDelete = 0x7f;
+
+constexpr unsigned kNibbleBits = 4;
+constexpr unsigned kNibbleMask = 0x0f;
+constexpr std::string_view kHexDigits = "0123456789abcdef";
+
+/// @brief Builds the stderr fallback line in a stack buffer, escaping control
+/// characters in the message so one record can never forge another
+/// (SonarCloud cpp:S5145, logging injection).
+///
+/// No heap: a full buffer is flushed with one `fwrite` and reused. A record
+/// that fits is still a single write, as the old single `fprintf` was.
+class FallbackLineWriter
+{
+public:
+    /// @param out  Borrowed stream; must outlive the writer.
+    explicit FallbackLineWriter(std::FILE* out) noexcept : m_out(out) {}
+
+    void Put(char c) noexcept
+    {
+        if (m_len == m_buf.size())
+        {
+            Flush();
+        }
+        m_buf.at(m_len) = c;
+        ++m_len;
+    }
+
+    void PutText(std::string_view text) noexcept
+    {
+        for (const char c : text)
+        {
+            Put(c);
+        }
+    }
+
+    /// Writes `text`, rendering LF as `\n`, CR as `\r` and every other
+    /// control character except tab as `\xNN`. Bytes >= 0x80 (UTF-8) pass
+    /// through unchanged.
+    void PutSanitized(std::string_view text) noexcept
+    {
+        for (const char c : text)
+        {
+            PutSanitizedChar(c);
+        }
+    }
+
+    void Flush() noexcept
+    {
+        if (m_len > 0)
+        {
+            (void)std::fwrite(m_buf.data(), 1, m_len, m_out);
+            m_len = 0;
+        }
+    }
+
+private:
+    void PutSanitizedChar(char c) noexcept
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        if (c == '\t' || (byte >= kFirstPrintable && byte != kDelete))
+        {
+            Put(c);
+            return;
+        }
+        Put('\\');
+        if (c == '\n')
+        {
+            Put('n');
+            return;
+        }
+        if (c == '\r')
+        {
+            Put('r');
+            return;
+        }
+        Put('x');
+        Put(kHexDigits.at(byte >> kNibbleBits));
+        Put(kHexDigits.at(byte & kNibbleMask));
+    }
+
+    std::FILE* m_out;
+    std::array<char, kFallbackBufferSize> m_buf{};
+    std::size_t m_len{0};
+};
 
 }  // namespace
 
@@ -176,12 +272,15 @@ void LogImpl(LogLevel level, std::string_view message) noexcept
     }
 
     // No sink installed. Default fallback: stderr.
-    // Format: "[microtel level] message\n"
-    (void)std::fprintf(stderr,
-                       "[microtel %s] %.*s\n",
-                       LevelTag(level),
-                       static_cast<int>(message.size()),
-                       message.data());
+    // Format: "[microtel level] message\n", with control characters in
+    // `message` escaped so a record cannot inject extra lines.
+    FallbackLineWriter line(stderr);
+    line.PutText("[microtel ");
+    line.PutText(LevelTag(level));
+    line.PutText("] ");
+    line.PutSanitized(message);
+    line.Put('\n');
+    line.Flush();
 }
 
 }  // namespace internal

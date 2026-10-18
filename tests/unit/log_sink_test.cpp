@@ -218,4 +218,44 @@ TEST_F(LogSinkTest, ConcurrentLevelChangeWhileEmitting)
     EXPECT_GE(emitted.load(), 0);
 }
 
+
+// ---- stderr fallback: control characters are escaped (cpp:S5145) ----------
+
+std::string FallbackLineFor(std::string_view message)
+{
+    mt::ResetLogSink();
+    ::testing::internal::CaptureStderr();
+    mt::internal::LogImpl(mt::LogLevel::Warn, message);
+    return ::testing::internal::GetCapturedStderr();
+}
+
+TEST_F(LogSinkTest, FallbackWritesPlainMessageUnchanged)
+{
+    EXPECT_EQ(FallbackLineFor("plain text"), "[microtel warn] plain text\n");
+}
+
+TEST_F(LogSinkTest, FallbackEscapesLineBreaksSoARecordCannotForgeAnother)
+{
+    EXPECT_EQ(FallbackLineFor("a\nb\r\n[microtel error] forged"),
+              "[microtel warn] a\\nb\\r\\n[microtel error] forged\n");
+}
+
+TEST_F(LogSinkTest, FallbackHexEscapesOtherControlCharacters)
+{
+    using namespace std::string_view_literals;
+    EXPECT_EQ(FallbackLineFor("x\0y\x1b[31m\x7fz"sv), "[microtel warn] x\\x00y\\x1b[31m\\x7fz\n");
+}
+
+TEST_F(LogSinkTest, FallbackKeepsTabAndUtf8)
+{
+    EXPECT_EQ(FallbackLineFor("k\tv \xc3\xa9"), "[microtel warn] k\tv \xc3\xa9\n");
+}
+
+TEST_F(LogSinkTest, FallbackWritesALongRecordWhole)
+{
+    // Longer than the fallback's stack buffer, so it goes out in chunks.
+    const std::string message(2000, 'm');
+    EXPECT_EQ(FallbackLineFor(message), "[microtel warn] " + message + "\n");
+}
+
 }  // namespace

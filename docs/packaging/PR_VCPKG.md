@@ -193,5 +193,5 @@ was unchanged:
 - `x-add-version microtel` and `x-ci-verify-versions` succeeded in a throwaway
   copy of the vcpkg repository.
 - **Not verified:** vcpkg's own CI, and other triplets (`arm64-linux`,
-  `x64-linux-dynamic`). `find_package(microtel COMPONENTS leaf)` needs the release after
-  `v1.2.2`, the first whose package config defines components.
+  `x64-linux-dynamic`). `find_package(microtel COMPONENTS leaf)` needs
+  `v1.2.3` or later, the first release whose package config defines components.

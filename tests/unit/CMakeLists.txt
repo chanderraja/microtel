@@ -34,13 +34,16 @@ target_include_directories(log_sink_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # kVersionString against kVersionMajor/Minor/Patch (both in the public
 # include/microtel/version.hpp), and against the release named in README.md and
-# CONTRIBUTING.md. Header-only.
+# CONTRIBUTING.md, and the tag the FetchContent and CPM consumer projects pin.
+# Header-only.
 microtel_add_test(
     NAME    version_test
     SOURCES version_test.cpp)
 target_compile_definitions(version_test PRIVATE
     MICROTEL_README_PATH="${PROJECT_SOURCE_DIR}/README.md"
-    MICROTEL_CONTRIBUTING_PATH="${PROJECT_SOURCE_DIR}/CONTRIBUTING.md")
+    MICROTEL_CONTRIBUTING_PATH="${PROJECT_SOURCE_DIR}/CONTRIBUTING.md"
+    MICROTEL_CONSUMER_FETCHCONTENT_PATH="${PROJECT_SOURCE_DIR}/tests/consumer_fetchcontent/CMakeLists.txt"
+    MICROTEL_CONSUMER_CPM_PATH="${PROJECT_SOURCE_DIR}/tests/consumer_cpm/CMakeLists.txt")
 
 # M3 — Track A unit tests. Mirrors src/sdk/.
 add_subdirectory(sdk)

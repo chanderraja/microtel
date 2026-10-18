@@ -31,9 +31,13 @@ current release is …") and the `git clone --branch` tag in Getting started.
 `CONTRIBUTING.md` names it once ("The current release is v…"). The README's
 Install section pins it twice more: the FetchContent snippet's `GIT_TAG` and
 the CPM snippet's `gh:chanderraja/microtel@X.Y.Z`. Update all five in the same
-commit. At the first release after v1.2.2, also delete the Install section's
-note that v1.2.2 does not build as a subproject. `version-drift-check.sh` does not read them, but
+commit. `version-drift-check.sh` does not read them, but
 `tests/unit/version_test.cpp` does (from v1.2.2), so a missed one fails `ctest`.
+The two consumer projects pin the same tag — `GIT_TAG` in
+`tests/consumer_fetchcontent/CMakeLists.txt` and `@X.Y.Z` in
+`tests/consumer_cpm/CMakeLists.txt` — and `version_test` holds them to it too
+(from v1.2.3). CI overrides both pins with the checkout under test, so bumping
+them before the tag exists is safe.
 
 Two of those seven have a history worth knowing:
 
@@ -57,7 +61,7 @@ check costs one CI job and changes nothing about what ships.
 ### Why `master` has no `-dev` suffix
 
 Between releases, `master` stays at the version that was last released — today,
-`1.2.2`. It is **not** bumped to `1.3.0-dev` or similar.
+`1.2.3`. It is **not** bumped to `1.3.0-dev` or similar.
 
 The reason is that the version is not only metadata: it goes out on the wire.
 `kUserAgent` becomes the gRPC `user-agent` header on every export, and `kVersion`

@@ -5,7 +5,8 @@
 // as kVersionMajor/Minor/Patch. version-drift-check.sh compares both against
 // PROJECT_VERSION, but nothing compiled checked the two against each other, so
 // a hand edit could leave the public API reporting two different versions.
-// It also holds the README and CONTRIBUTING.md to the same version.
+// It also holds the README, CONTRIBUTING.md and the FetchContent/CPM consumer
+// projects to the same version.
 
 #include "microtel/version.hpp"
 
@@ -61,6 +62,27 @@ TEST(VersionTest, ContributingNamesTheCurrentRelease)
         contributing.find("The current release is v" + std::string{microtel::kVersionString} + "."),
         std::string::npos)
         << "CONTRIBUTING.md does not name v" << microtel::kVersionString;
+}
+
+// RELEASING.md §1: tests/consumer_fetchcontent and tests/consumer_cpm pin the
+// release tag an application would fetch, mirroring the README's Install
+// snippets. CI overrides both pins with the checkout under test, so a stale pin
+// never fails CI — which is exactly why nothing caught one. Run without the
+// override, a stale pin builds the previous release, and main.cpp's version
+// check then compares that release against itself and still passes.
+TEST(VersionTest, ConsumerProjectsPinTheCurrentRelease)
+{
+    const std::string version{microtel::kVersionString};
+
+    const std::string fetchcontent = ReadSourceFile(MICROTEL_CONSUMER_FETCHCONTENT_PATH);
+    ASSERT_FALSE(fetchcontent.empty()) << "cannot read " << MICROTEL_CONSUMER_FETCHCONTENT_PATH;
+    EXPECT_NE(fetchcontent.find("GIT_TAG        v" + version + "\n"), std::string::npos)
+        << "tests/consumer_fetchcontent does not pin v" << version;
+
+    const std::string cpm = ReadSourceFile(MICROTEL_CONSUMER_CPM_PATH);
+    ASSERT_FALSE(cpm.empty()) << "cannot read " << MICROTEL_CONSUMER_CPM_PATH;
+    EXPECT_NE(cpm.find("\"gh:chanderraja/microtel@" + version + "\""), std::string::npos)
+        << "tests/consumer_cpm does not pin " << version;
 }
 
 }  // namespace

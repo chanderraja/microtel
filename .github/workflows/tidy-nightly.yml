@@ -1,0 +1,70 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Nightly full clang-tidy run.
+#
+# Pull requests run clang-tidy in changed mode (ci.yml `tidy-check`): only the
+# TUs a PR touches are linted unless it changes a header, .clang-tidy, CMake
+# file or the script. That leaves a gap — a clang-tidy package update on the
+# runner, or a cross-TU effect the fallback rules miss — which this run closes
+# by linting every TU once a day. Pushes to master also lint everything.
+#
+# It is its own workflow so the schedule triggers only clang-tidy, not every
+# job in ci.yml. The configure flags below must match ci.yml's `tidy-check`
+# job; keep the two in sync.
+
+name: tidy-nightly
+
+on:
+  schedule:
+    - cron: "17 7 * * *" # 07:17 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: tidy-nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tidy-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    name: clang-tidy (full)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain (packages)
+        timeout-minutes: 20
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            clang-18 clang-tidy-18 cmake ninja-build libssl-dev libnghttp2-dev
+            zlib1g-dev libgoogle-glog-dev liblog4cxx-dev
+      - name: Install toolchain
+        timeout-minutes: 20
+        run: |
+          sudo update-alternatives --install /usr/bin/clang-tidy \
+            clang-tidy /usr/bin/clang-tidy-18 100
+      - name: Configure (compile_commands for clang-tidy)
+        env:
+          CC:  clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+            -DMICROTEL_BUILD_HEADER_CHECK=ON \
+            -DMICROTEL_BUILD_TESTS=ON \
+            -DMICROTEL_BUILD_OTELCPP_SHIM=ON \
+            -DMICROTEL_BUILD_GLOG_BRIDGE=ON \
+            -DMICROTEL_BUILD_LOG4CXX_BRIDGE=ON \
+            -DMICROTEL_BUILD_LEAF=ON \
+            -DMICROTEL_LEAF_ENCODER=upb \
+            -DMICROTEL_BUILD_FUZZ=ON \
+            -DMICROTEL_WITH_CONCENTRATOR=ON
+      - name: Build (gtest needs to land before tidy can resolve includes)
+        run: cmake --build build --target gtest gtest_main
+      - name: Run tidy-check (full)
+        run: ci/scripts/tidy-check.sh build

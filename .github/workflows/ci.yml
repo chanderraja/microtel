@@ -82,7 +82,11 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     name: clang-tidy
     steps:
+      # Full history so tidy-check.sh can find the PR's merge-base and lint
+      # only the TUs the PR changed (see "Run tidy-check" below).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install toolchain (packages)
         timeout-minutes: 20
         uses: ./.github/actions/apt-install
@@ -122,7 +126,14 @@ jobs:
             -DMICROTEL_WITH_CONCENTRATOR=ON
       - name: Build (gtest needs to land before tidy can resolve includes)
         run: cmake --build build --target gtest gtest_main
+      # Pull requests lint only the TUs they change (changed mode), falling
+      # back to every TU when a header, .clang-tidy, CMake file, this workflow
+      # or the script itself changes — see ci/scripts/tidy-check.sh. Pushes to
+      # master leave TIDY_BASE empty and lint everything, as does the nightly
+      # .github/workflows/tidy-nightly.yml. TUs run in parallel on every core.
       - name: Run tidy-check
+        env:
+          TIDY_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
         run: ci/scripts/tidy-check.sh build
 
   compile:

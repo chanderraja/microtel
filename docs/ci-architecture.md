@@ -17,7 +17,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | Workflow | Job | Check name(s) | Required? |
 |---|---|---|---|
 | `ci.yml` | `format-check` | `clang-format` | ✅ |
-| `ci.yml` | `tidy-check` | `clang-tidy` | ✅ |
+| `ci.yml` | `tidy-check` | `clang-tidy` (PRs lint changed TUs only, full on master; see `ci/scripts/tidy-check.sh`) | ✅ |
 | `ci.yml` | `compile` | `cxx20 / gcc`, `cxx20 / clang`, `cxx23 / gcc`, `cxx23 / clang` | ✅ (cxx20 pair only) |
 | `ci.yml` | `sanitizers` | `asan`, `tsan`, `ubsan` | ✅ |
 | `ci.yml` | `coverage` | `coverage` | ✅ |
@@ -31,6 +31,7 @@ it is the job's `name:` field, which for matrix jobs is expanded per cell.
 | `ci.yml` | `conformance` | `conformance` | ❌ (see below) |
 | `sonarqube.yml` | — | `scan` | ❌ |
 | `fuzz.yml`, `soak.yml`, `interop.yml`, `benchmark.yml` | — | scheduled / on-demand | ❌ |
+| `tidy-nightly.yml` | `tidy-full` | `clang-tidy (full)`, nightly / on-demand | ❌ |
 
 Note that `cxx23 / gcc` and `cxx23 / clang` run on every PR but are **not**
 required, so a C++23-only regression can currently merge.

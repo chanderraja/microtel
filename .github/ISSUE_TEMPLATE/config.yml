@@ -21,9 +21,9 @@ contact_links:
     about: For questions about what microtel does today, start from the design docs and the README Status section.
 
   - name: Roadmap
-    url: https://github.com/chanderraja/microtel/blob/master/microtel-roadmap.md
+    url: https://github.com/chanderraja/microtel/blob/master/docs/roadmap.md
     about: For questions about what's planned and what's out of scope, see the roadmap.
 
   - name: Contributing
-    url: https://github.com/chanderraja/microtel/blob/master/CONTRIBUTING.md
+    url: https://github.com/chanderraja/microtel/blob/master/.github/CONTRIBUTING.md
     about: For questions about contributing, see CONTRIBUTING.md.

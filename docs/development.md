@@ -256,7 +256,7 @@ For trivial work (typo fix, comment update, single-line bug fix in one file), sk
 `CODEOWNERS` at the repo root is the authoritative routing table for review requests:
 
 - Each `src/<dir>/` has an owner (one or more GitHub handles, plus organisation teams once a maintainer model is established).
-- `docs/` and `microtel-roadmap.md` have a separate set of owners.
+- `docs/` and `docs/roadmap.md` have a separate set of owners.
 - `third_party/upb/` and `gen/` have specific owners because vendored-dependency updates carry their own pin and provenance (each directory's README).
 
 A solo project before v1.0 has every owner pointing to the project lead. The structure exists so that as the project grows, ownership can fan out without changing the routing mechanism.

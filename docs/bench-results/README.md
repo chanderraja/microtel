@@ -12,7 +12,7 @@ only in version literals and docs), on the same host as the previous snapshot
 (Ryzen 5 5600G, 12 cores, `performance` governor, SMT on, podman 5.8.4, kernel
 7.1.13-200.fc44). Host load was 0.15 at the start. Before committing, the
 environment block was diffed against the previous snapshot as
-[`RELEASING.md`](../../RELEASING.md) §5 requires, and every identity field
+[`docs/releasing.md`](../releasing.md) §5 requires, and every identity field
 matched, governor included, so the deltas below are like for like.
 
 ## Summary
@@ -120,7 +120,7 @@ Then update the [Summary](#summary) table above, and the ratio claims in the
 root `README.md`, so they agree with the new run.
 
 **Diff the `environment` block against the outgoing snapshot before you
-commit** ([`RELEASING.md`](../../RELEASING.md) §5). A run from a different
+commit** ([`docs/releasing.md`](../releasing.md) §5). A run from a different
 machine makes every delta unreadable. The v1.1.0 attempt from CI's 4-core
 `ubuntu-24.04` runner showed a ~45% throughput drop on SUTs whose code hadn't
 changed; an unchanged SUT that moves is the giveaway. Until

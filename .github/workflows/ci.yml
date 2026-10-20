@@ -863,7 +863,7 @@ jobs:
 
   # Version-coherence gate. The release version is hand-spelled in CMakeLists.txt,
   # version.hpp, the gRPC user-agent and the preflight tool; this fails a PR in
-  # which they stop agreeing. A check, not a generator — RELEASING.md explains
+  # which they stop agreeing. A check, not a generator — docs/releasing.md explains
   # why version.hpp is not derived from PROJECT_VERSION.
   #
   # Needs no toolchain: it reads source text, so it answers in seconds.

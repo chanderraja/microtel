@@ -1,6 +1,6 @@
 # microtel Roadmap: From Exporter-First v1 to Full OpenTelemetry Coverage
 
-**Companion to:** the design documents indexed in [`docs/README.md`](docs/README.md)
+**Companion to:** the design documents indexed in [`docs/README.md`](README.md)
 **Status:** Draft v0.1. Implementation status updated 2026-10-03 against v1.2.2.
 **Scope:** Multi-year evolution from a traces-only exporter through full OTel SDK conformance and embedded deployments.
 
@@ -24,7 +24,7 @@ finishing and stabilizing that code, not writing it.
 | v1.1.1 Patch | Done | Per-key merge of table-valued settings (#257); retry for metric and log export (#222); backoff before the first retry (#311); interruptible retry backoff (#310); the resolved Resource logged at startup, escaped (#284, #315) |
 | v1.2 Logs | Done, supported | Logs cookbook (docs only) |
 | v1.2 Leaf / concentrator | Done, experimental (ICP 0031, ICP 0036) | Leaf programming and concentrator deployment guides; v2.0 stabilises the API |
-| v1.2.2 Patch | Done | Static request headers validated at `Build()`, and the auth callback's value on each export ([ICP 0038](docs/icps/0038-reject-reserved-request-headers.md), #412); OTel key=value env lists trimmed and percent-decoded (#413); a Meter, its instruments and a Logger may outlive the Provider (#259, #417) |
+| v1.2.2 Patch | Done | Static request headers validated at `Build()`, and the auth callback's value on each export ([ICP 0038](icps/0038-reject-reserved-request-headers.md), #412); OTel key=value env lists trimmed and percent-decoded (#413); a Meter, its instruments and a Logger may outlive the Provider (#259, #417) |
 | v1.3 Metrics | Mostly done, experimental | Async-callback deadline (#237); View aggregation override; per-instrument temporality; OTel exemplar reservoirs and `OTEL_METRICS_EXEMPLAR_FILTER`; `Timer`/`Counter` sugar; collector conformance tests |
 | v1.4 Control plane | Not started | Unix-socket server, `microtelctl`, threat model, operator guide (ICP 0024); mTLS rotation (#296, #297) |
 | Tier 3 otel-cpp shim | Done for all three signals, experimental | Beta gates in §10 (real-world app testing, frozen API, deprecation policy) |
@@ -53,14 +53,14 @@ v1.0 has shipped; the README and the design documents describe it. This document
 - **Semantic versioning** for the public C++ API and `microtel.toml` schema.
 - **Wire compatibility** is tracked against a pinned OTel spec version, called out per release.
 - **One LTS line per major version.** When v2.0 ships, the v1.x line gets security fixes and OTel-spec updates for **18 months**. After that, v1.x is end-of-life. The deprecation calendar lives in `docs/release-policy.md`.
-- **Pre-1.0 ABI is unstable**, period. Post-1.0 source compat within major; binary best-effort within minor ([`RELEASING.md`](RELEASING.md) §7).
+- **Pre-1.0 ABI is unstable**, period. Post-1.0 source compat within major; binary best-effort within minor ([`releasing.md`](releasing.md) §7).
 - **Compat shims** version independently from microtel core. A shim `0.x` may target microtel `1.5` and remain experimental even as microtel itself is stable.
 
 ---
 
 ## 3. Compatibility tier progression
 
-Each release advances along the four-tier model defined in [`docs/compatibility-matrix.md`](docs/compatibility-matrix.md) §7. The progression below is the planned path; tier promotions require the gates listed in §10 to pass first.
+Each release advances along the four-tier model defined in [`docs/compatibility-matrix.md`](compatibility-matrix.md) §7. The progression below is the planned path; tier promotions require the gates listed in §10 to pass first.
 
 | Release | Tier 1 (wire) | Tier 2 (data-model) | Tier 3 (API-adapter) | Tier 4 (SDK conformance) |
 |---|---|---|---|---|
@@ -76,7 +76,7 @@ Each release advances along the four-tier model defined in [`docs/compatibility-
 | **v2.2** | + concentrator HA | stable | stable | partial+ |
 | **v3.0** | all + profiles | all + profiles | stable | **full conformance claim** |
 
-The leaf ships as experimental in v1.2 with both encoder backends ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md)). The v2.0 and v2.1 rows are where it is claimed at a tier.
+The leaf ships as experimental in v1.2 with both encoder backends ([ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md)). The v2.0 and v2.1 rows are where it is claimed at a tier.
 
 "Profiles" refers to OpenTelemetry's continuous-profiling signal, which is still stabilizing upstream as of this writing. It graduates onto the roadmap once upstream marks it stable.
 
@@ -85,7 +85,7 @@ The leaf ships as experimental in v1.2 with both encoder backends ([ICP 0031](do
 > signals existed (M12–M14), so it covered traces, metrics and logs from its
 > first release. It lives in `src/adapters/otelcpp/` and is installed as
 > source under `include/microtel-shim/`, never as a prebuilt library (see
-> [ICP 0014](docs/icps/0014-otelcpp-shim-and-rule-13.md)). It is experimental;
+> [ICP 0014](icps/0014-otelcpp-shim-and-rule-13.md)). It is experimental;
 > the beta gates in §10 are not met. Tier 1 and Tier 2 columns still describe
 > the *supported* signals: metrics and logs are on the wire today, but they
 > are not claimed at those tiers until their conformance coverage lands.
@@ -109,9 +109,9 @@ Brief recap:
 - Preflight CLI flag, exporter-health API, internal logging
 - Experimental compat shims *(done for all three signals, but shipped as installed source rather than a separate package; see the Tier 3 note under §3)*
 
-Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, covering all three signals, per [ICP 0013](docs/icps/0013-rescope-defer-python-bindings.md).
+Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, covering all three signals, per [ICP 0013](icps/0013-rescope-defer-python-bindings.md).
 
-**v1.0 release gates** were met; the CI jobs that keep enforcing them are described in [`docs/ci-architecture.md`](docs/ci-architecture.md).
+**v1.0 release gates** were met; the CI jobs that keep enforcing them are described in [`docs/ci-architecture.md`](ci-architecture.md).
 
 ---
 
@@ -121,12 +121,12 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Status:** done, shipped as v1.1.0. All five "ships when" gates are met. Python sugar moved to M18 with the rest of the Python bindings, and mTLS rotation has not been started.
 
-- **Sugar layer** (`microtel::sugar`): function-scoped spans via `std::source_location`, RAII scoped spans with inline attributes, traced-lambda helpers, exception recording, scoped timers (active once metrics arrive in v1.3), pre-bound `AttrKey` for hot paths. Python equivalents using decorators and context managers. See §5 below for full sugar evolution. *(C++ done, [ICP 0028](docs/icps/0028-sugar-surface.md); scoped timers not started; Python not started, moved to M18.)*
-- **Hot reload via public setters.** Four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — driven from whatever administrative surface the host application already has. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1. The Unix-domain-socket server, its length-prefixed JSON wire, and the `microtelctl` client are deferred to **v1.4** ([ICP 0024](docs/icps/0024-v1.1-rescope.md) moved them to v1.2, [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md) to v1.4); see and `docs/control-plane-design.md`. *(Setters done, with a TSAN hammer test and a fuzz harness.)*
-- **W3C Baggage propagation.** Inject + extract. *(Done, [ICP 0025](docs/icps/0025-propagation-core.md).)*
+- **Sugar layer** (`microtel::sugar`): function-scoped spans via `std::source_location`, RAII scoped spans with inline attributes, traced-lambda helpers, exception recording, scoped timers (active once metrics arrive in v1.3), pre-bound `AttrKey` for hot paths. Python equivalents using decorators and context managers. See §5 below for full sugar evolution. *(C++ done, [ICP 0028](icps/0028-sugar-surface.md); scoped timers not started; Python not started, moved to M18.)*
+- **Hot reload via public setters.** Four thread-safe `Provider` setters — `SetBatchOptions`, `SetMetricInterval`, `SetSamplerRatio`, `SetLogLevel` — driven from whatever administrative surface the host application already has. Endpoint, protocol, TLS material, service.name, and resource attributes are explicitly **not** hot-reloadable in v1.1. The Unix-domain-socket server, its length-prefixed JSON wire, and the `microtelctl` client are deferred to **v1.4** ([ICP 0024](icps/0024-v1.1-rescope.md) moved them to v1.2, [ICP 0032](icps/0032-release-reorder-v1.1.1.md) to v1.4); see and `docs/control-plane-design.md`. *(Setters done, with a TSAN hammer test and a fuzz harness.)*
+- **W3C Baggage propagation.** Inject + extract. *(Done, [ICP 0025](icps/0025-propagation-core.md).)*
 - **Composable sampler chains.** `MakeChainSampler(ChainMode, ...)` with built-in rule-based combinators (`MakeAttributeRuleSampler`, `MakeSpanNameRuleSampler`, `MakeSpanKindRuleSampler`) over what a head sampler can see at `ShouldSample` time — sample-on-attribute, sample-on-name, sample-on-kind. **Not** sample-on-duration: the decision is made before the span runs, so duration-based selection is tail sampling and belongs in the collector. *(Done.)*
-- **Multi-profile within one process.** Named providers with independent endpoints, samplers, and Resources. *(Done: `WithProfileName` and `microtel::GetProvider(name)`, [ICP 0027](docs/icps/0027-multi-profile-threading.md).)*
-- **Auth recipes, not built-in providers.** OAuth2 client credentials and AWS SigV4 ship as documented `AuthCallback` recipes — [`docs/auth-callback-recipes.md`](docs/auth-callback-recipes.md) — over the shipped `WithAuthProvider` surface, with no code in the runtime. That document also records where the surface falls short of the claim: OAuth2 fits it; SigV4 needs per-request headers and a payload hash the callback never sees, so it signs at a sidecar until a per-request header hook exists. *(Recipes done.)* mTLS rotation likely v1.2 (more involved). *(Not started; now v1.4, #297.)*
+- **Multi-profile within one process.** Named providers with independent endpoints, samplers, and Resources. *(Done: `WithProfileName` and `microtel::GetProvider(name)`, [ICP 0027](icps/0027-multi-profile-threading.md).)*
+- **Auth recipes, not built-in providers.** OAuth2 client credentials and AWS SigV4 ship as documented `AuthCallback` recipes — [`docs/auth-callback-recipes.md`](auth-callback-recipes.md) — over the shipped `WithAuthProvider` surface, with no code in the runtime. That document also records where the surface falls short of the claim: OAuth2 fits it; SigV4 needs per-request headers and a payload hash the callback never sees, so it signs at a sidecar until a per-request header hook exists. *(Recipes done.)* mTLS rotation likely v1.2 (more involved). *(Not started; now v1.4, #297.)*
 - **Resource detectors:** process (`process.pid`, `process.executable.name`, `process.executable.path`, `process.command`, `process.command_args`) and host (`host.name`, `host.id`). *(Done.)*
 - **`microtelctl` packaging — deferred to v1.4** with the socket server it drives: standalone Go binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package — reconciles the v1.0 "single shared library + Python wheel" claim. *(Not started.)*
 
@@ -144,7 +144,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 ### v1.2 — Logs + Leaf / Concentrator
 
-**Theme:** Logs go supported, and the embedded story starts: the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md), renumbered from v1.3 by [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)).
+**Theme:** Logs go supported, and the embedded story starts: the leaf and concentrator ship as experimental. The two halves are independent: logs don't wait for the leaf, and if the leaf isn't ready it moves to the next 1.x minor ([ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md), renumbered from v1.3 by [ICP 0032](icps/0032-release-reorder-v1.1.1.md)).
 
 **Status:** done, shipped as v1.2.0. Logs are supported (conformance-tested, with retry and three log bridges); the leaf and concentrator ship as experimental with every ICP 0031 ship gate met, plus a full-SDK custom export transport (ICP 0036). Still open: a logs cookbook.
 
@@ -159,14 +159,14 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Compatibility tier:** Tier 1 and Tier 2 add logs; metrics follow in v1.3. The Tier 3 shim is already experimental for all three signals.
 
-**Leaf / concentrator (experimental).** Moved from v2.0. *(Done, experimental: [`docs/leaf-concentrator-design.md`](docs/leaf-concentrator-design.md) describes what shipped. The C leaf with both backends, the ingest path, the `[concentrator]` configuration and the three time modes are in, and the ICP's ship gates are met: fuzzed ingest, a collector end-to-end test per backend and protocol, published footprints with a Cortex-M CI job ([`docs/bench-results/leaf-footprint.md`](docs/bench-results/leaf-footprint.md)), and [`examples/leaf/`](examples/leaf/).)*
+**Leaf / concentrator (experimental).** Moved from v2.0. *(Done, experimental: [`docs/leaf-concentrator-design.md`](leaf-concentrator-design.md) describes what shipped. The C leaf with both backends, the ingest path, the `[concentrator]` configuration and the three time modes are in, and the ICP's ship gates are met: fuzzed ingest, a collector end-to-end test per backend and protocol, published footprints with a Cortex-M CI job ([`docs/bench-results/leaf-footprint.md`](bench-results/leaf-footprint.md)), and [`examples/leaf/`](../examples/leaf/).)*
 
 - **microtel-leaf**, a pure-C library for constrained embedded systems. No threading, no batching, no retries, no TLS, no HTTP. Encodes OTLP messages and hands the bytes to an application-supplied transport.
 - **Two encoder backends from the first release**, chosen at build time with `MICROTEL_LEAF_ENCODER=upb|nanopb`. upb covers Linux-on-ARM, OpenWrt-class and Cortex-A/R targets (`< 30 KB` flash target); nanopb covers Cortex-M (`< 15 KB` flash target). Same leaf API and identical OTLP bytes from both. nanopb is vendored, renamed to `microtel_pb_*`, and linked into the leaf only.
 - **Concentrator role** in main microtel: the application hands it leaf payloads through an ingest call; it decodes them, enriches with Resource attributes from config (`device-id → service.*`), runs the standard sampling / batching / export pipeline, and ships to the upstream collector over OTLP/HTTP or OTLP/gRPC. No inbound socket.
 - **Time handling:** three modes — concentrator-stamped, sync-relative, boot-relative — configurable per leaf in the concentrator's config.
 - **Late Resource enrichment** and the **Receiver abstraction** arrive as new public API, marked experimental.
-- **Full-SDK nodes on the leaf link:** `SdkBuilder::WithExportTransport` hands a C++ Provider's encoded OTLP requests to an application-supplied transport instead of HTTP/2 ([ICP 0036](docs/icps/0036-custom-export-transport.md)).
+- **Full-SDK nodes on the leaf link:** `SdkBuilder::WithExportTransport` hands a C++ Provider's encoded OTLP requests to an application-supplied transport instead of HTTP/2 ([ICP 0036](icps/0036-custom-export-transport.md)).
 
 **Anti-goals in v1.2:** no log-side sampling (collector handles it), no structured-log search features (not microtel's job); for the leaf, no RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link (application transport's job).
 
@@ -176,7 +176,7 @@ Python bindings are **not** part of v1.0. They ship post-v1.0 as **M18**, coveri
 
 **Theme:** Second signal lands.
 
-**Status:** mostly done and shipping as experimental. The work left is finishing the gaps marked below and adding collector conformance tests. Open issues are on the v1.3 milestone. The control plane that ICP 0024 moved into this release is now its own release, v1.4 ([ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md)).
+**Status:** mostly done and shipping as experimental. The work left is finishing the gaps marked below and adding collector conformance tests. Open issues are on the v1.3 milestone. The control plane that ICP 0024 moved into this release is now its own release, v1.4 ([ICP 0032](icps/0032-release-reorder-v1.1.1.md)).
 
 **Prerequisite milestone (M11 from spec):** `docs/metrics-design.md` lands first, with reviewer sign-off. Covers the semantic decisions that v1.0 deliberately deferred: aggregation temporality (delta vs cumulative), cardinality limits, histogram bucket configuration, async-instrument callback semantics, reader/exporter interaction, views, exemplars roadmap. *(Done.)*
 
@@ -199,13 +199,13 @@ Then implementation:
 
 ### v1.4 — Control Plane
 
-**Theme:** Out-of-process administration. Split out of the metrics release by [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md), so metrics don't wait on it.
+**Theme:** Out-of-process administration. Split out of the metrics release by [ICP 0032](icps/0032-release-reorder-v1.1.1.md), so metrics don't wait on it.
 
 **Status:** not started. Tracked in #296 and #297.
 
 - **Unix-domain-socket server** with the length-prefixed JSON wire from `docs/control-plane-design.md`, driving the four `Provider` setters that shipped in v1.1.
 - **`microtelctl`**, packaged as a standalone binary in `.deb`/`.rpm`/`.tar.gz`, separate from the core runtime package.
-- **Threat model** and a **fuzz target for the socket's request parser**, the gates [ICP 0024](docs/icps/0024-v1.1-rescope.md) moved out of v1.1.
+- **Threat model** and a **fuzz target for the socket's request parser**, the gates [ICP 0024](icps/0024-v1.1-rescope.md) moved out of v1.1.
 - **Control-plane operator guide.**
 - **mTLS client certificate rotation** (#297), which the v1.1 notes had pencilled in as "likely v1.2".
 
@@ -242,7 +242,7 @@ Then implementation:
 - **Coroutine API.** Async export with `co_await` for users on coroutines-aware code. Returns `microtel::Task<ExportResult>`. Callback API stays as the supported v1.0 surface.
 - **Connection pooling.** Optional multi-connection mode for very-high-throughput deployments where one HTTP/2 connection's flow-control becomes the bottleneck. Off by default.
 - **Optimized hot path.** Compile-time attribute key encoding (for callers using `mt::AttrKey`), refined lock-free MPSC, possible move to a fully wait-free hot path on x86-64 / ARM64.
-- **Static-link optimizations.** First-class CMake support for `-Bstatic` builds, with measured size targets. Currently mostly-static is supported; v1.6 makes it a tested release configuration. *(Partial: microtel ships only static archives, installed per [ICP 0020](docs/icps/0020-install-and-package-config.md) and checked by `ci/scripts/consumer-smoke.sh`. Measured size targets and compile-time feature selection are proposed in ICP 0030 (PR #293).)*
+- **Static-link optimizations.** First-class CMake support for `-Bstatic` builds, with measured size targets. Currently mostly-static is supported; v1.6 makes it a tested release configuration. *(Partial: microtel ships only static archives, installed per [ICP 0020](icps/0020-install-and-package-config.md) and checked by `ci/scripts/consumer-smoke.sh`. Measured size targets and compile-time feature selection are proposed in ICP 0030 (PR #293).)*
 - **HTTP/3 transport (experimental).** The `Transport` interface gains an nghttp3-based implementation. Configurable per-endpoint. Experimental in v1.6; may stabilize in v2.0 or stay experimental indefinitely depending on real-world usage signals.
 - **Refined benchmarks.** The `bench/` directory gets richer scenarios: bursty traffic, high-cardinality metrics, long-tail latency under collector pressure. *(Partial: backpressure, soak and hot-loop-metrics profiles exist; bursty and high-cardinality do not.)*
 
@@ -262,7 +262,7 @@ Then implementation:
 
 **Compatibility tier:** Tier 3 promotes to **stable** for all three signals — the leaf-and-concentrator deployment story is enough adoption surface that the shim API can no longer be experimental.
 
-**Major-version bump because:** any breaking changes that the experimental leaf, `Receiver` and Resource-enrichment APIs turn out to need are collected here. (The original reason, making internal interfaces public, no longer applies: v1.2 introduces them as new API, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md).) v1.x line continues for 18 months.
+**Major-version bump because:** any breaking changes that the experimental leaf, `Receiver` and Resource-enrichment APIs turn out to need are collected here. (The original reason, making internal interfaces public, no longer applies: v1.2 introduces them as new API, per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md).) v1.x line continues for 18 months.
 
 **Anti-goals in v2.0:** unchanged from the leaf's v1.2 list: no full RTOS ports, no leaf-side sampling, no PTP/NTP, no reliable delivery on the leaf-to-concentrator link.
 
@@ -275,7 +275,7 @@ Then implementation:
 **Status:** not started.
 
 - **Static memory pools throughout** the leaf. No malloc anywhere.
-- **Documented RAM/flash budgets** per leaf configuration, now **gated in CI**: **< 15 KB flash, < 2 KB RAM** for a minimal trace-only nanopb leaf on Cortex-M0+. (The nanopb backend itself moved to v1.3, per [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md).)
+- **Documented RAM/flash budgets** per leaf configuration, now **gated in CI**: **< 15 KB flash, < 2 KB RAM** for a minimal trace-only nanopb leaf on Cortex-M0+. (The nanopb backend itself moved to v1.3, per [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md).)
 - **Concrete reference ports:** STM32 HAL, Zephyr, FreeRTOS examples in `examples/leaf/`. Not formal RTOS integrations — examples.
 
 **Anti-goals in v2.1:** still no formal RTOS integrations as part of microtel core.
@@ -320,7 +320,7 @@ The sugar layer (`microtel::sugar` and Python equivalents) grows continuously ra
 None. The native API is direct OTel-style: `tracer->StartSpan(...)`, `span->SetAttribute(...)`, `span->End()`.
 
 ### v1.1 (sugar layer's introduction release)
-The shipped names are in `microtel::sugar` ([ICP 0028](docs/icps/0028-sugar-surface.md)); the plan wrote them as `mt::`.
+The shipped names are in `microtel::sugar` ([ICP 0028](icps/0028-sugar-surface.md)); the plan wrote them as `mt::`.
 - `MICROTEL_TRACE_FUNCTION(tracer)` — function-scoped span auto-named via `std::source_location`. *(Done.)*
 - `sugar::Span("name", {attrs})` — RAII scoped span with inline attributes. *(Done.)*
 - `sugar::Traced("name", lambda)` — trace a lambda; returns the lambda's value. *(Done.)*
@@ -356,7 +356,7 @@ The shipped names are in `microtel::sugar` ([ICP 0028](docs/icps/0028-sugar-surf
 
 ## 6. Performance and footprint trajectory
 
-The v1.0 footprint targets in [`docs/bench-spec.md`](docs/bench-spec.md) §14.5 are stretch numbers pending prototype. The trajectory across releases:
+The v1.0 footprint targets in [`docs/bench-spec.md`](bench-spec.md) §14.5 are stretch numbers pending prototype. The trajectory across releases:
 
 *(Status: the table below was written assuming shared libraries. microtel ships static archives only (`libmicrotel_*.a` behind `microtel::microtel`), and per-library sizes have not been measured or published yet; release notes so far report only the benchmark binary size. ICP 0030 (PR #293) proposes the CI size report that would fill this in.)*
 
@@ -483,10 +483,10 @@ Brief notes on decisions whose rationale spans multiple releases and influences 
 | Sugar in v1.1, not v1.0 | v0.9 spec | v1.0 messaging is "drop-in for OTel-cpp users"; sugar layer competes with that pitch. Sugar arrives once core is proven. | v1.1+ |
 | Control plane in v1.1, not v1.0 | v0.9 spec | Adds Unix socket server, JSON wire, CLI, REPL, attack surface, threat model. Too much for v1.0 alongside transport correctness. | v1.1+ |
 | Leaf encoder is upb first, nanopb later | v0.5 spec | Larger embedded targets are most of the addressable audience and reuse microtel's existing encoder closure. nanopb adds reach to true MCU class. | v2.0, v2.1 |
-| Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](docs/icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
+| Control-plane socket in v1.2, not v1.1; v1.1 hot reload ships as public setters | [ICP 0024](icps/0024-v1.1-rescope.md) | Reverses the row above's release target. Four knobs are the whole user-visible capability, and thread-safe `Provider` setters deliver them with no socket, parser, fourth thread, signal handler, or threat model. Out-of-process administration is the part that waits for real deployment feedback. | v1.1, v1.2 |
 | Metrics, logs and the otel-cpp shim built ahead of their themes, shipped as experimental | M12–M17 | The code was ready before the release themes that name it. Shipping it marked experimental lets people use it now, while the v1.2 and v1.3 themes keep the job of stabilizing it: closing the gaps, adding conformance tests, and making the compatibility promise. | v1.2, v1.3, Tier 3 |
-| Leaf / concentrator in v1.3 as experimental, with upb **and** nanopb leaf backends | [ICP 0031](docs/icps/0031-leaf-concentrator-in-v1.3.md) | Reverses the v1.0 design's release target for the leaf (v2.0) and the "upb first, nanopb later" row above. The leaf is the strongest pitch for IoT fleets, and most of those devices are Cortex-M, which only nanopb reaches. Nothing in the design needed a major version: the receiver and enrichment hooks never existed as internal interfaces, so they arrive as new API. v2.0 becomes the release where that API goes stable. | v1.3, v2.0, v2.1 |
-| v1.1.1 patch for the concentrator's prerequisites; release order becomes v1.2 logs + leaf, v1.3 metrics, v1.4 control plane, v1.5 conformance push, v1.6 performance | [ICP 0032](docs/icps/0032-release-reorder-v1.1.1.md) | Only #257 and #222 block the concentrator, so they ship first as a patch. Metrics and the control plane share no code and have very different amounts of work left, so they no longer share a release. Earlier rows keep the numbers they were decided under. | v1.1.1–v1.6 |
+| Leaf / concentrator in v1.3 as experimental, with upb **and** nanopb leaf backends | [ICP 0031](icps/0031-leaf-concentrator-in-v1.3.md) | Reverses the v1.0 design's release target for the leaf (v2.0) and the "upb first, nanopb later" row above. The leaf is the strongest pitch for IoT fleets, and most of those devices are Cortex-M, which only nanopb reaches. Nothing in the design needed a major version: the receiver and enrichment hooks never existed as internal interfaces, so they arrive as new API. v2.0 becomes the release where that API goes stable. | v1.3, v2.0, v2.1 |
+| v1.1.1 patch for the concentrator's prerequisites; release order becomes v1.2 logs + leaf, v1.3 metrics, v1.4 control plane, v1.5 conformance push, v1.6 performance | [ICP 0032](icps/0032-release-reorder-v1.1.1.md) | Only #257 and #222 block the concentrator, so they ship first as a patch. Metrics and the control plane share no code and have very different amounts of work left, so they no longer share a release. Earlier rows keep the numbers they were decided under. | v1.1.1–v1.6 |
 
 This log is appended to, never rewritten. When a decision is reversed, the original entry stays and a new entry records the reversal with rationale — the control-plane deferral is the first.
 
@@ -505,7 +505,7 @@ This log is appended to, never rewritten. When a decision is reversed, the origi
 
 ## 13. References
 
-- [`docs/README.md`](docs/README.md) (the design documents)
+- [`docs/README.md`](README.md) (the design documents)
 - `docs/bench-spec.md` (benchmark harness)
 - [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/)
 - [OpenTelemetry SDK Specification](https://opentelemetry.io/docs/specs/otel/sdk/)

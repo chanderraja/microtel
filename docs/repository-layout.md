@@ -3,7 +3,7 @@
 A map of the tree as it is today: what each top-level directory holds, who
 it is for, which CMake options build which parts, and where each directory's
 own README lives. For how the project got here, see
-[`microtel-roadmap.md`](../microtel-roadmap.md).
+[`roadmap.md`](roadmap.md).
 
 **Who reads what.** If you are *using* microtel, the parts you need are
 `include/microtel/` (the API), `examples/`, `leaf/` (for microcontrollers),
@@ -40,16 +40,15 @@ Top-level files:
 |---|---|
 | `README.md` | Project overview, quick start, build and install. |
 | `CMakeLists.txt` | The build entry point; every `MICROTEL_*` option in §3 is declared here. |
-| `CONTRIBUTING.md` | How to contribute: TDD gates, ICP process. |
 | `CLAUDE.md`, `.github/copilot-instructions.md` | Rules for AI coding agents. |
-| `RELEASING.md` | The release procedure. |
-| `SECURITY.md` | Vulnerability disclosure policy. |
-| `CODEOWNERS` | Review routing. |
 | `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md` | Apache-2.0, attributions, and the licenses of vendored code. |
-| `microtel-roadmap.md` | The roadmap, v1.0 onward. |
 | `sonar-project.properties` | SonarQube Cloud configuration. |
 | `.clang-format`, `.clang-tidy`, `.clangd`, `.editorconfig` | Formatting, lint and editor settings. |
 | `.gitignore`, `.gitattributes`, `.dockerignore`, `.graphifyignore` | Ignore and attribute rules. |
+
+`CONTRIBUTING.md`, `SECURITY.md` and `CODEOWNERS` live in `.github/`, where
+GitHub still finds them; the roadmap and release procedure are
+[`docs/roadmap.md`](roadmap.md) and [`docs/releasing.md`](releasing.md).
 
 There is no `CMakePresets.json`, no `CHANGELOG.md`, and no Python or shim
 directory at the top level.
@@ -187,7 +186,7 @@ cross toolchains, used by the leaf target tests).
 port lives here, not in vcpkg's curated registry, because microtel does not
 yet meet that registry's maturity and vendoring rules
 ([`packaging-research.md`](packaging-research.md)). The port pins a microtel
-commit, updated at each release ([`RELEASING.md`](../RELEASING.md)). See
+commit, updated at each release ([`releasing.md`](releasing.md)). See
 [its README](../packaging/vcpkg/ports/microtel/README.md).
 
 ### `proto/`, `gen/`, `third_party/` — vendored and generated code

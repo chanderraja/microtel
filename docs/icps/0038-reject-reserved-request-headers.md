@@ -117,7 +117,7 @@ the header:
   anyway.
 
 The change ships in a minor release (1.3.0) and is called out in its
-release notes as a behaviour change. `RELEASING.md` §7 keeps the public
+release notes as a behaviour change. `docs/releasing.md` §7 keeps the public
 C++ API source-stable within a major version. No signature changes here,
 but configurations that built before can now fail.
 

@@ -58,7 +58,7 @@ The namespace is `microtel::sugar`. No microtel header declares `mt`, because
 a library that claims a two-character global name takes it away from every
 program that includes it. Declaring the alias yourself costs one line per file,
 and then your call sites look the way
-[`microtel-roadmap.md`](../../microtel-roadmap.md) §5 writes them.
+[`docs/roadmap.md`](../../docs/roadmap.md) §5 writes them.
 
 One thing to be aware of: `microtel::sugar::Span` is a function, so inside the
 sugar headers the core types are written fully qualified (`::microtel::Span`).
@@ -80,7 +80,7 @@ void ValidateCart(microtel::Tracer& tracer)
 It's a macro because only a declaration can create a variable whose lifetime
 is the enclosing scope. Two things to expect.
 
-It takes the tracer as an argument. `microtel-roadmap.md` §5 writes it with no
+It takes the tracer as an argument. `docs/roadmap.md` §5 writes it with no
 argument, but that form needs a process-global tracer, and microtel doesn't
 have one. The project chose not to add a mutable global, with its
 static-destruction-order problems, just to support a convenience macro. This

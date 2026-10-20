@@ -1,7 +1,7 @@
 # Copyright (c) 2026 The microtel Authors.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Release source archive — runs when a v* tag is pushed (RELEASING.md §4).
+# Release source archive — runs when a v* tag is pushed (docs/releasing.md §4).
 #
 # Builds microtel-X.Y.Z.tar.gz from the tag with ci/scripts/source-archive.sh,
 # plus microtel-X.Y.Z.tar.gz.sha512, checks that the archive builds and

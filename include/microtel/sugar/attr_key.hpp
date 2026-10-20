@@ -35,7 +35,7 @@ namespace microtel::sugar
 /// What it deliberately does **not** buy in v1.1: pre-encoded wire bytes.
 /// Carrying protobuf field framing here would be an ABI change on
 /// `attribute.hpp` and would put wire encoding in a public header, against
-/// CLAUDE.md rule 13. `microtel-roadmap.md` §4 v1.5 schedules that
+/// CLAUDE.md rule 13. `docs/roadmap.md` §4 v1.5 schedules that
 /// optimisation; shipping the plain binder now is what makes it
 /// source-compatible for callers when it lands.
 ///

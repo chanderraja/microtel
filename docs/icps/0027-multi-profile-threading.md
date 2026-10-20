@@ -32,7 +32,7 @@ without taking a lock.
 
 ## Motivation
 
-**The roadmap promises independence, not an overlay.** `microtel-roadmap.md`
+**The roadmap promises independence, not an overlay.** `docs/roadmap.md`
 §4 v1.1: *"Multi-profile within one process. Named providers with independent
 endpoints, samplers, and Resources."* [`docs/control-plane-design.md`](../control-plane-design.md)
 §7 proposed something much smaller — profiles as a **reloadable-tier-only**

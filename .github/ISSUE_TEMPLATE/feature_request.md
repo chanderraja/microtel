@@ -7,7 +7,7 @@ labels: enhancement
 
 <!--
 Before filing: please check the README "Status" section (what ships today) and
-microtel-roadmap.md (planned releases and anti-goals). Many features you might want are already on the roadmap.
+docs/roadmap.md (planned releases and anti-goals). Many features you might want are already on the roadmap.
 -->
 
 ## Use case
@@ -29,7 +29,7 @@ microtel-roadmap.md (planned releases and anti-goals). Many features you might w
 <!-- Where does this fit relative to what's already planned? -->
 
 - [ ] Already supported or documented (README Status, `docs/`)
-- [ ] On the roadmap (`microtel-roadmap.md`) for a later version
+- [ ] On the roadmap (`docs/roadmap.md`) for a later version
 - [ ] Not currently planned — proposing to add it
 - [ ] Unsure / want to discuss
 

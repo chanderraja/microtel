@@ -1,6 +1,6 @@
 # microtel CI Architecture
 
-This document describes the CI pipeline structure. The actual workflow files live under `.github/workflows/`. The gates it runs are the ones `CLAUDE.md` (hard rules) and [`CONTRIBUTING.md`](../CONTRIBUTING.md) require of every PR — they are not aspirational; they're the contract.
+This document describes the CI pipeline structure. The actual workflow files live under `.github/workflows/`. The gates it runs are the ones `CLAUDE.md` (hard rules) and [`CONTRIBUTING.md`](../.github/CONTRIBUTING.md) require of every PR — they are not aspirational; they're the contract.
 
 CI runs on **GitHub Actions** for the OSS path. A self-hosted Jenkins line may be added later for users who fork microtel into private CI environments.
 
@@ -354,7 +354,7 @@ span's `microtel.version` attribute — which is why drift is a wire-visible bug
 **It is a check, not a generator.** Deriving `version.hpp` from `PROJECT_VERSION`
 at configure time would turn a public header into a build artifact that the
 header-only `microtel_headers` target, the M0 header check, and the install
-surface all read as plain source. [`RELEASING.md`](../RELEASING.md) records that
+surface all read as plain source. [`releasing.md`](releasing.md) records that
 decision, the full bump procedure, and why `master` carries no `-dev` suffix.
 
 Zero matches and duplicate matches are both hard failures (exit 2), not passes:

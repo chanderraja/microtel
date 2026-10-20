@@ -59,13 +59,13 @@ unsupported here**; v1.0 was gated on exactly that. This is that ledger.
 | Auth callback (`WithAuthProvider`) | Supported | `AuthCallback` + `WrongTokenRejected`, both suites; TTL caching in `tests/unit/common/auth/auth_providers_test.cpp`. Recipes and execution-context caveats: [`auth-callback-recipes.md`](auth-callback-recipes.md) |
 | **AWS SigV4 in-process** | **UNSUPPORTED** | `AuthCallback` sets one header, takes no arguments, and runs before the payload is attached; SigV4 needs a per-request `x-amz-date`, a per-request payload hash, and the request body. Sign at a sidecar — [`auth-callback-recipes.md`](auth-callback-recipes.md) §5. |
 | `insecure = true` | Supported, and **warns** at `Build()` | `SdkBuilderTest.Build_InsecureTls_Warns`. A hard ban is `MICROTEL_FORBID_INSECURE_TLS=ON`, which turns it into `ConfigError::InsecureDisallowed`. |
-| **HTTP proxy (`https_proxy` / `http_proxy` / `no_proxy`, `CONNECT`)** | **UNSUPPORTED in v1** | Not implemented — zero occurrences in `src/`. The variable names are reserved; setting them changes nothing. Deferred, see [`microtel-roadmap.md`](../microtel-roadmap.md). |
+| **HTTP proxy (`https_proxy` / `http_proxy` / `no_proxy`, `CONNECT`)** | **UNSUPPORTED in v1** | Not implemented — zero occurrences in `src/`. The variable names are reserved; setting them changes nothing. Deferred, see [`roadmap.md`](roadmap.md). |
 | **Plaintext OTLP/HTTP against an HTTP/1.1-only receiver** | **UNSUPPORTED** | §4 below; [`interop-matrix.md`](interop-matrix.md) §4; issue #166 |
 | A peer that hangs up under an in-flight write | Survivable: the export fails, the host process does not | `SIGPIPE` is suppressed per write — `MSG_NOSIGNAL` on plaintext sends, and a custom `BIO` carrying the same flag for TLS, covering `SSL_write` and the handshake writes inside `SSL_connect`. The host needs no `signal(SIGPIPE, SIG_IGN)` of its own, and microtel installs no handler and changes no process-wide disposition (`threading-model.md` §7.1). Evidence: `NoSignalIoTest` / `NoSignalBioTest` in `tests/unit/transport/nosignal_io_test.cpp`, plus the peer-reset tests in `tests/integration/transport/`. Issue #177. |
 | gzip request compression | Supported | conformance suites, both protocols |
 | Response decompression (`grpc-encoding` / `content-encoding: gzip`) | Supported, bounded by `max_decompressed_bytes` | `tests/unit/wire/grpc/`, `tests/unit/wire/http/`, `tests/fuzz/response_decompression_fuzz.cpp` |
-| HTTP/3 | Out of scope for v1 | v1.6 experiment per [roadmap](../microtel-roadmap.md) §4 |
-| Windows | Out of scope | a hard non-goal: [roadmap](../microtel-roadmap.md) §8 and §12 |
+| HTTP/3 | Out of scope for v1 | v1.6 experiment per [roadmap](roadmap.md) §4 |
+| Windows | Out of scope | a hard non-goal: [roadmap](roadmap.md) §8 and §12 |
 
 ---
 
@@ -79,7 +79,7 @@ HTTP/1.1 response and the SETTINGS exchange never completes.
 
 **This is a documented limitation, not a bug being fixed.** microtel has no
 HTTP/1.1 mode and none is planned for v1; whether to add one is a roadmap item
-(see [`microtel-roadmap.md`](../microtel-roadmap.md) §12) and issue #166.
+(see [`roadmap.md`](roadmap.md) §12) and issue #166.
 
 **What works instead**, in order of preference:
 
@@ -149,7 +149,7 @@ open at the time of writing.
   The storage sits behind a `shared_ptr` to an immutable list so that
   `SpanContext`'s copy stays `noexcept` inside
   `Span::GetContext() const noexcept`; that made it the v1.0 → v1.1 ABI event
-  sanctioned by the ABI policy in [`RELEASING.md`](../RELEASING.md) §7 and specified in
+  sanctioned by the ABI policy in [`releasing.md`](releasing.md) §7 and specified in
   [ICP 0025](icps/0025-propagation-core.md) §1. Consumers recompile; no
   consumer source changes. Evidence: `tests/unit/api/trace_state_test.cpp`
   (W3C vector suite), `tests/unit/api/propagator_test.cpp`,
@@ -199,7 +199,7 @@ Compatibility is defined in tiers so the promise is testable, not aspirational:
 | **Tier 4: Full SDK conformance** | Every requirement in the OpenTelemetry SDK specification is met. |
 
 This section defines the tiers. Which signals each release
-claims at which tier is in [`microtel-roadmap.md`](../microtel-roadmap.md) §3,
+claims at which tier is in [`roadmap.md`](roadmap.md) §3,
 and the gates a release must pass to promote a tier are in its §10. The rows
 in §2–§5 are the per-feature evidence. For traces, Tier 1 holds over OTLP/gRPC
 and over OTLP/HTTP with TLS; plaintext OTLP/HTTP does not reach an

@@ -52,7 +52,7 @@ The [vcpkg overlay port](../packaging/vcpkg/ports/microtel/README.md) sets
 ## Development and CI
 
 Declared in the top-level `CMakeLists.txt`. See
-[CONTRIBUTING.md](../CONTRIBUTING.md) and [development.md](development.md).
+[CONTRIBUTING.md](../.github/CONTRIBUTING.md) and [development.md](development.md).
 
 | Option | Default | Effect |
 |---|---|---|

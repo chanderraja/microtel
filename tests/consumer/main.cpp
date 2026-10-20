@@ -152,7 +152,7 @@ int main()
 
     // A `find_package(microtel 1.2)` requirement is satisfied by
     // microtelConfigVersion.cmake, which is written from PROJECT_VERSION; the
-    // code then reports kVersionString. Both are hand-set (RELEASING.md §1),
+    // code then reports kVersionString. Both are hand-set (docs/releasing.md §1),
     // and this is the only place the *installed* pair meets.
     std::cout << "package version=" << MICROTEL_CONSUMER_PACKAGE_VERSION
               << " kVersionString=" << microtel::kVersionString << '\n';

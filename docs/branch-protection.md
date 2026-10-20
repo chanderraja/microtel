@@ -1,6 +1,6 @@
 # Branch Protection and Repository Settings
 
-This document is both a **target** for the GitHub-side configuration that enforces the contribution policy described in [CONTRIBUTING.md](../CONTRIBUTING.md), and a **record** of what is configured today. Where the two differ, each table marks it. Verify the record against the live settings before relying on it — `gh api repos/chanderraja/microtel/branches/master/protection` is the source of truth.
+This document is both a **target** for the GitHub-side configuration that enforces the contribution policy described in [CONTRIBUTING.md](../.github/CONTRIBUTING.md), and a **record** of what is configured today. Where the two differ, each table marks it. Verify the record against the live settings before relying on it — `gh api repos/chanderraja/microtel/branches/master/protection` is the source of truth.
 
 The intent is **layered signaling**, not hard blocking. PRs from outside contributors aren't disabled — that would be hostile to the OSS framing — but several layers prevent unwanted PRs from landing accidentally.
 
@@ -138,7 +138,7 @@ Each lasts up to 6 months (renewable). Use **"Limit to repository collaborators"
 
 ## Layer 4: CODEOWNERS as the routing layer
 
-[CODEOWNERS](../CODEOWNERS) is the file that GitHub uses to auto-request reviews. It routes everything to `@chanderraja`. Even if a PR is somehow opened, you're auto-requested as the reviewer and the merge is gated on your approval per Layer 2.
+[CODEOWNERS](../.github/CODEOWNERS) is the file that GitHub uses to auto-request reviews. It routes everything to `@chanderraja`. Even if a PR is somehow opened, you're auto-requested as the reviewer and the merge is gated on your approval per Layer 2.
 
 When the team grows post-v1.0, replace the default owner with the relevant track owners.
 
@@ -168,7 +168,7 @@ Under **Settings → Actions → General → Fork pull request workflows:**
 `.github/ISSUE_TEMPLATE/config.yml` is configured to redirect common questions:
 
 - **Questions about current behaviour** → docs/README.md (the documentation index)
-- **Roadmap questions** → microtel-roadmap.md
+- **Roadmap questions** → docs/roadmap.md
 - **Contribution questions** → CONTRIBUTING.md
 - **Security issues** → SECURITY.md (private disclosure)
 

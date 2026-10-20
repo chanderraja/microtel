@@ -413,7 +413,7 @@ Benchmarks report both **dynamic-link** and **mostly-static** configurations. De
 
 The component table assumes shared libraries. microtel ships static archives
 only (`libmicrotel_*.a`), so the per-library rows have no artifact to measure
-as named; [`microtel-roadmap.md`](../microtel-roadmap.md) §6 carries that
+as named; [`roadmap.md`](roadmap.md) §6 carries that
 status and the footprint trajectory across releases.
 
 ### 14.6 Where §5 records each target metric

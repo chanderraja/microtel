@@ -262,7 +262,7 @@ example trace.
 
 ## References
 
-- `microtel-roadmap.md` §1.2 — v1.2 scope; M11 prerequisite.
+- `docs/roadmap.md` §1.2 — v1.2 scope; M11 prerequisite.
 - `docs/compatibility-matrix.md` §7 — compatibility tiers. (The M11/M12
   milestone table and the "one signal at a time" rule were in the v1.0 design
   specification, retired by ICP 0037.)

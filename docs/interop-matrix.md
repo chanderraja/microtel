@@ -165,7 +165,7 @@ version — what to use instead, and what each surface says.
 Whether microtel should gain an HTTP/1.1 fallback — the OTLP specification
 permits HTTP/1.1 for OTLP/HTTP — is not something this file decides. It is
 parked as open roadmap question 6 in
-[`microtel-roadmap.md`](../microtel-roadmap.md) §12, and would need an ICP.
+[`roadmap.md`](roadmap.md) §12, and would need an ICP.
 Issue #166 tracks it.
 
 ---

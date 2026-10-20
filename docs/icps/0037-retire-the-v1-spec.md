@@ -4,7 +4,7 @@
 **Affected interfaces / docs:**
 - `microtel-spec.md` (deleted; archived at the `v1.2.1` tag)
 - `docs/compatibility-matrix.md` (gains the compatibility tiers, spec §2.2)
-- `RELEASING.md` (gains the versioning and ABI policy, spec §19)
+- `docs/releasing.md` (gains the versioning and ABI policy, spec §19)
 - `docs/bench-spec.md` (gains the performance and footprint targets, spec §10)
 - `docs/README.md` (the spec-section → current-home table and the archive link)
 - every file outside `docs/icps/` that names the spec: about 100 files across
@@ -54,7 +54,7 @@ Three steps, each its own PR, in this order.
    | Spec | What it defines | New home |
    |---|---|---|
    | §2.2 | The compatibility tiers (Tier 1 OTLP wire, Tier 2 data model, Tier 3 API adapter, Tier 4 full SDK conformance), which the roadmap, the migration guide, `metrics-design.md`, `ci-architecture.md` and `control-plane-design.md` all use | a new last section of `docs/compatibility-matrix.md` (last, so §4, which many docs cite, keeps its number) |
-   | §19 | Semantic versioning, the ABI policy (source-compatible within a major; binary ABI best-effort within a minor, not guaranteed across minors), release cadence | a new section of `RELEASING.md` |
+   | §19 | Semantic versioning, the ABI policy (source-compatible within a major; binary ABI best-effort within a minor, not guaranteed across minors), release cadence | a new section of `docs/releasing.md` |
    | §10 | The hot-path, exporter, footprint and cold-start metrics, and the v1 footprint targets | a new section of `docs/bench-spec.md` |
 
 2. **Rewrite every reference outside `docs/icps/`.** Each reference points at
@@ -72,10 +72,10 @@ Three steps, each its own PR, in this order.
    | §10 Performance targets | `docs/bench-spec.md` (moved in step 1) |
    | §11 Project structure | `docs/repository-layout.md` |
    | §12 Configuration | `docs/configuration.md` |
-   | §13, §16–§18 Roadmap, risks, open questions, future | `microtel-roadmap.md` and the design docs |
+   | §13, §16–§18 Roadmap, risks, open questions, future | `docs/roadmap.md` and the design docs |
    | §14 Engineering practices | `CONTRIBUTING.md`, `docs/coding-standards.md`, `docs/ci-architecture.md` |
    | §15 Compatibility & interop | `docs/compatibility-matrix.md`, `docs/interop-matrix.md` |
-   | §19 Versioning, ABI, cadence | `RELEASING.md` (moved in step 1) |
+   | §19 Versioning, ABI, cadence | `docs/releasing.md` (moved in step 1) |
    | §19 DCO, security, CODEOWNERS, CI quality gates | `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, `docs/ci-architecture.md` |
 
    A reference that only records history (a milestone number, "v1 scope")

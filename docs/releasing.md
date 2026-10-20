@@ -3,7 +3,7 @@
 The release procedure as actually practiced. It is short on purpose: microtel has no release automation, so every
 step below is something a person does and something a person can forget.
 
-The mechanical half is [`ci/scripts/version-drift-check.sh`](ci/scripts/version-drift-check.sh),
+The mechanical half is [`ci/scripts/version-drift-check.sh`](../ci/scripts/version-drift-check.sh),
 run on every PR by the `version-drift-check` job. It catches exactly one class of
 mistake — a version bumped in some places and not others — which is the mistake
 this project has actually made.
@@ -18,13 +18,13 @@ commit:
 
 | Location | Literal | Reaches |
 |---|---|---|
-| [`CMakeLists.txt`](CMakeLists.txt) | `project(microtel VERSION …)` | `PROJECT_VERSION`, and through it `microtelConfigVersion.cmake` — what `find_package(microtel …)` matches against |
-| [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionString` | public API |
-| [`include/microtel/version.hpp`](include/microtel/version.hpp) | `kVersionMajor` / `kVersionMinor` / `kVersionPatch` | public API |
-| [`src/wire/grpc/grpc_wire_codec.cpp`](src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export ([`grpc-wire-protocol.md`](docs/grpc-wire-protocol.md) §2.1) |
-| [`tools/preflight/preflight.cpp`](tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version |
-| [`leaf/include/microtel/leaf.h`](leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
-| [`leaf/CMakeLists.txt`](leaf/CMakeLists.txt) | `project(microtel_leaf VERSION …)` | the standalone leaf build's `PROJECT_VERSION`; read 1.1.1 through the v1.2.0 release until `version-drift-check.sh` started checking it |
+| [`CMakeLists.txt`](../CMakeLists.txt) | `project(microtel VERSION …)` | `PROJECT_VERSION`, and through it `microtelConfigVersion.cmake` — what `find_package(microtel …)` matches against |
+| [`include/microtel/version.hpp`](../include/microtel/version.hpp) | `kVersionString` | public API |
+| [`include/microtel/version.hpp`](../include/microtel/version.hpp) | `kVersionMajor` / `kVersionMinor` / `kVersionPatch` | public API |
+| [`src/wire/grpc/grpc_wire_codec.cpp`](../src/wire/grpc/grpc_wire_codec.cpp) | `kUserAgent` (`"microtel-cpp/<version>"`) | **the wire** — the `user-agent` header on every gRPC export ([`grpc-wire-protocol.md`](grpc-wire-protocol.md) §2.1) |
+| [`tools/preflight/preflight.cpp`](../tools/preflight/preflight.cpp) | `kVersion` | **the wire** — the `microtel.version` span attribute and the preflight tracer's version |
+| [`leaf/include/microtel/leaf.h`](../leaf/include/microtel/leaf.h) | `MICROTEL_LEAF_VERSION_MAJOR` / `_MINOR` / `_PATCH` | the leaf C API; `version-drift-check.sh` checks it (from v1.2.0), and `LeafVersionTest` fails when it disagrees with `version.hpp` |
+| [`leaf/CMakeLists.txt`](../leaf/CMakeLists.txt) | `project(microtel_leaf VERSION …)` | the standalone leaf build's `PROJECT_VERSION`; read 1.1.1 through the v1.2.0 release until `version-drift-check.sh` started checking it |
 
 The README names the release in two prose places: the Status section ("The
 current release is …") and the `git clone --branch` tag in Getting started.
@@ -76,7 +76,7 @@ see a version they cannot look up.
 The cost of this choice is that a commit on `master` is not distinguishable from
 the release tag by version string alone. That is the intended trade: the git SHA
 is the right identifier for an unreleased build, and the bug-report template
-([`.github/ISSUE_TEMPLATE/bug_report.md`](.github/ISSUE_TEMPLATE/bug_report.md))
+([`.github/ISSUE_TEMPLATE/bug_report.md`](../.github/ISSUE_TEMPLATE/bug_report.md))
 already asks for "microtel version (or commit SHA)" for exactly this reason.
 
 The version therefore moves exactly once per release, in the release commit.
@@ -105,10 +105,10 @@ touch it.
 
 ## 3. Update `SECURITY.md`
 
-[`SECURITY.md`](SECURITY.md) carries a supported-versions matrix. Add or amend
+[`SECURITY.md`](../.github/SECURITY.md) carries a supported-versions matrix. Add or amend
 the row for the new release, and demote whatever it supersedes, following the
 policy stated below the table (latest minor of the latest major fully supported;
-previous major gets security fixes for 18 months per `microtel-roadmap.md` §2).
+previous major gets security fixes for 18 months per `docs/roadmap.md` §2).
 
 ---
 
@@ -116,7 +116,7 @@ previous major gets security fixes for 18 months per `microtel-roadmap.md` §2).
 
 `master` is protected — a direct push is rejected because a pushed commit has no
 passing status checks and `enforce_admins` is on (see
-[`docs/branch-protection.md`](docs/branch-protection.md)). So the release commit
+[`docs/branch-protection.md`](branch-protection.md)). So the release commit
 goes through a PR like anything else:
 
 ```bash
@@ -163,8 +163,8 @@ Tag names are `vX.Y.Z`. Early development tags carried a milestone suffix
 
 ### The source archive
 
-Pushing the tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml).
-It uses [`ci/scripts/source-archive.sh`](ci/scripts/source-archive.sh) to build
+Pushing the tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+It uses [`ci/scripts/source-archive.sh`](../ci/scripts/source-archive.sh) to build
 two files from the tag:
 
 - `microtel-X.Y.Z.tar.gz`, a `git archive` of the tag under a
@@ -201,7 +201,7 @@ GitHub generates separately, so hash that URL for the ports (below).
 ### Update the vcpkg overlay port
 
 Once the tag exists, update
-[`packaging/vcpkg/ports/microtel/`](packaging/vcpkg/ports/microtel/README.md) in
+[`packaging/vcpkg/ports/microtel/`](../packaging/vcpkg/ports/microtel/README.md) in
 a follow-up PR. Set `version` in `vcpkg.json` to the new release. In
 `portfile.cmake`, set `REF` to `"v${VERSION}"` and set `SHA512` to the hash of
 the tag's archive:
@@ -213,17 +213,17 @@ curl -sL https://github.com/chanderraja/microtel/archive/vX.Y.Z.tar.gz | sha512s
 Then install it once with `vcpkg install microtel --overlay-ports=packaging/vcpkg/ports`
 to check that the hash matches and the port builds.
 
-Make the same two edits in [`ports/microtel/`](ports/microtel/), the copy of
+Make the same two edits in [`ports/microtel/`](../ports/microtel/), the copy of
 the port submitted to microsoft/vcpkg, in the same PR. Once microtel is in the
 curated registry, follow the update steps in
-[`docs/packaging/PR_VCPKG.md`](docs/packaging/PR_VCPKG.md).
+[`docs/packaging/PR_VCPKG.md`](packaging/PR_VCPKG.md).
 
 In the same PR, add the version to the Conan recipe: a `sources` entry in
-[`packaging/conan/recipes/microtel/all/conandata.yml`](packaging/conan/recipes/microtel/all/conandata.yml)
+[`packaging/conan/recipes/microtel/all/conandata.yml`](../packaging/conan/recipes/microtel/all/conandata.yml)
 with the URL and its `sha256sum`, and the version in `config.yml` beside it.
 Check it with `conan create packaging/conan/recipes/microtel/all --version=X.Y.Z
 -s compiler.cppstd=20 --build=missing`
-([`docs/packaging/PR_CONAN.md`](docs/packaging/PR_CONAN.md)).
+([`docs/packaging/PR_CONAN.md`](packaging/PR_CONAN.md)).
 
 ---
 
@@ -231,10 +231,10 @@ Check it with `conan create packaging/conan/recipes/microtel/all --version=X.Y.Z
 
 **This one belongs in the release PR**, unlike the two in §6.
 
-[`docs/bench-results/`](docs/bench-results/) (`results.json`, `results.md`,
+[`docs/bench-results/`](bench-results/) (`results.json`, `results.md`,
 `plots.html`, `README.md`) is the committed run that the benchmark summary
 table in that directory's `README.md`, and the performance claims in the root
-[`README.md`](README.md), are read off. It is documentation, not a gate — the
+[`README.md`](../README.md), are read off. It is documentation, not a gate — the
 gate is the separate `bench/baseline/results.json` in §6 — but the root README
 quotes it, so the two must agree, and a release is when they are made to agree.
 
@@ -287,7 +287,7 @@ into the release PR — both are noisy diffs that would bury the version change.
 
 ### Benchmark baseline
 
-[`bench/baseline/results.json`](bench/baseline/results.json) is what the weekly
+[`bench/baseline/results.json`](../bench/baseline/results.json) is what the weekly
 `benchmark.yml` regression check compares against. Refresh it after a release so
 the next cycle's 5% gate measures against the released numbers:
 
@@ -303,12 +303,12 @@ are `0`, which the regression check skips. Only `drop_rate_pct` is gated, 0.0
 against 0.0 — so the gate currently passes everything. Populating it is part of
 #277, not something a release should do on its own.
 
-See [`bench/baseline/README.md`](bench/baseline/README.md) for what is actually
+See [`bench/baseline/README.md`](../bench/baseline/README.md) for what is actually
 gated today (drop rate; the latency medians are still placeholder zeros).
 
 ### graphify snapshot
 
-[`docs/graph-report.md`](docs/graph-report.md) is a committed copy of the
+[`docs/graph-report.md`](graph-report.md) is a committed copy of the
 knowledge-graph report. Per `CLAUDE.md`:
 
 ```bash
@@ -334,9 +334,9 @@ The policy the steps above carry out.
 
 The package-config `SameMajorVersion` mode in §2 is the source-compatibility
 promise expressed to CMake. Which releases receive fixes is
-[`SECURITY.md`](SECURITY.md)'s supported-versions matrix (§3), and the
+[`SECURITY.md`](../.github/SECURITY.md)'s supported-versions matrix (§3), and the
 long-term-support window for a major line is in
-[`microtel-roadmap.md`](microtel-roadmap.md) §2.
+[`roadmap.md`](roadmap.md) §2.
 
 ---
 

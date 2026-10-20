@@ -580,7 +580,7 @@ After acceptance, in the implementing packets:
 - `docs/configuration.md`: which settings are ignored and which conflict.
 - `docs/leaf-concentrator-design.md` §3.4, §4.2, §4.3 and a new §5.6 for
   `unix`, plus the §5.5 table.
-- `microtel-spec.md` §18.4 and `microtel-roadmap.md` v1.2: a line each.
+- `microtel-spec.md` §18.4 and `docs/roadmap.md` v1.2: a line each.
 - `examples/leaf/README.md`, a `README.md` for `src/wire/custom/`, and the
   CHANGELOG.
 

@@ -19,7 +19,7 @@ It differs from the overlay port in
 [`packaging/vcpkg/ports/microtel/`](../../packaging/vcpkg/ports/microtel/README.md)
 only in what an upstream port must not have: no `README.md`, and no
 `MICROTEL_SOURCE_DIR` hook for building a local checkout. Both build the same
-release with the same options. Bump both at each release (`RELEASING.md` §4).
+release with the same options. Bump both at each release (`docs/releasing.md` §4).
 
 ## Before you submit: three gates
 

@@ -57,7 +57,7 @@ The recipe in brief:
 3. **Source URL.** `conandata.yml` uses GitHub's tag archive
    (`archive/v1.2.2.tar.gz`). Releases tagged after the release workflow
    landed also carry `microtel-X.Y.Z.tar.gz` as a release asset
-   (`RELEASING.md` §4). Either URL is acceptable to CCI. The asset is
+   (`docs/releasing.md` §4). Either URL is acceptable to CCI. The asset is
    produced by `git archive` and is reproducible, but its sha256 differs from
    the tag archive's.
 
@@ -89,7 +89,7 @@ Then open a PR against `conan-io/conan-center-index:master` titled
 **`microtel: add recipe`**, with the description below. CCI accepts a PR only
 after its author has signed the
 [Contributor License Agreement](https://cla-assistant.io/conan-io/conan-center-index)
-([contributing guide](https://github.com/conan-io/conan-center-index/blob/master/CONTRIBUTING.md)).
+([contributing guide](https://github.com/conan-io/conan-center-index/blob/master/.github/CONTRIBUTING.md)).
 
 For a new version later, add its `sources` entry (URL plus
 `sha256sum` of the download) to `all/conandata.yml`, add the version to
@@ -128,7 +128,7 @@ and `leaf=True, concentrator=True`; test_package passed for both.
 
 ---
 
-- [x] Read the [contributing guidelines](https://github.com/conan-io/conan-center-index/blob/master/CONTRIBUTING.md)
+- [x] Read the [contributing guidelines](https://github.com/conan-io/conan-center-index/blob/master/.github/CONTRIBUTING.md)
 - [x] Checked that this PR is not a duplicate: [list of PRs by recipe](https://github.com/conan-io/conan-center-index/discussions/24240)
 - [x] Tested locally with at least one configuration using a recent version of Conan
 ```

@@ -19,7 +19,7 @@
 # configure time was considered and rejected: it would make a public header a
 # build artifact, which the header-only `microtel_headers` target, the M0 header
 # check and the install surface all consume as a plain source file. A check costs
-# one CI job and changes nothing about what ships. See RELEASING.md.
+# one CI job and changes nothing about what ships. See docs/releasing.md.
 #
 # The gRPC user-agent additionally carries a `static_assert` against
 # kVersionString, so that one pair is already caught at compile time. It is
@@ -30,7 +30,7 @@
 # covers more than the CMake/header pair: it read "1.0.0" from M6-D onward while
 # the project version was still 0.1.0, and became correct only by coincidence
 # when 1.0.0 shipped. It reaches collectors as the `microtel.version` span
-# attribute (RELEASING.md §1).
+# attribute (docs/releasing.md §1).
 #
 # Usage:
 #   ci/scripts/version-drift-check.sh [repo-root]   (default: git toplevel)
@@ -266,7 +266,7 @@ run_check()
 version-drift-check: FAIL — $FAILURES location(s) disagree with PROJECT_VERSION.
 
   A release bump edits every location listed above in one commit. The procedure
-  is in RELEASING.md. If you are deliberately changing the version, change all
+  is in docs/releasing.md. If you are deliberately changing the version, change all
   of them; if you are not, one of them was edited by accident.
 
 EOF
@@ -316,7 +316,7 @@ project(microtel
 EOF
 
     cat > "$dir/include/microtel/version.hpp" <<EOF
-// A release bump edits this header; see RELEASING.md and kVersionString below.
+// A release bump edits this header; see docs/releasing.md and kVersionString below.
 inline constexpr std::uint32_t kVersionMajor = $major;
 inline constexpr std::uint32_t kVersionMinor = $minor;
 inline constexpr std::uint32_t kVersionPatch = $patch;

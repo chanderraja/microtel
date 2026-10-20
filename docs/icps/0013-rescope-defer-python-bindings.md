@@ -1,7 +1,7 @@
 # ICP 0013: Retire M8, re-add Python bindings as M18 covering all three signals
 
 **Status:** Accepted
-**Affected interfaces / docs:** `microtel-spec.md` §6.2, §13 milestone table (M8, M10, new M18), §13.4, §13.5; `microtel-roadmap.md` §4 (v1.0 theme). No interface headers, no `docs/interfaces.md`.
+**Affected interfaces / docs:** `microtel-spec.md` §6.2, §13 milestone table (M8, M10, new M18), §13.4, §13.5; `docs/roadmap.md` §4 (v1.0 theme). No interface headers, no `docs/interfaces.md`.
 **Affected tracks:** none — milestone scope and documentation only.
 
 ## Summary
@@ -49,7 +49,7 @@ prerequisites are unbuilt:
 
 ## Proposed change
 
-All edits are to `microtel-spec.md` and `microtel-roadmap.md`.
+All edits are to `microtel-spec.md` and `docs/roadmap.md`.
 
 1. **§13 table — delete the M8 row.** M8 becomes a **retired number**: never
    reused, so every as-built commit label M9–M16 keeps its meaning. Same
@@ -73,7 +73,7 @@ All edits are to `microtel-spec.md` and `microtel-roadmap.md`.
    the M18 target shape and requires the thread-local current-span slot, which
    is not yet implemented. The example itself stays as designed — it is the
    intended API, not a claim about today.
-7. **`microtel-roadmap.md` §4, v1.0 theme:** remove the "Python bindings
+7. **`docs/roadmap.md` §4, v1.0 theme:** remove the "Python bindings
    (target, not blocker)" bullet. The Tier 3 row naming `microtel_python_shim`
    is untouched — that shim registers against `opentelemetry-api` and is a
    different artifact from the nanobind bindings.

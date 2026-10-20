@@ -15,7 +15,7 @@ exist yet.
 The policy this matrix will follow as further releases land:
 
 - The most recent **minor release** of the latest **major version** is fully supported.
-- The previous **major version** receives security fixes for **18 months** after the next major version ships (per the LTS policy in `microtel-roadmap.md` §2).
+- The previous **major version** receives security fixes for **18 months** after the next major version ships (per the LTS policy in `docs/roadmap.md` §2).
 - Older versions are end-of-life. If you're running one, the recommended path is to upgrade.
 
 ## Reporting a vulnerability

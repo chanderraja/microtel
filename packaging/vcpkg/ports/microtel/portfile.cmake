@@ -9,7 +9,7 @@
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 # Source: the release tag matching the port's version. Update version and
-# SHA512 together at each release (RELEASING.md). `vcpkg install --head`
+# SHA512 together at each release (docs/releasing.md). `vcpkg install --head`
 # builds the tip of master instead.
 #
 # MICROTEL_SOURCE_DIR in the environment builds a local checkout instead, for

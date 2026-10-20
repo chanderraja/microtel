@@ -23,4 +23,4 @@ target_link_libraries(my_app PRIVATE microtel::microtel)
 
 Linux only, with GCC 13+ or Clang 18+. At each release, add the new version
 to `recipes/microtel/config.yml` and `recipes/microtel/all/conandata.yml`
-(`RELEASING.md` §4).
+(`docs/releasing.md` §4).

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Builds the release source archive for one tag, and its SHA-512 file.
-# Run by .github/workflows/release.yml; RELEASING.md §4 describes the release.
+# Run by .github/workflows/release.yml; docs/releasing.md §4 describes the release.
 #
 #   dist/microtel-X.Y.Z.tar.gz          git archive of the tag, under a
 #                                       microtel-X.Y.Z/ top-level directory

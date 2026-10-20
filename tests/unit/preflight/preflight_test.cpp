@@ -214,7 +214,7 @@ TEST(PreflightSpanIdentityTest, ProtocolReflectsHttpProtobufFromEnv)
 TEST(PreflightSpanIdentityTest, VersionMatchesTheLibraryVersion)
 {
     // The preflight literal is bumped by hand and has no static_assert, unlike
-    // the gRPC user-agent (RELEASING.md §1). This is the check that catches a
+    // the gRPC user-agent (docs/releasing.md §1). This is the check that catches a
     // release that forgets it.
     ClearIdentityEnv();
     EXPECT_EQ(tools::ResolveSpanIdentity("").version, microtel::kVersionString);

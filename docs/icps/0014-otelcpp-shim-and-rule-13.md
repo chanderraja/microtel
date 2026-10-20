@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Affected interfaces / docs:** [`CLAUDE.md`](../../CLAUDE.md) rules 12–13;
-`microtel-spec.md` §6.3 and §13 (new milestone); `microtel-roadmap.md` §3 (Tier 3
+`microtel-spec.md` §6.3 and §13 (new milestone); `docs/roadmap.md` §3 (Tier 3
 row). No changes to `include/microtel/` or `docs/interfaces.md` — the shim is
 additive and consumes the public API as-is.
 **Affected tracks:** new optional package `adapters/otelcpp/`; no existing track
@@ -19,7 +19,7 @@ than as an unqualified slogan.
 ## Motivation
 
 **The compatibility claim is already published and currently false.**
-`microtel-roadmap.md` §3 lists Tier 3 (API-adapter) as "experimental: traces"
+`docs/roadmap.md` §3 lists Tier 3 (API-adapter) as "experimental: traces"
 from **v1.0**, and spec §2.2 says the same. No shim code exists — `grep -r
 "opentelemetry::" src/ include/` returns nothing. This is the same
 spec-versus-reality drift ICP 0013 addresses for M8, except that this one is a

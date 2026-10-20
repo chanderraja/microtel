@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Behavioural tests for the v1.1 sampler rule combinators and the two chain
-// composition modes (`microtel-roadmap.md` §4 v1.1, "Composable sampler
+// composition modes (`docs/roadmap.md` §4 v1.1, "Composable sampler
 // chains").
 //
 // A rule combinator is a predicate over what a head sampler can see at

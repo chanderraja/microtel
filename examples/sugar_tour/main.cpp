@@ -51,7 +51,7 @@
 // The `mt` alias is **consumer-side**. No microtel header declares it: a
 // library that squats a two-character global name has taken something it
 // cannot give back. One line per file that wants it, and the call sites below
-// read the way microtel-roadmap.md §5 writes them.
+// read the way docs/roadmap.md §5 writes them.
 namespace mt = microtel::sugar;
 
 namespace

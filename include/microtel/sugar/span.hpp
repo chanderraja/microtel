@@ -91,7 +91,7 @@ namespace microtel::sugar
 ///
 /// If @p fn throws, the span is ended by `ScopedSpan`'s destructor during
 /// unwinding and the exception propagates **unrecorded**. Recording it is
-/// `mt::TryCatch`, `microtel-roadmap.md` §5 v1.4; a `Traced` that
+/// `mt::TryCatch`, `docs/roadmap.md` §5 v1.4; a `Traced` that
 /// swallowed-and-rethrew would make that helper redundant and this one
 /// surprising.
 ///

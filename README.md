@@ -1,11 +1,19 @@
 # microtel
 
+<p align="center">
+  <img alt="microtel: OpenTelemetry for C++ without the gRPC tax. Speaks OTLP over gRPC and HTTP with no grpc++, abseil or protobuf; about 3.8x faster spans than opentelemetry-cpp in the project's benchmark; a microcontroller client of about 9 KB flash with no heap." src="docs/assets/microtel-hero.png" width="720">
+</p>
+
 An OpenTelemetry-compatible trace runtime and OTLP exporter for C++20. It
 speaks OTLP/gRPC and OTLP/HTTP-protobuf without linking gRPC, abseil or the
 protobuf C++ runtime.
 
-[![license](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![CI](https://github.com/chanderraja/microtel/actions/workflows/ci.yml/badge.svg)](https://github.com/chanderraja/microtel/actions)
+[![release](https://img.shields.io/github/v/release/chanderraja/microtel)](https://github.com/chanderraja/microtel/releases/latest)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=chanderraja_microtel&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=chanderraja_microtel)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](#install)
+[![packages](https://img.shields.io/badge/packages-vcpkg%20port%20%7C%20Conan%20recipe%20%7C%20CPM-informational)](#install)
+[![license](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 microtel covers the part of the OpenTelemetry tracing SDK that applications
 use day to day: tracers, spans, context, W3C propagation, samplers, a batch
@@ -16,6 +24,29 @@ In the project's benchmark against opentelemetry-cpp, a timed call that creates
 and ends a span takes about **a quarter of the time** at the median, and microtel
 sustains roughly **twice the throughput**;
 [Performance](#performance) has the full comparison and its caveats.
+
+**At a glance:** no gRPC, abseil or protobuf C++ runtime ·
+OTLP/gRPC and OTLP/HTTP over one nghttp2 transport · a C11 microcontroller
+client at about 9.3 KB of flash (Cortex-M4), 512 bytes of caller-owned RAM and
+no heap · spans in about a quarter of opentelemetry-cpp's time
+([caveats](#performance)).
+
+```cpp
+auto provider = microtel::SdkBuilder{}.WithEndpoint("http://localhost:4317")  // OTLP/gRPC
+                    .WithProtocol(microtel::Protocol::Grpc)
+                    .WithServiceName("checkout").Build().value();
+auto tracer = provider->GetTracer("checkout.http", "1.0.0");
+{
+    auto span = tracer->StartSpan("GET /cart");
+    span->SetAttribute("http.response.status_code", std::int64_t{200});
+}  // ends here; exported in the background
+(void)provider->Shutdown(std::chrono::seconds{5});
+```
+
+[Getting started](#getting-started) has the complete program with error
+handling, and [How you use it](#how-you-use-it) and
+[the leaf overview](#leaf-and-concentrator-tracing-for-microcontrollers) have
+the architecture diagrams.
 
 ## Who is this for?
 
@@ -135,7 +166,7 @@ requires an [ICP](docs/icps/).
 ## Status
 
 The current release is **v1.2.3**, and the project follows SemVer.
-[SECURITY.md](SECURITY.md) lists which versions get fixes.
+[SECURITY.md](.github/SECURITY.md) lists which versions get fixes.
 
 | Area | Status |
 |---|---|
@@ -150,7 +181,7 @@ The current release is **v1.2.3**, and the project follows SemVer.
 Not supported: plaintext OTLP/HTTP to an HTTP/1.1-only receiver (see
 [Protocols and endpoints](#protocols-and-endpoints)), HTTP proxies, TLS below
 1.2, and Windows. The [compatibility matrix](docs/compatibility-matrix.md) has
-the full list, and [microtel-roadmap.md](microtel-roadmap.md) has what's next.
+the full list, and [docs/roadmap.md](docs/roadmap.md) has what's next.
 
 ## How you use it
 
@@ -582,7 +613,7 @@ Highlights for users: [configuration](docs/configuration.md),
 [memory](docs/memory-model.md) models.
 
 Highlights for contributors: the
-[roadmap](microtel-roadmap.md), [architecture](docs/architecture.md), the
+[roadmap](docs/roadmap.md), [architecture](docs/architecture.md), the
 locked [interface contracts](docs/interfaces.md),
 [metrics design](docs/metrics-design.md),
 [leaf / concentrator design](docs/leaf-concentrator-design.md), the [ICPs](docs/icps/) that record
@@ -591,7 +622,7 @@ diagrams).
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it covers the TDD gates and
+Read [CONTRIBUTING.md](.github/CONTRIBUTING.md) first; it covers the TDD gates and
 the interface-change process. [docs/development.md](docs/development.md) maps
 each source directory to its owner. AI coding agents should also read
 [CLAUDE.md](CLAUDE.md). To build and test from a checkout:
@@ -602,8 +633,8 @@ cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
-Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
-The release procedure is in [RELEASING.md](RELEASING.md).
+Report vulnerabilities privately as described in [SECURITY.md](.github/SECURITY.md).
+The release procedure is in [docs/releasing.md](docs/releasing.md).
 
 ## License
 

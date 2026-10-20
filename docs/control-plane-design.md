@@ -24,7 +24,7 @@ attached to when it will be.
 
 **Why deferred.** M10 has not shipped. Nothing is packageable, and nothing is
 deployed. An operator-facing administrative interface designed with zero
-operational feedback — and then frozen under the compatibility policy in `RELEASING.md` §7 —
+operational feedback — and then frozen under the compatibility policy in `docs/releasing.md` §7 —
 is a bad trade. The signal that would justify building it is concrete: a real
 user reporting that they could not turn up sampling during an incident. That
 signal cannot exist yet, because there are no users in production to produce
@@ -46,7 +46,7 @@ incident response. It is also all of it.
 **Revisit trigger.** Real deployment feedback after v1.0 asking for runtime
 reconfiguration. Not a date, and not a milestone slot.
 
-**On the roadmap.** `microtel-roadmap.md` is deliberately **not** amended to
+**On the roadmap.** `docs/roadmap.md` is deliberately **not** amended to
 match this document, and neither was the v1.0 design specification while it
 was in the tree (it was retired by
 [ICP 0037](icps/0037-retire-the-v1-spec.md)). §3 (wire format), §5 (client
@@ -86,7 +86,7 @@ Explicitly **out of scope** for M15 (anti-goals):
 - Any network-facing (TCP) control surface. UDS only, permanently.
 - Remote administration, clustering, or a fleet control protocol.
 - Reload of endpoint, protocol, TLS material, `service.name`, or resource
-  attributes. `microtel-roadmap.md:85` names these as explicitly **not**
+  attributes. `docs/roadmap.md:85` names these as explicitly **not**
   hot-reloadable in v1.1, and §2 shows the architecture already enforces that
   for free.
 
@@ -169,14 +169,14 @@ socket (§8); it is **not** deferred with the rest of M15 and has its own issue
 The v1.0 milestone plan listed M15's "Depends on" as **M10 — v1.0 traces release**. M10 has
 not happened: the newest tag is `v0.2.0-m2`, and there are **zero `install()`
 rules in the build** — nothing is packageable today. That matters directly,
-because `microtel-roadmap.md:91` specifies `microtelctl` ships as
+because `docs/roadmap.md:91` specifies `microtelctl` ships as
 `.deb`/`.rpm`/`.tar.gz` "separate from the core runtime package", and that
 packaging machinery does not exist for *any* target (issue #19).
 
 A control plane is an operator-facing surface. Its value is administering a
 deployed process; nothing is deployed. Building it now means designing an
 administrative interface with zero operational feedback, then supporting it
-under the compatibility policy (`RELEASING.md` §7).
+under the compatibility policy (`docs/releasing.md` §7).
 
 **Decision.** M15 proceeds **design-only**: this document is the deliverable,
 and implementation waits on either (a) M10 shipping, or (b) an explicit
@@ -225,7 +225,7 @@ itself as guarding only `m_wake`, so its invariant widens.
 
 ### Tier 2 — cheap: sampler **ratio**, via an atomic threshold
 
-The roadmap says *"sampler **ratio**"* (`microtel-roadmap.md:85`), not
+The roadmap says *"sampler **ratio**"* (`docs/roadmap.md:85`), not
 "sampler". Honoured literally, that is cheap.
 
 `TraceIdRatioSampler` (`src/sdk/sampler_factories.cpp:138`) stores
@@ -401,7 +401,7 @@ little left to find.
 
 The v1.0 governance section listed the threat model as *"initial: enumerated for the v1.1 control
 plane"* — this is the first time it is written down, and
-`microtel-roadmap.md:93` makes *"control plane has a documented threat model"*
+`docs/roadmap.md:93` makes *"control plane has a documented threat model"*
 a ship gate.
 
 This is the project's **first inbound socket surface**. A repo-wide grep for
@@ -452,7 +452,7 @@ a hardening nicety.
 ## §5 `microtelctl`: Go or C++
 
 The v1.0 design and the roadmap said Go in **four places** — twice in the
-v1.0 design, and at `microtel-roadmap.md:85` and `:91` — and `:91` further specifies it
+v1.0 design, and at `docs/roadmap.md:85` and `:91` — and `:91` further specifies it
 ships as a standalone binary in `.deb`/`.rpm`/`.tar.gz` *"separate from the
 core runtime package"*. Reversing this is a real decision, not a detail.
 
@@ -622,7 +622,7 @@ SDK-internal access, ICP for the threading-model amendment.
   established `microtel_add_fuzz_target` pattern
   (`tests/fuzz/CMakeLists.txt:26-50`) and the six-line `toml_fuzz.cpp`
   template. **Ship-blocker, not follow-up** —
-  `microtel-roadmap.md:93` gates v1.1 on *"hot reload is fuzz-tested"*.
+  `docs/roadmap.md:93` gates v1.1 on *"hot reload is fuzz-tested"*.
 - **Integration:** real socket, real client, real UDS — including the §4
   rejection cases (wrong UID via `SO_PEERCRED`, oversize frame, connection
   cap, and a client that disconnects mid-write to prove the `SIGPIPE` fix).
@@ -703,7 +703,7 @@ LOCKED audit** (§0).
 
 ## References
 
-- The v1.0 design specification (retired by [ICP 0037](icps/0037-retire-the-v1-spec.md); [`README.md`](README.md) maps its sections to their current homes); `microtel-roadmap.md:85,91,93`
+- The v1.0 design specification (retired by [ICP 0037](icps/0037-retire-the-v1-spec.md); [`README.md`](README.md) maps its sections to their current homes); `docs/roadmap.md:85,91,93`
 - `docs/metrics-design.md`, `docs/logs-design.md` — the precedent this follows
 - `docs/configuration.md:228` — forward-reference to this document
 - `docs/icps/0017-lazy-transport-connect.md` — the silent-no-op failure mode §6 avoids repeating

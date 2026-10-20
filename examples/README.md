@@ -75,7 +75,7 @@ Logs, supported since v1.2, are in [`logs/`](logs/); the log bridges have
 their own READMEs ([spdlog](../src/adapters/spdlog/README.md),
 [glog](../src/adapters/glog/README.md), [log4cxx](../src/adapters/log4cxx/README.md)).
 A metrics example will follow when metrics get conformance coverage in v1.3
-(see [`microtel-roadmap.md`](../microtel-roadmap.md)).
+(see [`docs/roadmap.md`](../docs/roadmap.md)).
 
 ### The leaf example
 

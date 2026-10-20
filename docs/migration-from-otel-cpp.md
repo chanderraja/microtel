@@ -249,4 +249,4 @@ Run `ctest --test-dir build -R otelcpp` after configuring with
   backend versions — that's [`docs/interop-matrix.md`](interop-matrix.md).
 - **Auto-instrumentation.** Both opentelemetry-cpp and microtel are manual
   instrumentation only in v1; microtel's auto-instrumentation is planned for
-  v1.5 in the [roadmap](../microtel-roadmap.md).
+  v1.5 in the [roadmap](roadmap.md).

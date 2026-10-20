@@ -1,6 +1,6 @@
 > ## Before you submit
 >
-> Thanks for contributing — [CONTRIBUTING.md](../CONTRIBUTING.md) is the full version of what follows.
+> Thanks for contributing — [CONTRIBUTING.md](CONTRIBUTING.md) is the full version of what follows.
 >
 > - **Tests first.** Any change under `src/**/*.{cpp,hpp}` needs a matching change under `tests/` in the same PR. The one override is the `[refactor]` label — spelled with the brackets, applied to the PR — and only for changes that really are behaviour-preserving (also the escape hatch for comment-only and formatting-only diffs). Deletions are exempt automatically.
 > - **Run the gates locally** before pushing: `CLANG_FORMAT=clang-format ci/scripts/format-check.sh`, then `ci/scripts/tidy-check.sh build`. Both fail the build, and unformatted PRs never reach a reviewer.

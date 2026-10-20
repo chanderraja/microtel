@@ -562,7 +562,7 @@ install(EXPORT MicrotelTargets
 #
 # The version is PROJECT_VERSION above, and include/microtel/version.hpp
 # agrees with it. Both are hand-set — generating the header from PROJECT_VERSION
-# would make a public header a build artifact, which RELEASING.md records as a
+# would make a public header a build artifact, which docs/releasing.md records as a
 # rejected trade. A release bump edits this file, version.hpp, the grpc
 # user-agent literal, tools/preflight/preflight.cpp, leaf/include/microtel/leaf.h
 # and leaf/CMakeLists.txt; ci/scripts/version-drift-check.sh (CI job

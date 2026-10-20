@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Affected interfaces / docs:** `CLAUDE.md`, `docs/coding-standards.md` §4.1 and §4.5, `docs/repository-layout.md` §4, `docs/error-model.md`, `docs/interfaces.md`, `docs/architecture.md`, `docs/sequences/connection-establishment.md`, every public header in `include/microtel/` that returns an `expected`-shaped value, every internal interface header in `include/microtel/internal/` that does the same.
 **Affected tracks:** none directly (M0 docs and headers only); A, D, E, F all touch `microtel::Expected` once implementation begins.
-**Spec / roadmap impact:** **none** — `microtel-spec.md` and `microtel-roadmap.md` are intentionally not modified. This ICP is the locus of the deviation.
+**Spec / roadmap impact:** **none** — `microtel-spec.md` and `docs/roadmap.md` are intentionally not modified. This ICP is the locus of the deviation.
 
 ## Summary
 
@@ -142,7 +142,7 @@ Every header below adds `#include "microtel/expected.hpp"` and replaces
   document that records the deviation. When v1.0 ships, the spec gets a
   one-line update calling out that "init paths return
   `microtel::Expected<T, Error>` per ICP 0002."
-- **`microtel-roadmap.md`** — no roadmap impact. The C++23 adoption decision
+- **`docs/roadmap.md`** — no roadmap impact. The C++23 adoption decision
   is captured here; the actual milestone for it lands in a future ICP if
   and when the floor moves.
 

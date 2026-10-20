@@ -24,7 +24,7 @@ namespace microtel
 /// against `kVersionString`; the preflight literal does not, and was out of step
 /// from M6-D until 1.0.0 shipped. `ci/scripts/version-drift-check.sh` (CI job
 /// `version-drift-check`) now compares all of them against `PROJECT_VERSION`.
-/// The procedure is in `RELEASING.md`.
+/// The procedure is in `docs/releasing.md`.
 
 inline constexpr std::uint32_t kVersionMajor = 1;
 inline constexpr std::uint32_t kVersionMinor = 2;

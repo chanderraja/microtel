@@ -109,6 +109,6 @@
 # ----------------------------------------------------------------------
 
 /CLAUDE.md                              @chanderraja
-/SECURITY.md                            @chanderraja
-/CODEOWNERS                             @chanderraja
-/microtel-roadmap.md                    @chanderraja
+/.github/SECURITY.md                    @chanderraja
+/.github/CODEOWNERS                     @chanderraja
+/docs/roadmap.md                        @chanderraja

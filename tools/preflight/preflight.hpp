@@ -43,7 +43,7 @@ struct SpanIdentity
     ///
     /// Taken from the hand-maintained literal in `preflight.cpp`, which has no
     /// compile-time guard against `microtel::kVersionString` and once went
-    /// unbumped for several releases (`RELEASING.md` §1). Exposed here so a
+    /// unbumped for several releases (`docs/releasing.md` §1). Exposed here so a
     /// test can pin the two together.
     std::string version;
 };

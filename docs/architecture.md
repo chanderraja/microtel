@@ -17,7 +17,7 @@ This document is the architectural entry point for microtel. It establishes the 
 
 The audience is contributors and AI agents picking up an implementation track from M2 onward. A reader who finishes this document should know what to read next for the track they own — not have implementation answers, but know where the answers live.
 
-This document covers v1 only. Forward-looking architecture (control plane, metrics, logs, HTTP/3) is in `microtel-roadmap.md`. The leaf and concentrator, which trace microcontrollers too small for the runtime and shipped experimental in v1.2, are designed in `leaf-concentrator-design.md`.
+This document covers v1 only. Forward-looking architecture (control plane, metrics, logs, HTTP/3) is in `docs/roadmap.md`. The leaf and concentrator, which trace microcontrollers too small for the runtime and shipped experimental in v1.2, are designed in `leaf-concentrator-design.md`.
 
 ---
 
@@ -185,7 +185,7 @@ The architecture deliberately accommodates these without implementing them:
 - **Auto-instrumentation.** Manual only in v1.
 - **Sugar layer.** `microtel::sugar` arrives in v1.1; v1's API is the direct OTel-style surface.
 
-See `microtel-roadmap.md` for the full forward view.
+See `docs/roadmap.md` for the full forward view.
 
 ---
 

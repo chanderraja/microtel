@@ -9,7 +9,7 @@ ship gate is met (§7, "Ship gates").
 backends, nanopb, decode-into-the-pipeline), with the release renumbered to
 v1.2 by [ICP 0032](icps/0032-release-reorder-v1.1.1.md).
 **Companion documents:** `docs/configuration.md` (§3.14 for the concentrator),
-`microtel-roadmap.md` v1.2, `docs/architecture.md`, `docs/interfaces.md`,
+`docs/roadmap.md` v1.2, `docs/architecture.md`, `docs/interfaces.md`,
 `docs/threading-model.md`, `docs/memory-model.md`, `docs/error-model.md`.
 
 ICP 0031 Decision 6 requires this document to be signed off before any leaf
@@ -2250,7 +2250,7 @@ sources:
 - [ICP 0030](icps/0030-compile-time-feature-selection.md): `MICROTEL_WITH_*`
   options (draft).
 - `docs/memory-model.md` §6–§7, `docs/sequences/backpressure-and-drop.md`, `docs/configuration.md`.
-- `microtel-roadmap.md` v1.2, v2.0, v2.1, §6.
+- `docs/roadmap.md` v1.2, v2.0, v2.1, §6.
 - `docs/metrics-design.md`: structure this document follows.
 - `src/common/config/table_merge.hpp`, `include/microtel/resource.hpp`
   (`Resource::Merge`): the per-key merge rule.

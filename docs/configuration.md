@@ -268,7 +268,7 @@ is the one TLS env var that works.
 **Not implemented in v1.** microtel connects directly to the configured
 endpoint. There is no TOML or code surface, and the environment variables below
 are **reserved names, read by nothing** — setting one changes no behaviour and
-produces no warning. Deferred; see [`microtel-roadmap.md`](../microtel-roadmap.md)
+produces no warning. Deferred; see [`roadmap.md`](roadmap.md)
 and [`compatibility-matrix.md`](compatibility-matrix.md) §3.
 
 | Variable | Effect in v1 | Intended effect |

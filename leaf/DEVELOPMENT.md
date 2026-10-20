@@ -3,7 +3,7 @@
 For contributors working on `leaf/` itself: its sources, the backend contract,
 tests, and the CI jobs that check it. Using the leaf in firmware is covered in
 [`README.md`](README.md). The project-wide rules are in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md).
+[`CONTRIBUTING.md`](../.github/CONTRIBUTING.md).
 
 Design: [`docs/leaf-concentrator-design.md`](../docs/leaf-concentrator-design.md)
 §1 (API) and §2 (backends).

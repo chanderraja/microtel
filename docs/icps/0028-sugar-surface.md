@@ -52,7 +52,7 @@ header-only, and the reason spec §18.1 excludes it from conformance testing.
 
 The namespace is **`microtel::sugar`**. `microtel-spec.md` §8's deferral table
 and §18.1, and [`docs/architecture.md`](../architecture.md) §6, all name it that
-way; `microtel-roadmap.md` §5 writes the helpers as `mt::Span`, `mt::Traced`,
+way; `docs/roadmap.md` §5 writes the helpers as `mt::Span`, `mt::Traced`,
 `mt::AttrKey`. **The spec wording wins.** `mt` is a *consumer-side* alias:
 
 ```cpp
@@ -220,7 +220,7 @@ in. That optimisation is rejected here for two independent reasons:
    upb to `src/wire/encoder/`; a pre-encoded key is OTLP field framing, and the
    sugar header is the worst possible place for it.
 
-The idea is not dead, it is scheduled: `microtel-roadmap.md` §4 v1.5 lists
+The idea is not dead, it is scheduled: `docs/roadmap.md` §4 v1.5 lists
 *"Compile-time attribute key encoding (for callers using `mt::AttrKey`)"* under
 the optimised hot path, where it can be priced against the M7 benchmark numbers.
 Shipping `AttrKey` now as a plain binder is what makes that later change

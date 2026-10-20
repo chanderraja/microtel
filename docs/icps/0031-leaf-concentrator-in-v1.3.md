@@ -3,7 +3,7 @@
 **Status:** Accepted — signed off 2026-09-25.
 **Affected interfaces / docs:**
 - `microtel-spec.md` §18.3 and §18.4
-- `microtel-roadmap.md`:
+- `docs/roadmap.md`:
   - §3 tier table
   - §4: v1.3, v2.0 and v2.1
   - §6, §7, §8 (the v1.x anti-goal row), §9

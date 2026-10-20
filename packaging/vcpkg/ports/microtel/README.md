@@ -14,7 +14,7 @@ vcpkg.
 
 Use a checkout of `master`. The port there builds the latest release; a
 release tag's own copy of this port still names the release before it, because
-the port is bumped in a follow-up PR once the tag exists (`RELEASING.md` §4).
+the port is bumped in a follow-up PR once the tag exists (`docs/releasing.md` §4).
 
 Classic mode, from a microtel checkout:
 
@@ -87,7 +87,7 @@ host build.
 (`REF "v${VERSION}"`), currently `v1.2.3`, and checks it against `SHA512`.
 `v1.2.1` is the first tag with the three build changes the port needs:
 `MICROTEL_USE_SYSTEM_DEPS`, `MICROTEL_WARNINGS_AS_ERRORS` and the
-`OpenSSL::Crypto` link. `RELEASING.md` has the step for updating `version`
+`OpenSSL::Crypto` link. `docs/releasing.md` has the step for updating `version`
 and `SHA512` at each release.
 
 Other ways to get the source:

@@ -36,7 +36,7 @@ std::string ReadSourceFile(const char* path)
     return text.str();
 }
 
-// RELEASING.md §1: the README and CONTRIBUTING.md name the release in prose
+// docs/releasing.md §1: the README and CONTRIBUTING.md name the release in prose
 // that version-drift-check.sh does not read, so a release could ship telling
 // readers to clone the previous tag.
 TEST(VersionTest, ReadmeNamesTheCurrentRelease)
@@ -64,7 +64,7 @@ TEST(VersionTest, ContributingNamesTheCurrentRelease)
         << "CONTRIBUTING.md does not name v" << microtel::kVersionString;
 }
 
-// RELEASING.md §1: tests/consumer_fetchcontent and tests/consumer_cpm pin the
+// docs/releasing.md §1: tests/consumer_fetchcontent and tests/consumer_cpm pin the
 // release tag an application would fetch, mirroring the README's Install
 // snippets. CI overrides both pins with the checkout under test, so a stale pin
 // never fails CI — which is exactly why nothing caught one. Run without the

@@ -2,13 +2,13 @@
 
 **Status:** Accepted
 **Affected interfaces / docs:** `microtel-spec.md` §13 (M7 row),
-`microtel-roadmap.md` (M7 framing, §9 benchmark trajectory),
+`docs/roadmap.md` (M7 framing, §9 benchmark trajectory),
 `docs/bench-spec.md` (all location references), `CMakeLists.txt`,
 `.github/workflows/` (new `benchmark.yml`)
 **Affected tracks:** None (docs / infra only)
 **Spec / roadmap impact:** Supersedes the implicit separate-repo assumption
 in the M7 row of `microtel-spec.md` §13 and the `microtel-bench` companion
-framing throughout `microtel-roadmap.md`.
+framing throughout `docs/roadmap.md`.
 
 ## Summary
 
@@ -49,7 +49,7 @@ description becomes:
 > metrics defined in §10. Validates the size and CPU claims that justify the
 > project's existence. Opt-in: `cmake -DMICROTEL_BUILD_BENCH=ON`.
 
-### 2. `microtel-roadmap.md`
+### 2. `docs/roadmap.md`
 
 - M7 framing section: replace all `microtel-bench repo` references with
   `bench/ directory`.

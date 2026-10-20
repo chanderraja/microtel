@@ -90,7 +90,7 @@ Every microtel archive links `microtel_headers`, so the library and a CMake
 consumer see the same values from one source. Consumer code can use
 `#if MICROTEL_HAS_METRICS` to skip its own instrumentation.
 
-There is no generated `include/microtel/config.hpp`. That keeps RELEASING.md's
+There is no generated `include/microtel/config.hpp`. That keeps docs/releasing.md's
 rule that no public header is generated. microtel ships no pkg-config file, so
 consumers who don't use CMake are not a supported install path today.
 
@@ -222,7 +222,7 @@ Each step is its own PR, green on its own:
 ## Rationale & alternatives
 
 - **A generated `microtel/config.hpp`.** It would describe the build even
-  without CMake, but it reverses RELEASING.md's decision not to generate public
+  without CMake, but it reverses docs/releasing.md's decision not to generate public
   headers. It would only help pkg-config and vendored consumers, and microtel
   supports neither today. Rejected.
 - **A link-time mismatch marker** (a per-configuration symbol that the headers

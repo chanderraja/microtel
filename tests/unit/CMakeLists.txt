@@ -41,7 +41,7 @@ microtel_add_test(
     SOURCES version_test.cpp)
 target_compile_definitions(version_test PRIVATE
     MICROTEL_README_PATH="${PROJECT_SOURCE_DIR}/README.md"
-    MICROTEL_CONTRIBUTING_PATH="${PROJECT_SOURCE_DIR}/CONTRIBUTING.md"
+    MICROTEL_CONTRIBUTING_PATH="${PROJECT_SOURCE_DIR}/.github/CONTRIBUTING.md"
     MICROTEL_CONSUMER_FETCHCONTENT_PATH="${PROJECT_SOURCE_DIR}/tests/consumer_fetchcontent/CMakeLists.txt"
     MICROTEL_CONSUMER_CPM_PATH="${PROJECT_SOURCE_DIR}/tests/consumer_cpm/CMakeLists.txt")
 

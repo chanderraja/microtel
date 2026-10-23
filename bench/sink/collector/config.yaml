@@ -27,5 +27,13 @@ service:
       processors: [batch]
       exporters: [debug]
   telemetry:
+    # `metrics.address` was removed from the collector (deprecated since
+    # v0.111); with it present v0.160 rejects the config and exits at startup,
+    # so the health check never comes up.  Use the readers form instead.
     metrics:
-      address: "0.0.0.0:8888"
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888

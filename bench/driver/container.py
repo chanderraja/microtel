@@ -90,7 +90,11 @@ class Container:
         network_alias: Optional[str] = None,
         cap_add: Optional[list] = None,
     ) -> None:
-        cmd = [self._engine, "run", "--rm", "-d", "--name", self._name]
+        # No --rm: if the process exits at startup (e.g. a config error) we
+        # still want `logs` to work.  stop() removes the container instead.
+        subprocess.run([self._engine, "rm", "-f", self._name],
+                       check=False, capture_output=True)
+        cmd = [self._engine, "run", "-d", "--name", self._name]
         for host_port, container_port in (ports or {}).items():
             cmd += ["-p", f"{host_port}:{container_port}"]
         for key, val in (env or {}).items():
@@ -115,6 +119,11 @@ class Container:
             [self._engine, "stop", self._name],
             check=False,
             capture_output=not self._verbose,
+        )
+        subprocess.run(
+            [self._engine, "rm", "-f", self._name],
+            check=False,
+            capture_output=True,
         )
         self._id = None
 

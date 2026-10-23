@@ -27,6 +27,10 @@ from pathlib import Path
 
 _BENCH_DIR = Path(__file__).parent.parent
 _REPO_ROOT = _BENCH_DIR.parent
+# Make `bench.*` importable when run as `python3 bench/scripts/jaeger_interop.py`
+# (sys.path[0] is then bench/scripts, not the repo root).
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 _NET = "jaeger-interop-net"
 _JAEGER_CONTAINER = "jaeger-interop"
 _JAEGER_IMAGE = "jaegertracing/all-in-one:latest"

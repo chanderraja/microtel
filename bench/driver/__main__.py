@@ -297,6 +297,20 @@ def _build_images(
     return sut_image_ids
 
 
+def _dump_sink_logs(sink_c: Any) -> None:
+    """Print the sink container's state and logs (used when it fails to come up)."""
+    import subprocess
+    state = subprocess.run(
+        [sink_c._engine, "inspect", "--format",
+         "{{.State.Status}} exit={{.State.ExitCode}} {{.State.Error}}", sink_c._name],
+        capture_output=True, text=True, check=False,
+    )
+    print(f"--- bench-sink state: {(state.stdout or state.stderr).strip()}", file=sys.stderr)
+    print("--- bench-sink container logs ---", file=sys.stderr)
+    print(sink_c.logs() or "(no logs)", file=sys.stderr)
+    print("--- end bench-sink logs ---", file=sys.stderr, flush=True)
+
+
 def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int = 0) -> tuple[Any, AnySinkClient]:
     """Start the sink container and return (Container context, SinkClient)."""
     sink_c = Container(engine, "bench-sink", verbose=verbose)
@@ -322,7 +336,12 @@ def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int =
         network_alias="sink",
     )
     _log("waiting for collector-sink health check ...")
-    wait_http("http://127.0.0.1:13133/health/status", timeout=30.0)
+    try:
+        wait_http("http://127.0.0.1:13133/health/status", timeout=60.0)
+    except TimeoutError:
+        _dump_sink_logs(sink_c)
+        sink_c.stop()
+        raise
     return sink_c, CollectorSinkClient("127.0.0.1")
 
 

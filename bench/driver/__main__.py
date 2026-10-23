@@ -306,6 +306,16 @@ def _build_images(
     return sut_image_ids
 
 
+def _wait_ready_line(cont: Any, needle: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if needle in cont.logs():
+            return
+        time.sleep(0.5)
+    _dump_container_logs(cont, f"container {cont._name}")
+    raise TimeoutError(f"{cont._name}: no {needle!r} in logs after {timeout}s")
+
+
 def _dump_container_logs(cont: Any, label: str) -> None:
     """Print a container's state, exit code and logs (used when it fails)."""
     import subprocess
@@ -418,6 +428,9 @@ def _run_sut(
             ) from exc
         _log(f"  waiting for {sut.name} control port ...")
         wait_tcp("127.0.0.1", sut.ports.control, timeout=30.0)
+        # The engine's port proxy accepts before emit_app listens (it connects
+        # to the exporter first); wait for emit_app's own ready line.
+        _wait_ready_line(c, "ready on control port", timeout=60.0)
 
         try:
             with ControlClient("127.0.0.1", sut.ports.control) as ctrl:

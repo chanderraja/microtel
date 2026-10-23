@@ -108,6 +108,19 @@ def _wait_tcp(host: str, port: int, timeout: float = 30.0) -> None:
     raise RuntimeError(f"timed out waiting for {host}:{port}")
 
 
+def _wait_log(engine: str, name: str, needle: str, timeout: float = 60.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        r = _run([engine, "logs", name], check=False)
+        if needle in r.stdout + r.stderr:
+            return
+        st = _run([engine, "inspect", "--format", "{{.State.Running}}", name], check=False)
+        if st.stdout.strip() == "false":
+            raise RuntimeError(f"{name} exited before becoming ready")
+        time.sleep(0.5)
+    raise RuntimeError(f"timed out waiting for {needle!r} in {name} logs")
+
+
 def _create_network(engine: str) -> None:
     result = _run([engine, "network", "create", _NET], check=False)
     if result.returncode != 0 and "already exists" not in result.stderr:
@@ -172,6 +185,10 @@ def _run_sut(engine: str, sut: dict) -> None:
     try:
         _log(f"  waiting for {sut['name']} control port ...")
         _wait_tcp("127.0.0.1", sut["control_port"])
+        # The published port accepts TCP (via the engine's port proxy) before
+        # emit_app listens -- it connects to the exporter first -- and the proxy
+        # then resets the connection.  Wait for emit_app's own ready line.
+        _wait_log(engine, container, "ready on control port")
 
         with ControlClient("127.0.0.1", sut["control_port"]) as ctrl:
             _log(f"  emitting {_EMIT_SPANS} spans ...")

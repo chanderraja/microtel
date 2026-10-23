@@ -10,9 +10,10 @@
 #                   bench driver's built-in --sink collector mode.
 #                   Verification: delivery_rate_pct >= 95% in results.json.
 #
-#   jaeger          OTLP/gRPC and OTLP/HTTP via jaegertracing/all-in-one.
-#                   Verification: Jaeger query API returns at least one user
-#                   service name (i.e. spans arrived and were indexed).
+#   jaeger          OTLP/gRPC and OTLP/HTTP via jaegertracing/jaeger (v2,
+#                   pinned; config in bench/sink/jaeger/config.yaml).
+#                   Verification: Jaeger /api/v3/services lists "bench"
+#                   (i.e. spans arrived and were indexed).
 #
 # otelcol job uses the bench driver's --sink collector mode, which builds and
 # manages the otel-collector container internally (bench/sink/collector/).
@@ -120,7 +121,7 @@ jobs:
         run: pip install plotly
 
       - name: Pull Jaeger image
-        run: docker pull jaegertracing/all-in-one:1.76.0
+        run: docker pull jaegertracing/jaeger:2.22.0
 
       - name: Run Jaeger interop
         env:

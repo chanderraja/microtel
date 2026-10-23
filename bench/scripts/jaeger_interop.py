@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Standalone Jaeger OTLP interop test.
 
-Starts Jaeger all-in-one, runs microtel (HTTP) and microtel-grpc (gRPC) SUTs
-against it, and verifies that user service names appear in the Jaeger query API.
+Starts Jaeger v2 (bench/sink/jaeger/config.yaml), runs microtel (HTTP) and microtel-grpc (gRPC) SUTs
+against it, and verifies that the "bench" service appears in the Jaeger v3 query API.
 
 Usage (from repo root):
     python3 bench/scripts/jaeger_interop.py [--engine docker|podman]
@@ -33,9 +33,12 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 _NET = "jaeger-interop-net"
 _JAEGER_CONTAINER = "jaeger-interop"
-# Pinned: all-in-one is the frozen v1 line (1.76.0 is its last release); the
-# --collector.otlp.http.tls.* flags below are v1 flags.
-_JAEGER_IMAGE = "jaegertracing/all-in-one:1.76.0"
+# Jaeger v2 (collector-based), pinned.  Configured by a collector-style YAML
+# file, bench/sink/jaeger/config.yaml, bind-mounted into the container.
+_JAEGER_IMAGE = "jaegertracing/jaeger:2.22.0"
+_JAEGER_CONFIG = _BENCH_DIR / "sink" / "jaeger" / "config.yaml"
+# v2 removed the legacy /api/* query endpoints; the API is /api/v3/*.
+_SERVICES_URL = "http://127.0.0.1:16686/api/v3/services"
 # microtel OTLP/HTTP is HTTP/2-only; Jaeger's plaintext OTLP/HTTP receiver is
 # HTTP/1.1-only, so the HTTP leg goes over TLS (ALPN h2).  See
 # docs/interop-matrix.md section 4 and bench/driver/tls_material.py.
@@ -132,22 +135,20 @@ def _remove_network(engine: str) -> None:
 
 
 def _start_jaeger(engine: str) -> None:
-    _log("starting Jaeger all-in-one ...")
+    _log(f"starting Jaeger ({_JAEGER_IMAGE}) ...")
     _run([
         engine, "run", "-d",
         "--name", _JAEGER_CONTAINER,
         "--network", _NET,
         "--network-alias", "jaeger",
         "-p", "16686:16686",
-        "-e", "COLLECTOR_OTLP_ENABLED=true",
         "-v", f"{_TLS_DIR}:/certs:ro",
+        "-v", f"{_JAEGER_CONFIG}:/etc/jaeger/config.yaml:ro",
         _JAEGER_IMAGE,
-        "--collector.otlp.http.tls.enabled=true",
-        "--collector.otlp.http.tls.cert=/certs/server.crt",
-        "--collector.otlp.http.tls.key=/certs/server.key",
+        "--config", "/etc/jaeger/config.yaml",
     ])
     _log("waiting for Jaeger query API ...")
-    _wait_http("http://127.0.0.1:16686/api/services")
+    _wait_http(_SERVICES_URL)
     _log("Jaeger ready.")
 
 
@@ -220,7 +221,7 @@ def _dump_container(engine: str, name: str, label: str) -> None:
 def _verify_jaeger() -> bool:
     """Check that at least one non-jaeger-internal service appears."""
     time.sleep(2)  # give batch processor a moment to flush
-    url = "http://127.0.0.1:16686/api/services"
+    url = _SERVICES_URL
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read().decode())
@@ -228,11 +229,13 @@ def _verify_jaeger() -> bool:
         _log(f"FAIL: could not query Jaeger services API: {exc}")
         return False
 
-    services = data.get("data", [])
-    user_services = [s for s in services if s != "jaeger-query"]
-    if not user_services:
-        _log(f"FAIL: no user services in Jaeger — got: {services}")
+    # v3 shape: {"services": [...]}.  Jaeger reports its own "jaeger" service;
+    # the emit-app's service.name is "bench" (EMIT_SERVICE_NAME default).
+    services = data.get("services", [])
+    if "bench" not in services:
+        _log(f"FAIL: service 'bench' not in Jaeger — got: {services}")
         return False
+    user_services = [s for s in services if s != "jaeger"]
 
     _log(f"PASS: Jaeger has user services: {user_services}")
     return True

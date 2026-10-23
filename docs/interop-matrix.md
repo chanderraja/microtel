@@ -28,7 +28,7 @@ themselves live in the files named in the table.
 | `opentelemetry-proto` | `v1.10.0` | vendored; [`proto/README.md`](../proto/README.md) | wire encoder, `regen-check` |
 | `protoc` / upb | `v29.4` | [`gen/`](../gen/) + `regen-check` in [`ci.yml`](../.github/workflows/ci.yml) | generated accessors, zero-diff regen gate |
 | `otel/opentelemetry-collector-contrib` | `0.160.0` | [`ci/scripts/conformance.sh`](../ci/scripts/conformance.sh), [`bench/sink/collector/Dockerfile`](../bench/sink/collector/Dockerfile), [`bench/versions.lock`](../bench/versions.lock), [`examples/stack/compose.yaml`](../examples/stack/compose.yaml) | `conformance` job, bench collector sink, examples stack |
-| `jaegertracing/all-in-one` | **`latest` — UNPINNED, known gap** | [`interop.yml`](../.github/workflows/interop.yml) | weekly interop only |
+| `jaegertracing/jaeger` (v2) | `2.22.0` | [`bench/scripts/jaeger_interop.py`](../bench/scripts/jaeger_interop.py), [`interop.yml`](../.github/workflows/interop.yml); config [`bench/sink/jaeger/config.yaml`](../bench/sink/jaeger/config.yaml) | weekly interop only |
 
 Collector image digest (multi-arch index) for `0.160.0`:
 
@@ -47,13 +47,15 @@ images — `grafana/tempo` and `grafana/grafana` — are pinned in the same
 in microtel talks to them, and no gate depends on their behaviour. They are
 recorded in [`examples/stack/README.md`](../examples/stack/README.md).
 
-### Jaeger is not pinned
+### Jaeger
 
-`interop.yml` pulls `jaegertracing/all-in-one:latest`. A weekly job that tracks
-a moving tag can fail for reasons that have nothing to do with a microtel
-change, and its green is not evidence about any particular Jaeger version.
-It runs weekly rather than per-PR, so it blocks nothing — but it should be
-pinned. See §5.
+The interop job runs Jaeger **v2** (`jaegertracing/jaeger:2.22.0`), pinned by
+tag. Jaeger v1 (`jaegertracing/all-in-one`) reached end of life on
+2025-12-31. v2 is built on the OpenTelemetry Collector and is configured by a
+collector-style YAML file: OTLP gRPC on 4317, OTLP/HTTP over TLS on 4318 (see
+§4), in-memory storage, and the query UI/API on 16686. v2 serves only the v3
+query API (`/api/v3/services`, `/api/v3/traces`); the legacy `/api/services`
+returns 404.
 
 ---
 
@@ -198,4 +200,3 @@ A pin bump is one PR:
 |---|---|
 | Metrics conformance against the collector | v1.3 |
 | Restart-recovery scenario (collector bounced mid-export) | post-v1.0 |
-| Pinning `jaegertracing/all-in-one` | post-v1.0 |

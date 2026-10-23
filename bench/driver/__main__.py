@@ -39,6 +39,7 @@ from .plots import write_plots
 from .regression import check as check_regression
 from .regression import format_report as format_regression_report
 from .report import build_results, write_json, write_markdown
+from . import tls_material
 from .sink_client import CollectorSinkClient, SinkClient
 
 _BENCH_DIR = Path(__file__).parent.parent
@@ -224,9 +225,17 @@ def _delivery_rate_pct(spans_received: int, spans_expected: int,
     return round(spans_received / spans_expected * 100, 2)
 
 
+# Set by _start_sink when the sink's OTLP/HTTP receiver is TLS-only (collector
+# mode).  microtel OTLP/HTTP is HTTP/2-only and a stock collector serves only
+# HTTP/1.1 on plaintext, so the HTTP leg must use https:// (ALPN h2).
+_SINK_TLS_DIR: Optional[Path] = None
+
+
 def _otlp_endpoint(protocol: str) -> str:
     if protocol == "grpc":
         return "http://sink:4317"
+    if _SINK_TLS_DIR is not None:
+        return "https://sink:4318"
     return "http://sink:4318"
 
 
@@ -297,6 +306,30 @@ def _build_images(
     return sut_image_ids
 
 
+def _wait_ready_line(cont: Any, needle: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if needle in cont.logs():
+            return
+        time.sleep(0.5)
+    _dump_container_logs(cont, f"container {cont._name}")
+    raise TimeoutError(f"{cont._name}: no {needle!r} in logs after {timeout}s")
+
+
+def _dump_container_logs(cont: Any, label: str) -> None:
+    """Print a container's state, exit code and logs (used when it fails)."""
+    import subprocess
+    state = subprocess.run(
+        [cont._engine, "inspect", "--format",
+         "{{.State.Status}} exit={{.State.ExitCode}} {{.State.Error}}", cont._name],
+        capture_output=True, text=True, check=False,
+    )
+    print(f"--- {label} state: {(state.stdout or state.stderr).strip()}", file=sys.stderr)
+    print(f"--- {label} container logs ---", file=sys.stderr)
+    print(cont.logs() or "(no logs)", file=sys.stderr)
+    print(f"--- end {label} logs ---", file=sys.stderr, flush=True)
+
+
 def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int = 0) -> tuple[Any, AnySinkClient]:
     """Start the sink container and return (Container context, SinkClient)."""
     sink_c = Container(engine, "bench-sink", verbose=verbose)
@@ -315,14 +348,22 @@ def _start_sink(engine: str, sink_mode: str, verbose: bool, sink_delay_ms: int =
         wait_http("http://127.0.0.1:19080/health", timeout=30.0)
         return sink_c, SinkClient("127.0.0.1", 19080)
 
+    global _SINK_TLS_DIR
+    _SINK_TLS_DIR = tls_material.generate()
     sink_c.start(
         image=_COLLECTOR_IMAGE,
         ports={8888: 8888, 13133: 13133},
+        volumes={str(_SINK_TLS_DIR): "/certs"},
         network=_NET_NAME,
         network_alias="sink",
     )
     _log("waiting for collector-sink health check ...")
-    wait_http("http://127.0.0.1:13133/health/status", timeout=30.0)
+    try:
+        wait_http("http://127.0.0.1:13133/health/status", timeout=60.0)
+    except TimeoutError:
+        _dump_container_logs(sink_c, "bench-sink")
+        sink_c.stop()
+        raise
     return sink_c, CollectorSinkClient("127.0.0.1")
 
 
@@ -358,6 +399,10 @@ def _run_sut(
         # profile_env is the base; sut.env overrides (sweep values live in sut.env).
         env = {**profile_env, **sut.env}
         env["OTEL_EXPORTER_OTLP_ENDPOINT"] = _otlp_endpoint(sut.protocol)
+        volumes = None
+        if _SINK_TLS_DIR is not None and sut.protocol == "http":
+            env["OTEL_EXPORTER_OTLP_CERTIFICATE"] = "/certs/ca.crt"
+            volumes = {str(_SINK_TLS_DIR): "/certs"}
         spans_per_iter = _spans_per_iteration(env)
         try:
             c.start(
@@ -366,6 +411,7 @@ def _run_sut(
                 env=env,
                 network=_NET_NAME,
                 cap_add=cap_add,
+                volumes=volumes,
             )
         except subprocess.CalledProcessError as exc:
             stderr = (exc.stderr or "").lower()
@@ -382,104 +428,112 @@ def _run_sut(
             ) from exc
         _log(f"  waiting for {sut.name} control port ...")
         wait_tcp("127.0.0.1", sut.ports.control, timeout=30.0)
+        # The engine's port proxy accepts before emit_app listens (it connects
+        # to the exporter first); wait for emit_app's own ready line.
+        _wait_ready_line(c, "ready on control port", timeout=60.0)
 
-        with ControlClient("127.0.0.1", sut.ports.control) as ctrl:
-            _log(f"  warmup ({warmup_spans} spans) ...")
-            ctrl.run(warmup_spans, threads=threads, rate_hz=rate_hz)
-            ctrl.flush()   # drain both BSP and exporter queues before resetting
-            time.sleep(0.1)
-            sink_client.reset()
-
-            for i in range(n_samples):
+        try:
+            with ControlClient("127.0.0.1", sut.ports.control) as ctrl:
+                _log(f"  warmup ({warmup_spans} spans) ...")
+                ctrl.run(warmup_spans, threads=threads, rate_hz=rate_hz)
+                ctrl.flush()   # drain both BSP and exporter queues before resetting
+                time.sleep(0.1)
                 sink_client.reset()
-                result = ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
-                flush_result = ctrl.flush()
-                time.sleep(0.5)
-                sink_snap = sink_client.stats()
-                sink_errors = sink_snap.get("errors", 0)
-                sink_http_req = sink_snap.get("http_requests_received", 0)
-                sink_grpc_req = sink_snap.get("grpc_requests_received", 0)
-                export_requests = _export_requests(sink_snap)
-                _log(
-                    f"  sample {i + 1}/{n_samples}: "
-                    f"emitted={result['spans_emitted']} "
-                    f"sink_received={_received_count(sink_snap, signal)} "
-                    f"(http={sink_http_req} grpc={sink_grpc_req}) "
-                    f"p50={result['latency_p50_ns']}ns "
-                    f"flush={flush_result.get('flush_ns', 0)}ns"
-                )
-                if sink_errors > 0:
-                    _log(
-                        f"  WARNING: sink errors={sink_errors} "
-                        f"last_error={sink_snap.get('last_error', '')!r}"
-                    )
-                elif _received_count(sink_snap, signal) == 0 and sink_http_req == 0 and sink_grpc_req == 0:
-                    _log(
-                        "  WARNING: sink received 0 requests — "
-                        "check endpoint URL, port, and container network"
-                    )
-                dur_ns = result.get("duration_ns", 0)
-                flush_ns = flush_result.get("flush_ns", 0)
-                bytes_rx = sink_snap.get("bytes_received")
-                total_ns = dur_ns + flush_ns
-                spans_rx = _received_count(sink_snap, signal)
-                # Wire throughput: bytes land at sink during flush, not during emit.
-                # Use flush_ns (the actual HTTP-transfer window) as denominator.
-                throughput_mbps = (
-                    bytes_rx * 8000.0 / flush_ns
-                    if (bytes_rx is not None and flush_ns > 0)
-                    else None
-                )
-                spans_per_sec = (
-                    spans_rx / total_ns * 1e9
-                    if (spans_rx > 0 and total_ns > 0)
-                    else None
-                )
-                spans_emitted_n = result["spans_emitted"]
-                spans_expected = spans_emitted_n * spans_per_iter
-                delivery_rate_pct = _delivery_rate_pct(spans_rx, spans_expected, signal)
-                samples.append({
-                    "spans_emitted":  result["spans_emitted"],
-                    "spans_expected": spans_expected,
-                    "items_received": spans_rx,
-                    "spans_dropped":  result["spans_dropped"],
-                    "bytes_sent":     result.get("bytes_sent", 0),
-                    "duration_ns":     dur_ns,
-                    "spans_per_sec":   spans_per_sec,
-                    "throughput_mbps": throughput_mbps,
-                    "delivery_rate_pct": delivery_rate_pct,
-                    "latency_p50_ns":    result["latency_p50_ns"],
-                    "latency_p95_ns":    result["latency_p95_ns"],
-                    "latency_p99_ns":    result["latency_p99_ns"],
-                    "latency_min_ns":    result["latency_min_ns"],
-                    "latency_max_ns":    result["latency_max_ns"],
-                    "latency_histogram": result.get("latency_histogram", []),
-                    "flush_ns":          flush_ns,
-                    "export_requests":   export_requests,
-                    "sink": {
-                        "mode":                   sink_snap["mode"],
-                        "spans_received":         sink_snap["spans_received"],
-                        "log_records_received":   sink_snap.get("log_records_received", 0),
-                        "bytes_received":         sink_snap["bytes_received"],
-                        "http_requests_received": sink_http_req,
-                        "grpc_requests_received": sink_grpc_req,
-                        "errors":                 sink_errors,
-                        "last_error":             sink_snap.get("last_error", ""),
-                    },
-                })
 
-            if flamegraph_dir and out_dir is not None:
-                _log(f"  flamegraph: recording dedicated profiling sample ...")
-                recorder = FlameGraphRecorder(engine, container_name)
-                recorder.start()
-                ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
-                svg_path = recorder.finish(sut.name, out_dir, flamegraph_dir)
-                if svg_path:
-                    _log(f"  flamegraph: SVG written to {svg_path}")
-                else:
-                    _log(f"  flamegraph: SVG generation failed for {sut.name}")
+                for i in range(n_samples):
+                    sink_client.reset()
+                    result = ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
+                    flush_result = ctrl.flush()
+                    time.sleep(0.5)
+                    sink_snap = sink_client.stats()
+                    sink_errors = sink_snap.get("errors", 0)
+                    sink_http_req = sink_snap.get("http_requests_received", 0)
+                    sink_grpc_req = sink_snap.get("grpc_requests_received", 0)
+                    export_requests = _export_requests(sink_snap)
+                    _log(
+                        f"  sample {i + 1}/{n_samples}: "
+                        f"emitted={result['spans_emitted']} "
+                        f"sink_received={_received_count(sink_snap, signal)} "
+                        f"(http={sink_http_req} grpc={sink_grpc_req}) "
+                        f"p50={result['latency_p50_ns']}ns "
+                        f"flush={flush_result.get('flush_ns', 0)}ns"
+                    )
+                    if sink_errors > 0:
+                        _log(
+                            f"  WARNING: sink errors={sink_errors} "
+                            f"last_error={sink_snap.get('last_error', '')!r}"
+                        )
+                    elif _received_count(sink_snap, signal) == 0 and sink_http_req == 0 and sink_grpc_req == 0:
+                        _log(
+                            "  WARNING: sink received 0 requests — "
+                            "check endpoint URL, port, and container network"
+                        )
+                    dur_ns = result.get("duration_ns", 0)
+                    flush_ns = flush_result.get("flush_ns", 0)
+                    bytes_rx = sink_snap.get("bytes_received")
+                    total_ns = dur_ns + flush_ns
+                    spans_rx = _received_count(sink_snap, signal)
+                    # Wire throughput: bytes land at sink during flush, not during emit.
+                    # Use flush_ns (the actual HTTP-transfer window) as denominator.
+                    throughput_mbps = (
+                        bytes_rx * 8000.0 / flush_ns
+                        if (bytes_rx is not None and flush_ns > 0)
+                        else None
+                    )
+                    spans_per_sec = (
+                        spans_rx / total_ns * 1e9
+                        if (spans_rx > 0 and total_ns > 0)
+                        else None
+                    )
+                    spans_emitted_n = result["spans_emitted"]
+                    spans_expected = spans_emitted_n * spans_per_iter
+                    delivery_rate_pct = _delivery_rate_pct(spans_rx, spans_expected, signal)
+                    samples.append({
+                        "spans_emitted":  result["spans_emitted"],
+                        "spans_expected": spans_expected,
+                        "items_received": spans_rx,
+                        "spans_dropped":  result["spans_dropped"],
+                        "bytes_sent":     result.get("bytes_sent", 0),
+                        "duration_ns":     dur_ns,
+                        "spans_per_sec":   spans_per_sec,
+                        "throughput_mbps": throughput_mbps,
+                        "delivery_rate_pct": delivery_rate_pct,
+                        "latency_p50_ns":    result["latency_p50_ns"],
+                        "latency_p95_ns":    result["latency_p95_ns"],
+                        "latency_p99_ns":    result["latency_p99_ns"],
+                        "latency_min_ns":    result["latency_min_ns"],
+                        "latency_max_ns":    result["latency_max_ns"],
+                        "latency_histogram": result.get("latency_histogram", []),
+                        "flush_ns":          flush_ns,
+                        "export_requests":   export_requests,
+                        "sink": {
+                            "mode":                   sink_snap["mode"],
+                            "spans_received":         sink_snap["spans_received"],
+                            "log_records_received":   sink_snap.get("log_records_received", 0),
+                            "bytes_received":         sink_snap["bytes_received"],
+                            "http_requests_received": sink_http_req,
+                            "grpc_requests_received": sink_grpc_req,
+                            "errors":                 sink_errors,
+                            "last_error":             sink_snap.get("last_error", ""),
+                        },
+                    })
 
-            ctrl.quit()
+                if flamegraph_dir and out_dir is not None:
+                    _log(f"  flamegraph: recording dedicated profiling sample ...")
+                    recorder = FlameGraphRecorder(engine, container_name)
+                    recorder.start()
+                    ctrl.run(spans_per_sample, threads=threads, rate_hz=rate_hz)
+                    svg_path = recorder.finish(sut.name, out_dir, flamegraph_dir)
+                    if svg_path:
+                        _log(f"  flamegraph: SVG written to {svg_path}")
+                    else:
+                        _log(f"  flamegraph: SVG generation failed for {sut.name}")
+
+                ctrl.quit()
+        except (ConnectionError, OSError, TimeoutError):
+            # The SUT usually died (e.g. backend init failed); show why.
+            _dump_container_logs(c, f"SUT {sut.name}")
+            raise
 
     return samples, svg_path
 

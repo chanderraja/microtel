@@ -154,6 +154,12 @@ public:
             .WithServiceVersion(opts.service_version)
             .WithCompressionGzip(opts.compression_gzip)
             .WithMetricInterval(metric_interval);
+        if (!opts.tls_ca_bundle.empty())
+        {
+            microtel::TlsOptions tls;
+            tls.ca_bundle = opts.tls_ca_bundle;
+            builder.WithTls(std::move(tls));
+        }
 #if defined(BENCH_LEAF_FANIN)
         if (opts.leaf_count > 0)
         {

@@ -89,8 +89,13 @@ class Container:
         network: Optional[str] = None,
         network_alias: Optional[str] = None,
         cap_add: Optional[list] = None,
+        volumes: Optional[dict] = None,
     ) -> None:
-        cmd = [self._engine, "run", "--rm", "-d", "--name", self._name]
+        # No --rm: if the process exits at startup (e.g. a config error) we
+        # still want `logs` to work.  stop() removes the container instead.
+        subprocess.run([self._engine, "rm", "-f", self._name],
+                       check=False, capture_output=True)
+        cmd = [self._engine, "run", "-d", "--name", self._name]
         for host_port, container_port in (ports or {}).items():
             cmd += ["-p", f"{host_port}:{container_port}"]
         for key, val in (env or {}).items():
@@ -99,6 +104,8 @@ class Container:
             cmd += ["--network", network]
         if network_alias:
             cmd += ["--network-alias", network_alias]
+        for host_path, container_path in (volumes or {}).items():
+            cmd += ["-v", f"{host_path}:{container_path}:ro"]
         for cap in (cap_add or []):
             cmd += ["--cap-add", cap]
         cmd.append(image)
@@ -115,6 +122,11 @@ class Container:
             [self._engine, "stop", self._name],
             check=False,
             capture_output=not self._verbose,
+        )
+        subprocess.run(
+            [self._engine, "rm", "-f", self._name],
+            check=False,
+            capture_output=True,
         )
         self._id = None
 

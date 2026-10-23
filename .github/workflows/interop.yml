@@ -120,7 +120,7 @@ jobs:
         run: pip install plotly
 
       - name: Pull Jaeger image
-        run: docker pull jaegertracing/all-in-one:latest
+        run: docker pull jaegertracing/all-in-one:1.76.0
 
       - name: Run Jaeger interop
         env:

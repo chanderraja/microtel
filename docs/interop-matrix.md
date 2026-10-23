@@ -155,6 +155,10 @@ Consequences:
   how far the gap reaches.
 - `bench/sink/blackhole` already wraps its handler in `h2c.NewHandler` for this
   reason, so the bench harness does not see the gap.
+- The interop workflow (`.github/workflows/interop.yml`) runs its OTLP/HTTP
+  legs against the stock collector and Jaeger over **TLS** for the same reason:
+  `bench/driver/tls_material.py` generates a throwaway CA, the receivers serve
+  it, and the emit-app trusts it via `OTEL_EXPORTER_OTLP_CERTIFICATE`.
 
 Since this was found, the gap names itself rather than arriving as a generic
 nghttp2 failure: `Build()` warns, `Connect()` returns an `Error::Kind::Protocol`

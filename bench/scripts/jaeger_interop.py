@@ -33,7 +33,13 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 _NET = "jaeger-interop-net"
 _JAEGER_CONTAINER = "jaeger-interop"
-_JAEGER_IMAGE = "jaegertracing/all-in-one:latest"
+# Pinned: all-in-one is the frozen v1 line (1.76.0 is its last release); the
+# --collector.otlp.http.tls.* flags below are v1 flags.
+_JAEGER_IMAGE = "jaegertracing/all-in-one:1.76.0"
+# microtel OTLP/HTTP is HTTP/2-only; Jaeger's plaintext OTLP/HTTP receiver is
+# HTTP/1.1-only, so the HTTP leg goes over TLS (ALPN h2).  See
+# docs/interop-matrix.md section 4 and bench/driver/tls_material.py.
+_TLS_DIR: "Path | None" = None
 _EMIT_SPANS = 5000
 
 _SUTS = [
@@ -42,7 +48,8 @@ _SUTS = [
         "dockerfile": "bench/sut/microtel/Dockerfile",
         "image": "bench-sut-microtel",
         "protocol": "http",
-        "endpoint": "http://jaeger:4318",
+        "endpoint": "https://jaeger:4318",
+        "tls": True,
         "control_port": 19090,
     },
     {
@@ -120,7 +127,11 @@ def _start_jaeger(engine: str) -> None:
         "--network-alias", "jaeger",
         "-p", "16686:16686",
         "-e", "COLLECTOR_OTLP_ENABLED=true",
+        "-v", f"{_TLS_DIR}:/certs:ro",
         _JAEGER_IMAGE,
+        "--collector.otlp.http.tls.enabled=true",
+        "--collector.otlp.http.tls.cert=/certs/server.crt",
+        "--collector.otlp.http.tls.key=/certs/server.key",
     ])
     _log("waiting for Jaeger query API ...")
     _wait_http("http://127.0.0.1:16686/api/services")
@@ -153,6 +164,9 @@ def _run_sut(engine: str, sut: dict) -> None:
         "--network", _NET,
         "-p", f"{sut['control_port']}:{sut['control_port']}",
         "-e", f"OTEL_EXPORTER_OTLP_ENDPOINT={sut['endpoint']}",
+        *(["-v", f"{_TLS_DIR}:/certs:ro",
+           "-e", "OTEL_EXPORTER_OTLP_CERTIFICATE=/certs/ca.crt"]
+          if sut.get("tls") else []),
         sut["image"],
     ])
     try:
@@ -167,8 +181,23 @@ def _run_sut(engine: str, sut: dict) -> None:
             ctrl.flush()
             time.sleep(1.0)
             ctrl.quit()
+    except (ConnectionError, OSError, RuntimeError):
+        _dump_container(engine, container, f"SUT {sut['name']}")
+        raise
     finally:
         _run([engine, "rm", "-f", container], check=False)
+
+
+def _dump_container(engine: str, name: str, label: str) -> None:
+    """Print a container's state, exit code and logs (on failure)."""
+    st = _run([engine, "inspect", "--format",
+               "{{.State.Status}} exit={{.State.ExitCode}} {{.State.Error}}", name],
+              check=False)
+    print(f"--- {label} state: {(st.stdout or st.stderr).strip()}", file=sys.stderr)
+    logs = _run([engine, "logs", name], check=False)
+    print(f"--- {label} container logs ---", file=sys.stderr)
+    print((logs.stdout + logs.stderr) or "(no logs)", file=sys.stderr)
+    print(f"--- end {label} logs ---", file=sys.stderr, flush=True)
 
 
 def _verify_jaeger() -> bool:
@@ -203,17 +232,28 @@ def main() -> int:
     # Make driver importable when running from repo root.
     sys.path.insert(0, str(_BENCH_DIR))
 
+    global _TLS_DIR
+    from bench.driver import tls_material
+    _TLS_DIR = tls_material.generate()
+
     _create_network(engine)
     try:
+        ok = False
         _start_jaeger(engine)
         try:
             for sut in _SUTS:
                 _build_sut_image(engine, sut)
                 _run_sut(engine, sut)
 
-            return 0 if _verify_jaeger() else 1
+            ok = _verify_jaeger()
+        except BaseException:
+            ok = False
+            raise
         finally:
+            if not ok:
+                _dump_container(engine, _JAEGER_CONTAINER, "Jaeger")
             _stop_jaeger(engine)
+        return 0 if ok else 1
     finally:
         _remove_network(engine)
 

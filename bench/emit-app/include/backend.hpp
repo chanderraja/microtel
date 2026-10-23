@@ -47,6 +47,7 @@ struct BackendOptions
     bool        logs_enabled{false};       ///< true for the logs workload (otel-cpp builds its log pipeline only then)
     int         leaf_count{0};             ///< leaf_fanin: simulated leaves (0 = not the leaf workload)
     int         leaf_spans_per_payload{0}; ///< leaf_fanin: spans in each leaf payload
+    std::string tls_ca_bundle;             ///< OTEL_EXPORTER_OTLP_CERTIFICATE; empty = system trust
 };
 
 /// Abstract tracing backend.

@@ -89,6 +89,7 @@ class Container:
         network: Optional[str] = None,
         network_alias: Optional[str] = None,
         cap_add: Optional[list] = None,
+        volumes: Optional[dict] = None,
     ) -> None:
         # No --rm: if the process exits at startup (e.g. a config error) we
         # still want `logs` to work.  stop() removes the container instead.
@@ -103,6 +104,8 @@ class Container:
             cmd += ["--network", network]
         if network_alias:
             cmd += ["--network-alias", network_alias]
+        for host_path, container_path in (volumes or {}).items():
+            cmd += ["-v", f"{host_path}:{container_path}:ro"]
         for cap in (cap_add or []):
             cmd += ["--cap-add", cap]
         cmd.append(image)

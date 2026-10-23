@@ -56,6 +56,10 @@ int main()
         .leaf_count            = (mode == bench::WorkloadMode::LeafFanin)
                                      ? std::stoi(EnvOr("EMIT_LEAVES", "100")) : 0,
         .leaf_spans_per_payload = std::stoi(EnvOr("EMIT_LEAF_SPANS_PER_PAYLOAD", "10")),
+        // CA for an https:// endpoint.  The interop harness needs this: microtel's
+        // OTLP/HTTP is HTTP/2-only, and stock collector/Jaeger OTLP/HTTP receivers
+        // only speak HTTP/2 over TLS (ALPN h2), not plaintext h2c.
+        .tls_ca_bundle          = EnvOr("OTEL_EXPORTER_OTLP_CERTIFICATE", ""),
     };
 
     std::unique_ptr<bench::IBackend> backend{bench::CreateBackend()};

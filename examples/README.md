@@ -66,6 +66,7 @@ in `build/examples/microtel_example_<name>`, whichever directory defined it.
 | [`auth_bearer/`](auth_bearer/) | Static headers and `WithAuthProvider`, against a collector that checks the token. Opt-in overlay. | Available |
 | [`tls/`](tls/) | TLS, a custom CA and mTLS, and the one configuration in which OTLP/HTTP works. Opt-in overlay. | Available |
 | [`leaf/`](leaf/) | Experimental. A C leaf (a device too small for the runtime) sends OTLP payloads over UDP to a C++ concentrator, which gives each device its own Resource and exports every device's spans together. A full C++ node joins the same link through its own `ExportTransport` (`WithExportTransport`), and can command the leaf so one trace spans both devices. Needs extra build options; see below. | Available |
+| [`demo-edge-trace/`](demo-edge-trace/) | Experimental. One trace from a Linux service (C++ SDK) into Cortex-M4 firmware (C11 leaf) on QEMU mps2-an386 over a serial line, back through the concentrator, and into Tempo, all from one `docker compose up`. A CI smoke job checks the trace. | Available |
 | [`leaf_mqtt/`](leaf_mqtt/) | Experimental. The leaf example over MQTT: a C leaf publishes each payload to `microtel/<device-id>/traces` with coreMQTT, and a C++ concentrator subscribed with libmosquitto takes the leaf id from the topic. Needs the leaf build options and libmosquitto, and brings its own Mosquitto broker as an opt-in overlay. | Available |
 | `metrics_exemplars/` | Metrics with exemplars. | Planned, optional (adds Prometheus to the stack) |
 

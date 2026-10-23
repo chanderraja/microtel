@@ -1,0 +1,36 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Smoke test for examples/demo-edge-trace: builds the Cortex-M4 firmware and
+# the gateway, runs the whole demo with docker compose (QEMU mps2-an386 device,
+# gateway, collector, Tempo, Grafana), and asserts that Tempo holds one trace
+# with spans from both edge-gateway and mcu-sensor, linked parent -> child.
+name: demo-edge-trace
+
+on:
+  pull_request:
+    paths:
+      - 'examples/demo-edge-trace/**'
+      - 'examples/stack/**'
+      - 'leaf/**'
+      - 'include/microtel/leaf_receiver.hpp'
+      - '.github/workflows/demo-edge-trace.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'examples/demo-edge-trace/**'
+      - 'leaf/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: demo smoke (QEMU Cortex-M4 -> Tempo)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the demo and verify the trace
+        run: examples/demo-edge-trace/smoke.sh

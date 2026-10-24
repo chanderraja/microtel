@@ -356,9 +356,10 @@ int main()
 
     const microtel::Status flush = provider->ForceFlush(kFlushTimeout);
     const microtel::HealthSnapshot health = provider->GetExporterHealth();
-    std::cout << "batches_sent=" << health.batches_sent << " batches_failed=" << health.batches_failed
-              << '\n';
+    std::cout << "batches_sent=" << health.batches_sent
+              << " batches_failed=" << health.batches_failed << '\n';
     (void)provider->Shutdown(kShutdownTimeout);
-    return (failures == 0 && flush == microtel::Status::Completed && health.batches_failed == 0) ? 0
-                                                                                                : 2;
+    return (failures == 0 && flush == microtel::Status::Completed && health.batches_failed == 0)
+               ? 0
+               : 2;
 }

@@ -15,9 +15,9 @@
  * `adc.sample`, encodes the batch, and sends it back hex-encoded. The gateway
  * hands the bytes to its concentrator (LeafReceiver::Ingest).
  */
-#include "board.h"
-
 #include "microtel/leaf.h"
+
+#include "board.h"
 
 #include <stdint.h>
 #include <string.h>

@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
 # The Linux side: edge_gateway, built against the microtel C++ SDK with the
 # concentrator (leaf receiver) compiled in. Build context: the repo root.
+# git: the configure step fetches toml++ and spdlog with FetchContent.
 
 FROM ubuntu:24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates clang cmake ninja-build pkg-config \
+        ca-certificates clang cmake git ninja-build pkg-config \
         libssl-dev libnghttp2-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 ENV CC=clang CXX=clang++

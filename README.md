@@ -333,6 +333,10 @@ the `CMAKE_PREFIX_PATH` below. Manifest mode, the `leaf` and `concentrator`
 features, and where `microtel-preflight` lands are in the
 [port's README](packaging/vcpkg/ports/microtel/README.md).
 
+For embedded Linux images built with the Yocto Project, add the
+[`meta-microtel`](packaging/yocto/meta-microtel/README.md) layer and
+`DEPENDS += "microtel"` in your recipe.
+
 Then, in your application's directory, a `CMakeLists.txt` that finds the
 installed package:
 

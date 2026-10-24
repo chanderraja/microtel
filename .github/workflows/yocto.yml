@@ -1,0 +1,79 @@
+# Copyright (c) 2026 The microtel Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Checks packaging/yocto/meta-microtel without a full image build:
+#   1. BitBake parses the layer with poky (scarthgap LTS) and the recipe's
+#      variables resolve (bitbake -e).
+#   2. do_fetch + do_unpack run: both tarballs download and their sha256 sums
+#      match the recipe.
+#   3. The unpacked sources configure, build and install with the recipe's
+#      EXTRA_OECMAKE and PACKAGECONFIG args *with networking disabled*
+#      (unshare -n), which is what BitBake enforces after do_fetch.
+# A full cross build (bitbake microtel) needs the whole toolchain bootstrap
+# and runs well past an hour on a hosted runner, so it is not done here.
+name: yocto
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/yocto/**'
+      - '.github/workflows/yocto.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recipe:
+    name: meta-microtel (parse, fetch, offline build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install BitBake host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            chrpath diffstat lz4 zstd gawk cpio file texinfo wget socat \
+            bzip2 g++ locales cmake ninja-build pkg-config \
+            libssl-dev libnghttp2-dev zlib1g-dev
+          sudo locale-gen en_US.UTF-8
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which
+          # BitBake uses for its network isolation.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Clone poky (scarthgap)
+        run: git clone --depth 1 -b scarthgap https://git.yoctoproject.org/poky /tmp/poky
+
+      - name: Parse and fetch
+        run: |
+          cd /tmp/poky
+          source oe-init-build-env /tmp/build >/dev/null
+          bitbake-layers add-layer "$GITHUB_WORKSPACE/packaging/yocto/meta-microtel"
+          bitbake-layers show-layers
+          bitbake -e microtel > /tmp/microtel.env
+          grep -E '^(PV|LICENSE|S|DEPENDS|EXTRA_OECMAKE)=' /tmp/microtel.env
+          # The leaf + concentrator variant must parse too.
+          echo 'PACKAGECONFIG:pn-microtel = "preflight leaf concentrator"' >> conf/local.conf
+          bitbake -e microtel | grep -E '^(LICENSE|PACKAGECONFIG_CONFARGS)='
+          sed -i '/PACKAGECONFIG:pn-microtel/d' conf/local.conf
+          bitbake microtel -c unpack
+
+      - name: Offline build of the unpacked sources with the recipe's options
+        run: |
+          S=$(sed -n 's/^S="\(.*\)"$/\1/p' /tmp/microtel.env)
+          OPTS=$(sed -n 's/^EXTRA_OECMAKE="\(.*\)"$/\1/p' /tmp/microtel.env)
+          echo "S=$S"
+          echo "EXTRA_OECMAKE=$OPTS"
+          sudo unshare -n -- sudo -u "$USER" bash -ec "
+            cmake -S '$S' -B /tmp/offline -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                  -DCMAKE_INSTALL_PREFIX=/usr $OPTS
+            cmake --build /tmp/offline
+            DESTDIR=/tmp/offline-dest cmake --install /tmp/offline"
+          test -x /tmp/offline-dest/usr/bin/microtel-preflight
+          find /tmp/offline-dest -name 'libmicrotel*.a' | head
+          find /tmp/offline-dest -name 'microtelConfig.cmake'

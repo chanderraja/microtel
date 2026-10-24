@@ -433,7 +433,7 @@ jobs:
         include:
           - { target: cortex-m0plus, packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
           - { target: cortex-m4,     packages: gcc-arm-none-eabi libnewlib-arm-none-eabi }
-          - { target: aarch64,       packages: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu }
+          - { target: aarch64,       packages: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross }
     name: leaf-footprint / ${{ matrix.target }} / ${{ matrix.encoder }}
     steps:
       - uses: actions/checkout@v4

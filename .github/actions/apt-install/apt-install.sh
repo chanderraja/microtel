@@ -7,7 +7,7 @@
 #   apt-install.sh offline <cache-dir> <package...>
 #       Installs from a restored cache with no network at all: the package
 #       lists and .deb files saved by `online` are copied into apt's own
-#       directories and `apt-get install --no-download` does the rest. Exits
+#       directories and `apt-get install --no-install-recommends --no-download` does the rest. Exits
 #       non-zero if anything is missing, so the caller can fall back.
 #
 #   apt-install.sh online <cache-dir> <package...>
@@ -19,6 +19,9 @@
 # InRelease from the Ubuntu mirror), so caching only the .deb files would
 # still hit the mirror. With the lists cached too, a cache hit never touches
 # the network.
+#
+# --no-install-recommends: qemu-system-arm and friends recommend a few
+# hundred MB of GUI and audio packages we never need in CI.
 #
 # SUDO defaults to `sudo`; tests run as root with SUDO="".
 
@@ -60,7 +63,7 @@ offline()
     if compgen -G "$CACHE/archives/*.deb" >/dev/null; then
         $SUDO cp "$CACHE"/archives/*.deb /var/cache/apt/archives/
     fi
-    $SUDO apt-get "${APT_KEEP_OPTS[@]}" install -y --no-download "$@"
+    $SUDO apt-get "${APT_KEEP_OPTS[@]}" install -y --no-install-recommends --no-download "$@"
 }
 
 online()
@@ -70,7 +73,7 @@ online()
     # shipped with, which named a .deb the mirror had already removed (404).
     $SUDO find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -type f -delete
     $SUDO apt-get "${APT_NET_OPTS[@]}" "${APT_KEEP_OPTS[@]}" update
-    $SUDO apt-get "${APT_NET_OPTS[@]}" "${APT_KEEP_OPTS[@]}" install -y "$@"
+    $SUDO apt-get "${APT_NET_OPTS[@]}" "${APT_KEEP_OPTS[@]}" install -y --no-install-recommends "$@"
 
     mkdir -p "$CACHE"
     find "$CACHE" -mindepth 1 -delete

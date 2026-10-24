@@ -48,7 +48,7 @@ jobs:
       - name: Build the archive and its SHA-512
         run: ci/scripts/source-archive.sh "$TAG" dist
       - name: Install toolchain
-        timeout-minutes: 20
+        timeout-minutes: 40
         uses: ./.github/actions/apt-install
         with:
           packages: >-

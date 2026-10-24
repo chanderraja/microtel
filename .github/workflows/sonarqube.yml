@@ -119,7 +119,7 @@ jobs:
                "http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-21.list
       - name: Install toolchain + llvm coverage tools
-        timeout-minutes: 20
+        timeout-minutes: 40
         if: steps.token-check.outputs.available == 'true'
         uses: ./.github/actions/apt-install
         with:

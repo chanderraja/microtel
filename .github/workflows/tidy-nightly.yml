@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain (packages)
-        timeout-minutes: 20
+        timeout-minutes: 40
         uses: ./.github/actions/apt-install
         with:
           packages: >-

@@ -225,6 +225,12 @@ Check it with `conan create packaging/conan/recipes/microtel/all --version=X.Y.Z
 -s compiler.cppstd=20 --build=missing`
 ([`docs/packaging/PR_CONAN.md`](packaging/PR_CONAN.md)).
 
+In the same PR, rename the Yocto recipe
+[`packaging/yocto/meta-microtel/recipes-support/microtel/`](../packaging/yocto/meta-microtel/recipes-support/microtel/)
+to `microtel_X.Y.Z.bb` (`git mv`) and set `SRC_URI[microtel.sha256sum]` to the
+sha256 of the same tarball. The `yocto` workflow checks the fetch and an
+offline build ([`packaging/yocto/meta-microtel/README.md`](../packaging/yocto/meta-microtel/README.md)).
+
 ---
 
 ## 5. Refresh the published benchmark snapshot — in the release PR
@@ -364,6 +370,7 @@ long-term-support window for a major line is in
 [ ] release notes written (gh release edit)
 [ ] packaging/vcpkg/ports/microtel and ports/microtel: version and SHA512 updated (own PR)
 [ ] packaging/conan/recipes/microtel: conandata.yml and config.yml entries added (same PR)
+[ ] packaging/yocto/meta-microtel: recipe renamed to microtel_X.Y.Z.bb, sha256sum updated (same PR)
 [ ] bench/baseline/results.json refreshed (own PR)
 [ ] docs/graph-report.md refreshed (own docs/ PR)
 ```

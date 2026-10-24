@@ -60,8 +60,11 @@ mcu-sensor       └─ sensor.read                  (SERVER, started on the MCU
 mcu-sensor          └─ adc.sample                (INTERNAL)
 ```
 
-<!-- TODO(screenshot): put a Grafana trace-view screenshot or a short GIF of
-     this trace here, e.g. docs/images/demo-edge-trace.png. -->
+![Grafana Tempo: one trace spanning edge-gateway and mcu-sensor](docs/tempo-trace.png)
+
+*Grafana Explore → Tempo: `GET /api/greenhouse/reading` on the Linux gateway,
+with `sensor.read` / `adc.sample` from the Cortex-M4 firmware as its children
+(traceparent crossed the UART).*
 
 To check it from the command line, which is what CI does:
 
